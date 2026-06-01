@@ -303,12 +303,12 @@ import Foundation
 struct RealDebridAuthClientTests {
     @Test func startDeviceCodeDecodes() async throws {
         MockURLProtocol.stub(status: 200, json: #"""
-        {"device_code":"DC","user_code":"LF2NKTKX","interval":5,
+        {"device_code":"DC","user_code":"ABCD1234","interval":5,
          "expires_in":1800,"verification_url":"https://real-debrid.com/device"}
         """#)
         let client = RealDebridAuthClient(http: HTTPClient(session: .mock))
         let code = try await client.startDeviceCode()
-        #expect(code.userCode == "LF2NKTKX")
+        #expect(code.userCode == "ABCD1234")
         #expect(code.interval == 5)
         #expect(code.verificationURL == "https://real-debrid.com/device")
     }
