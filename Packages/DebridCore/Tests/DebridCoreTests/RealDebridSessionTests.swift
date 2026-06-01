@@ -49,5 +49,35 @@ extension MockTests {
             #expect(token == "AT-NEW")
             #expect(try store.load()?.token.refreshToken == "RT2")  // persisted
         }
+
+        @Test func refreshesExactlyAtSkewBoundary() async throws {
+            let store = InMemoryTokenStore()
+            let t0 = Date(timeIntervalSince1970: 1_000_000)
+            try store.save(creds(expiresIn: 3600, obtainedAt: t0))  // expiry = t0 + 3540 (skew 60)
+            MockURLProtocol.stub(status: 200, json: #"""
+            {"access_token":"AT-NEW","expires_in":3600,"token_type":"Bearer","refresh_token":"RT2"}
+            """#)
+            let session = RealDebridSession(
+                auth: RealDebridAuthClient(http: HTTPClient(session: .mock)),
+                store: store,
+                now: { t0.addingTimeInterval(3540) })  // exactly at the expiry instant
+            let token = try await session.validAccessToken()
+            #expect(token == "AT-NEW")
+        }
+
+        @Test func refreshFailureLeavesStoredCredentialsIntact() async throws {
+            let store = InMemoryTokenStore()
+            let t0 = Date(timeIntervalSince1970: 1_000_000)
+            try store.save(creds(expiresIn: 3600, obtainedAt: t0))
+            MockURLProtocol.stub(status: 401, json: #"{"error":"invalid_grant"}"#)
+            let session = RealDebridSession(
+                auth: RealDebridAuthClient(http: HTTPClient(session: .mock)),
+                store: store,
+                now: { t0.addingTimeInterval(3600) })  // expired
+            await #expect(throws: HTTPError.self) {
+                _ = try await session.validAccessToken()
+            }
+            #expect(try store.load()?.token.refreshToken == "RT")  // unchanged after failed refresh
+        }
     }
 }
