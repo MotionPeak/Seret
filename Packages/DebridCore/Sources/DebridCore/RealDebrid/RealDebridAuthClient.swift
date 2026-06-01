@@ -38,7 +38,7 @@ public struct RealDebridAuthClient: Sendable {
         do {
             let credentials: RDDeviceCredentials = try await http.get(comps.url!)
             return credentials
-        } catch let HTTPError.status(400, _) {
+        } catch HTTPError.status(400, _) {
             // authorization_pending — Real-Debrid returns 400 while the user
             // hasn't authorized yet. Any other status (denied / expired / etc.)
             // propagates so the polling loop can stop instead of spinning forever.
