@@ -2,9 +2,9 @@ import Foundation
 
 /// Everything needed to make and refresh authenticated RD calls.
 public struct StoredCredentials: Codable, Sendable, Equatable {
-    public var token: RDToken
-    public var deviceCredentials: RDDeviceCredentials
-    public var obtainedAt: Date
+    public let token: RDToken
+    public let deviceCredentials: RDDeviceCredentials
+    public let obtainedAt: Date
 
     public init(token: RDToken, deviceCredentials: RDDeviceCredentials, obtainedAt: Date) {
         self.token = token
