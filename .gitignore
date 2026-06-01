@@ -1,0 +1,32 @@
+# Xcode / Swift
+.DS_Store
+xcuserdata/
+*.xcuserstate
+DerivedData/
+build/
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# XcodeGen output — regenerate with `xcodegen generate`
+Seret.xcodeproj/
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Packages/*/.build/
+
+# Secrets — copy Secrets.example.xcconfig → Secrets.xcconfig and fill in
+Secrets.xcconfig
+*.secret.xcconfig
+
+# CocoaPods (only if VLCKit ends up via Pods)
+Pods/
+
+# Superpowers brainstorm scratch
+.superpowers/
+
+# Misc
+*.log
