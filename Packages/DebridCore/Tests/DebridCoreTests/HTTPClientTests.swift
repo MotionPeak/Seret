@@ -4,6 +4,8 @@ import Foundation
 
 @Suite(.serialized)
 struct HTTPClientTests {
+    init() { MockURLProtocol.handler = nil }
+
     struct Probe: Decodable, Equatable { let value: Int }
 
     @Test func getDecodesJSON() async throws {
@@ -16,7 +18,7 @@ struct HTTPClientTests {
     @Test func nonSuccessStatusThrowsStatusError() async throws {
         MockURLProtocol.stub(status: 503, json: #"{"error":"down"}"#)
         let client = HTTPClient(session: .mock)
-        await #expect(throws: HTTPError.self) {
+        await #expect(throws: HTTPError.status(code: 503, body: #"{"error":"down"}"#)) {
             let _: Probe = try await client.get(URL(string: "https://example.com/x")!)
         }
     }
