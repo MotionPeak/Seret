@@ -50,7 +50,11 @@ public struct TorrentsClient: Sendable {
     }
 
     /// Every torrent in the library, following RD's pagination (100 per page).
+    ///
+    /// Stops when a page returns fewer than `pageSize` items, so a library whose size is an
+    /// exact multiple of `pageSize` incurs one extra (empty) page request before terminating.
     public func allTorrents(pageSize: Int = 100) async throws -> [Torrent] {
+        precondition(pageSize > 0, "pageSize must be positive")
         var all: [Torrent] = []
         var page = 1
         while true {
@@ -68,6 +72,8 @@ public struct TorrentsClient: Sendable {
         let list = try await allTorrents()
         return await withTaskGroup(of: TorrentInfo?.self) { group in
             for torrent in list {
+                // TODO: fan-out is currently unbounded; add a concurrency cap once RD
+                // rate-limit behavior is characterised (v1-descoped).
                 group.addTask { try? await self.info(id: torrent.id) }
             }
             var infos: [TorrentInfo] = []
