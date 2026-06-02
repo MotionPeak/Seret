@@ -3,7 +3,13 @@ import Foundation
 import SwiftData
 @testable import DebridCore
 
-@Suite struct WatchProgressStoreTests {
+// `.serialized` is REQUIRED. Each test spins up an in-memory SwiftData `ModelContainer` (a CoreData
+// stack); creating/tearing those down concurrently with the rest of the parallel suite intermittently
+// SIGSEGVs the test runner (process-global CoreData state — the same hazard `MockURLProtocol`'s shared
+// handler has, which is why the network suites are serialized too). Serializing keeps one container
+// alive at a time. Measured: ~17% crash rate without this trait, 0/30 runs with it. Any future
+// SwiftData suite must carry `.serialized` as well.
+@Suite(.serialized) struct WatchProgressStoreTests {
     private func store() throws -> WatchProgressStore {
         let container = try ModelContainer(
             for: WatchProgress.self,

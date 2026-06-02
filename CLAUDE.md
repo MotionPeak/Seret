@@ -78,7 +78,7 @@ CLAUDE.md   .gitignore
 swift test --package-path Packages/DebridCore                              # the whole brain; fast, no simulator
 swift build --package-path Packages/DebridCore 2>&1 | grep -i warning      # must print NOTHING — zero-warning bar
 ```
-Run the **full** suite (not just `--filter`) before merging. Any new suite that uses `MockURLProtocol` MUST be nested under the `MockTests` serialized parent (`extension MockTests { @Suite struct … { init() { MockURLProtocol.handler = nil } } }`) — Swift Testing runs separate suites in parallel and they share the mock's global handler. Pure (no-network) suites stay plain top-level structs.
+Run the **full** suite (not just `--filter`) before merging. Any new suite that uses `MockURLProtocol` MUST be nested under the `MockTests` serialized parent (`extension MockTests { @Suite struct … { init() { MockURLProtocol.handler = nil } } }`) — Swift Testing runs separate suites in parallel and they share the mock's global handler. **SwiftData suites must also carry `.serialized`** — concurrent in-memory `ModelContainer` creation/teardown under the parallel runner intermittently SIGSEGVs the test process (process-global CoreData state; see `WatchProgressStoreTests`, ~17% crash rate without it). Pure suites (no network, no SwiftData) stay plain top-level structs.
 
 **Later (once app targets exist — Plan 7):** `xcodegen generate` → `xcodebuild -scheme SeretTV -destination 'platform=tvOS Simulator,name=Apple TV 4K (3rd generation)' build`. **Verify UI in the actual simulator (screenshot) before claiming done** — the simulator is the source of truth, not a browser.
 
