@@ -33,4 +33,19 @@ public struct TorrentsClient: Sendable {
         try await http.get(Self.base.appending(path: "torrents/info/\(id)"),
                            headers: try await authHeaders())
     }
+
+    /// Turns an RD restricted link into a directly-streamable URL. Resolve this lazily,
+    /// right before playback — unrestricted URLs expire.
+    public func unrestrict(link: String) async throws -> UnrestrictedLink {
+        try await http.post(Self.base.appending(path: "unrestrict/link"),
+                            form: ["link": link],
+                            headers: try await authHeaders())
+    }
+
+    /// Convenience: pick the torrent's primary video file and unrestrict its link.
+    /// Returns nil if the torrent has no selected video file.
+    public func playableURL(for info: TorrentInfo) async throws -> UnrestrictedLink? {
+        guard let primary = info.primaryVideoFile() else { return nil }
+        return try await unrestrict(link: primary.link)
+    }
 }
