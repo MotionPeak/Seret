@@ -45,12 +45,19 @@ public struct LibraryService: Sendable {
         }
         let enriched = await enricher.enrich(toEnrich)
 
-        var enrichedIterator = enriched.makeIterator()
+        // `enriched` has exactly one result per `.needsEnrichment` step, in order
+        // (MetadataEnricher.enrich returns one element per input, preserving order), so this
+        // index is always in range — an out-of-range access would fail fast rather than
+        // silently inserting a placeholder.
+        var enrichedIndex = 0
         let library = plan.map { step -> MediaItem in
             switch step {
-            case .carried(let item): return item
-            case .needsEnrichment: return enrichedIterator.next() ?? MediaItem(
-                id: "", kind: .movie, title: "", year: nil, sources: [], seasons: [])
+            case .carried(let item):
+                return item
+            case .needsEnrichment:
+                let item = enriched[enrichedIndex]
+                enrichedIndex += 1
+                return item
             }
         }
 
