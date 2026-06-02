@@ -54,4 +54,55 @@ struct LibraryBuilderTests {
         #expect(lib.count == 1)
         #expect(lib[0].seasons[0].episodes.count == 1)
     }
+
+    /// One torrent with several selected video files (a season pack).
+    private func pack(_ id: String, name: String, files: [String]) -> TorrentInfo {
+        let tfiles = files.enumerated().map { i, path in
+            TorrentFile(id: i + 1, path: path, bytes: 1000, selected: 1)
+        }
+        let links = files.indices.map { "https://rd/\(id)/\($0)" }
+        return TorrentInfo(id: id, filename: name, hash: "h", bytes: 3000, progress: 100,
+                           status: "downloaded", files: tfiles, links: links)
+    }
+
+    @Test func expandsASeasonPackIntoEpisodes() {
+        let lib = builder.group([
+            pack("P", name: "Fallout.S01.2160p.WEB-DL.HEVC-FLUX", files: [
+                "/Fallout.S01/Fallout.S01E01.mkv",
+                "/Fallout.S01/Fallout.S01E02.mkv",
+                "/Fallout.S01/Fallout.S01E03.mkv",
+            ]),
+        ])
+        #expect(lib.count == 1)
+        let show = lib[0]
+        #expect(show.kind == .show)
+        #expect(show.title == "Fallout")
+        #expect(show.seasons.count == 1)
+        #expect(show.seasons[0].episodes.map(\.number) == [1, 2, 3])
+        #expect(show.seasons[0].episodes[0].source.restrictedLink == "https://rd/P/0")
+        #expect(show.seasons[0].episodes[1].source.restrictedLink == "https://rd/P/1")
+    }
+
+    @Test func mergesAPackAndASingleEpisodeIntoOneShow() {
+        let lib = builder.group([
+            pack("P", name: "Fallout.S01.2160p.WEB-DL.HEVC-FLUX", files: [
+                "/Fallout.S01/Fallout.S01E01.mkv",
+                "/Fallout.S01/Fallout.S01E02.mkv",
+            ]),
+            torrent("X", name: "Fallout.S01E03.2160p.WEB-DL.HEVC-NTb.mkv", file: "/x/e03.mkv"),
+        ])
+        #expect(lib.count == 1)
+        #expect(lib[0].seasons[0].episodes.map(\.number) == [1, 2, 3])
+    }
+
+    @Test func skipsNonVideoFilesInAPack() {
+        let lib = builder.group([
+            pack("P", name: "Fallout.S01.WEB-DL", files: [
+                "/Fallout.S01/Fallout.S01E01.mkv",
+                "/Fallout.S01/readme.txt",
+                "/Fallout.S01/Fallout.S01E02.mkv",
+            ]),
+        ])
+        #expect(lib[0].seasons[0].episodes.map(\.number) == [1, 2])
+    }
 }

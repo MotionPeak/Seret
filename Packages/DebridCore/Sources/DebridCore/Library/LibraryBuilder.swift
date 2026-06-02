@@ -41,14 +41,30 @@ public struct LibraryBuilder: Sendable {
         return movieItems + showItems
     }
 
-    /// Adds a torrent's episode(s) to a show accumulator. Task 2 handles single episodes;
-    /// the next task adds season-pack expansion.
+    /// Adds a torrent's episode(s) to a show accumulator: a single-episode torrent
+    /// contributes one episode; a season pack (season but no episode in the torrent name)
+    /// is expanded by parsing each selected video file path for its episode number.
     private func ingestTV(_ info: TorrentInfo, _ parsed: ParsedRelease, into acc: ShowAccumulator) {
         if let episode = parsed.episode, let primary = info.primaryVideoFile() {
             acc.add(season: parsed.season ?? 1, number: episode,
                     source: MediaSource(torrentID: info.id, fileID: primary.file.id,
                                         restrictedLink: primary.link, parsed: parsed))
+            return
         }
+        // Season pack: expand selected video files.
+        let packSeason = parsed.season ?? 1
+        for (file, link) in info.selectedFilesWithLinks() where Self.isVideoPath(file.path) {
+            let fileParsed = parser.parse(file.path)
+            guard let episode = fileParsed.episode else { continue }
+            acc.add(season: fileParsed.season ?? packSeason, number: episode,
+                    source: MediaSource(torrentID: info.id, fileID: file.id,
+                                        restrictedLink: link, parsed: fileParsed))
+        }
+    }
+
+    private static func isVideoPath(_ path: String) -> Bool {
+        let video: Set<String> = ["mkv", "mp4", "avi", "m4v", "mov", "ts", "wmv"]
+        return video.contains(URL(fileURLWithPath: path).pathExtension.lowercased())
     }
 
     /// Normalized grouping key: lowercased letters+digits only, so "Dune.Part.Two"
