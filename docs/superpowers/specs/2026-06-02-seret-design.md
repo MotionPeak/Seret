@@ -146,6 +146,8 @@ RD remains the **source of truth for what exists**; the snapshot is a **rebuilda
 ### 5.6 Playback
 `protocol VideoPlayerEngine`: `load(url:headers:)`, `play/pause/seek`, **track enumeration & selection** (audio + subtitle), `addExternalSubtitle(url:)`, periodic time + state callbacks. `DebridCore` owns the protocol and the playback *model*; the **VLCKit engine** is implemented per app target. The seam is what lets Stage 3 add an AVPlayer fast-path for hardware-decodable files behind the same interface.
 
+**As-built ([`2026-06-03-video-player-engine-design.md`](2026-06-03-video-player-engine-design.md)):** alongside the `VideoPlayerEngine` protocol + the playback value-type model (`PlaybackState`/`PlaybackTime`/`MediaTrack`/`PlaybackEvent`), `DebridCore` ships a **`PlaybackCoordinator`** — a small, stateless bridge to `WatchProgressStore` (`resumePosition(contentKey:)` and best-effort `record(...)`, marking a title finished at ~95%). This keeps Resume / Continue-Watching logic in the shared brain rather than re-implemented per app; the app drives it (throttling save calls) and wires the engine's events to it.
+
 ---
 
 ## 6. The apps (Stage 1 UI — validated via mockups)
