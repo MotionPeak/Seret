@@ -57,6 +57,47 @@ public actor OpenSubtitlesProvider: SubtitleProvider {
     }
 
     public func download(_ result: SubtitleResult) async throws -> URL {
-        fatalError("download(_:) not implemented — Task 4")
+        let dl = try await requestDownload(fileID: result.fileID)
+        guard let link = URL(string: dl.link) else { throw SubtitleError.notAuthenticated }
+        let bytes = try await http.data(link)
+        return try Self.writeTempFile(bytes, fileName: dl.fileName ?? result.fileName)
+    }
+
+    private func requestDownload(fileID: Int) async throws -> OSDownloadResponse {
+        let token = try await ensureToken()
+        return try await http.post(Self.base.appending(path: "download"),
+                                   json: ["file_id": fileID], headers: authHeaders(token))
+    }
+
+    /// Returns the cached login token, logging in (once) if there isn't one.
+    private func ensureToken() async throws -> String {
+        if let token { return token }
+        let response: OSLoginResponse = try await http.post(
+            Self.base.appending(path: "login"),
+            json: ["username": credentials.username, "password": credentials.password],
+            headers: baseHeaders)
+        token = response.token
+        return response.token
+    }
+
+    private func authHeaders(_ token: String) -> [String: String] {
+        var headers = baseHeaders
+        headers["Authorization"] = "Bearer \(token)"
+        return headers
+    }
+
+    /// Writes subtitle bytes to a temp file, returning the file URL. The name comes from the
+    /// server's `file_name` (sanitized, `.srt` default) or a UUID fallback.
+    static func writeTempFile(_ data: Data, fileName: String?) throws -> URL {
+        let name = sanitizedFileName(fileName) ?? "\(UUID().uuidString).srt"
+        let url = FileManager.default.temporaryDirectory.appending(path: name)
+        try data.write(to: url, options: .atomic)
+        return url
+    }
+
+    static func sanitizedFileName(_ name: String?) -> String? {
+        guard let name, !name.isEmpty else { return nil }
+        let safe = name.replacingOccurrences(of: "/", with: "_")
+        return safe.contains(".") ? safe : safe + ".srt"
     }
 }
