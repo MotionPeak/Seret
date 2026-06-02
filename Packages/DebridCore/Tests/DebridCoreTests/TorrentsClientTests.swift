@@ -20,6 +20,7 @@ extension MockTests {
             let torrents = try await client.torrents()
             #expect(torrents.count == 1)
             #expect(torrents[0].id == "A")
+            #expect(torrents[0].filename == "Movie.2024.mkv")
         }
 
         @Test func fetchesTorrentInfo() async throws {
@@ -33,6 +34,7 @@ extension MockTests {
             let info = try await client.info(id: "A")
             #expect(info.files.count == 1)
             #expect(info.links == ["https://rd/A"])
+            #expect(info.files[0].path == "/Movie/movie.mkv")
         }
 
         @Test func realDebridSessionConformsToAccessTokenProviding() async throws {

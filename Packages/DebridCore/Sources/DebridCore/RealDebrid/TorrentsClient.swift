@@ -1,22 +1,14 @@
 import Foundation
 
-/// Supplies a currently-valid Real-Debrid access token. `RealDebridSession` conforms;
-/// tests use a stub. Keeps `TorrentsClient` decoupled from Keychain/refresh details.
-public protocol AccessTokenProviding: Sendable {
-    func validAccessToken() async throws -> String
-}
-
-extension RealDebridSession: AccessTokenProviding {}
-
 /// Reads the user's Real-Debrid library and resolves playable URLs.
 public struct TorrentsClient: Sendable {
     /// Real-Debrid REST resource base — distinct from the OAuth base in `RealDebridAuthClient`.
     public static let base = URL(string: "https://api.real-debrid.com/rest/1.0")!
 
     private let http: HTTPClient
-    private let tokens: AccessTokenProviding
+    private let tokens: any AccessTokenProviding
 
-    public init(http: HTTPClient = HTTPClient(), tokens: AccessTokenProviding) {
+    public init(http: HTTPClient = HTTPClient(), tokens: any AccessTokenProviding) {
         self.http = http
         self.tokens = tokens
     }
