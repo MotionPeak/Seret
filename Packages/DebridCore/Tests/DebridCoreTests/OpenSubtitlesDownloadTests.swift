@@ -31,6 +31,21 @@ extension MockTests {
             #expect(try String(contentsOf: url, encoding: .utf8) == "SUBTITLE-CONTENT")
         }
 
+        @Test func tempFileNameIsPathSafeAndKeepsExtension() async throws {
+            MockURLProtocol.handler = { req in
+                let url = req.url!.absoluteString
+                if url.contains("/login")    { return Self.resp(req, 200, #"{"token":"T1"}"#) }
+                if url.contains("/download") { return Self.resp(req, 200, #"{"link":"https://cdn.example/s.vtt","file_name":"../../../etc/evil.vtt","remaining":7}"#) }
+                if url.contains("cdn.example/s.vtt") { return Self.resp(req, 200, "X") }
+                return Self.resp(req, 200, "{}")
+            }
+            let url = try await provider().download(result(1))
+            #expect(url.pathExtension == "vtt")                          // safe extension preserved
+            #expect(!url.lastPathComponent.contains("etc"))             // hostile name did NOT leak into the path
+            #expect(!url.lastPathComponent.contains(".."))
+            #expect(url.path.hasPrefix(FileManager.default.temporaryDirectory.path))  // stayed in the temp dir
+        }
+
         @Test func tokenIsCachedAcrossDownloads() async throws {
             let p = provider()
             MockURLProtocol.handler = { req in   // 1st download: login succeeds, token cached

@@ -51,6 +51,8 @@ public enum SubtitleError: Error, Equatable, Sendable {
     case dailyCapReached(resetTime: Date?)
     /// Login failed / no valid session.
     case notAuthenticated
+    /// The provider returned a response we couldn't use (e.g. a malformed download link).
+    case invalidResponse
 }
 
 /// Finds and downloads external subtitles. A Hebrew-specific source can implement this later

@@ -58,7 +58,7 @@ public actor OpenSubtitlesProvider: SubtitleProvider {
 
     public func download(_ result: SubtitleResult) async throws -> URL {
         let dl = try await requestDownload(fileID: result.fileID)
-        guard let link = URL(string: dl.link) else { throw SubtitleError.notAuthenticated }
+        guard let link = URL(string: dl.link) else { throw SubtitleError.invalidResponse }
         let bytes = try await http.data(link)
         return try Self.writeTempFile(bytes, fileName: dl.fileName ?? result.fileName)
     }
@@ -86,18 +86,21 @@ public actor OpenSubtitlesProvider: SubtitleProvider {
         return headers
     }
 
-    /// Writes subtitle bytes to a temp file, returning the file URL. The name comes from the
-    /// server's `file_name` (sanitized, `.srt` default) or a UUID fallback.
+    /// Writes subtitle bytes to a uniquely-named temp file, returning its URL. The name is a UUID
+    /// (so a hostile server `file_name` cannot influence the path); only a safe extension is taken
+    /// from the server name (default `srt`) to keep the format hint for the player.
     static func writeTempFile(_ data: Data, fileName: String?) throws -> URL {
-        let name = sanitizedFileName(fileName) ?? "\(UUID().uuidString).srt"
-        let url = FileManager.default.temporaryDirectory.appending(path: name)
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: "\(UUID().uuidString).\(subtitleExtension(fileName))")
         try data.write(to: url, options: .atomic)
         return url
     }
 
-    static func sanitizedFileName(_ name: String?) -> String? {
-        guard let name, !name.isEmpty else { return nil }
-        let safe = name.replacingOccurrences(of: "/", with: "_")
-        return safe.contains(".") ? safe : safe + ".srt"
+    /// A safe lowercased extension from `fileName` (letters only, ≤4 chars), else `srt`.
+    static func subtitleExtension(_ fileName: String?) -> String {
+        guard let fileName, let dot = fileName.lastIndex(of: "."),
+              dot != fileName.index(before: fileName.endIndex) else { return "srt" }
+        let ext = fileName[fileName.index(after: dot)...].lowercased()
+        return (ext.count <= 4 && ext.allSatisfy(\.isLetter)) ? ext : "srt"
     }
 }
