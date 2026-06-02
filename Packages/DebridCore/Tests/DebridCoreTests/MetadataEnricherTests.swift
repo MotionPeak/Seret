@@ -37,5 +37,25 @@ extension MockTests {
             #expect(result == original)   // untouched
             #expect(result.tmdbID == nil)
         }
+
+        @Test func enrichesAllItemsAndPreservesOrder() async throws {
+            MockURLProtocol.stub(status: 200, json: #"""
+            {"results":[{"id":1,"title":"Matched","release_date":"2020-01-01",
+              "poster_path":"/p.jpg","overview":"o"}]}
+            """#)
+            let items = [movie("A", year: 2020), movie("B", year: 2020)]
+            let result = await enricher().enrich(items)
+            #expect(result.count == 2)
+            #expect(result.allSatisfy { $0.tmdbID == 1 })
+        }
+
+        @Test func degradesGracefullyWhenTMDBFails() async throws {
+            MockURLProtocol.stub(status: 500, json: #"{"error":"boom"}"#)
+            let items = [movie("A", year: nil), movie("B", year: nil)]
+            let result = await enricher().enrich(items)
+            #expect(result.count == 2)
+            #expect(result.allSatisfy { $0.tmdbID == nil })   // unenriched but present
+            #expect(result.map(\.title) == ["A", "B"])         // order preserved
+        }
     }
 }

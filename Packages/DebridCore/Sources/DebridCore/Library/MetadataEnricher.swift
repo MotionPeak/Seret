@@ -41,4 +41,20 @@ public struct MetadataEnricher: Sendable {
         return item.withMetadata(tmdbID: match.id, title: match.displayTitle,
                                  posterPath: match.posterPath, overview: match.overview)
     }
+
+    /// Enriches every item concurrently, preserving input order. Per-item lookup failures
+    /// are swallowed — that item is returned unenriched rather than failing the whole batch.
+    public func enrich(_ items: [MediaItem]) async -> [MediaItem] {
+        await withTaskGroup(of: (Int, MediaItem).self) { group in
+            for (index, item) in items.enumerated() {
+                group.addTask {
+                    do { return (index, try await self.enrich(item)) }
+                    catch { return (index, item) }
+                }
+            }
+            var out = items
+            for await (index, enriched) in group { out[index] = enriched }
+            return out
+        }
+    }
 }
