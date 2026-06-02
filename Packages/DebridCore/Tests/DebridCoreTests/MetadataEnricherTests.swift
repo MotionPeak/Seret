@@ -38,18 +38,27 @@ extension MockTests {
             #expect(result.tmdbID == nil)
         }
 
-        @Test func enrichesAllItemsAndPreservesOrder() async throws {
-            MockURLProtocol.stub(status: 200, json: #"""
-            {"results":[{"id":1,"title":"Matched","release_date":"2020-01-01",
-              "poster_path":"/p.jpg","overview":"o"}]}
-            """#)
-            let items = [movie("A", year: 2020), movie("B", year: 2020)]
+        @Test func enrichesAllItemsAndPreservesOrder() async {
+            MockURLProtocol.handler = { request in
+                let url = request.url!.absoluteString
+                let json: String
+                if url.contains("query=Alpha") {
+                    json = #"{"results":[{"id":11,"title":"Alpha Movie","release_date":"2020-05-01","poster_path":"/a.jpg","overview":"alpha"}]}"#
+                } else if url.contains("query=Beta") {
+                    json = #"{"results":[{"id":22,"title":"Beta Movie","release_date":"2020-08-01","poster_path":"/b.jpg","overview":"beta"}]}"#
+                } else {
+                    json = #"{"results":[]}"#
+                }
+                let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (response, Data(json.utf8))
+            }
+            let items = [movie("Alpha", year: 2020), movie("Beta", year: 2020)]
             let result = await enricher().enrich(items)
             #expect(result.count == 2)
-            #expect(result.allSatisfy { $0.tmdbID == 1 })
+            #expect(result.map(\.tmdbID) == [11, 22])
         }
 
-        @Test func degradesGracefullyWhenTMDBFails() async throws {
+        @Test func degradesGracefullyWhenTMDBFails() async {
             MockURLProtocol.stub(status: 500, json: #"{"error":"boom"}"#)
             let items = [movie("A", year: nil), movie("B", year: nil)]
             let result = await enricher().enrich(items)
