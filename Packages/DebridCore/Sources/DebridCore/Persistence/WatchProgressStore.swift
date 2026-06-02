@@ -31,6 +31,7 @@ public actor WatchProgressStore {
 
     /// Continue-Watching feed: unfinished rows that have progress, newest first.
     public func recentlyWatched(limit: Int) throws -> [WatchState] {
+        guard limit > 0 else { return [] }
         var descriptor = FetchDescriptor<WatchProgress>(
             predicate: #Predicate { $0.finished == false && $0.positionSeconds > 0 },
             sortBy: [SortDescriptor(\.updatedAt, order: .reverse)])

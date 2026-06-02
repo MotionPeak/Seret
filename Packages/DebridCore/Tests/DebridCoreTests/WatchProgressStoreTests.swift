@@ -50,4 +50,14 @@ import SwiftData
         let recent = try await store.recentlyWatched(limit: 10)
         #expect(recent.map(\.contentKey) == ["b", "a"])   // newest unfinished-with-progress first
     }
+
+    @Test func recentlyWatchedReturnsEmptyForNonPositiveLimit() async throws {
+        let store = try store()
+        try await store.record(contentKey: "a", sourceKey: "s", positionSeconds: 10,
+                               durationSeconds: 100, finished: false, at: Date(timeIntervalSince1970: 1))
+        try await store.record(contentKey: "b", sourceKey: "s", positionSeconds: 20,
+                               durationSeconds: 100, finished: false, at: Date(timeIntervalSince1970: 2))
+        #expect(try await store.recentlyWatched(limit: 0) == [])
+        #expect(try await store.recentlyWatched(limit: -5) == [])
+    }
 }
