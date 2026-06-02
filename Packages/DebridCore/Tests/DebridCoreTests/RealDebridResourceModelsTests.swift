@@ -30,6 +30,9 @@ struct RealDebridResourceModelsTests {
         let info = try JSONDecoder().decode(TorrentInfo.self, from: Data(json.utf8))
         #expect(info.files.count == 3)
         #expect(info.links.count == 2)
+        #expect(info.files[1].path == "/Show.S01/E01.mkv")
+        #expect(info.files[1].selected == 1)
+        #expect(info.files[1].isSelected == true)
     }
 
     @Test func decodesUnrestrictedLink() throws {

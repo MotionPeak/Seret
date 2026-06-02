@@ -31,6 +31,9 @@ public struct TorrentFile: Decodable, Sendable, Equatable, Identifiable {
     public init(id: Int, path: String, bytes: Int, selected: Int) {
         self.id = id; self.path = path; self.bytes = bytes; self.selected = selected
     }
+
+    /// Whether Real-Debrid selected this file for download (it encodes this as 1/0).
+    public var isSelected: Bool { selected == 1 }
 }
 
 /// Detailed torrent info (`GET /torrents/info/{id}`).
@@ -53,10 +56,12 @@ public struct TorrentInfo: Decodable, Sendable, Equatable {
 
 public extension TorrentInfo {
     /// Real-Debrid returns `links` in the order of the *selected* files. Pairs each
-    /// selected file (`selected == 1`) with its restricted link by that order.
+    /// `isSelected` file with its restricted link by that order. If the counts ever
+    /// disagree (an unexpected API response), pairing is best-effort — `zip` truncates
+    /// to the shorter side.
     func selectedFilesWithLinks() -> [(file: TorrentFile, link: String)] {
-        let selected = files.filter { $0.selected == 1 }
-        return Array(zip(selected, links).map { (file: $0, link: $1) })
+        let selected = files.filter { $0.isSelected }
+        return zip(selected, links).map { (file: $0, link: $1) }
     }
 
     /// The largest *selected video* file paired with its restricted link — the thing
@@ -64,7 +69,7 @@ public extension TorrentInfo {
     func primaryVideoFile() -> (file: TorrentFile, link: String)? {
         let videoExtensions: Set<String> = ["mkv", "mp4", "avi", "m4v", "mov", "ts", "wmv"]
         return selectedFilesWithLinks()
-            .filter { videoExtensions.contains(($0.file.path as NSString).pathExtension.lowercased()) }
+            .filter { videoExtensions.contains(URL(fileURLWithPath: $0.file.path).pathExtension.lowercased()) }
             .max { $0.file.bytes < $1.file.bytes }
     }
 }
