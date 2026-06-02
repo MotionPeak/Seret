@@ -48,4 +48,33 @@ public struct TorrentsClient: Sendable {
         guard let primary = info.primaryVideoFile() else { return nil }
         return try await unrestrict(link: primary.link)
     }
+
+    /// Every torrent in the library, following RD's pagination (100 per page).
+    public func allTorrents(pageSize: Int = 100) async throws -> [Torrent] {
+        var all: [Torrent] = []
+        var page = 1
+        while true {
+            let batch = try await torrents(page: page, limit: pageSize)
+            all.append(contentsOf: batch)
+            if batch.count < pageSize { break }
+            page += 1
+        }
+        return all
+    }
+
+    /// Every torrent's detailed info (files + links), fetched concurrently. A torrent whose
+    /// info fetch fails is skipped rather than failing the whole load.
+    public func allTorrentInfos() async throws -> [TorrentInfo] {
+        let list = try await allTorrents()
+        return await withTaskGroup(of: TorrentInfo?.self) { group in
+            for torrent in list {
+                group.addTask { try? await self.info(id: torrent.id) }
+            }
+            var infos: [TorrentInfo] = []
+            for await result in group {
+                if let result { infos.append(result) }
+            }
+            return infos
+        }
+    }
 }
