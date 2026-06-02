@@ -58,6 +58,19 @@ extension MockTests {
             #expect(result.map(\.tmdbID) == [11, 22])
         }
 
+        @Test func keepsParsedTitleWhenTMDBTitleIsBlank() async throws {
+            // Stub a TMDB hit that has id/poster/overview but no title or name field,
+            // so displayTitle produces "". The parsed title must be preserved.
+            MockURLProtocol.stub(status: 200, json: #"""
+            {"results":[{"id":555,"poster_path":"/p.jpg","overview":"A mystery film."}]}
+            """#)
+            let result = try await enricher().enrich(movie("My Parsed Title", year: 2021))
+            #expect(result.title == "My Parsed Title")   // parsed title PRESERVED
+            #expect(result.tmdbID == 555)                // still matched
+            #expect(result.posterPath == "/p.jpg")       // artwork applied
+            #expect(result.id == "movie:tmdb:555")       // id rekeyed
+        }
+
         @Test func degradesGracefullyWhenTMDBFails() async {
             MockURLProtocol.stub(status: 500, json: #"{"error":"boom"}"#)
             let items = [movie("A", year: nil), movie("B", year: nil)]

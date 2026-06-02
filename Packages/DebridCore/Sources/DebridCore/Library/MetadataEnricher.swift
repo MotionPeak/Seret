@@ -38,8 +38,11 @@ public struct MetadataEnricher: Sendable {
             results = try await tmdb.searchTV(query: item.title, firstAirYear: item.year)
         }
         guard let match = results.first else { return item }
-        return item.withMetadata(tmdbID: match.id, title: match.displayTitle,
-                                 posterPath: match.posterPath, overview: match.overview)
+        return item.withMetadata(
+            tmdbID: match.id,
+            title: match.displayTitle.isEmpty ? nil : match.displayTitle,
+            posterPath: match.posterPath,
+            overview: match.overview)
     }
 
     /// Enriches every item concurrently, preserving input order. Per-item lookup failures
