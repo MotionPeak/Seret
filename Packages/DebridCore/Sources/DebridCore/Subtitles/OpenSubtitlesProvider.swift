@@ -64,9 +64,36 @@ public actor OpenSubtitlesProvider: SubtitleProvider {
     }
 
     private func requestDownload(fileID: Int) async throws -> OSDownloadResponse {
+        do {
+            return try await attemptDownload(fileID: fileID)
+        } catch let error as HTTPError {
+            guard case .status(let code, _) = error else { throw error }
+            switch code {
+            case 401:
+                token = nil                                   // expired → re-login once and retry
+                return try await attemptDownload(fileID: fileID)
+            case 403, 406:
+                throw SubtitleError.dailyCapReached(resetTime: nil)
+            default:
+                throw error
+            }
+        }
+    }
+
+    private func attemptDownload(fileID: Int) async throws -> OSDownloadResponse {
         let token = try await ensureToken()
-        return try await http.post(Self.base.appending(path: "download"),
-                                   json: ["file_id": fileID], headers: authHeaders(token))
+        let response: OSDownloadResponse = try await http.post(
+            Self.base.appending(path: "download"),
+            json: ["file_id": fileID], headers: authHeaders(token))
+        if let remaining = response.remaining, remaining <= 0 {
+            throw SubtitleError.dailyCapReached(resetTime: Self.parseResetTime(response.resetTimeUTC))
+        }
+        return response
+    }
+
+    static func parseResetTime(_ value: String?) -> Date? {
+        guard let value else { return nil }
+        return ISO8601DateFormatter().date(from: value)
     }
 
     /// Returns the cached login token, logging in (once) if there isn't one.
