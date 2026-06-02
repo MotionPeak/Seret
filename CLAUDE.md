@@ -1,7 +1,7 @@
 # CLAUDE.md — Seret
 
 > Guidance for Claude (and humans) working in this repo. Read this first.
-> Full design rationale lives in [`docs/superpowers/specs/2026-06-02-seret-design.md`](docs/superpowers/specs/2026-06-02-seret-design.md).
+> Full design rationale: [`docs/superpowers/specs/2026-06-02-seret-design.md`](docs/superpowers/specs/2026-06-02-seret-design.md). Per-plan implementation plans live in [`docs/superpowers/plans/`](docs/superpowers/plans/).
 
 ## What Seret is
 
@@ -9,9 +9,28 @@
 
 It replaces this old stack: `DMM (Instant RD) → Real-Debrid → Zurg+rclone mount → Plex Server (Synology) → Plex app`. Seret is the app *and* the server *and* the organizer, all on-device.
 
-## Status
+## Status — `DebridCore` data layer built (Plans 1–4); Plan 5 is next
 
-**Greenfield — Stage 1 in planning.** Design approved; spec written. No code scaffolded yet. Next step: implementation plan (superpowers `writing-plans`).
+**The `DebridCore` package is real, on `main`, pushed to [github.com/MotionPeak/Seret](https://github.com/MotionPeak/Seret) — 53 tests green, zero warnings.** Built test-first via the superpowers pipeline (brainstorm → spec → one plan per slice → subagent-driven TDD), each plan adversarially reviewed (spec + code-quality + final) before a fast-forward merge to `main`.
+
+**Done & merged:**
+- **Plan 1 — RD auth:** `HTTPClient`/`HTTPError`, device-code `RealDebridAuthClient`, `TokenStore`+`KeychainTokenStore`+`InMemoryTokenStore`, `RealDebridSession` (transparent, concurrency-coalesced refresh).
+- **Plan 2 — RD resources:** `Torrent`/`TorrentFile`/`TorrentInfo`(+`primaryVideoFile`/`selectedFilesWithLinks`)/`UnrestrictedLink`; `TorrentsClient` (`torrents`/`info`/`unrestrict`/`playableURL`); `AccessTokenProviding` seam (RealDebridSession conforms).
+- **Plan 3 — recognition:** `FilenameParser` → `ParsedRelease` (cached regexes); `TMDBClient` (`searchMovie`/`searchTV`/`movieDetails`/`tvDetails`/static `imageURL`) + `TMDBModels`.
+- **Plan 4 — library grouping:** `MediaItem`/`Season`/`Episode`/`MediaSource`/`MediaKind`; `LibraryBuilder.group([TorrentInfo]) -> [MediaItem]` (movies, single episodes, season-pack expansion, cross-torrent show merge, dedup, empty-show filter — pure, no I/O).
+
+### ▶ RESUME HERE — Plan 5 (written, NOT yet executed)
+
+Plan file: [`docs/superpowers/plans/2026-06-02-tmdb-enrichment.md`](docs/superpowers/plans/2026-06-02-tmdb-enrichment.md) — 3 tasks: `MetadataEnricher` (match each grouped `MediaItem` to TMDB → fill `tmdbID`/title/`posterPath`/`overview`; graceful per-item degradation) + `MediaItem.withMetadata(...)`, the concurrent batch `enrich(_:)`, and `TorrentsClient.allTorrents()`/`allTorrentInfos()` (paginated list → concurrent info fan-out).
+
+**To execute:** invoke **superpowers:subagent-driven-development** and run it exactly like the prior plans — branch `feat/tmdb-enrichment` off `main`, one implementer subagent per task → spec-compliance review → code-quality review (fix loops) → final whole-branch review → fast-forward merge to `main` + push. After Plan 5 the brain is feature-complete; the app composes it in ~3 lines:
+```swift
+let infos   = try await torrentsClient.allTorrentInfos()
+let grouped = LibraryBuilder().group(infos)
+let library = await MetadataEnricher(tmdb: tmdbClient).enrich(grouped)
+```
+
+**Plans after 5:** **6** = subtitles (OpenSubtitles, behind a `SubtitleProvider` seam) + SwiftData persistence (cache library + watch progress) + the `VideoPlayerEngine` protocol · **7** = Apple TV app — the **first UI** (needs XcodeGen + VLCKit integration + a real TMDB key) · **8** = iPhone/iPad app.
 
 ## The one architectural rule
 
@@ -19,96 +38,109 @@ It replaces this old stack: `DMM (Instant RD) → Real-Debrid → Zurg+rclone mo
 
 If you're tempted to put networking, parsing, RD/TMDB/OpenSubtitles logic, or models in an app target — stop. It belongs in `DebridCore`. The only thing that legitimately lives per-platform is UI and the **VLCKit engine** (VLCKit is platform-specific and UIKit-bound).
 
-## Architecture (see spec §4–5)
+## Architecture
 
 ```
 DebridCore (pure Swift, no UI, no VLCKit, unit-tested)
-  Networking · RealDebrid(auth+resources) · Metadata(parse→match→group)
-  Subtitles(SubtitleProvider) · Library · Persistence(SwiftData) · Playback(VideoPlayerEngine protocol)
+  ✓ Networking   ✓ RealDebrid(auth+resources)   ✓ Metadata(parse + TMDB)   ✓ Library(grouping)
+  ⋯ Subtitles(SubtitleProvider)   ⋯ Persistence(SwiftData)   ⋯ Playback(VideoPlayerEngine protocol)
         ▲                                   ▲
-   SeretTV (tvOS)                     Seret (iOS/iPadOS)
+   SeretTV (tvOS)                     Seret (iOS/iPadOS)        ⋯ not built yet (Plan 7–8)
    sidebar · focus · TVVLCKit         tab bar / split · MobileVLCKit
         └──────── optional shared DebridUI (design tokens) ────────┘
 ```
+✓ = built & merged · ⋯ = planned. Enrichment (`MetadataEnricher`) lands with Plan 5.
 
 ## Tech stack
 
-- **Swift 6.3**, strict concurrency. **SwiftUI** everywhere. **tvOS / iOS / iPadOS 26+** targets.
-- **DebridCore**: local Swift Package, no UI dependencies. Tests in **Swift Testing**.
-- **Playback**: **VLCKit** (`TVVLCKit` / `MobileVLCKit`) behind `VideoPlayerEngine`. (Raw AVPlayer can't play RD's MKV/x265/DTS — that's why VLCKit.)
-- **Persistence**: **SwiftData**, models CloudKit-ready (Stage-3 sync is a config flip).
-- **Project**: **XcodeGen** (`project.yml`) generates `Seret.xcodeproj` — it is **not committed**.
-- **Lint/format**: **SwiftLint + SwiftFormat** (committed configs, build-phase enforced).
+- **Swift 6.3**, strict concurrency (Swift 6 language mode). **SwiftUI** for the apps. Package deployment floor **iOS/tvOS 18, macOS 14** (so `swift test` runs on the dev Mac).
+- **DebridCore**: local Swift Package, **no third-party deps**, no UI. Tests in **Swift Testing**.
+- **Playback**: **VLCKit** (`TVVLCKit` / `MobileVLCKit`) behind a `VideoPlayerEngine` protocol (Plan 6). Raw AVPlayer can't play RD's MKV/x265/DTS — that's why VLCKit.
+- **Persistence**: **SwiftData**, models CloudKit-ready (later cross-device sync is a config flip). Plan 6.
+- **Project (apps)**: **XcodeGen** (`project.yml`) generates `Seret.xcodeproj` — not committed. Created in Plan 7.
 
 ## Repo layout
 
 ```
-Packages/DebridCore/   ← the shared brain (start here for any logic)
-Apps/SeretTV/          ← tvOS UI + TVVLCKit engine
-Apps/SeretMobile/      ← iOS/iPadOS UI + MobileVLCKit engine
-Shared/DebridUI/       ← optional shared SwiftUI tokens/components
-docs/superpowers/specs/← design docs
-project.yml            ← regenerate the Xcode project from this
-Secrets.xcconfig       ← gitignored; copy from Secrets.example.xcconfig
+Packages/DebridCore/Sources/DebridCore/   ← THE BRAIN (exists; put all logic here)
+  Networking/   RealDebrid/   Metadata/   Library/
+Packages/DebridCore/Tests/DebridCoreTests/   ← Swift Testing suites
+  Support/MockURLProtocol.swift  ·  MockTests.swift (serialized parent for all network-mocked suites)
+docs/superpowers/specs/   ← the design spec
+docs/superpowers/plans/   ← one implementation plan per slice (Plans 1–5 written)
+CLAUDE.md   .gitignore
+— NOT yet created (Plan 7+): Apps/SeretTV/, Apps/SeretMobile/, Shared/DebridUI/, project.yml, Secrets.xcconfig
 ```
 
-## Build / run / test (intended — created during Stage-1 setup)
+## Build / run / test
 
+**Now (package-only — there is no Xcode project yet):**
 ```bash
-# Generate the Xcode project from project.yml (after any target/file change)
-xcodegen generate
-
-# Test the brain (fast, no simulator)
-swift test --package-path Packages/DebridCore
-
-# Build/run an app (or open Seret.xcodeproj in Xcode and pick a simulator)
-xcodebuild -scheme SeretTV -destination 'platform=tvOS Simulator,name=Apple TV 4K (3rd generation)' build
-xcodebuild -scheme Seret   -destination 'platform=iOS Simulator,name=iPhone 16 Pro' build
+swift test --package-path Packages/DebridCore                              # the whole brain; fast, no simulator
+swift build --package-path Packages/DebridCore 2>&1 | grep -i warning      # must print NOTHING — zero-warning bar
 ```
+Run the **full** suite (not just `--filter`) before merging. Any new suite that uses `MockURLProtocol` MUST be nested under the `MockTests` serialized parent (`extension MockTests { @Suite struct … { init() { MockURLProtocol.handler = nil } } }`) — Swift Testing runs separate suites in parallel and they share the mock's global handler. Pure (no-network) suites stay plain top-level structs.
 
-**Always verify UI changes in the actual simulator (screenshot) before claiming done.** For a tvOS/iOS app the simulator is the source of truth — not a browser.
+**Later (once app targets exist — Plan 7):** `xcodegen generate` → `xcodebuild -scheme SeretTV -destination 'platform=tvOS Simulator,name=Apple TV 4K (3rd generation)' build`. **Verify UI in the actual simulator (screenshot) before claiming done** — the simulator is the source of truth, not a browser.
 
 ## External services & secrets
 
 | Service | Auth | Notes |
 |---|---|---|
-| **Real-Debrid** | OAuth2 **device-code**, public client `X245A4XAIBGVM` (no secret) | Per-user tokens → **Keychain**. Base `https://api.real-debrid.com/rest/1.0`. |
-| **TMDB** | Free API key | In `Secrets.xcconfig` (gitignored). Recognize/organize + art. |
-| **OpenSubtitles** | API key + login | `api.opensubtitles.com/api/v1`. Free tier has a daily download cap. |
+| **Real-Debrid** | OAuth2 **device-code**, public client `X245A4XAIBGVM` (no secret) | Per-user tokens → **Keychain**. Resource base `https://api.real-debrid.com/rest/1.0`; OAuth base `…/oauth/v2`. |
+| **TMDB** | Free API key (v3 `api_key` query param) | Needed only at app-wiring (Plan 7); the package mocks it in tests. Put in `Secrets.xcconfig` (gitignored). |
+| **OpenSubtitles** | API key + login | `api.opensubtitles.com/api/v1`. Free tier has a daily download cap. Plan 6. |
 
-**Never commit secrets. Never log RD tokens or unrestricted URLs.**
+**Never commit secrets. Never log RD tokens or unrestricted URLs.** (The TMDB key rides in the query string — fine, nothing logs it; just don't add request-URL logging on resource calls.)
 
 ## Domain glossary
 
 - **Real-Debrid (RD)** — premium link/“debrid” service; turns cached torrents into direct HTTPS streams.
-- **unrestrict** — RD call that converts a restricted link → a direct streamable URL (resolved lazily, at play time).
-- **DMM** — Debrid Media Manager (debridmediamanager.com), the open-source web app the user adds content with today.
-- **Zurg + rclone** — the tools that currently mount RD as a filesystem for Plex; Seret makes them unnecessary.
-- **Instant RD** — DMM's "add this cached torrent to my RD account now" action (the Stage-2 Add flow).
+- **unrestrict** — RD call that converts a restricted link → a direct streamable URL (resolved lazily, at play time; links expire).
+- **DMM** — Debrid Media Manager (debridmediamanager.com), the open-source web app the owner adds content with today.
+- **Zurg + rclone** — tools that currently mount RD as a filesystem for Plex; Seret makes them unnecessary.
+- **Instant RD** — DMM's "add this cached torrent to my RD account now" action (the later Add flow that replaces DMM).
 
 ## Key decisions (why)
 
-- **No server / direct-to-RD** — DMM proves a pure client works; native apps skip even DMM's CORS proxy. (spec §4, §5.2)
-- **VLCKit, not AVPlayer** — AVPlayer can't open MKV/x265/DTS/ASS; Plex only worked by transcoding on a server we don't have. (spec §5.6)
-- **TMDB** for recognize/organize; **OpenSubtitles** for subs (behind a `SubtitleProvider` seam so an Israeli-Hebrew source can be added later). (spec §5.3–5.4)
-- **SwiftData (+CloudKit-ready)** — local cache + user state over RD-as-source-of-truth; cross-device sync later for free. (spec §5.5)
-- **Device-code auth** — the native Apple-TV sign-in pattern; zero keyboard pain. (spec §5.2)
+- **No server / direct-to-RD** — DMM proves a pure client works; native apps skip even DMM's CORS proxy.
+- **VLCKit, not AVPlayer** — AVPlayer can't open MKV/x265/DTS/ASS; Plex only worked by transcoding on a server we don't have.
+- **TMDB** for recognize/organize; **OpenSubtitles** for subs (behind a `SubtitleProvider` seam so an Israeli-Hebrew source can slot in later).
+- **SwiftData (+CloudKit-ready)** — local cache + user state over RD-as-source-of-truth; cross-device sync later for free.
+- **Device-code auth** — the native Apple-TV sign-in pattern; zero keyboard pain.
+
+## Conventions (followed throughout — keep doing these)
+
+- **TDD:** failing test → minimal impl → green → commit. Small atomic commits (`feat(core):` / `refactor(core):` / `fix(core):` / `test(core):`).
+- **Swift 6 value types, `Sendable`**, immutable `let` fields + public memberwise inits on models; protocol seams for injection (`AccessTokenProviding`, later `SubtitleProvider`/`VideoPlayerEngine`).
+- **Zero warnings.** Cache compiled regexes / expensive things as `static let`. Tests assert real values, not just non-nil.
+- **One responsibility per file**; new logic goes in the matching `DebridCore` subfolder.
 
 ## Gotchas
 
-- VLCKit is **Objective-C + per-platform** (`TVVLCKit` ≠ `MobileVLCKit`). Wrap it behind `VideoPlayerEngine`; keep `DebridCore` VLCKit-free.
-- RD **rate-limits**; refresh tokens on `401`; unrestricted links **expire** (resolve at play time, don't store).
-- SwiftData+CloudKit requires **all properties optional or defaulted, no unique constraints** — already honored in the models.
-- RD removed `instantAvailability`; cache-checking for the Stage-2 Add flow needs research (see spec R1).
+- VLCKit is **Objective-C + per-platform** (`TVVLCKit` ≠ `MobileVLCKit`). Wrap behind `VideoPlayerEngine`; keep `DebridCore` VLCKit-free.
+- RD **rate-limits**; refresh tokens on `401`; unrestricted links **expire** (resolve at play time, never store).
+- Swift Testing runs suites **in parallel** — network-mock suites must nest under `MockTests` (serialized) or they race on the shared handler.
+- SwiftData+CloudKit (Plan 6) needs **all properties optional or defaulted, no unique constraints**.
+- RD removed `instantAvailability`; cache-checking for the later Add flow needs research.
 
-## Working style (owner preferences)
+## Open follow-ups (non-blocking, from reviews)
 
-- **Optimize for the long run** — choose the approach that ages well, allows polish, and scales; lead with that, not the smallest diff.
-- **Verify before claiming done** — run it, screenshot the simulator; evidence before assertions.
-- **Git**: commit locally; **don't push** to deploy-connected repos without asking. Branch before working on a default branch.
+- DRY the video-extension set — duplicated in `LibraryBuilder.isVideoPath`, `TorrentInfo.primaryVideoFile`, `FilenameParser.stripExtension` → one shared constant.
+- `RealDebridSession`: add a concurrent-refresh-coalescing test (behavior verified by inspection, not yet by a test).
+- `TMDBSearchResult.year`: guard against a sub-4-char date string.
+- Enrichment v2: title-similarity scoring (currently takes the first TMDB result); backdrops via a `details` call.
+- Retire the `DebridCore.name` smoke scaffolding once real app entry points exist (Plan 7).
 
-## Roadmap
+## Working style (owner = Shahar)
 
-1. **Stage 1** (current) — `DebridCore` + tvOS + iOS/iPad: browse · organize · play. → off Plex.
-2. **Stage 2** — search → Instant RD Add flow. → off DMM. *(hard part: indexing + RD cache-check)*
-3. **Stage 3** — CloudKit Continue-Watching sync, richer organization, AVPlayer fast-path.
+- **Optimize for the long run** — choose the approach that ages well, allows polish, and scales; lead with that, not the smallest diff. Direct, no fluff.
+- **Verify before claiming done** — run it; for UI, screenshot the simulator. Evidence before assertions.
+- **Git:** commit locally; **don't push without asking** (owner has chosen "merge to main + push" after each reviewed plan, but ask each time). Branch before working on `main`. Never push secrets.
+- Between **03:00–07:00** the owner should be asleep — if it's that late, wrap to a clean committed state and say so; don't start new substantive work.
+
+## Roadmap (milestone view)
+
+1. **Stage 1 (in progress)** — `DebridCore` brain (Plans 1–6) + the tvOS & iOS/iPad apps (Plans 7–8): browse · organize · play. → off Plex.
+2. **Stage 2** — in-app search → Instant RD Add flow. → off DMM. *(hard part: torrent indexing + RD cache-check.)*
+3. **Stage 3** — CloudKit Continue-Watching sync, richer organization, AVPlayer fast-path for hardware-decodable files.
