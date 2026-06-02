@@ -28,6 +28,21 @@ public struct TMDBClient: Sendable {
         return response.results
     }
 
+    public func movieDetails(id: Int) async throws -> TMDBMovieDetails {
+        try await get("movie/\(id)", [])
+    }
+
+    public func tvDetails(id: Int) async throws -> TMDBTVDetails {
+        try await get("tv/\(id)", [])
+    }
+
+    /// Builds a TMDB image URL from a `poster_path`/`backdrop_path` (e.g. "/abc.jpg").
+    /// Returns nil when `path` is nil. `size` is a TMDB size token like "w500" or "original".
+    public static func imageURL(path: String?, size: String = "w500") -> URL? {
+        guard let path else { return nil }
+        return URL(string: imageBase + size + path)
+    }
+
     private func get<T: Decodable>(_ path: String, _ items: [URLQueryItem]) async throws -> T {
         var comps = URLComponents(url: Self.base.appending(path: path), resolvingAgainstBaseURL: false)!
         comps.queryItems = [URLQueryItem(name: "api_key", value: apiKey)] + items
