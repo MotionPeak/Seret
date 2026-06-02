@@ -10,22 +10,22 @@ public struct FilenameParser: Sendable {
         let name = String(raw.split(separator: "/").last ?? Substring(raw))
         let stem = Self.stripExtension(name)
 
-        let releaseGroup = Self.capture(stem, #"-([A-Za-z0-9]{2,})$"#)
-        let resolution = Self.match(stem, #"(?i)\b(2160p|1080p|720p|480p)\b"#).map { $0.lowercased() }
-        let source = Self.normalizeSource(Self.match(stem, #"(?i)\b(blu-?ray|bd-?rip|web-?dl|web-?rip|hdtv|dvd-?rip|remux|hdrip)\b"#))
-        let videoCodec = Self.normalizeVideo(Self.match(stem, #"(?i)\b(x265|x264|h\.?265|h\.?264|hevc|avc)\b"#))
-        let audioCodec = Self.normalizeAudio(Self.match(stem, #"(?i)\b(dts-?hd|truehd|atmos|ddp?5\.1|ddp|dts|eac3|ac3|aac|flac)\b"#))
-        let year = Self.match(stem, #"\b(19\d{2}|20\d{2})\b"#).flatMap { Int($0) }
+        let releaseGroup = Self.capture(stem, Self.reGroup)
+        let resolution = Self.match(stem, Self.reResolution)?.lowercased()
+        let source = Self.normalizeSource(Self.match(stem, Self.reSource))
+        let videoCodec = Self.normalizeVideo(Self.match(stem, Self.reVideo))
+        let audioCodec = Self.normalizeAudio(Self.match(stem, Self.reAudio))
+        let year = Self.match(stem, Self.reYear).flatMap { Int($0) }
 
         var season: Int?
         var episode: Int?
-        if let g = Self.captures(stem, #"(?i)\bS(\d{1,2})E(\d{1,3})\b"#) {
+        if let g = Self.captures(stem, Self.reSeasonEpisode) {
             season = Int(g[0]); episode = Int(g[1])
-        } else if let g = Self.captures(stem, #"(?i)\b(\d{1,2})x(\d{1,3})\b"#) {
+        } else if let g = Self.captures(stem, Self.reNxM) {
             season = Int(g[0]); episode = Int(g[1])
-        } else if let g = Self.captures(stem, #"(?i)\bseason\s?(\d{1,2})\b"#) {
+        } else if let g = Self.captures(stem, Self.reSeasonWord) {
             season = Int(g[0])
-        } else if let g = Self.captures(stem, #"(?i)\bS(\d{1,2})\b"#) {
+        } else if let g = Self.captures(stem, Self.reSeasonBare) {
             season = Int(g[0])
         }
 
@@ -34,6 +34,37 @@ public struct FilenameParser: Sendable {
             year: year, season: season, episode: episode,
             resolution: resolution, source: source, videoCodec: videoCodec,
             audioCodec: audioCodec, releaseGroup: releaseGroup)
+    }
+
+    // MARK: - Compiled patterns (compiled once — patterns are static literals, so try! is safe)
+
+    private static let reGroup = make(#"-([A-Za-z0-9]{2,})$"#)
+    private static let reResolution = make(#"(?i)\b(2160p|1080p|720p|480p)\b"#)
+    private static let reSource = make(#"(?i)\b(blu-?ray|bd-?rip|web-?dl|web-?rip|hdtv|dvd-?rip|remux|hdrip)\b"#)
+    private static let reVideo = make(#"(?i)\b(x265|x264|h\.?265|h\.?264|hevc|avc)\b"#)
+    private static let reAudio = make(#"(?i)\b(dts-?hd|truehd|atmos|ddp?5\.1|ddp|dts|eac3|ac3|aac|flac)\b"#)
+    private static let reYear = make(#"\b(19\d{2}|20\d{2})\b"#)
+    private static let reSeasonEpisode = make(#"(?i)\bS(\d{1,2})E(\d{1,3})\b"#)
+    private static let reNxM = make(#"(?i)\b(\d{1,2})x(\d{1,3})\b"#)
+    private static let reSeasonWord = make(#"(?i)\bseason\s?(\d{1,2})\b"#)
+    private static let reSeasonBare = make(#"(?i)\bS(\d{1,2})\b"#)
+    private static let reExtension = make(#"\.[A-Za-z0-9]{2,4}$"#)
+
+    /// Token patterns that mark the end of the title (compiled once). Includes audio/HDR
+    /// tokens so a name like `Some.Film.FLAC.1080p…` stops the title at `FLAC`.
+    private static let metadataTokenRegexes: [NSRegularExpression] = [
+        #"^(19|20)\d{2}$"#,
+        #"(?i)^s\d{1,2}e\d{1,3}$"#,
+        #"(?i)^s\d{1,2}$"#,
+        #"(?i)^\d{1,2}x\d{1,3}$"#,
+        #"(?i)^(2160p|1080p|720p|480p)$"#,
+        #"(?i)^season$"#,
+        #"(?i)^(bluray|blu-ray|bdrip|web-?dl|web-?rip|hdtv|dvdrip|remux|hdrip|x265|x264|h264|h265|hevc|avc|amzn|uhd|hdr|hdr10|dv|dts|dts-?hd|truehd|atmos|ddp|eac3|ac3|aac|flac)$"#,
+    ].map(make)
+
+    private static func make(_ pattern: String) -> NSRegularExpression {
+        // Patterns are compile-time string literals; a failure is a programmer error.
+        try! NSRegularExpression(pattern: pattern)
     }
 
     // MARK: - Title
@@ -50,16 +81,8 @@ public struct FilenameParser: Sendable {
     }
 
     private static func isMetadataToken(_ t: String) -> Bool {
-        let patterns = [
-            #"^(19|20)\d{2}$"#,
-            #"(?i)^s\d{1,2}e\d{1,3}$"#,
-            #"(?i)^s\d{1,2}$"#,
-            #"(?i)^\d{1,2}x\d{1,3}$"#,
-            #"(?i)^(2160p|1080p|720p|480p)$"#,
-            #"(?i)^season$"#,
-            #"(?i)^(bluray|blu-ray|bdrip|web-?dl|web-?rip|hdtv|dvdrip|remux|hdrip|x265|x264|h264|h265|hevc|avc|amzn|uhd|hdr)$"#,
-        ]
-        return patterns.contains { t.range(of: $0, options: .regularExpression) != nil }
+        let range = NSRange(t.startIndex..., in: t)
+        return metadataTokenRegexes.contains { $0.firstMatch(in: t, range: range) != nil }
     }
 
     // MARK: - Normalization (canonical display forms)
@@ -94,7 +117,7 @@ public struct FilenameParser: Sendable {
         guard let raw = s else { return nil }
         let s = raw.lowercased()
         if s.replacingOccurrences(of: "-", with: "") == "dtshd" { return "DTS-HD" }
-        if s.hasPrefix("ddp") { return "DDP5.1" }
+        if s.hasPrefix("dd") { return raw.uppercased() }   // DDP5.1 / DD5.1 / DDP — preserve the actual match, don't assume 5.1
         if s == "truehd" { return "TrueHD" }
         if s == "atmos" { return "Atmos" }
         if s == "eac3" { return "EAC3" }
@@ -109,26 +132,25 @@ public struct FilenameParser: Sendable {
 
     private static func stripExtension(_ s: String) -> String {
         let exts: Set<String> = ["mkv", "mp4", "avi", "m4v", "mov", "ts", "wmv", "srt", "ass"]
-        guard let dot = s.range(of: #"\.[A-Za-z0-9]{2,4}$"#, options: .regularExpression) else { return s }
-        let ext = s[dot].dropFirst().lowercased()
-        return exts.contains(String(ext)) ? String(s[s.startIndex..<dot.lowerBound]) : s
+        let range = NSRange(s.startIndex..., in: s)
+        guard let m = reExtension.firstMatch(in: s, range: range), let r = Range(m.range, in: s) else { return s }
+        let ext = s[r].dropFirst().lowercased()
+        return exts.contains(String(ext)) ? String(s[s.startIndex..<r.lowerBound]) : s
     }
 
-    private static func match(_ s: String, _ pattern: String) -> String? {
-        guard let re = try? NSRegularExpression(pattern: pattern),
-              let m = re.firstMatch(in: s, range: NSRange(s.startIndex..., in: s)),
-              let r = Range(m.range, in: s) else { return nil }
+    private static func match(_ s: String, _ re: NSRegularExpression) -> String? {
+        let range = NSRange(s.startIndex..., in: s)
+        guard let m = re.firstMatch(in: s, range: range), let r = Range(m.range, in: s) else { return nil }
         return String(s[r])
     }
 
-    private static func capture(_ s: String, _ pattern: String) -> String? {
-        captures(s, pattern)?.first
+    private static func capture(_ s: String, _ re: NSRegularExpression) -> String? {
+        captures(s, re)?.first
     }
 
-    private static func captures(_ s: String, _ pattern: String) -> [String]? {
-        guard let re = try? NSRegularExpression(pattern: pattern),
-              let m = re.firstMatch(in: s, range: NSRange(s.startIndex..., in: s)),
-              m.numberOfRanges > 1 else { return nil }
+    private static func captures(_ s: String, _ re: NSRegularExpression) -> [String]? {
+        let range = NSRange(s.startIndex..., in: s)
+        guard let m = re.firstMatch(in: s, range: range), m.numberOfRanges > 1 else { return nil }
         var groups: [String] = []
         for i in 1..<m.numberOfRanges {
             guard let r = Range(m.range(at: i), in: s) else { return nil }

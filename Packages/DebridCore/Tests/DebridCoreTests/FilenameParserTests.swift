@@ -68,4 +68,19 @@ struct FilenameParserTests {
         #expect(r.year == nil)
         #expect(r.resolution == "1080p")
     }
+
+    @Test func keepsLeadingNumberThatIsNotAYearInTitle() {
+        let r = parser.parse("21.Jump.Street.2012.1080p.BluRay.x264-SPARKS.mkv")
+        #expect(r.title == "21 Jump Street")
+        #expect(r.year == 2012)
+        #expect(r.resolution == "1080p")
+        #expect(r.releaseGroup == "SPARKS")
+    }
+
+    @Test func handlesNameWithNoRecognizableMetadata() {
+        let r = parser.parse("deadbeefdeadbeefdeadbeefdeadbeefdeadbeef.mkv")
+        #expect(r.title == "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef")
+        #expect(r.year == nil)
+        #expect(r.isTV == false)
+    }
 }
