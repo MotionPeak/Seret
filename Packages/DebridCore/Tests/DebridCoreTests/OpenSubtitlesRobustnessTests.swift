@@ -27,9 +27,10 @@ extension MockTests {
                 _ = try await provider().download(result(1))
                 Issue.record("expected dailyCapReached to be thrown")
             } catch {
-                guard case SubtitleError.dailyCapReached = error else {
+                guard case let SubtitleError.dailyCapReached(reset) = error else {
                     Issue.record("expected .dailyCapReached, got \(error)"); return
                 }
+                #expect(reset != nil)   // reset_time_utc ("2026-06-03T00:00:00Z") was parsed + threaded through
             }
         }
 
@@ -76,6 +77,59 @@ extension MockTests {
             }
             let url = try await p.download(result(2))
             #expect(try String(contentsOf: url, encoding: .utf8) == "C")   // 401 → re-login → success
+        }
+
+        // Item 1 test
+        @Test func loginFailureSurfacesNotAuthenticated() async throws {
+            MockURLProtocol.handler = { req in
+                let url = req.url!.absoluteString
+                if url.contains("/login") { return Self.resp(req, 401, "{}") }
+                return Self.resp(req, 200, "{}")
+            }
+            do {
+                _ = try await provider().download(result(1))
+                Issue.record("expected notAuthenticated to be thrown")
+            } catch {
+                guard case SubtitleError.notAuthenticated = error else {
+                    Issue.record("expected .notAuthenticated, got \(error)"); return
+                }
+            }
+        }
+
+        // Item 2: malformed download link → .invalidResponse
+        @Test func malformedDownloadLinkThrowsInvalidResponse() async throws {
+            MockURLProtocol.handler = { req in
+                let url = req.url!.absoluteString
+                if url.contains("/login")    { return Self.resp(req, 200, #"{"token":"T1"}"#) }
+                if url.contains("/download") { return Self.resp(req, 200, #"{"link":"","remaining":10}"#) }
+                return Self.resp(req, 200, "{}")
+            }
+            do {
+                _ = try await provider().download(result(1))
+                Issue.record("expected invalidResponse to be thrown")
+            } catch {
+                guard case SubtitleError.invalidResponse = error else {
+                    Issue.record("expected .invalidResponse, got \(error)"); return
+                }
+            }
+        }
+
+        // Item 3: 406 also maps to the daily cap
+        @Test func dailyCapWhenNotAcceptable() async throws {
+            MockURLProtocol.handler = { req in
+                let url = req.url!.absoluteString
+                if url.contains("/login")    { return Self.resp(req, 200, #"{"token":"T1"}"#) }
+                if url.contains("/download") { return Self.resp(req, 406, "{}") }
+                return Self.resp(req, 200, "{}")
+            }
+            do {
+                _ = try await provider().download(result(1))
+                Issue.record("expected dailyCapReached to be thrown")
+            } catch {
+                guard case SubtitleError.dailyCapReached = error else {
+                    Issue.record("expected .dailyCapReached, got \(error)"); return
+                }
+            }
         }
     }
 }

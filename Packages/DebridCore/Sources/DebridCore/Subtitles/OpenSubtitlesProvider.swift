@@ -101,12 +101,19 @@ public actor OpenSubtitlesProvider: SubtitleProvider {
     /// Returns the cached login token, logging in (once) if there isn't one.
     private func ensureToken() async throws -> String {
         if let token { return token }
-        let response: OSLoginResponse = try await http.post(
-            Self.base.appending(path: "login"),
-            json: ["username": credentials.username, "password": credentials.password],
-            headers: baseHeaders)
-        token = response.token
-        return response.token
+        do {
+            let response: OSLoginResponse = try await http.post(
+                Self.base.appending(path: "login"),
+                json: ["username": credentials.username, "password": credentials.password],
+                headers: baseHeaders)
+            token = response.token
+            return response.token
+        } catch let error as HTTPError {
+            if case .status(let code, _) = error, code == 401 || code == 403 {
+                throw SubtitleError.notAuthenticated
+            }
+            throw error
+        }
     }
 
     private func authHeaders(_ token: String) -> [String: String] {
