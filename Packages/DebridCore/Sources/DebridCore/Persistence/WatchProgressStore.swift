@@ -40,7 +40,7 @@ public actor WatchProgressStore {
     }
 
     /// Total row count — used by tests to assert upsert (not insert) behavior.
-    public func allCount() throws -> Int {
+    func allCount() throws -> Int {
         try modelContext.fetchCount(FetchDescriptor<WatchProgress>())
     }
 
