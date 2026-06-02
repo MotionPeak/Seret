@@ -9,9 +9,9 @@
 
 It replaces this old stack: `DMM (Instant RD) → Real-Debrid → Zurg+rclone mount → Plex Server (Synology) → Plex app`. Seret is the app *and* the server *and* the organizer, all on-device.
 
-## Status — `DebridCore` data layer complete (Plans 1–5); Plan 6 is next
+## Status — Plans 1–5 + Plan 6 **persistence** slice done; subtitles + `VideoPlayerEngine` (then the apps) next
 
-**The `DebridCore` package is real, on `main` ([github.com/MotionPeak/Seret](https://github.com/MotionPeak/Seret)) — 60 tests green, zero warnings.** Built test-first via the superpowers pipeline (brainstorm → spec → one plan per slice → subagent-driven TDD), each plan adversarially reviewed (spec + code-quality + final) before a fast-forward merge to `main`.
+**The `DebridCore` package is real, on `main` ([github.com/MotionPeak/Seret](https://github.com/MotionPeak/Seret)) — 84 tests green, zero warnings.** Built test-first via the superpowers pipeline (brainstorm → spec → one plan per slice → subagent-driven TDD), each plan adversarially reviewed (spec + code-quality + final) before a fast-forward merge to `main`.
 
 **Done & merged:**
 - **Plan 1 — RD auth:** `HTTPClient`/`HTTPError`, device-code `RealDebridAuthClient`, `TokenStore`+`KeychainTokenStore`+`InMemoryTokenStore`, `RealDebridSession` (transparent, concurrency-coalesced refresh).
@@ -19,17 +19,17 @@ It replaces this old stack: `DMM (Instant RD) → Real-Debrid → Zurg+rclone mo
 - **Plan 3 — recognition:** `FilenameParser` → `ParsedRelease` (cached regexes); `TMDBClient` (`searchMovie`/`searchTV`/`movieDetails`/`tvDetails`/static `imageURL`) + `TMDBModels`.
 - **Plan 4 — library grouping:** `MediaItem`/`Season`/`Episode`/`MediaSource`/`MediaKind`; `LibraryBuilder.group([TorrentInfo]) -> [MediaItem]` (movies, single episodes, season-pack expansion, cross-torrent show merge, dedup, empty-show filter — pure, no I/O).
 - **Plan 5 — TMDB enrichment + RD-fetch glue:** `MetadataEnricher` (`enrich(_ item:)` single-match + concurrent order-preserving batch `enrich(_:)` with graceful per-item degradation) + `MediaItem.withMetadata(...)` (TMDB-rekeyed `id`, keeps parsed title when a match's title is blank); `TorrentsClient.allTorrents()` (paginated) / `allTorrentInfos()` (concurrent info fan-out, skips failures). Pure data layer — TMDB mocked in tests.
+- **Plan 6 slice 1 — persistence:** `LibrarySnapshot` Codable file cache + `LibrarySnapshotStore` (atomic, degrades to nil); `WatchProgress` `@Model` + `WatchState` DTO + `WatchKey` + `WatchProgressStore` (`@ModelActor`, CloudKit-ready); pure `LibraryReconciler` (torrent-id delta + carry-over); `LibraryService` (cache-first `loadCached()` + incremental `refresh()` — only new content hits TMDB). **SwiftData is the package's first dependency** (its test suite must be `.serialized` — see Testing).
 
-### ▶ RESUME HERE — Plan 6 (NOT yet written)
+### ▶ RESUME HERE — Plan 6 slice 2 (subtitles, NOT yet written)
 
-**Plan 5 (TMDB enrichment) is done & merged** ([`docs/superpowers/plans/2026-06-02-tmdb-enrichment.md`](docs/superpowers/plans/2026-06-02-tmdb-enrichment.md)) — `MetadataEnricher` (`enrich(_ item:)` + concurrent batch `enrich(_:)`), `MediaItem.withMetadata(...)`, and `TorrentsClient.allTorrents()`/`allTorrentInfos()`. The brain's **data layer is feature-complete**; the app composes it in ~3 lines:
+**Plan 6 = "finish the brain" in 3 slices: persistence → subtitles → `VideoPlayerEngine`.** Slice 1 (**persistence**) is **done & merged** ([plan](docs/superpowers/plans/2026-06-02-library-persistence.md) · [design](docs/superpowers/specs/2026-06-02-library-persistence-design.md)): `LibrarySnapshot` file cache + `LibrarySnapshotStore`, `WatchProgress` `@Model` + `WatchProgressStore` (`@ModelActor`), pure `LibraryReconciler`, and `LibraryService` (cache-first load + incremental refresh — enrich only new). The app opens the library via:
 ```swift
-let infos   = try await torrentsClient.allTorrentInfos()
-let grouped = LibraryBuilder().group(infos)
-let library = await MetadataEnricher(tmdb: tmdbClient).enrich(grouped)
+let svc = LibraryService(torrents: …, builder: LibraryBuilder(), enricher: …, store: LibrarySnapshotStore(directory: …))
+let library = svc.loadCached() ?? (try await svc.refresh())   // instant cache, then refresh in the background
 ```
 
-**Next — Plan 6 (needs planning first):** subtitles (OpenSubtitles, behind a `SubtitleProvider` seam) + SwiftData persistence (cache the library + watch progress) + the `VideoPlayerEngine` protocol. Brainstorm → spec → write the plan into `docs/superpowers/plans/`, then execute it the same way as the prior plans: **superpowers:subagent-driven-development** — branch off `main`, one implementer subagent per task → spec-compliance review → code-quality review (fix loops) → final whole-branch review → fast-forward merge to `main` (ask before push). **Then Plan 7** = Apple TV app — the **first UI** (needs XcodeGen + VLCKit integration + a real TMDB key) · **Plan 8** = iPhone/iPad app.
+**Next — slice 2 (subtitles), needs planning first:** a `SubtitleProvider` seam + `OpenSubtitlesProvider` (`api.opensubtitles.com/api/v1`, Api-Key + login, daily-cap aware) over the existing `HTTPClient`. Brainstorm → spec → plan into `docs/superpowers/plans/`, then execute subagent-driven exactly as the persistence slice went (branch off `main`, implementer per task → spec + code-quality review with fix loops → final whole-branch review → ff-merge to `main`, ask before push). **Then slice 3** = the `VideoPlayerEngine` protocol (interface + playback model only; the concrete VLCKit engine ships with the app). **Then Plan 7** = Apple TV app — the **first UI** (XcodeGen + VLCKit + a real TMDB key) · **Plan 8** = iPhone/iPad app.
 
 ## The one architectural rule
 
@@ -42,7 +42,7 @@ If you're tempted to put networking, parsing, RD/TMDB/OpenSubtitles logic, or mo
 ```
 DebridCore (pure Swift, no UI, no VLCKit, unit-tested)
   ✓ Networking   ✓ RealDebrid(auth+resources)   ✓ Metadata(parse + TMDB)   ✓ Library(grouping + enrich)
-  ⋯ Subtitles(SubtitleProvider)   ⋯ Persistence(SwiftData)   ⋯ Playback(VideoPlayerEngine protocol)
+  ⋯ Subtitles(SubtitleProvider)   ✓ Persistence(SwiftData cache + WatchProgress)   ⋯ Playback(VideoPlayerEngine protocol)
         ▲                                   ▲
    SeretTV (tvOS)                     Seret (iOS/iPadOS)        ⋯ not built yet (Plan 7–8)
    sidebar · focus · TVVLCKit         tab bar / split · MobileVLCKit
@@ -130,6 +130,7 @@ Run the **full** suite (not just `--filter`) before merging. Any new suite that 
 - `TMDBSearchResult.year`: guard against a sub-4-char date string.
 - Enrichment v2: title-similarity scoring (currently takes the first TMDB result); backdrops via a `details` call.
 - `TorrentsClient.allTorrentInfos()` fans out **unbounded** (one `info` call per torrent) and `MetadataEnricher.enrich(_:)` likewise — add a concurrency cap once RD/TMDB rate-limit behavior is characterized (flagged in Plan 5 review; `// TODO` in `TorrentsClient`).
+- `LibraryService.refresh()`: `hasDelta` derives cached torrent ids from library *items*, so an RD account holding torrents that yield no item (non-video/empty) triggers a full refresh every cycle (perf-only — TMDB stays bounded via carry-over). To make the cheap path exact, persist the seen-torrent-id set in `LibrarySnapshot`.
 - Retire the `DebridCore.name` smoke scaffolding once real app entry points exist (Plan 7).
 
 ## Working style (owner = Shahar)
