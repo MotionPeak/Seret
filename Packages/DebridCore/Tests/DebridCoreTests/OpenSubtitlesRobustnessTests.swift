@@ -23,7 +23,14 @@ extension MockTests {
                 if url.contains("/download") { return Self.resp(req, 200, #"{"link":"https://cdn/x.srt","remaining":0,"reset_time_utc":"2026-06-03T00:00:00Z"}"#) }
                 return Self.resp(req, 200, "{}")
             }
-            await #expect(throws: SubtitleError.self) { _ = try await provider().download(result(1)) }
+            do {
+                _ = try await provider().download(result(1))
+                Issue.record("expected dailyCapReached to be thrown")
+            } catch {
+                guard case SubtitleError.dailyCapReached = error else {
+                    Issue.record("expected .dailyCapReached, got \(error)"); return
+                }
+            }
         }
 
         @Test func dailyCapWhenForbidden() async throws {
@@ -33,7 +40,14 @@ extension MockTests {
                 if url.contains("/download") { return Self.resp(req, 403, "{}") }
                 return Self.resp(req, 200, "{}")
             }
-            await #expect(throws: SubtitleError.self) { _ = try await provider().download(result(1)) }
+            do {
+                _ = try await provider().download(result(1))
+                Issue.record("expected dailyCapReached to be thrown")
+            } catch {
+                guard case SubtitleError.dailyCapReached = error else {
+                    Issue.record("expected .dailyCapReached, got \(error)"); return
+                }
+            }
         }
 
         @Test func recoversFromExpiredTokenViaRelogin() async throws {
