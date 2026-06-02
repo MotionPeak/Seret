@@ -12,6 +12,9 @@ public struct LibraryBuilder: Sendable {
 
     public func group(_ infos: [TorrentInfo]) -> [MediaItem] {
         var movies: [MediaItem] = []
+        // Shows are grouped by normalized title only (not year): episodes of one show can come
+        // from torrents with inconsistent/absent years. Rare same-title-different-show collisions
+        // are acceptable for v1; TMDB enrichment (Plan 5) refines identity.
         var shows: [String: ShowAccumulator] = [:]
 
         for info in infos {
@@ -25,7 +28,7 @@ public struct LibraryBuilder: Sendable {
                 let source = MediaSource(torrentID: info.id, fileID: primary.file.id,
                                          restrictedLink: primary.link, parsed: parsed)
                 movies.append(MediaItem(
-                    id: "movie:\(Self.titleKey(parsed.title)):\(parsed.year.map(String.init) ?? "")",
+                    id: "movie:\(Self.titleKey(parsed.title))\(parsed.year.map { ":\($0)" } ?? "")",
                     kind: .movie, title: parsed.title, year: parsed.year,
                     sources: [source], seasons: []))
             }
@@ -33,6 +36,7 @@ public struct LibraryBuilder: Sendable {
 
         let movieItems = movies.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
         let showItems = shows.values.map { $0.build() }
+            .filter { !$0.seasons.isEmpty }   // drop shows that ended up with no episodes
             .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
         return movieItems + showItems
     }
@@ -55,7 +59,7 @@ public struct LibraryBuilder: Sendable {
 }
 
 /// Mutable accumulator for a single show's episodes (deduped by season+episode).
-final class ShowAccumulator {
+private final class ShowAccumulator {
     let title: String
     let year: Int?
     private var episodes: [String: Episode] = [:]
@@ -67,7 +71,9 @@ final class ShowAccumulator {
 
     func add(season: Int, number: Int, source: MediaSource) {
         let episode = Episode(season: season, number: number, source: source)
-        if episodes[episode.id] == nil { episodes[episode.id] = episode }   // keep first
+        // Keep the first-seen source. RD returns newest torrents first, so this is usually the
+        // preferred re-download. v2: prefer by resolution via source.parsed.resolution.
+        if episodes[episode.id] == nil { episodes[episode.id] = episode }
     }
 
     func build() -> MediaItem {
