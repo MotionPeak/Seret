@@ -91,13 +91,11 @@ public actor OpenSubtitlesProvider: SubtitleProvider {
         return response
     }
 
-    // ISO8601DateFormatter.date(from:) is documented thread-safe; nonisolated(unsafe) silences
-    // the Swift 6 Sendable warning without wrapping in a lock or actor.
-    private nonisolated(unsafe) static let resetTimeFormatter = ISO8601DateFormatter()
+    private static let isoStyle = Date.ISO8601FormatStyle()
 
     static func parseResetTime(_ value: String?) -> Date? {
         guard let value else { return nil }
-        return resetTimeFormatter.date(from: value)
+        return try? isoStyle.parse(value)
     }
 
     /// Returns the cached login token, logging in (once) if there isn't one.
