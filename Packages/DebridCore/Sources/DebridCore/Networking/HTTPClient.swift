@@ -46,6 +46,41 @@ public struct HTTPClient: Sendable {
         }
     }
 
+    public func post<T: Decodable, Body: Encodable>(_ url: URL, json body: Body,
+                                                    headers: [String: String] = [:]) async throws -> T {
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        for (k, v) in headers { request.setValue(v, forHTTPHeaderField: k) }
+        do {
+            request.httpBody = try JSONEncoder().encode(body)
+        } catch {
+            throw HTTPError.decoding(String(describing: error))
+        }
+        return try await send(request)
+    }
+
+    /// GET returning the raw response bytes (for non-JSON payloads like a subtitle file).
+    public func data(_ url: URL, headers: [String: String] = [:]) async throws -> Data {
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        for (k, v) in headers { request.setValue(v, forHTTPHeaderField: k) }
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch {
+            throw HTTPError.transport(String(describing: error))
+        }
+        guard let http = response as? HTTPURLResponse else {
+            throw HTTPError.transport("Non-HTTP response")
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            throw HTTPError.status(code: http.statusCode, body: String(decoding: data, as: UTF8.self))
+        }
+        return data
+    }
+
     /// `application/x-www-form-urlencoded` body builder. Percent-encodes keys and values.
     public static func encodeForm(_ form: [String: String]) -> String {
         form.map { key, value in
