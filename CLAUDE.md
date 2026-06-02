@@ -25,9 +25,17 @@ It replaces this old stack: `DMM (Instant RD) → Real-Debrid → Zurg+rclone mo
 
 ### ▶ RESUME HERE — Plan 7 (Apple TV app — the FIRST UI, NOT yet written)
 
-**The `DebridCore` brain is feature-complete (Plans 1–6, 110 tests).** It exposes the full data + playback layer: RD auth/resources, recognition (`FilenameParser`/`TMDBClient`), library grouping + `LibraryService` (cache-first + incremental refresh), `WatchProgressStore`, `OpenSubtitlesProvider`, and the `VideoPlayerEngine` protocol + `PlaybackCoordinator`. No UI / no VLCKit in the package.
+**The `DebridCore` brain is feature-complete (Plans 1–6, 110 tests, all merged + pushed).** Plan 7 puts a native **tvOS** UI on top: it implements `VideoPlayerEngine` with **VLCKit** (`TVVLCKit`) and consumes the brain — RD **device-code auth**, `LibraryService` (cache-first + incremental library), `WatchProgressStore` (resume), `OpenSubtitlesProvider` (subs), `PlaybackCoordinator` (save/restore). **Nothing app-side exists yet:** `Apps/SeretTV/`, `project.yml`, `Secrets.xcconfig` are all unbuilt.
 
-**Next — Plan 7 (the Apple TV app): the FIRST UI** — a bigger step than the brain slices. It needs **project setup** (XcodeGen `project.yml` → `Seret.xcodeproj`), **VLCKit integration** (`TVVLCKit` — confirm SPM vs CocoaPods, Risk R2), **real API keys** (TMDB + OpenSubtitles in a gitignored `Secrets.xcconfig`), and the **screens** (device-code sign-in → Home/Movies/Shows → Detail → Player) per spec §6. The app implements `VideoPlayerEngine` with VLCKit and consumes `LibraryService` / `WatchProgressStore` / `OpenSubtitlesProvider` / `PlaybackCoordinator`. **Verify UI in the tvOS simulator (screenshot) before any "done"** (per Working style). Brainstorm → spec → plan, then execute. **Plan 8** = the iPhone/iPad app from the same brain.
+**▶ To start Plan 7 in a new session:** just say **"start Plan 7"** — I'll run the brainstorm (scope which screens land first + the project structure + the decisions below), then spec → plan → execute subagent-driven, **verifying each screen in the tvOS simulator (screenshot) before claiming anything done** (UI is verified in the simulator, never faked).
+
+**Have ready before we start (yours to provide):**
+- A **TMDB API key** (v3) and an **OpenSubtitles API key + account** (username/password) → they go in a gitignored `Secrets.xcconfig`.
+- Your **Apple Developer team / bundle-ID** choice for signing (placeholder `com.solomons.seret.tv`).
+
+**Upfront decisions for the Plan 7 brainstorm:** VLCKit integration — **SPM binary target vs CocoaPods** for `TVVLCKit` (Risk R2); the **XcodeGen `project.yml`** layout (mirror the Nikud setup); and **which screen first** (device-code sign-in is the natural start → then Home / Detail / Player per spec §6).
+
+**Then Plan 8** = the iPhone/iPad app from the same brain — mostly UI adaptation (tab bar / `NavigationSplitView` + `MobileVLCKit`), not new logic.
 
 ## The one architectural rule
 
