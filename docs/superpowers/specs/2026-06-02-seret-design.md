@@ -134,17 +134,14 @@ A tiny async/await `HTTPClient` over `URLSession`: typed requests, JSON decode, 
 - **`protocol SubtitleProvider`** — `search(for:languages:)` and `download(_:)`. Stage 1 ships **`OpenSubtitlesProvider`** (`api.opensubtitles.com/api/v1`, Api-Key + login; respects the free tier's daily download cap with clear UI feedback). The seam means a dedicated Israeli-Hebrew provider can be added later without touching the player.
 - **Embedded** subtitle/audio tracks need no provider — VLCKit enumerates them from the file; we just present them.
 
-### 5.5 Library & Persistence (SwiftData)
-SwiftData models, designed **CloudKit-ready** from day one (all properties optional or defaulted, no unique constraints, optional relationships) so Stage 3 sync is a configuration flip, not a migration:
+### 5.5 Library & Persistence
 
-| Model | Holds |
-|---|---|
-| `MediaItem` | tmdbID, kind (movie/show), title, year, overview, posterPath, backdropPath, genres, addedAt |
-| `MediaFile` | rdTorrentID, rdFileID, rdRestrictedLink, parsed quality/codec/audio/size, link-to episode or item |
-| `Episode` | show ref, season, number, title, overview, stillPath, file ref |
-| `WatchProgress` | item/file key, positionSeconds, durationSeconds, finished, updatedAt *(CloudKit-synced in Stage 3)* |
+> **As-built** (see [`2026-06-02-library-persistence-design.md`](2026-06-02-library-persistence-design.md)) — the library cache and watch progress are split **by durability**, not modelled as one relational schema. This supersedes the earlier "everything is a SwiftData `@Model`" sketch.
 
-RD remains the **source of truth for what exists**; SwiftData is a **cache + user-state** layer (metadata, organization, watch progress, later watchlist).
+- **Library cache → a Codable `LibrarySnapshot` file.** The enriched `[MediaItem]` value-type graph, persisted to a device-local JSON file, **never CloudKit-synced**. The library is derived from RD and fully rebuildable, so it's cached as a snapshot rather than a parallel `@Model` graph. Loaded instantly and offline; refreshed incrementally by `LibraryService` (cheap when the torrent set is unchanged; on a delta, re-groups and enriches **only new** items). The code's playable-source type is **`MediaSource`** (this draft earlier called it `MediaFile`).
+- **Watch progress → a relational SwiftData `@Model` `WatchProgress`** — the one piece of precious, frequently-updated user state. **CloudKit-ready** (every property defaulted, no unique constraints, no required relationships) so Stage 3 cross-device sync is a config flip. Keyed by a stable `contentKey` (a movie's id, or show-id + episode-id) plus the `sourceKey` of the file played; carries `positionSeconds`/`durationSeconds`/`finished`/`updatedAt`. Behind a `WatchProgressStore` (`@ModelActor`).
+
+RD remains the **source of truth for what exists**; the snapshot is a **rebuildable cache** and `WatchProgress` is the **user-state** layer (later: watchlist).
 
 ### 5.6 Playback
 `protocol VideoPlayerEngine`: `load(url:headers:)`, `play/pause/seek`, **track enumeration & selection** (audio + subtitle), `addExternalSubtitle(url:)`, periodic time + state callbacks. `DebridCore` owns the protocol and the playback *model*; the **VLCKit engine** is implemented per app target. The seam is what lets Stage 3 add an AVPlayer fast-path for hardware-decodable files behind the same interface.
