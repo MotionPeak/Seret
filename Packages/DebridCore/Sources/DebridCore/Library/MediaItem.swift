@@ -6,7 +6,7 @@ public enum MediaKind: String, Sendable, Equatable, Codable {
 
 /// A specific playable thing in Real-Debrid: a torrent (and, for packs, a file within it),
 /// its restricted link (unrestrict at play time), and the parse used for quality display.
-public struct MediaSource: Sendable, Equatable {
+public struct MediaSource: Sendable, Equatable, Codable {
     public let torrentID: String
     public let fileID: Int?
     public let restrictedLink: String
@@ -20,7 +20,7 @@ public struct MediaSource: Sendable, Equatable {
     }
 }
 
-public struct Episode: Sendable, Equatable, Identifiable {
+public struct Episode: Sendable, Equatable, Identifiable, Codable {
     public let season: Int
     public let number: Int
     public let source: MediaSource
@@ -34,7 +34,7 @@ public struct Episode: Sendable, Equatable, Identifiable {
     public var id: String { "s\(season)e\(number)" }
 }
 
-public struct Season: Sendable, Equatable, Identifiable {
+public struct Season: Sendable, Equatable, Identifiable, Codable {
     public let number: Int
     public let episodes: [Episode]   // sorted by episode number
 
@@ -48,7 +48,7 @@ public struct Season: Sendable, Equatable, Identifiable {
 
 /// A top-level library entry: a movie or a show. Metadata fields are nil until TMDB
 /// enrichment (Plan 5). A movie carries `sources` (1+); a show carries `seasons`.
-public struct MediaItem: Sendable, Equatable, Identifiable {
+public struct MediaItem: Sendable, Equatable, Identifiable, Codable {
     public let id: String
     public let kind: MediaKind
     public let title: String

@@ -1,5 +1,5 @@
 /// Structured fields extracted from a release name. All optional except `title`.
-public struct ParsedRelease: Sendable, Equatable {
+public struct ParsedRelease: Sendable, Equatable, Codable {
     public var title: String
     public var year: Int?
     public var season: Int?
