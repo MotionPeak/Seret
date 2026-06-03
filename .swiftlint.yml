@@ -1,0 +1,13 @@
+# .swiftlint.yml — committed in 7a. Build-phase enforcement is deferred (spec §10);
+# run manually with `swiftlint` for now.
+disabled_rules:
+  - todo
+opt_in_rules:
+  - empty_count
+  - first_where
+excluded:
+  - Packages/DebridCore/.build
+  - Seret.xcodeproj
+line_length:
+  warning: 140
+  error: 200

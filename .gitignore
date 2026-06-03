@@ -25,6 +25,9 @@ Secrets.xcconfig
 # CocoaPods (only if VLCKit ends up via Pods)
 Pods/
 
+# Vendored frameworks — TVVLCKit.xcframework is fetched by Scripts/fetch-frameworks.sh (Plan 7c)
+Frameworks/
+
 # Superpowers brainstorm scratch
 .superpowers/
 
