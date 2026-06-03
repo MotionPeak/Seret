@@ -13,7 +13,7 @@ struct DetailView: View {
         Group {
             switch store.item.kind {
             case .movie: MovieDetailView(store: store)
-            case .show:  Text("Show detail — Task 7").font(.title)   // replaced in Task 7
+            case .show:  ShowDetailView(store: store)
             }
         }
         .task { await store.load() }
