@@ -1,6 +1,7 @@
 import DebridCore
 import Foundation
 import Observation
+import SwiftData
 
 /// Owns the one shared `RealDebridSession` and the app's coarse auth state. It is the
 /// `AccessTokenProviding` source that 7b's library + 7c's playback will consume.
@@ -18,6 +19,13 @@ final class AppSession {
 
     /// The library store for the current signed-in episode (nil while signed out).
     private(set) var libraryStore: LibraryStore?
+
+    /// On-demand TMDB detail provider for the Detail screen (nil while signed out).
+    private(set) var detailsProvider: MediaDetailsProviding?
+
+    /// Shared watch-progress store (nil while signed out, or if the container fails to build).
+    /// 7c's player + a later Continue-Watching feed reuse this same instance.
+    private(set) var watchStore: WatchProgressProviding?
 
     let realDebrid: RealDebridSession
 
@@ -63,6 +71,8 @@ final class AppSession {
             flow: LiveAuthFlow(auth: RealDebridAuthClient(), session: realDebrid),
             onSignedIn: { [weak self] in self?.markSignedIn() })
         libraryStore = nil
+        detailsProvider = nil
+        watchStore = nil
         state = .signedOut
     }
 
@@ -77,6 +87,9 @@ final class AppSession {
             enricher: MetadataEnricher(tmdb: tmdb),
             store: LibrarySnapshotStore(directory: Self.cachesDirectory))
         libraryStore = LibraryStore(library: service)
+        detailsProvider = TMDBDetailsService(client: tmdb)
+        watchStore = (try? ModelContainer(for: WatchProgress.self))
+            .map { WatchProgressStore(modelContainer: $0) as WatchProgressProviding }
         state = .signedIn
     }
 
