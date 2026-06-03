@@ -22,12 +22,17 @@ targets:
       - path: Apps/SeretTV
     dependencies:
       - package: DebridCore
+    info:
+      path: Apps/SeretTV/Info.plist
+      properties:
+        CFBundleDisplayName: Seret
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        TMDBAPIKey: "$(TMDB_API_KEY)"
     settings:
       base:
         PRODUCT_NAME: Seret
         PRODUCT_BUNDLE_IDENTIFIER: com.solomons.seret.tv
-        GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_CFBundleDisplayName: Seret
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: ML9HDN3QZS
         TARGETED_DEVICE_FAMILY: "3"
