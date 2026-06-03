@@ -2,6 +2,26 @@ import Testing
 import Foundation
 @testable import DebridCore
 
+/// Serves canned responses in order; repeats the final one once exhausted.
+/// Lets one stub drive a multi-poll loop (pending → … → authorized).
+private final class SequenceStub: @unchecked Sendable {
+    private let lock = NSLock()
+    private var steps: [(Int, String)]
+    private var i = 0
+    init(_ steps: [(Int, String)]) { self.steps = steps }
+    func install() {
+        MockURLProtocol.handler = { [self] request in
+            lock.lock()
+            let (status, json) = steps[min(i, steps.count - 1)]
+            i += 1
+            lock.unlock()
+            let response = HTTPURLResponse(url: request.url!, statusCode: status,
+                                           httpVersion: nil, headerFields: nil)!
+            return (response, Data(json.utf8))
+        }
+    }
+}
+
 // NOTE: RealDebridAuthClientTests is nested inside MockTests (see MockTests.swift)
 // to ensure global serialization with all other suites that share MockURLProtocol.
 extension MockTests {
@@ -68,6 +88,32 @@ extension MockTests {
                 credentials: .init(clientID: "CID", clientSecret: "CSECRET"))
             #expect(token.accessToken == "AT2")
             #expect(token.refreshToken == "RT2")
+        }
+
+        @Test func awaitCredentialsResolvesAfterPending() async throws {
+            SequenceStub([
+                (400, #"{"error":"authorization_pending"}"#),
+                (400, #"{"error":"authorization_pending"}"#),
+                (200, #"{"client_id":"CID","client_secret":"CSECRET"}"#),
+            ]).install()
+            let client = RealDebridAuthClient(http: HTTPClient(session: .mock))
+            let code = RDDeviceCode(deviceCode: "DC", userCode: "WXYZ",
+                                    interval: 5, expiresIn: 1800,
+                                    verificationURL: "https://real-debrid.com/device")
+            let creds = try await client.awaitCredentials(for: code, sleep: { _ in })
+            #expect(creds.clientID == "CID")
+            #expect(creds.clientSecret == "CSECRET")
+        }
+
+        @Test func awaitCredentialsThrowsWhenCodeExpires() async {
+            MockURLProtocol.stub(status: 400, json: #"{"error":"authorization_pending"}"#)
+            let client = RealDebridAuthClient(http: HTTPClient(session: .mock))
+            let code = RDDeviceCode(deviceCode: "DC", userCode: "WXYZ",
+                                    interval: 5, expiresIn: 10,
+                                    verificationURL: "https://real-debrid.com/device")
+            await #expect(throws: RealDebridAuthError.deviceCodeExpired) {
+                _ = try await client.awaitCredentials(for: code, sleep: { _ in })
+            }
         }
     }
 }

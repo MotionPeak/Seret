@@ -1,5 +1,10 @@
 import Foundation
 
+public enum RealDebridAuthError: Error, Equatable {
+    /// The device code's `expiresIn` budget elapsed before the user authorized.
+    case deviceCodeExpired
+}
+
 /// Real-Debrid OAuth2 device-code flow using the public open-source client id
 /// (`X245A4XAIBGVM`) — no client secret required to start. See spec §5.2.
 public struct RealDebridAuthClient: Sendable {
@@ -68,5 +73,29 @@ public struct RealDebridAuthClient: Sendable {
                 "code": token.refreshToken,
                 "grant_type": Self.grantType,
             ])
+    }
+
+    /// Polls `pollCredentials` on the code's `interval` until the user authorizes
+    /// (returns credentials) or the code's `expiresIn` budget is exhausted
+    /// (throws `.deviceCodeExpired`). The RD poll **cadence lives here in the brain**
+    /// so app UI just `await`s this once. `sleep` is injectable for instant tests;
+    /// production uses `Task.sleep`, which makes the wait cancellable.
+    public func awaitCredentials(
+        for code: RDDeviceCode,
+        clientID: String = openSourceClientID,
+        sleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
+    ) async throws -> RDDeviceCredentials {
+        let interval = max(1, code.interval)
+        var remaining = code.expiresIn
+        while true {
+            if let credentials = try await pollCredentials(deviceCode: code.deviceCode,
+                                                           clientID: clientID) {
+                return credentials
+            }
+            guard remaining > 0 else { throw RealDebridAuthError.deviceCodeExpired }
+            let step = min(interval, remaining)
+            try await sleep(.seconds(step))
+            remaining -= step
+        }
     }
 }
