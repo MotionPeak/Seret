@@ -36,6 +36,10 @@ public struct TMDBClient: Sendable {
         try await get("tv/\(id)", [])
     }
 
+    public func tvSeasonDetails(tvID: Int, season: Int) async throws -> TMDBSeasonDetails {
+        try await get("tv/\(tvID)/season/\(season)", [])
+    }
+
     /// Builds a TMDB image URL from a `poster_path`/`backdrop_path` (e.g. "/abc.jpg").
     /// Returns nil when `path` is nil. `size` is a TMDB size token like "w500" or "original".
     public static func imageURL(path: String?, size: String = "w500") -> URL? {

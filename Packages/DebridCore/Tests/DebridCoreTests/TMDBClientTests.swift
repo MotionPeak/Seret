@@ -67,5 +67,25 @@ extension MockTests {
             #expect(url?.absoluteString == "https://image.tmdb.org/t/p/w500/abc.jpg")
             #expect(TMDBClient.imageURL(path: nil) == nil)
         }
+
+        @Test func fetchesSeasonEpisodes() async throws {
+            MockURLProtocol.stub(status: 200, json: #"""
+            {"season_number":1,"episodes":[
+              {"episode_number":1,"name":"Winter Is Coming","overview":"Ned…",
+               "still_path":"/s1.jpg","runtime":62,"air_date":"2011-04-17"},
+              {"episode_number":2,"name":"The Kingsroad","overview":"The Lannisters…",
+               "still_path":"/s2.jpg","runtime":56,"air_date":"2011-04-24"}
+            ]}
+            """#)
+            let client = TMDBClient(apiKey: "KEY", http: HTTPClient(session: .mock))
+            let season = try await client.tvSeasonDetails(tvID: 1399, season: 1)
+            #expect(season.seasonNumber == 1)
+            #expect(season.episodes.count == 2)
+            #expect(season.episodes[0].name == "Winter Is Coming")
+            #expect(season.episodes[0].runtime == 62)
+            #expect(season.episodes[0].stillPath == "/s1.jpg")
+            #expect(season.episodes[0].airDate == "2011-04-17")
+            #expect(season.episodes[1].episodeNumber == 2)
+        }
     }
 }
