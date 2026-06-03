@@ -1,3 +1,4 @@
+import DebridCore
 import SwiftUI
 
 /// The signed-in root: a tvOS sidebar (Movies · Shows · Settings) over the library store.
@@ -33,15 +34,25 @@ struct LibraryShell: View {
     @ViewBuilder private var detail: some View {
         if let store = session.libraryStore {
             switch selection {
-            case .movies:
-                LibraryScreen(title: "Movies", items: store.movies,
-                              state: store.state, onRetry: { store.retry() })
-            case .shows:
-                LibraryScreen(title: "Shows", items: store.shows,
-                              state: store.state, onRetry: { store.retry() })
-            case .settings:
-                SettingsView()
+            case .movies:   browse("Movies", store.movies, store)
+            case .shows:    browse("Shows", store.shows, store)
+            case .settings: SettingsView()
             }
+        }
+    }
+
+    @ViewBuilder
+    private func browse(_ title: String, _ items: [MediaItem], _ store: LibraryStore) -> some View {
+        NavigationStack {
+            LibraryScreen(title: title, items: items, state: store.state, onRetry: { store.retry() })
+                .navigationDestination(for: MediaItem.self) { item in
+                    if let details = session.detailsProvider {
+                        DetailView(item: item, details: details, watch: session.watchStore)
+                    }
+                }
+                .navigationDestination(for: PlaybackRequest.self) { request in
+                    PlayerPlaceholderView(request: request)
+                }
         }
     }
 }

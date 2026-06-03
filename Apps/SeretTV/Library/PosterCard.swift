@@ -2,12 +2,12 @@ import DebridCore
 import SwiftUI
 
 /// One focusable poster tile (tvOS `.card` style gives the focus lift + ring).
-/// Browse-only in 7b-i — selecting it is a no-op; Detail wires the action in 7b-ii.
+/// Selecting it pushes the item's Detail screen (see `LibraryShell` navigationDestination).
 struct PosterCard: View {
     let item: MediaItem
 
     var body: some View {
-        Button(action: {}) {
+        NavigationLink(value: item) {
             VStack(alignment: .leading, spacing: 10) {
                 poster
                 Text(item.title)
