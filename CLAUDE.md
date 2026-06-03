@@ -9,7 +9,7 @@
 
 It replaces this old stack: `DMM (Instant RD) → Real-Debrid → Zurg+rclone mount → Plex Server (Synology) → Plex app`. Seret is the app *and* the server *and* the organizer, all on-device.
 
-## Status — **Plans 1–6 DONE — the `DebridCore` brain is feature-complete**; Plan 7 (the Apple TV app, first UI) next
+## Status — **Plans 1–6 + Plan 7a DONE** — `DebridCore` brain feature-complete **and the `SeretTV` tvOS app shell + device-code sign-in merged to `main`**; Plan 7b (library browse) next
 
 **The `DebridCore` package is real, on `main` ([github.com/MotionPeak/Seret](https://github.com/MotionPeak/Seret)) — 110 tests green, zero warnings.** Built test-first via the superpowers pipeline (brainstorm → spec → one plan per slice → subagent-driven TDD), each plan adversarially reviewed (spec + code-quality + final) before a fast-forward merge to `main`.
 
@@ -23,19 +23,13 @@ It replaces this old stack: `DMM (Instant RD) → Real-Debrid → Zurg+rclone mo
 - **Plan 6 slice 2 — subtitles:** `SubtitleProvider` seam + `SubtitleQuery`/`SubtitleResult`/`SubtitleError` (+ `.movie`/`.episode` domain query builders); `OpenSubtitlesProvider` (`actor`: `search` → `download` to a **path-safe** temp file; lazy login + cached JWT; daily-cap → `.dailyCapReached`; one-shot 401 re-login; login auth-fail → `.notAuthenticated`); `HTTPClient` gained JSON-body `post(_:json:)` + raw-bytes `data(_:)`. Search prefers `tmdb_id`; transport mocked in tests.
 - **Plan 6 slice 3 — VideoPlayerEngine:** the playback seam — a `@MainActor VideoPlayerEngine` protocol (load/play/seek, track enumeration+selection, `addExternalSubtitle`, `events: AsyncStream<PlaybackEvent>`) + playback model (`PlaybackState`/`PlaybackTime`/`MediaTrack`/`PlaybackEvent`) + `PlaybackCoordinator` (resume + best-effort save via `WatchProgressStore`, finished at ~95%). Protocol + model only (no VLCKit/UI in the package); the VLCKit engine + player view ship with the app (Plan 7).
 
-### ▶ RESUME HERE — Plan 7 (Apple TV app — the FIRST UI, NOT yet written)
+### ▶ RESUME HERE — Plan 7 sliced 7a/7b/7c; **7a (foundation + sign-in) DONE & merged to `main`**
 
-**The `DebridCore` brain is feature-complete (Plans 1–6, 110 tests, all merged + pushed).** Plan 7 puts a native **tvOS** UI on top: it implements `VideoPlayerEngine` with **VLCKit** (`TVVLCKit`) and consumes the brain — RD **device-code auth**, `LibraryService` (cache-first + incremental library), `WatchProgressStore` (resume), `OpenSubtitlesProvider` (subs), `PlaybackCoordinator` (save/restore). **Nothing app-side exists yet:** `Apps/SeretTV/`, `project.yml`, `Secrets.xcconfig` are all unbuilt.
+Plan 7 (first native UI) is built as three vertical slices. **Plan 7a — DONE & merged to `main` 2026-06-03** (fast-forward, 8 code commits): the **`SeretTV` tvOS app** — XcodeGen `project.yml`, device-code **sign-in** (`AuthFlow` seam + `SignInModel` phase machine + `SignInView`/QR), **`AppSession` + `RootView`** shell (sign-in → Keychain → Home stub → Sign Out), placeholder assets, Secrets/lint scaffolding. The one brain change: `RealDebridAuthClient.awaitCredentials(for:)` (tested device-code poll loop) — DebridCore now **112 tests**, zero warnings. Each task ran subagent-driven (spec + code-quality review) plus a final whole-branch review (merge-ready). **RD device-code auth verified against the live account** (owner authorized; device named "Apple TV" in RD). Deferred formality: the app's own DoD screenshots (live code → Home → Sign Out) once RD's device-code rate-limit is cold (see Gotchas).
 
-**▶ To start Plan 7 in a new session:** just say **"start Plan 7"** — I'll run the brainstorm (scope which screens land first + the project structure + the decisions below), then spec → plan → execute subagent-driven, **verifying each screen in the tvOS simulator (screenshot) before claiming anything done** (UI is verified in the simulator, never faked).
+**▶ NEXT = Plan 7b (library browse):** Home (Continue Watching / Recently Added) · Movies · Shows · Detail · episodes, wired to the finished `LibraryService`. **Needs your TMDB API key** (v3) in the gitignored `Secrets.xcconfig`. Say **"start Plan 7b"** → spec → plan → execute subagent-driven, verifying each screen in the tvOS simulator (screenshot) before claiming done. **Then 7c** = player (VLCKit `VideoPlayerEngine` impl + on-demand subs + resume; needs the OpenSubtitles key; `TVVLCKit` integrated here). **Then Plan 8** = iPhone/iPad from the same brain (tab bar / `NavigationSplitView` + `MobileVLCKit`).
 
-**Have ready before we start (yours to provide):**
-- A **TMDB API key** (v3) and an **OpenSubtitles API key + account** (username/password) → they go in a gitignored `Secrets.xcconfig`.
-- Your **Apple Developer team / bundle-ID** choice for signing (placeholder `com.solomons.seret.tv`).
-
-**Upfront decisions for the Plan 7 brainstorm:** VLCKit integration — **SPM binary target vs CocoaPods** for `TVVLCKit` (Risk R2); the **XcodeGen `project.yml`** layout (mirror the Nikud setup); and **which screen first** (device-code sign-in is the natural start → then Home / Detail / Player per spec §6).
-
-**Then Plan 8** = the iPhone/iPad app from the same brain — mostly UI adaptation (tab bar / `NavigationSplitView` + `MobileVLCKit`), not new logic.
+**Decisions now LOCKED (from 7a):** module name **`Seret`**; bundle `com.solomons.seret.tv`; **device signing needs a team with an Apple Development cert** — `ML9HDN3QZS` has only a Developer-ID (macOS-distribution) cert, the personal team `7NY9RRS56S` has the dev cert (signed via Xcode GUI); VLCKit = vendored official `TVVLCKit.xcframework` (stable 3.x) fetched by `Scripts/fetch-frameworks.sh`, embedded via XcodeGen like Nikud's `llama.xcframework` (wired in 7c); `project.yml` mirrors Nikud. The tvOS app's unit-test target is app-hosted (`@testable import Seret`) and `@main` guards on `XCTestConfigurationFilePath` so tests fire no network.
 
 ## The one architectural rule
 
@@ -125,6 +119,7 @@ Run the **full** suite (not just `--filter`) before merging. Any new suite that 
 
 - VLCKit is **Objective-C + per-platform** (`TVVLCKit` ≠ `MobileVLCKit`). Wrap behind `VideoPlayerEngine`; keep `DebridCore` VLCKit-free.
 - RD **rate-limits**; refresh tokens on `401`; unrestricted links **expire** (resolve at play time, never store).
+- **RD throttles `oauth/v2/device/code?new_credentials=yes` HARD.** A burst of device-code generations (e.g. repeated tvOS test launches / Try-Again taps) gets a bare **HTTP 403** `{"error":null,"error_code":null}` with an undocumented, long ("undefined") cooldown — *not* the documented 250 req/min REST limit (that returns 429). A real user signs in **once** and never trips it, so when verifying the tvOS sign-in **do NOT relaunch/retry repeatedly** — it locks you out for a long while (root-caused the hard way in Plan 7a). The simulator and a real Apple TV share one bucket (same OS TLS fingerprint); curl/host has a separate, unthrottled bucket — handy to generate a code out-of-band for verification. `SignInModel.message(for:)` maps 403/429 to a clear "Real-Debrid is busy, wait a minute" message.
 - Swift Testing runs suites **in parallel** — network-mock suites must nest under `MockTests` (serialized) or they race on the shared handler.
 - SwiftData+CloudKit (Plan 6) needs **all properties optional or defaulted, no unique constraints**.
 - RD removed `instantAvailability`; cache-checking for the later Add flow needs research.
