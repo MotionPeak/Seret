@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Resolves launch state, then routes between sign-in and the (stub) Home.
+/// Resolves launch state, then routes between sign-in and the library shell.
 struct RootView: View {
     @Environment(AppSession.self) private var session
 
@@ -14,7 +14,7 @@ struct RootView: View {
                 SignInView(model: model)
             }
         case .signedIn:
-            HomeStubView()
+            LibraryShell()
         }
     }
 }
