@@ -1,0 +1,59 @@
+name: Seret
+options:
+  bundleIdPrefix: com.solomons.seret
+  createIntermediateGroups: true
+  deploymentTarget:
+    tvOS: "18.0"
+packages:
+  DebridCore:
+    path: Packages/DebridCore
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  SeretTV:
+    type: application
+    platform: tvOS
+    deploymentTarget: "18.0"
+    sources:
+      - path: Apps/SeretTV
+    dependencies:
+      - package: DebridCore
+    settings:
+      base:
+        PRODUCT_NAME: Seret
+        PRODUCT_BUNDLE_IDENTIFIER: com.solomons.seret.tv
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Seret
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: ML9HDN3QZS
+        TARGETED_DEVICE_FAMILY: "3"
+        ASSETCATALOG_COMPILER_APPICON_NAME: "App Icon & Top Shelf Image"
+        LD_RUNPATH_SEARCH_PATHS:
+          - "$(inherited)"
+          - "@executable_path/Frameworks"
+    configFiles:
+      Debug: Secrets.xcconfig
+      Release: Secrets.xcconfig
+    scheme:
+      testTargets:
+        - SeretTVTests
+  SeretTVTests:
+    type: bundle.unit-test
+    platform: tvOS
+    deploymentTarget: "18.0"
+    sources:
+      - path: Apps/SeretTVTests
+    dependencies:
+      - target: SeretTV
+      - package: DebridCore
+    settings:
+      base:
+        SWIFT_VERSION: "6.0"
+        SWIFT_STRICT_CONCURRENCY: complete
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Seret.app/Seret"
+        BUNDLE_LOADER: "$(TEST_HOST)"
