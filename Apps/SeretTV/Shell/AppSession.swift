@@ -1,4 +1,5 @@
 import DebridCore
+import Foundation
 import Observation
 
 /// Owns the one shared `RealDebridSession` and the app's coarse auth state. It is the
@@ -15,6 +16,9 @@ final class AppSession {
     /// during `body` evaluation.
     private(set) var signInModel: SignInModel?
 
+    /// The library store for the current signed-in episode (nil while signed out).
+    private(set) var libraryStore: LibraryStore?
+
     let realDebrid: RealDebridSession
 
     init(realDebrid: RealDebridSession) {
@@ -28,7 +32,7 @@ final class AppSession {
     func resolve() async {
         do {
             _ = try await realDebrid.validAccessToken()
-            state = .signedIn
+            enterSignedIn()
         } catch RealDebridSessionError.notSignedIn {
             enterSignedOut()
         } catch HTTPError.status(_, _) {
@@ -38,12 +42,12 @@ final class AppSession {
             // Transport/offline but credentials exist: stay signed in; later calls retry.
             // (A genuine decoding bug would also land here as optimistic-signedIn; the
             // first real library call in 7b surfaces it — acceptable for this slice.)
-            state = .signedIn
+            enterSignedIn()   // transport/offline with stored creds: optimistic
         }
     }
 
     func markSignedIn() {
-        state = .signedIn
+        enterSignedIn()
         signInModel = nil
     }
 
@@ -54,9 +58,30 @@ final class AppSession {
 
     /// Enter `.signedOut` with a fresh sign-in model for the new episode.
     private func enterSignedOut() {
+        guard state != .signedOut else { return }
         signInModel = SignInModel(
             flow: LiveAuthFlow(auth: RealDebridAuthClient(), session: realDebrid),
             onSignedIn: { [weak self] in self?.markSignedIn() })
+        libraryStore = nil
         state = .signedOut
+    }
+
+    /// Enter `.signedIn`, composing the DebridCore library pipeline once. Thin glue: the app
+    /// assembles brain objects and reads a config value; no RD/TMDB logic lives here.
+    private func enterSignedIn() {
+        guard state != .signedIn else { return }
+        let tmdb = TMDBClient(apiKey: Secrets.tmdbAPIKey)
+        let service = LibraryService(
+            torrents: TorrentsClient(tokens: realDebrid),
+            builder: LibraryBuilder(),
+            enricher: MetadataEnricher(tmdb: tmdb),
+            store: LibrarySnapshotStore(directory: Self.cachesDirectory))
+        libraryStore = LibraryStore(library: service)
+        state = .signedIn
+    }
+
+    private static var cachesDirectory: URL {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSTemporaryDirectory())
     }
 }
