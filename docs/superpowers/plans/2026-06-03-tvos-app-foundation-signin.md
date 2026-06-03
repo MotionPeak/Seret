@@ -403,7 +403,7 @@ targets:
         SWIFT_STRICT_CONCURRENCY: complete
 ```
 
-> **Test host:** the `- target: SeretTV` dependency makes XcodeGen wire `SeretTVTests` as an **app-hosted** unit test (it sets `TEST_HOST`/`BUNDLE_LOADER` and the scheme's host application automatically), which is what lets `@testable import SeretTV` resolve the app's symbols. If `xcodebuild … test` later fails to find the host, add these to the `SeretTVTests` `settings.base` and re-generate:
+> **Test host:** the `- target: SeretTV` dependency makes XcodeGen wire `SeretTVTests` as an **app-hosted** unit test (it sets `TEST_HOST`/`BUNDLE_LOADER` and the scheme's host application automatically), which is what lets `@testable import Seret` resolve the app's symbols. If `xcodebuild … test` later fails to find the host, add these to the `SeretTVTests` `settings.base` and re-generate:
 > ```yaml
 >         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Seret.app/Seret"
 >         BUNDLE_LOADER: "$(TEST_HOST)"
@@ -434,7 +434,7 @@ Create `Apps/SeretTVTests/SmokeTests.swift`:
 
 ```swift
 import Testing
-@testable import SeretTV
+@testable import Seret
 
 @Test func appTargetLinks() {
     #expect(Bool(true))
@@ -604,7 +604,7 @@ Create `Apps/SeretTVTests/SignInModelTests.swift`:
 import Testing
 import Foundation
 import DebridCore
-@testable import SeretTV
+@testable import Seret
 
 private func makeDeviceCode() -> RDDeviceCode {
     let json = #"""
@@ -1247,3 +1247,25 @@ Share the four screenshots (`signin`, `home`, `relaunch`, `signedout`) and the g
 - **Spec coverage:** §4.2 project.yml → Task 3; §4.3 VLCKit scaffold → Tasks 2–3; §5.2 AuthFlow → Task 4; §5.3 SignInModel → Task 4; §5.4 SignInView → Task 5; §5.5 app entry + session → Task 6; §7 error/edge handling → `SignInModel.message` + `AppSession.resolve` (Tasks 4, 6); §8 unit test + simulator verification → Tasks 4, 7. All DoD items mapped above.
 - **Type consistency:** `AuthFlow.begin()/awaitSignIn(_:)`, `SignInModel.Phase`/`run()`/`retry()`/`attempt`, `AppSession.state/resolve()/signInModel()/markSignedIn()/signOut()`, and `RealDebridAuthClient.awaitCredentials(for:clientID:sleep:)` are used identically everywhere they appear.
 - **Deviations from spec (intentional, owner-approved):** (1) 7a touches `DebridCore` once to add the tested poll loop (spec said "unchanged" under the wrong assumption that cadence already existed). (2) Launch routing uses `validAccessToken()` error discrimination rather than a new "have credentials?" API — no extra brain surface.
+
+---
+
+## As-built & verification notes (post-execution, 2026-06-03)
+
+Executed subagent-driven (fresh implementer + spec review + code-quality review per task). All 6 build tasks committed on `feat/tvos-foundation-signin` (not pushed); DebridCore 112 tests green; app builds zero-warning; `SignInModel` tests pass.
+
+**As-built deltas from the plan above (the code is the source of truth):**
+- **Module name is `Seret`** (because `PRODUCT_NAME: Seret`), not `SeretTV` — tests use `@testable import Seret` (fixed in the snippets above).
+- **Test target is app-hosted** with explicit `TEST_HOST`/`BUNDLE_LOADER`/`GENERATE_INFOPLIST_FILE` + `SWIFT_VERSION` (XcodeGen's auto-host pointed at the target name, not the `Seret.app/Seret` product binary). The plan flagged this as a contingency; it became required.
+- **`.establishing` phase dropped** from `SignInModel.Phase` (code-review: it was set synchronously right before `.signedIn`, so SwiftUI never rendered it — dead observable state). `SignInView`'s switch is the 5 real phases.
+- **Model creation moved out of `RootView.body`** into `AppSession.enterSignedOut()` (code-review: building the model in `body` is a state-mutation-during-view-update smell). `AppSession.signInModel` is now an observable `private(set)` built on the signed-out transition.
+- **Sign-out reordered** in `SettingsView` to `dismiss()` then `await signOut()` (avoid dismissing a torn-down presenter).
+- **`fetch-frameworks.sh` hardened** (post-`tar` `exit 1` guard + `curl --retry`) and **the asset generator** got a repo-root guard + fail-fast `try!` and opaque (`noneSkipLast`) PNGs (tvOS icons must have no alpha or actool warns).
+- **`displayURL` keeps the query string** (future-proofing).
+- **Added `feat(tvos)` commit `2f5da22`:** clearer sign-in message for RD `403/429` rate-limit (see Task 7 note below).
+
+**Task 7 verification outcome:**
+- A long red-herring: the app's sign-in showed "Couldn't reach Real-Debrid". Root-caused NOT to code/TLS/IPv6/the simulator, but to **RD's edge rate-limiting `oauth/v2/device/code?new_credentials=yes`** — dozens of debug requests tripped RD's throttle → a bare HTTP 403 (RD docs: 250 req/min REST limit returns 429; the device-code endpoint's 403 throttle is undocumented / "undefined" duration). Proven: the app's own `URLSession` pulled a clean **200** from that endpoint (and all RD endpoints + Google) once the throttle eased.
+- **Live RD auth round-trip CONFIRMED** (first non-mocked validation): via the unthrottled host path, the owner authorized on their phone (device named "Apple TV" in RD) → `device/code` → `device/credentials` (per-user client_id+secret) → `token` (real `Bearer` access_token, `expires_in` 86400s, refresh present). Confirms `RealDebridAuthClient` + `RealDebridSession.establish` endpoints/params/shapes all match live RD.
+- **Still pending (cosmetic, not functional):** the app capturing its *own* DoD screenshots (live code screen → signed-in Home → relaunch-persists → Sign Out). Blocked only by RD's throttle on the app fingerprint; one clean app sign-in once it's cold (overnight) completes them.
+- **Lesson (recorded):** do NOT hammer RD's `device/code` endpoint while testing — it throttles to a bare 403 fast and the cooldown is long. A real user signs in once and never trips it.
