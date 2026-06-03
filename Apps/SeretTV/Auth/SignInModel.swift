@@ -50,6 +50,9 @@ final class SignInModel {
         switch error {
         case RealDebridAuthError.deviceCodeExpired:
             return "That code expired before you signed in. Try again to get a new one."
+        case HTTPError.status(let code, _) where code == 403 || code == 429:
+            // Real-Debrid rate-limits device-code generation; a burst of attempts gets a bare 403.
+            return "Real\u{2011}Debrid is busy (too many recent attempts). Wait a minute, then try again."
         default:
             return "Couldn't reach Real\u{2011}Debrid. Check your connection and try again."
         }
