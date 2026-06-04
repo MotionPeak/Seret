@@ -11,6 +11,9 @@ public protocol VideoPlayerEngine: AnyObject {
     func load(url: URL, headers: [String: String])
     func play()
     func pause()
+    /// Halt playback and release the underlying player. After `stop()`, the engine is done —
+    /// its `events` stream finishes. Called from `PlayerModel.teardown()`.
+    func stop()
     func seek(to seconds: Double)
 
     var audioTracks: [MediaTrack] { get }

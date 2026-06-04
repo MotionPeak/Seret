@@ -26,6 +26,7 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
 
     func play()  { player.play() }
     func pause() { player.pause() }
+    func stop()  { player.stop(); continuation.finish() }
 
     func seek(to seconds: Double) {
         player.time = VLCTime(int: Int32(seconds * 1000))

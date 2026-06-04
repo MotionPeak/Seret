@@ -7,6 +7,7 @@ final class MockPlayerEngine: VideoPlayerEngine {
     private(set) var loaded: (url: URL, headers: [String: String])?
     private(set) var didPlay = false
     private(set) var didPause = false
+    private(set) var didStop = false
     private(set) var seekedTo: Double?
     private(set) var selectedAudioID: String?
     private(set) var selectedSubtitleID: String?
@@ -25,6 +26,7 @@ final class MockPlayerEngine: VideoPlayerEngine {
     func load(url: URL, headers: [String: String]) { loaded = (url, headers) }
     func play() { didPlay = true; continuation.yield(.state(.playing)) }
     func pause() { didPause = true }
+    func stop() { didStop = true; continuation.finish() }
     func seek(to seconds: Double) { seekedTo = seconds }
     func selectAudioTrack(id: String?) { selectedAudioID = id }
     func selectSubtitleTrack(id: String?) { selectedSubtitleID = id }

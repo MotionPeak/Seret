@@ -9,6 +9,7 @@ final class FakeVideoPlayerEngine: VideoPlayerEngine {
     private(set) var loadedURL: URL?
     private(set) var seekedTo: Double?
     private(set) var playCalled = false
+    private(set) var stopCalled = false
     private(set) var addedSubtitles: [URL] = []
     private(set) var selectedSubtitleID: String??
 
@@ -27,6 +28,7 @@ final class FakeVideoPlayerEngine: VideoPlayerEngine {
     func load(url: URL, headers: [String: String]) { loadedURL = url }
     func play() { playCalled = true }
     func pause() {}
+    func stop() { stopCalled = true; continuation.finish() }
     func seek(to seconds: Double) { seekedTo = seconds }
     func selectAudioTrack(id: String?) {}
     func selectSubtitleTrack(id: String?) { selectedSubtitleID = id }

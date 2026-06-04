@@ -102,6 +102,7 @@ import DebridCore
         engine.emit(.time(.init(position: 42, duration: 100))); await model.waitForIdleForTesting()
         await model.teardown()
         #expect(saves.last?.0 == 42)
+        #expect(engine.stopCalled == true)
     }
 
     @Test func requestSubtitleDownloadsAttachesAndSelects() async {

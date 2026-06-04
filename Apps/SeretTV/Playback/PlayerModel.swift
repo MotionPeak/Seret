@@ -186,6 +186,7 @@ final class PlayerModel {
         eventTask?.cancel()
         loadTask?.cancel()
         await recordProgress(position, duration)
+        engine.stop()
     }
 
     // MARK: - Recovery
