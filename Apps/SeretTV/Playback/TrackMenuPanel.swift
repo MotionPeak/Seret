@@ -1,36 +1,98 @@
 import SwiftUI
 import DebridCore
 
+/// The Subtitles & Audio side panel. Two tabs (Subtitles · Audio) keep the long track lists from
+/// piling into one messy column; each shows a clean, de-duplicated, language-named list.
 struct TrackMenuPanel: View {
     @Bindable var model: PlayerModel
+    @State private var tab: Tab = .subtitles
+
+    enum Tab: String, CaseIterable { case subtitles = "Subtitles", audio = "Audio" }
 
     var body: some View {
         HStack(spacing: 0) {
             Color.black.opacity(0.35)   // dim; non-interactive (close via Menu — handled by PlayerView)
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    Text("Subtitles").font(.title3.bold())
-                    Button("Off") { model.selectSubtitleOff() }
-                    ForEach(model.subtitleTracks) { track in
-                        Button(track.name) { model.selectSubtitle(id: track.id) }
+            VStack(alignment: .leading, spacing: 26) {
+                tabBar
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
+                        switch tab {
+                        case .subtitles: subtitlesList
+                        case .audio:     audioList
+                        }
                     }
-                    Text("Download from OpenSubtitles").font(.caption).foregroundStyle(.secondary)
-                    ForEach(model.subtitleRows) { row in
-                        SubtitleRowButton(row: row) { Task { await model.requestSubtitle(language: row.language) } }
-                    }
-                    Divider()
-                    Text("Audio").font(.title3.bold())
-                    ForEach(model.audioTracks) { track in
-                        Button(track.name) { model.selectAudio(id: track.id) }
-                    }
+                    .padding(.trailing, 8)
+                    .focusSection()   // ensures focus lands in the list when the panel opens
                 }
-                .padding(28)
-                .focusSection()   // ensures focus lands in the panel when it opens (Menu closes it)
             }
-            .frame(width: 600)
+            .padding(40)
+            .frame(width: 640)
             .background(.ultraThinMaterial)
         }
         .ignoresSafeArea()
+    }
+
+    private var tabBar: some View {
+        HStack(spacing: 14) {
+            ForEach(Tab.allCases, id: \.self) { t in
+                Button { tab = t } label: {
+                    Text(t.rawValue).font(.title3.weight(.semibold))
+                        .padding(.horizontal, 24).padding(.vertical, 12)
+                }
+                .buttonStyle(.bordered)
+                .tint(tab == t ? .white : .gray)
+            }
+        }
+    }
+
+    // MARK: - Subtitles
+
+    @ViewBuilder private var subtitlesList: some View {
+        Button("Off") { model.selectSubtitleOff() }
+        ForEach(labeled(model.subtitleTracks), id: \.track.id) { entry in
+            Button(entry.label) { model.selectSubtitle(id: entry.track.id) }
+        }
+        Text("Download from OpenSubtitles")
+            .font(.caption).foregroundStyle(.secondary).padding(.top, 10)
+        ForEach(model.subtitleRows) { row in
+            SubtitleRowButton(row: row) { Task { await model.requestSubtitle(language: row.language) } }
+        }
+    }
+
+    // MARK: - Audio
+
+    @ViewBuilder private var audioList: some View {
+        if model.audioTracks.isEmpty {
+            Text("No audio tracks").font(.callout).foregroundStyle(.secondary)
+        } else {
+            ForEach(labeled(model.audioTracks), id: \.track.id) { entry in
+                Button(entry.label) { model.selectAudio(id: entry.track.id) }
+            }
+        }
+    }
+
+    // MARK: - Clean names
+
+    /// Turn VLCKit's raw "Track 3 - [German]" names into clean, de-duplicated labels
+    /// ("German", "German 2", …). Prefers the bracketed language, then the language code.
+    private func labeled(_ tracks: [MediaTrack]) -> [(track: MediaTrack, label: String)] {
+        let totals = Dictionary(grouping: tracks, by: { language($0) }).mapValues(\.count)
+        var seen: [String: Int] = [:]
+        return tracks.map { track in
+            let lang = language(track)
+            seen[lang, default: 0] += 1
+            let label = (totals[lang] ?? 1) > 1 ? "\(lang) \(seen[lang]!)" : lang
+            return (track, label)
+        }
+    }
+
+    private func language(_ track: MediaTrack) -> String {
+        if let r = track.name.range(of: #"\[([^\]]+)\]"#, options: .regularExpression) {
+            let inner = track.name[r].dropFirst().dropLast()
+            if !inner.isEmpty { return String(inner) }
+        }
+        if let l = track.language, !l.isEmpty { return l.capitalized }
+        return track.name
     }
 }
 

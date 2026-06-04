@@ -16,7 +16,9 @@ struct BackdropBackground: View {
         if let url = TMDBClient.imageURL(path: path, size: "w1280")
             ?? TMDBClient.imageURL(path: posterFallback, size: "w780") {
             AsyncImage(url: url) { $0.resizable().aspectRatio(contentMode: .fill) }
-                placeholder: { Color.black }
+                placeholder: {
+                    ZStack { Color.black; ProgressView() }   // small indicator, not a flat screen
+                }
         } else {
             LinearGradient(colors: [.gray.opacity(0.3), .black], startPoint: .top, endPoint: .bottom)
         }

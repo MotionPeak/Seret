@@ -1,22 +1,23 @@
 import DebridCore
 import SwiftUI
 
-/// One focusable poster tile (tvOS `.card` style gives the focus lift + ring).
-/// Selecting it pushes the item's Detail screen (see `LibraryShell` navigationDestination).
+/// One focusable poster tile. The poster itself is the `.card` (tvOS focus lift + ring); the title
+/// sits *below* the card as plain text — no grey caption box — so the grid reads cleanly.
 struct PosterCard: View {
     let item: MediaItem
 
+    private let width: CGFloat = 220
+    private let height: CGFloat = 330
+
     var body: some View {
-        NavigationLink(value: item) {
-            VStack(alignment: .leading, spacing: 10) {
-                poster
-                Text(item.title)
-                    .font(.caption)
-                    .lineLimit(1)
-                    .frame(width: 220, alignment: .leading)
-            }
+        VStack(alignment: .leading, spacing: 12) {
+            NavigationLink(value: item) { poster }
+                .buttonStyle(.card)
+            Text(item.title)
+                .font(.callout.weight(.semibold))
+                .lineLimit(1)
+                .frame(width: width, alignment: .leading)
         }
-        .buttonStyle(.card)
     }
 
     @ViewBuilder private var poster: some View {
@@ -24,16 +25,25 @@ struct PosterCard: View {
             AsyncImage(url: url) { image in
                 image.resizable().aspectRatio(contentMode: .fill)
             } placeholder: {
-                placeholder
+                loading
             }
-            .frame(width: 220, height: 330)
+            .frame(width: width, height: height)
             .clipped()
         } else {
-            placeholder.frame(width: 220, height: 330)
+            noPoster.frame(width: width, height: height)
         }
     }
 
-    private var placeholder: some View {
+    /// A small spinner while the poster loads — not a flat grey rectangle.
+    private var loading: some View {
+        ZStack {
+            Rectangle().fill(.gray.opacity(0.18))
+            ProgressView()
+        }
+    }
+
+    /// No artwork available — fall back to the title on a muted tile.
+    private var noPoster: some View {
         Rectangle()
             .fill(.gray.opacity(0.3))
             .overlay {
