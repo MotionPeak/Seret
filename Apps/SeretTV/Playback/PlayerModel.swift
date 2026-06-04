@@ -1,5 +1,6 @@
 import Observation
 import Foundation
+import CoreGraphics
 import DebridCore
 
 /// Orchestrates a single playback session: unrestrict → load → resume → play,
@@ -54,6 +55,8 @@ final class PlayerModel {
     private(set) var scrubTarget: Double = 0
     /// Whether the (UIKit-focusable) scrub surface holds focus — drives the bar's focused look.
     private(set) var scrubberFocused: Bool = false
+    /// Best-effort video frame at the current scrub target (nil until one lands / if unsupported).
+    private(set) var scrubPreviewImage: CGImage?
 
     // MARK: - Stored properties
 
@@ -66,10 +69,13 @@ final class PlayerModel {
     private let unrestrict: (String) async throws -> URL
     private let recordProgress: (Double, Double) async -> Void
     private let subtitles: SubtitleProvider?
+    private let fetchThumbnail: ((URL, Double) async -> CGImage?)?
 
+    private var currentURL: URL?
     private var eventTask: Task<Void, Never>?
     private var loadTask: Task<Void, Never>?
     private var hideControlsTask: Task<Void, Never>?
+    private var thumbnailTask: Task<Void, Never>?
     private var lastSavedPosition: Double = -.infinity
     private let saveInterval: Double = 5
     private let autoHideDelay: Double
@@ -86,8 +92,10 @@ final class PlayerModel {
          unrestrict: @escaping (String) async throws -> URL,
          recordProgress: @escaping (Double, Double) async -> Void,
          subtitles: SubtitleProvider?,
+         fetchThumbnail: ((URL, Double) async -> CGImage?)? = nil,
          autoHideDelay: Double = 4) {
         self.autoHideDelay = autoHideDelay
+        self.fetchThumbnail = fetchThumbnail
         self.item = request.item
         // Preferred source first, then remaining sources in quality order (deduped).
         self.sources = [request.source] + request.item.sources.bestFirst().filter { $0 != request.source }
@@ -136,6 +144,7 @@ final class PlayerModel {
         do {
             let url = try await unrestrict(currentSource.restrictedLink)
             guard !Task.isCancelled else { return }   // superseded by a newer reload()
+            currentURL = url                          // for scrub-preview thumbnails
             engine.load(url: url, headers: [:])
             if let resumeAt, resumeAt > 0 { engine.seek(to: resumeAt) }
             engine.play()
@@ -216,6 +225,7 @@ final class PlayerModel {
     func beginScrub() {
         scrubTarget = position
         isScrubbing = true
+        scrubPreviewImage = nil
         controlsVisible = true
         hideControlsTask?.cancel()            // never auto-hide mid-scrub
     }
@@ -225,6 +235,8 @@ final class PlayerModel {
         guard isScrubbing else { return }
         let upper = duration > 0 ? duration : scrubTarget + max(0, deltaSeconds)
         scrubTarget = min(max(0, scrubTarget + deltaSeconds), upper)
+        scrubPreviewImage = nil                // stale until a frame for the new spot lands
+        scheduleThumbnail()
     }
 
     /// Seek to the preview marker and leave scrub mode. Optimistically advance the playhead so the
@@ -232,6 +244,8 @@ final class PlayerModel {
     func commitScrub() {
         guard isScrubbing else { return }
         isScrubbing = false
+        thumbnailTask?.cancel()
+        scrubPreviewImage = nil
         position = scrubTarget
         engine.seek(to: scrubTarget)
         armAutoHide()
@@ -240,7 +254,24 @@ final class PlayerModel {
     /// Abandon scrub mode without seeking (the playhead is untouched).
     func cancelScrub() {
         isScrubbing = false
+        thumbnailTask?.cancel()
+        scrubPreviewImage = nil
         armAutoHide()
+    }
+
+    /// Debounced best-effort frame fetch for the scrub preview — only fires after the marker
+    /// settles (~350ms), so a continuous swipe doesn't spawn a fetch per move.
+    private func scheduleThumbnail() {
+        guard let fetchThumbnail, let url = currentURL, duration > 0 else { return }
+        let fraction = scrubTarget / duration
+        thumbnailTask?.cancel()
+        thumbnailTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(350))
+            guard !Task.isCancelled, isScrubbing else { return }
+            let image = await fetchThumbnail(url, fraction)
+            guard !Task.isCancelled, isScrubbing else { return }
+            scrubPreviewImage = image
+        }
     }
 
     // MARK: - Controls auto-hide
@@ -279,6 +310,7 @@ final class PlayerModel {
         eventTask?.cancel()
         loadTask?.cancel()
         hideControlsTask?.cancel()
+        thumbnailTask?.cancel()
         await recordProgress(position, duration)
         engine.stop()
     }

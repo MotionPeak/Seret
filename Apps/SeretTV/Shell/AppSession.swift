@@ -117,6 +117,7 @@ final class AppSession {
         guard let torrents, let store = watchProgressStore else { return nil }
         let coordinator = PlaybackCoordinator(store: store)
         let engine = VLCKitVideoPlayerEngine()
+        let thumbnails = ThumbnailProvider()
         let contentKey = request.contentKey
         let sourceKey = WatchKey.source(request.source)
         let model = PlayerModel(
@@ -131,7 +132,8 @@ final class AppSession {
                 await coordinator.record(contentKey: contentKey, sourceKey: sourceKey,
                                          position: position, duration: duration)
             },
-            subtitles: subtitlesProvider)
+            subtitles: subtitlesProvider,
+            fetchThumbnail: { url, fraction in await thumbnails.frame(url: url, fraction: fraction) })
         return (model, engine)
     }
 

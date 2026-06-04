@@ -1,4 +1,5 @@
 import SwiftUI
+import CoreGraphics
 import DebridCore
 
 struct LoadingOverlay: View {
@@ -83,7 +84,7 @@ private struct ScrubBar: View {
         let active = model.scrubberFocused || model.isScrubbing
         let shown = model.isScrubbing ? model.scrubTarget : model.position
         let frac = model.duration > 0 ? min(1, max(0, shown / model.duration)) : 0
-        let previewWidth: CGFloat = 150
+        let previewWidth: CGFloat = 240
         VStack(spacing: 10) {
             GeometryReader { geo in
                 let headX = geo.size.width * frac
@@ -96,14 +97,9 @@ private struct ScrubBar: View {
                             .offset(x: min(geo.size.width - 22, max(0, headX - 11)))
                     }
                     if model.isScrubbing {
-                        // Small preview window centered above the scrubber head.
-                        Text(Timecode.format(shown))
-                            .font(.title3.monospacedDigit().bold())
-                            .padding(.horizontal, 20).padding(.vertical, 12)
-                            .frame(minWidth: previewWidth)
-                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-                            .overlay(RoundedRectangle(cornerRadius: 12).stroke(.white.opacity(0.25), lineWidth: 1))
-                            .offset(x: max(0, min(geo.size.width - previewWidth, headX - previewWidth / 2)), y: -70)
+                        // Frame-preview window centered above the scrubber head.
+                        ScrubPreview(image: model.scrubPreviewImage, time: shown, width: previewWidth)
+                            .offset(x: max(0, min(geo.size.width - previewWidth, headX - previewWidth / 2)), y: -100)
                     }
                 }
                 .frame(maxHeight: .infinity, alignment: .center)
@@ -116,6 +112,37 @@ private struct ScrubBar: View {
                     .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
             }
         }
+    }
+}
+
+/// The scrub preview window: a 16:9 video frame (best-effort) with the target time overlaid,
+/// or a spinner while the frame is being fetched.
+private struct ScrubPreview: View {
+    let image: CGImage?
+    let time: Double
+    let width: CGFloat
+    private var height: CGFloat { width * 9 / 16 }
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(decorative: image, scale: 1, orientation: .up)
+                    .resizable().aspectRatio(contentMode: .fill)
+            } else {
+                ZStack { Color.black.opacity(0.7); ProgressView().controlSize(.small) }
+            }
+        }
+        .frame(width: width, height: height)
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(.white.opacity(0.3), lineWidth: 1))
+        .overlay(alignment: .bottom) {
+            Text(Timecode.format(time))
+                .font(.callout.monospacedDigit().bold())
+                .padding(.horizontal, 10).padding(.vertical, 4)
+                .background(.black.opacity(0.65), in: Capsule())
+                .padding(8)
+        }
+        .shadow(radius: 12)
     }
 }
 
