@@ -101,4 +101,38 @@ final class FakeAuthFlow: AuthFlow {
         #expect(fake.tokenCalls == 0)
         #expect(model.phase == .idle)
     }
+
+    @Test func retryReusesUnexpiredCode() async {
+        let fake = FakeAuthFlow()
+        fake.signInError = HTTPError.transport("offline")
+        var clock = Date(timeIntervalSince1970: 1_000_000)
+        let model = SignInModel(flow: fake, onSignedIn: {}, now: { clock })
+        await model.run()                          // begin #1, awaitSignIn fails
+        guard case .failed = model.phase else { #expect(Bool(false)); return }
+        #expect(fake.beginCalls == 1)
+
+        fake.signInError = nil
+        clock = clock.addingTimeInterval(10)       // 10s later; code (expires_in 1800) still valid
+        model.retry()
+        await model.run()                          // must REUSE the cached code
+        #expect(model.phase == .signedIn)
+        #expect(fake.beginCalls == 1)              // no new device/code minted
+        #expect(fake.awaitCalls == 2)
+    }
+
+    @Test func retryAfterExpiryMintsNewCode() async {
+        let fake = FakeAuthFlow()
+        fake.signInError = HTTPError.transport("offline")
+        var clock = Date(timeIntervalSince1970: 1_000_000)
+        let model = SignInModel(flow: fake, onSignedIn: {}, now: { clock })
+        await model.run()                          // begin #1
+        #expect(fake.beginCalls == 1)
+
+        fake.signInError = nil
+        clock = clock.addingTimeInterval(2000)     // > 1800 expires_in → expired
+        model.retry()
+        await model.run()                          // must mint a NEW code
+        #expect(model.phase == .signedIn)
+        #expect(fake.beginCalls == 2)
+    }
 }

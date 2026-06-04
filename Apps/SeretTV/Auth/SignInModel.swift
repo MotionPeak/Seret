@@ -1,4 +1,5 @@
 import DebridCore
+import Foundation
 import Observation
 
 /// Drives the device-code sign-in as an observable phase machine. The long wait is
@@ -22,17 +23,21 @@ final class SignInModel {
 
     private let flow: AuthFlow
     private let onSignedIn: () -> Void
+    private let now: () -> Date
+    private var cachedCode: RDDeviceCode?
+    private var codeObtainedAt: Date?
 
-    init(flow: AuthFlow, onSignedIn: @escaping () -> Void) {
+    init(flow: AuthFlow, onSignedIn: @escaping () -> Void, now: @escaping () -> Date = { Date() }) {
         self.flow = flow
         self.onSignedIn = onSignedIn
+        self.now = now
     }
 
-    /// Run the full flow once. Safe to call again after `.failed` (retry).
+    /// Run the full flow once. Reuses a still-valid device code on retry so repeated
+    /// attempts don't re-hit RD's throttled `device/code` endpoint.
     func run() async {
-        phase = .requestingCode
         do {
-            let code = try await flow.begin()
+            let code = try await currentOrFreshCode()
             phase = .awaitingAuthorization(code)
             try await flow.awaitSignIn(code)
             phase = .signedIn
@@ -42,6 +47,21 @@ final class SignInModel {
         } catch {
             phase = .failed(Self.message(for: error))
         }
+    }
+
+    /// Reuse the cached code while it has at least one poll interval left; otherwise mint a new one.
+    private func currentOrFreshCode() async throws -> RDDeviceCode {
+        if let cachedCode, let codeObtainedAt {
+            let margin = Double(max(1, cachedCode.interval))
+            if now().timeIntervalSince(codeObtainedAt) < Double(cachedCode.expiresIn) - margin {
+                return cachedCode
+            }
+        }
+        phase = .requestingCode
+        let code = try await flow.begin()
+        cachedCode = code
+        codeObtainedAt = now()
+        return code
     }
 
     func retry() { attempt += 1 }
