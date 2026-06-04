@@ -1,15 +1,27 @@
 import Foundation
 
 /// Everything needed to make and refresh authenticated RD calls.
+/// A `isStatic` credential is a personal API token (no refresh, no device creds).
 public struct StoredCredentials: Codable, Sendable, Equatable {
     public let token: RDToken
     public let deviceCredentials: RDDeviceCredentials
     public let obtainedAt: Date
+    public let isStatic: Bool
 
-    public init(token: RDToken, deviceCredentials: RDDeviceCredentials, obtainedAt: Date) {
+    public init(token: RDToken, deviceCredentials: RDDeviceCredentials,
+                obtainedAt: Date, isStatic: Bool = false) {
         self.token = token
         self.deviceCredentials = deviceCredentials
         self.obtainedAt = obtainedAt
+        self.isStatic = isStatic
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        token = try c.decode(RDToken.self, forKey: .token)
+        deviceCredentials = try c.decode(RDDeviceCredentials.self, forKey: .deviceCredentials)
+        obtainedAt = try c.decode(Date.self, forKey: .obtainedAt)
+        isStatic = try c.decodeIfPresent(Bool.self, forKey: .isStatic) ?? false
     }
 }
 
