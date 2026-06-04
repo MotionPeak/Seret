@@ -1,43 +1,27 @@
 import DebridCore
 import SwiftUI
 
-/// The signed-in root: a tvOS sidebar (Movies · Shows · Settings) over the library store.
+/// The signed-in root: a tvOS top tab bar (Movies · Shows · Settings) over the library store.
+/// The tab bar is the native Apple-TV navigation chrome — it labels the section and collapses
+/// out of the way when focus moves into the grid, so there's no persistent side panel.
 struct LibraryShell: View {
     @Environment(AppSession.self) private var session
-    @State private var selection: Section = .movies
-
-    enum Section: Hashable { case movies, shows, settings }
 
     var body: some View {
-        NavigationSplitView {
-            List {
-                Button { selection = .movies } label: {
-                    Label("Movies", systemImage: "film")
-                }
-                Button { selection = .shows } label: {
-                    Label("Shows", systemImage: "tv")
-                }
-                Button { selection = .settings } label: {
-                    Label("Settings", systemImage: "gearshape")
-                }
+        TabView {
+            Tab("Movies", systemImage: "film") {
+                if let store = session.libraryStore { browse("Movies", store.movies, store) }
             }
-            .navigationTitle("Seret")
-        } detail: {
-            detail
+            Tab("Shows", systemImage: "tv") {
+                if let store = session.libraryStore { browse("Shows", store.shows, store) }
+            }
+            Tab("Settings", systemImage: "gearshape") {
+                SettingsView()
+            }
         }
         // Loads once on appear; re-runs when the store's `retry()` bumps `attempt`.
         .task(id: session.libraryStore?.attempt ?? -1) {
             await session.libraryStore?.load()
-        }
-    }
-
-    @ViewBuilder private var detail: some View {
-        if let store = session.libraryStore {
-            switch selection {
-            case .movies:   browse("Movies", store.movies, store)
-            case .shows:    browse("Shows", store.shows, store)
-            case .settings: SettingsView()
-            }
         }
     }
 

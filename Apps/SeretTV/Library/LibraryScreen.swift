@@ -3,7 +3,8 @@ import SwiftUI
 
 /// Renders one tab (Movies or Shows): the poster grid when loaded, otherwise the
 /// loading / empty / failed state. `items` is the kind-filtered slice from the store;
-/// `state` is the store's overall load state.
+/// `state` is the store's overall load state. The section is labeled by the tab bar, so
+/// `title` drives only the empty-state copy ("No movies yet") — no in-content nav title.
 struct LibraryScreen: View {
     let title: String
     let items: [MediaItem]
@@ -13,7 +14,6 @@ struct LibraryScreen: View {
     var body: some View {
         content
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .navigationTitle(title)
     }
 
     @ViewBuilder private var content: some View {
