@@ -74,6 +74,7 @@ struct PlayerView: View {
             if case .playing = p, focus == nil { focus = .scrubber }
         }
         .onChange(of: model.controlsVisible) { _, visible in focus = visible ? .scrubber : nil }
+        .onChange(of: focus) { _, f in if f != nil { model.showControls() } }   // moving focus = interaction
         .onChange(of: showTracks) { _, open in if !open { focus = .scrubber } }
         .onChange(of: model.shouldDismiss) { _, dismissNow in if dismissNow { dismiss() } }
         .onDisappear { Task { await model.teardown() } }

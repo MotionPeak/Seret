@@ -58,24 +58,14 @@ struct TransportOverlay: View {
                 .buttonStyle(.bordered)
                 .focused($focus, equals: .subtitles)
             }
-            // Scrubber. Select press enters/commits scrub mode; while scrubbing, a trackpad swipe
-            // glides the preview fast (ScrubPad) and a directional click nudges ±10s; not scrubbing,
-            // a directional click skips the playhead ±10s.
+            // Scrubber. When focused, a horizontal trackpad swipe glides a fast preview across the
+            // whole clip (ScrubPad) and lifting seeks there. Swipe up to reach the Subtitles button.
             ScrubBar(model: model)
                 .focusable()
                 .focused($focus, equals: .scrubber)
                 .overlay {
-                    ScrubPad(model: model, isActive: model.isScrubbing)
-                        .allowsHitTesting(model.isScrubbing)
-                }
-                .onTapGesture { model.isScrubbing ? model.commitScrub() : model.beginScrub() }
-                .onMoveCommand { direction in
-                    model.showControls()
-                    switch direction {
-                    case .left:  model.isScrubbing ? model.updateScrub(by: -10) : model.skip(-10)
-                    case .right: model.isScrubbing ? model.updateScrub(by: 10)  : model.skip(10)
-                    default: break
-                    }
+                    ScrubPad(model: model, isActive: focus == .scrubber)
+                        .allowsHitTesting(focus == .scrubber)
                 }
         }
         .padding(48)
