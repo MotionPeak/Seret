@@ -61,12 +61,13 @@ final class PlayerModel {
     private let subtitles: SubtitleProvider?
 
     private var eventTask: Task<Void, Never>?
+    private var loadTask: Task<Void, Never>?
     private var lastSavedPosition: Double = -.infinity
     private let saveInterval: Double = 5
 
     // MARK: - Computed helpers
 
-    var canTryAnotherVersion: Bool { sources.count > 1 }
+    var canTryAnotherVersion: Bool { sourceIndex + 1 < sources.count }
     var currentSource: MediaSource { sources[sourceIndex] }
 
     // MARK: - Init
@@ -91,25 +92,43 @@ final class PlayerModel {
 
     // MARK: - Lifecycle
 
+    /// Called once when the player appears. Starts the long-lived event loop (the single consumer of
+    /// the engine's AsyncStream) and loads the first source. retry()/tryAnotherVersion() re-load
+    /// WITHOUT relaunching the loop, so the single VLCKit stream is consumed continuously across
+    /// source switches.
     func start() {
-        phase = .preparing
-        lastSavedPosition = -.infinity
         eventTask?.cancel()
-        eventTask = Task { await self.run() }
+        eventTask = Task { await self.consumeEvents() }
+        reload()
     }
 
-    private func run() async {
+    private func consumeEvents() async {
+        for await event in engine.events {
+            switch event {
+            case .state(let s): handle(state: s)
+            case .time(let t): await tick(t)
+            }
+        }
+    }
+
+    private func reload() {
+        phase = .preparing
+        position = 0
+        duration = 0
+        lastSavedPosition = -.infinity
+        loadTask?.cancel()
+        loadTask = Task { await self.loadCurrentSource() }
+    }
+
+    private func loadCurrentSource() async {
         do {
             let url = try await unrestrict(currentSource.restrictedLink)
+            guard !Task.isCancelled else { return }   // superseded by a newer reload()
             engine.load(url: url, headers: [:])
             if let resumeAt, resumeAt > 0 { engine.seek(to: resumeAt) }
             engine.play()
-            for await event in engine.events {
-                switch event {
-                case .state(let s): handle(state: s)
-                case .time(let t): await tick(t)
-                }
-            }
+        } catch is CancellationError {
+            return                                       // superseded; not a real failure
         } catch {
             phase = .failed("The Real-Debrid link could not be opened.")
         }
@@ -161,7 +180,49 @@ final class PlayerModel {
 
     func teardown() async {
         eventTask?.cancel()
+        loadTask?.cancel()
         await recordProgress(position, duration)
+    }
+
+    // MARK: - Recovery
+
+    func retry() { reload() }
+
+    func tryAnotherVersion() {
+        guard sourceIndex + 1 < sources.count else { return }
+        sourceIndex += 1
+        reload()
+    }
+
+    // MARK: - Subtitles
+
+    func requestSubtitle(language: String) async {
+        guard let subtitles else { setRow(language, .noAccount); return }
+        guard subtitleRows.first(where: { $0.language == language })?.state != .downloading else { return }
+        setRow(language, .downloading)
+        do {
+            let query = SubtitleQuery.movie(item)
+            let results = try await subtitles.search(query, languages: [language])
+            guard let best = results.first else { setRow(language, .error); return }
+            let url = try await subtitles.download(best)
+            let before = Set(engine.subtitleTracks.map(\.id))
+            engine.addExternalSubtitle(url: url)
+            subtitleTracks = engine.subtitleTracks
+            let newID = subtitleTracks.first(where: { !before.contains($0.id) })?.id
+            engine.selectSubtitleTrack(id: newID)
+            setRow(language, .attached(newID ?? language))
+        } catch let SubtitleError.dailyCapReached(reset) {
+            setRow(language, .capReached(reset))
+        } catch SubtitleError.notAuthenticated {
+            setRow(language, .noAccount)
+        } catch {
+            setRow(language, .error)
+        }
+    }
+
+    private func setRow(_ language: String, _ state: SubtitleRowState) {
+        guard let i = subtitleRows.firstIndex(where: { $0.language == language }) else { return }
+        subtitleRows[i].state = state
     }
 
     // MARK: - Test hook

@@ -103,4 +103,86 @@ import DebridCore
         await model.teardown()
         #expect(saves.last?.0 == 42)
     }
+
+    @Test func requestSubtitleDownloadsAttachesAndSelects() async {
+        let engine = FakeVideoPlayerEngine()
+        let subs = FakeSubtitleProvider()
+        subs.searchResults = [SubtitleResult(fileID: 7, language: "he", release: nil, fileName: "he.srt", downloadCount: 1)]
+        subs.downloadedURL = URL(fileURLWithPath: "/tmp/he.srt")
+        let model = makeModel(request: Fixture.request(), engine: engine, subtitles: subs)
+        model.start(); await model.waitForIdleForTesting()
+        await model.requestSubtitle(language: "he")
+        #expect(subs.searchedLanguages.last == ["he"])
+        #expect(engine.addedSubtitles == [URL(fileURLWithPath: "/tmp/he.srt")])
+        if case .attached = model.subtitleRows.first(where: { $0.language == "he" })?.state {} else {
+            Issue.record("expected he row .attached, got \(String(describing: model.subtitleRows))")
+        }
+    }
+
+    @Test func dailyCapMapsToCapReachedRow() async {
+        let engine = FakeVideoPlayerEngine()
+        let subs = FakeSubtitleProvider()
+        subs.downloadError = SubtitleError.dailyCapReached(resetTime: nil)
+        subs.searchResults = [SubtitleResult(fileID: 7, language: "he", release: nil, fileName: nil, downloadCount: nil)]
+        let model = makeModel(request: Fixture.request(), engine: engine, subtitles: subs)
+        model.start(); await model.waitForIdleForTesting()
+        await model.requestSubtitle(language: "he")
+        #expect(model.subtitleRows.first(where: { $0.language == "he" })?.state == .capReached(nil))
+    }
+
+    @Test func noProviderLeavesRowsNoAccount() async {
+        let model = makeModel(request: Fixture.request(), engine: FakeVideoPlayerEngine(), subtitles: nil)
+        #expect(model.subtitleRows.allSatisfy { $0.state == .noAccount })
+    }
+
+    @Test func tryAnotherVersionAdvancesToNextSourceAndKeepsEventsFlowing() async {
+        let s1 = Fixture.movieSource("rd://one")
+        let s2 = Fixture.movieSource("rd://two")
+        let engine = FakeVideoPlayerEngine()
+        var unrestricted: [String] = []
+        let model = makeModel(request: Fixture.request(sources: [s1, s2]), engine: engine,
+                              unrestrict: { link in unrestricted.append(link); return URL(string: "https://cdn/x.mkv")! })
+        model.start(); await model.waitForIdleForTesting()
+        engine.emit(.state(.failed("boom"))); await model.waitForIdleForTesting()
+        #expect(model.canTryAnotherVersion == true)
+        model.tryAnotherVersion(); await model.waitForIdleForTesting()
+        #expect(unrestricted == ["rd://one", "rd://two"])
+        // The long-lived event loop must still deliver events for the newly-loaded source:
+        engine.emit(.state(.playing)); await model.waitForIdleForTesting()
+        #expect(model.phase == .playing)
+    }
+
+    @Test func retryReloadsCurrentSource() async {
+        let engine = FakeVideoPlayerEngine()
+        var unrestricted: [String] = []
+        let model = makeModel(request: Fixture.request(), engine: engine,
+                              unrestrict: { link in unrestricted.append(link); return URL(string: "https://cdn/x.mkv")! })
+        model.start(); await model.waitForIdleForTesting()
+        engine.emit(.state(.failed("boom"))); await model.waitForIdleForTesting()
+        #expect(model.phase == .failed("boom"))
+        model.retry(); await model.waitForIdleForTesting()
+        #expect(unrestricted == ["rd://link", "rd://link"])   // same source reloaded
+        #expect(model.phase != .failed("boom"))               // reload moved past the failure
+    }
+
+    @Test func canTryAnotherVersionFalseWhenSourcesExhausted() async {
+        let s1 = Fixture.movieSource("rd://one")
+        let s2 = Fixture.movieSource("rd://two")
+        let model = makeModel(request: Fixture.request(sources: [s1, s2]), engine: FakeVideoPlayerEngine())
+        model.start(); await model.waitForIdleForTesting()
+        #expect(model.canTryAnotherVersion == true)
+        model.tryAnotherVersion(); await model.waitForIdleForTesting()
+        #expect(model.canTryAnotherVersion == false)
+    }
+
+    @Test func notAuthenticatedMapsToNoAccountRow() async {
+        let engine = FakeVideoPlayerEngine()
+        let subs = FakeSubtitleProvider()
+        subs.searchResults = [SubtitleResult(fileID: 7, language: "he")]
+        subs.downloadError = SubtitleError.notAuthenticated
+        let model = makeModel(request: Fixture.request(), engine: engine, subtitles: subs)
+        model.start(); await model.waitForIdleForTesting()
+        await model.requestSubtitle(language: "he")
+        #expect(model.subtitleRows.first(where: { $0.language == "he" })?.state == .noAccount)
+    }
 }
