@@ -9,4 +9,10 @@ enum Secrets {
                "TMDB_API_KEY missing — copy Secrets.example.xcconfig → Secrets.xcconfig and set it.")
         return key
     }
+
+    /// OpenSubtitles API key: `OPENSUBTITLES_API_KEY` (Secrets.xcconfig) → `OpenSubtitlesAPIKey` (Info.plist) → here.
+    /// Empty string when unset — callers treat empty as "subtitles unavailable."
+    static var openSubtitlesAPIKey: String {
+        (Bundle.main.object(forInfoDictionaryKey: "OpenSubtitlesAPIKey") as? String) ?? ""
+    }
 }
