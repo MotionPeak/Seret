@@ -48,6 +48,11 @@ final class PlayerModel {
     private(set) var subtitleRows: [SubtitleRow]
     private(set) var shouldDismiss: Bool = false
 
+    /// Continuous swipe-scrub (Step 2). While `isScrubbing`, the transport shows a preview marker at
+    /// `scrubTarget` instead of the live playhead; the seek only happens on `commitScrub()`.
+    private(set) var isScrubbing: Bool = false
+    private(set) var scrubTarget: Double = 0
+
     // MARK: - Stored properties
 
     private let item: MediaItem
@@ -107,6 +112,7 @@ final class PlayerModel {
             switch event {
             case .state(let s): handle(state: s)
             case .time(let t): await tick(t)
+            case .tracksChanged: refreshTracks()
             }
         }
     }
@@ -142,8 +148,7 @@ final class PlayerModel {
             if phase != .playing && phase != .paused { phase = .buffering }
         case .playing:
             phase = .playing
-            audioTracks = engine.audioTracks
-            subtitleTracks = engine.subtitleTracks
+            refreshTracks()
         case .paused:
             phase = .paused
         case .ended:
@@ -162,13 +167,20 @@ final class PlayerModel {
         // behind "Buffering…".
         if t.position > 0, phase == .buffering || phase == .preparing {
             phase = .playing
-            audioTracks = engine.audioTracks
-            subtitleTracks = engine.subtitleTracks
+            refreshTracks()
         }
         if position - lastSavedPosition >= saveInterval {
             lastSavedPosition = position
             await recordProgress(position, duration)
         }
+    }
+
+    /// Pull the engine's current track lists into the published state. Called when playback starts
+    /// and on every `.tracksChanged` event (VLCKit discovers elementary streams asynchronously, and
+    /// an on-demand external subtitle appears after load).
+    private func refreshTracks() {
+        audioTracks = engine.audioTracks
+        subtitleTracks = engine.subtitleTracks
     }
 
     private func finish() async {
@@ -186,6 +198,33 @@ final class PlayerModel {
 
     func skip(_ delta: Double) { engine.seek(to: max(0, position + delta)) }
     func scrub(to seconds: Double) { engine.seek(to: seconds) }
+
+    // MARK: - Swipe-scrub (Step 2)
+
+    /// Begin a swipe-scrub gesture; the preview marker starts at the current playhead.
+    func beginScrub() {
+        scrubTarget = position
+        isScrubbing = true
+    }
+
+    /// Move the preview marker by `deltaSeconds`, clamped to the media's bounds. No seek yet.
+    func updateScrub(by deltaSeconds: Double) {
+        guard isScrubbing else { return }
+        let upper = duration > 0 ? duration : scrubTarget + max(0, deltaSeconds)
+        scrubTarget = min(max(0, scrubTarget + deltaSeconds), upper)
+    }
+
+    /// Seek to the preview marker and end the gesture. Optimistically advance the playhead so the
+    /// bar doesn't snap back to the old position before the engine reports the new time.
+    func commitScrub() {
+        guard isScrubbing else { return }
+        isScrubbing = false
+        position = scrubTarget
+        engine.seek(to: scrubTarget)
+    }
+
+    /// Abandon the gesture without seeking (the playhead is untouched).
+    func cancelScrub() { isScrubbing = false }
 
     func selectSubtitle(id: String) { engine.selectSubtitleTrack(id: id) }
     func selectSubtitleOff() { engine.selectSubtitleTrack(id: nil) }

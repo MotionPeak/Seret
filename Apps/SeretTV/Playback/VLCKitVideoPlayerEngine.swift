@@ -14,8 +14,9 @@ import DebridCore
 /// thread-safe, so the delegate methods need no main-actor hop — events are consumed on
 /// `PlayerModel`'s `@MainActor` loop.
 ///
-/// SPIKE (M2): the rendering path is complete; track/audio/subtitle enumeration is stubbed
-/// and ported to the 4.x object-based track API in M3 once on-device rendering is confirmed.
+/// Track enumeration/selection uses the 4.x **object-based** track API (`VLCMediaPlayerTrack`
+/// with a stable `trackId`), not 3.x integer indexes. Tracks are discovered asynchronously, so
+/// the delegate's `mediaPlayerTrack…` callbacks emit `.tracksChanged` and the model re-pulls.
 @MainActor
 final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
     let videoView = UIView()
@@ -47,11 +48,32 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
         player.addPlaybackSlave(url, type: .subtitle, enforce: true)
     }
 
-    // SPIKE stubs — ported to the 4.x object-based track API in M3 (after rendering is confirmed).
-    var audioTracks: [MediaTrack] { [] }
-    var subtitleTracks: [MediaTrack] { [] }
-    func selectAudioTrack(id: String?) {}
-    func selectSubtitleTrack(id: String?) {}
+    // VLCKit 4.x object-based tracks. `trackId` is libvlc's stable string id (e.g. "audio/0",
+    // "spu/1"); selecting `selectedExclusively` unselects every other track of that kind.
+    var audioTracks: [MediaTrack] { player.audioTracks.map { Self.mediaTrack($0, kind: .audio) } }
+    var subtitleTracks: [MediaTrack] { player.textTracks.map { Self.mediaTrack($0, kind: .subtitle) } }
+
+    func selectAudioTrack(id: String?) {
+        guard let id else { player.deselectAllAudioTracks(); return }
+        player.audioTracks.first { $0.trackId == id }?.isSelectedExclusively = true
+    }
+
+    func selectSubtitleTrack(id: String?) {
+        guard let id else { player.deselectAllTextTracks(); return }   // nil = subtitles off
+        player.textTracks.first { $0.trackId == id }?.isSelectedExclusively = true
+    }
+
+    private static func mediaTrack(_ t: VLCMediaPlayer.Track, kind: TrackKind) -> MediaTrack {
+        MediaTrack(id: t.trackId, kind: kind, name: displayName(for: t), language: t.language)
+    }
+
+    /// A user-facing track label. VLCKit usually fills `trackName` ("English", "Track 1 - [eng]");
+    /// fall back to the language code, then the raw id, so a row is never blank.
+    private static func displayName(for t: VLCMediaPlayer.Track) -> String {
+        if !t.trackName.isEmpty { return t.trackName }
+        if let lang = t.language, !lang.isEmpty { return lang.uppercased() }
+        return t.trackId
+    }
 
     /// 4.x state enum: no `.esAdded`/`.ended`; end-of-media surfaces as `.stopped`/`.stopping`.
     private nonisolated static func map(_ s: VLCMediaPlayerState) -> PlaybackState {
@@ -76,5 +98,17 @@ extension VLCKitVideoPlayerEngine: VLCMediaPlayerDelegate {
         let position = Double(p.time.intValue) / 1000.0
         let duration = Double(p.media?.length.intValue ?? 0) / 1000.0
         continuation.yield(.time(PlaybackTime(position: position, duration: duration)))
+    }
+
+    // VLCKit 4.x discovers elementary streams asynchronously and fires these as the track set
+    // changes (including when an external subtitle is attached). PlayerModel re-pulls the lists.
+    nonisolated func mediaPlayerTrackAdded(_ trackId: String, with trackType: VLCMedia.TrackType) {
+        continuation.yield(.tracksChanged)
+    }
+    nonisolated func mediaPlayerTrackRemoved(_ trackId: String, with trackType: VLCMedia.TrackType) {
+        continuation.yield(.tracksChanged)
+    }
+    nonisolated func mediaPlayerTrackUpdated(_ trackId: String, with trackType: VLCMedia.TrackType) {
+        continuation.yield(.tracksChanged)
     }
 }

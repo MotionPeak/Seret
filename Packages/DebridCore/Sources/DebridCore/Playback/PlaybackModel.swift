@@ -38,4 +38,7 @@ public struct MediaTrack: Sendable, Equatable, Identifiable {
 public enum PlaybackEvent: Sendable, Equatable {
     case state(PlaybackState)
     case time(PlaybackTime)
+    /// The set of available audio/subtitle tracks changed (the engine discovered an elementary
+    /// stream, or an external subtitle was attached). Consumers re-read `audioTracks`/`subtitleTracks`.
+    case tracksChanged
 }

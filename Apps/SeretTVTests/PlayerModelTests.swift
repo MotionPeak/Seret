@@ -199,6 +199,51 @@ import DebridCore
         #expect(model.phase == .playing)        // promoted by time progress, no .playing state needed
     }
 
+    @Test func scrubPreviewTracksThenCommitsSeek() async {
+        let engine = FakeVideoPlayerEngine()
+        let model = makeModel(request: Fixture.request(), engine: engine)
+        model.start(); await model.waitForIdleForTesting()
+        engine.emit(.time(.init(position: 50, duration: 100))); await model.waitForIdleForTesting()
+        model.beginScrub()
+        #expect(model.isScrubbing == true)
+        #expect(model.scrubTarget == 50)                 // starts at the playhead
+        model.updateScrub(by: 20)
+        #expect(model.scrubTarget == 70)
+        model.updateScrub(by: 1_000)                     // clamps to duration
+        #expect(model.scrubTarget == 100)
+        model.updateScrub(by: -10_000)                   // clamps to 0
+        #expect(model.scrubTarget == 0)
+        model.commitScrub()
+        #expect(engine.seekedTo == 0)
+        #expect(model.isScrubbing == false)
+    }
+
+    @Test func cancelScrubLeavesPlayheadAndDoesNotSeek() async {
+        let engine = FakeVideoPlayerEngine()
+        let model = makeModel(request: Fixture.request(), engine: engine)   // no resumeAt → no startup seek
+        model.start(); await model.waitForIdleForTesting()
+        engine.emit(.time(.init(position: 50, duration: 100))); await model.waitForIdleForTesting()
+        model.beginScrub(); model.updateScrub(by: 20)
+        model.cancelScrub()
+        #expect(model.isScrubbing == false)
+        #expect(engine.seekedTo == nil)                  // never sought
+    }
+
+    @Test func tracksChangedRefreshesTrackLists() async {
+        // VLCKit discovers elementary streams asynchronously (and an on-demand external subtitle
+        // appears after playback starts). A `.tracksChanged` event must re-pull the engine's lists
+        // so the Subtitles & Audio panel reflects what's actually available.
+        let engine = FakeVideoPlayerEngine()
+        let model = makeModel(request: Fixture.request(), engine: engine)
+        model.start(); await model.waitForIdleForTesting()
+        #expect(model.audioTracks.isEmpty)
+        engine.audioTracks = [MediaTrack(id: "audio/0", kind: .audio, name: "English", language: "en")]
+        engine.subtitleTracks = [MediaTrack(id: "spu/1", kind: .subtitle, name: "Hebrew", language: "he")]
+        engine.emit(.tracksChanged); await model.waitForIdleForTesting()
+        #expect(model.audioTracks.map(\.id) == ["audio/0"])
+        #expect(model.subtitleTracks.map(\.id) == ["spu/1"])
+    }
+
     @Test func lateBufferingDoesNotRevertPlaying() async {
         // VLCKit emits .buffering after playback starts; it must not flash the loading overlay back.
         let engine = FakeVideoPlayerEngine()

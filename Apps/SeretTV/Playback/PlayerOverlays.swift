@@ -58,14 +58,19 @@ struct TransportOverlay: View {
                 .buttonStyle(.bordered)
                 .focused($focus, equals: .subtitles)
             }
-            // Highlightable scrubber. Left/right click = ±10s. (Step 2: continuous swipe-scrub.)
+            // Highlightable scrubber. Swipe the trackpad to glide the preview (ScrubPad); a
+            // directional click nudges ±10s — the preview while scrubbing, else the playhead.
             ScrubBar(model: model)
                 .focusable()
                 .focused($focus, equals: .scrubber)
+                .overlay {
+                    ScrubPad(model: model, isActive: focus == .scrubber)
+                        .allowsHitTesting(focus == .scrubber)
+                }
                 .onMoveCommand { direction in
                     switch direction {
-                    case .left:  model.skip(-10)
-                    case .right: model.skip(10)
+                    case .left:  model.isScrubbing ? model.updateScrub(by: -10) : model.skip(-10)
+                    case .right: model.isScrubbing ? model.updateScrub(by: 10)  : model.skip(10)
                     default: break
                     }
                 }
@@ -82,14 +87,16 @@ private struct ScrubBar: View {
     @Environment(\.isFocused) private var isFocused
 
     var body: some View {
-        let frac = model.duration > 0 ? min(1, max(0, model.position / model.duration)) : 0
+        // While scrubbing, the bar follows the preview marker, not the live playhead.
+        let shown = model.isScrubbing ? model.scrubTarget : model.position
+        let frac = model.duration > 0 ? min(1, max(0, shown / model.duration)) : 0
         VStack(spacing: 10) {
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     Capsule().fill(.white.opacity(0.25)).frame(height: isFocused ? 12 : 6)
                     Capsule().fill(.white).frame(width: geo.size.width * frac, height: isFocused ? 12 : 6)
                     if isFocused {
-                        Text(Timecode.format(model.position))
+                        Text(Timecode.format(shown))
                             .font(.callout.monospacedDigit().bold())
                             .padding(.horizontal, 12).padding(.vertical, 6)
                             .background(.ultraThinMaterial, in: Capsule())
@@ -100,9 +107,9 @@ private struct ScrubBar: View {
             }
             .frame(height: 44)
             HStack {
-                Text(Timecode.format(model.position)).font(.caption.monospacedDigit())
+                Text(Timecode.format(shown)).font(.caption.monospacedDigit())
                 Spacer()
-                Text("-" + Timecode.format(max(0, model.duration - model.position)))
+                Text("-" + Timecode.format(max(0, model.duration - shown)))
                     .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
             }
         }
