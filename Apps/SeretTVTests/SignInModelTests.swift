@@ -28,6 +28,15 @@ final class FakeAuthFlow: AuthFlow {
         awaitCalls += 1
         if let signInError { throw signInError }
     }
+
+    var tokenSignInError: Error?
+    private(set) var tokenCalls = 0
+    private(set) var lastToken: String?
+    func signIn(token: String) async throws {
+        tokenCalls += 1
+        lastToken = token
+        if let tokenSignInError { throw tokenSignInError }
+    }
 }
 
 @MainActor
@@ -61,5 +70,35 @@ final class FakeAuthFlow: AuthFlow {
         await model.run()
         #expect(model.phase == .signedIn)
         #expect(signedInCount == 1)
+    }
+
+    @Test func tokenSignInSucceeds() async {
+        var signedIn = false
+        let fake = FakeAuthFlow()
+        let model = SignInModel(flow: fake, onSignedIn: { signedIn = true })
+        await model.signInWithToken("  MY-TOKEN  ")
+        #expect(model.phase == .signedIn)
+        #expect(signedIn)
+        #expect(fake.tokenCalls == 1)
+        #expect(fake.lastToken == "MY-TOKEN")   // trimmed
+    }
+
+    @Test func tokenSignInInvalidShowsFailure() async {
+        let fake = FakeAuthFlow()
+        fake.tokenSignInError = TokenSignInError.invalidToken
+        let model = SignInModel(flow: fake, onSignedIn: {})
+        await model.signInWithToken("BAD")
+        guard case .failed = model.phase else {
+            #expect(Bool(false), "expected .failed, got \(model.phase)"); return
+        }
+        #expect(fake.tokenCalls == 1)
+    }
+
+    @Test func tokenSignInEmptyIsIgnored() async {
+        let fake = FakeAuthFlow()
+        let model = SignInModel(flow: fake, onSignedIn: {})
+        await model.signInWithToken("   ")
+        #expect(fake.tokenCalls == 0)
+        #expect(model.phase == .idle)
     }
 }

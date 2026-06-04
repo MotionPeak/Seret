@@ -1,5 +1,8 @@
 import DebridCore
 
+/// Thrown when a pasted personal API token is rejected by Real-Debrid.
+enum TokenSignInError: Error, Equatable { case invalidToken }
+
 /// The two device-code steps the sign-in model depends on, so its phase machine
 /// is unit-testable without the network. `LiveAuthFlow` is the real implementation;
 /// tests use a `FakeAuthFlow`. All RD/networking lives in `DebridCore` (the brain) —
@@ -10,6 +13,8 @@ protocol AuthFlow {
     func begin() async throws -> RDDeviceCode
     /// Wait for the user to authorize, then mint + persist tokens. One long await.
     func awaitSignIn(_ code: RDDeviceCode) async throws
+    /// Validate + persist a personal API token (real-debrid.com/apitoken). No device-code dance.
+    func signIn(token: String) async throws
 }
 
 @MainActor
@@ -25,5 +30,10 @@ struct LiveAuthFlow: AuthFlow {
         let credentials = try await auth.awaitCredentials(for: code)
         let token = try await auth.requestToken(deviceCode: code.deviceCode, credentials: credentials)
         try await session.establish(token: token, deviceCredentials: credentials)
+    }
+
+    func signIn(token: String) async throws {
+        guard try await auth.validateToken(token) else { throw TokenSignInError.invalidToken }
+        try await session.establishStaticToken(token)
     }
 }

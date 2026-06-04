@@ -14,6 +14,9 @@ struct SignInView: View {
                     .font(.title2)
             case .awaitingAuthorization(let code):
                 deviceCode(code)
+            case .validatingToken:
+                ProgressView("Validating token…")
+                    .font(.title2)
             case .signedIn:
                 ProgressView("Signing in…")
                     .font(.title2)

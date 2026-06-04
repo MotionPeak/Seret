@@ -11,6 +11,7 @@ final class SignInModel {
         case idle
         case requestingCode
         case awaitingAuthorization(RDDeviceCode)
+        case validatingToken
         case signedIn
         case failed(String)
     }
@@ -45,9 +46,27 @@ final class SignInModel {
 
     func retry() { attempt += 1 }
 
+    /// Sign in with a pasted personal API token instead of the device-code flow.
+    func signInWithToken(_ token: String) async {
+        let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        phase = .validatingToken
+        do {
+            try await flow.signIn(token: trimmed)
+            phase = .signedIn
+            onSignedIn()
+        } catch is CancellationError {
+            // View disappeared mid-validation — leave state untouched.
+        } catch {
+            phase = .failed(Self.message(for: error))
+        }
+    }
+
     /// User-facing message. Never interpolates the raw error (no token/secret leakage).
     static func message(for error: Error) -> String {
         switch error {
+        case TokenSignInError.invalidToken:
+            return "That token wasn't accepted by Real\u{2011}Debrid. Check it and try again."
         case RealDebridAuthError.deviceCodeExpired:
             return "That code expired before you signed in. Try again to get a new one."
         case HTTPError.status(let code, _) where code == 403 || code == 429:
