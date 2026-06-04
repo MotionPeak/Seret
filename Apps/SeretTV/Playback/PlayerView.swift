@@ -5,6 +5,22 @@ import DebridCore
 /// receives the remote's left/right (the scrubber skips ±10s; the button opens the panel).
 enum PlayerControl: Hashable { case scrubber, subtitles }
 
+/// A transparent, focusable full-screen catcher shown while the transport is auto-hidden. The first
+/// remote move/click brings the controls back without performing a transport action.
+private struct WakeLayer: View {
+    let onWake: () -> Void
+    @FocusState private var focused: Bool
+    var body: some View {
+        Color.clear
+            .contentShape(Rectangle())
+            .focusable()
+            .focused($focused)
+            .onMoveCommand { _ in onWake() }
+            .onTapGesture { onWake() }
+            .onAppear { focused = true }
+    }
+}
+
 struct PlayerView: View {
     @State private var model: PlayerModel
     @State private var engine: VLCKitVideoPlayerEngine
@@ -33,19 +49,31 @@ struct PlayerView: View {
             case .playing, .paused, .ended:
                 if model.controlsVisible {
                     TransportOverlay(model: model, focus: $focus) { showTracks = true }
+                } else {
+                    // Controls auto-hid: an invisible focusable layer catches the first remote
+                    // interaction and brings them back (without seeking).
+                    WakeLayer { model.showControls() }
                 }
             }
 
             if showTracks { TrackMenuPanel(model: model) }
         }
-        .onPlayPauseCommand { model.togglePlayPause() }
-        .onExitCommand { if showTracks { showTracks = false } else { dismiss() } }
+        .onPlayPauseCommand {
+            if model.isScrubbing { model.commitScrub() } else { model.togglePlayPause() }
+            model.showControls()
+        }
+        .onExitCommand {
+            if model.isScrubbing { model.cancelScrub() }
+            else if showTracks { showTracks = false }
+            else { dismiss() }
+        }
         .onAppear { model.start() }
         // Land focus on the scrubber when controls appear / the panel closes, so the remote works
         // and Menu (onExitCommand above) fires from within the player.
         .onChange(of: model.phase) { _, p in
             if case .playing = p, focus == nil { focus = .scrubber }
         }
+        .onChange(of: model.controlsVisible) { _, visible in focus = visible ? .scrubber : nil }
         .onChange(of: showTracks) { _, open in if !open { focus = .scrubber } }
         .onChange(of: model.shouldDismiss) { _, dismissNow in if dismissNow { dismiss() } }
         .onDisappear { Task { await model.teardown() } }

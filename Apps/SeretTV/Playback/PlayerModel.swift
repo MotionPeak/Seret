@@ -42,7 +42,7 @@ final class PlayerModel {
     private(set) var phase: Phase = .preparing
     private(set) var position: Double = 0
     private(set) var duration: Double = 0
-    var controlsVisible: Bool = true
+    private(set) var controlsVisible: Bool = true
     private(set) var audioTracks: [MediaTrack] = []
     private(set) var subtitleTracks: [MediaTrack] = []
     private(set) var subtitleRows: [SubtitleRow]
@@ -67,8 +67,10 @@ final class PlayerModel {
 
     private var eventTask: Task<Void, Never>?
     private var loadTask: Task<Void, Never>?
+    private var hideControlsTask: Task<Void, Never>?
     private var lastSavedPosition: Double = -.infinity
     private let saveInterval: Double = 5
+    private let autoHideDelay: Double
 
     // MARK: - Computed helpers
 
@@ -81,7 +83,9 @@ final class PlayerModel {
          engine: VideoPlayerEngine,
          unrestrict: @escaping (String) async throws -> URL,
          recordProgress: @escaping (Double, Double) async -> Void,
-         subtitles: SubtitleProvider?) {
+         subtitles: SubtitleProvider?,
+         autoHideDelay: Double = 4) {
+        self.autoHideDelay = autoHideDelay
         self.item = request.item
         // Preferred source first, then remaining sources in quality order (deduped).
         self.sources = [request.source] + request.item.sources.bestFirst().filter { $0 != request.source }
@@ -149,8 +153,11 @@ final class PlayerModel {
         case .playing:
             phase = .playing
             refreshTracks()
+            armAutoHide()
         case .paused:
             phase = .paused
+            controlsVisible = true            // a paused viewer is looking — keep controls up
+            hideControlsTask?.cancel()
         case .ended:
             Task { await finish() }
         case .failed(let reason):
@@ -168,6 +175,7 @@ final class PlayerModel {
         if t.position > 0, phase == .buffering || phase == .preparing {
             phase = .playing
             refreshTracks()
+            armAutoHide()
         }
         if position - lastSavedPosition >= saveInterval {
             lastSavedPosition = position
@@ -201,10 +209,13 @@ final class PlayerModel {
 
     // MARK: - Swipe-scrub (Step 2)
 
-    /// Begin a swipe-scrub gesture; the preview marker starts at the current playhead.
+    /// Enter scrub mode (a select press on the focused bar). The preview marker starts at the
+    /// playhead; the user then swipes to glide it and presses again to seek. Controls stay up.
     func beginScrub() {
         scrubTarget = position
         isScrubbing = true
+        controlsVisible = true
+        hideControlsTask?.cancel()            // never auto-hide mid-scrub
     }
 
     /// Move the preview marker by `deltaSeconds`, clamped to the media's bounds. No seek yet.
@@ -214,17 +225,41 @@ final class PlayerModel {
         scrubTarget = min(max(0, scrubTarget + deltaSeconds), upper)
     }
 
-    /// Seek to the preview marker and end the gesture. Optimistically advance the playhead so the
+    /// Seek to the preview marker and leave scrub mode. Optimistically advance the playhead so the
     /// bar doesn't snap back to the old position before the engine reports the new time.
     func commitScrub() {
         guard isScrubbing else { return }
         isScrubbing = false
         position = scrubTarget
         engine.seek(to: scrubTarget)
+        armAutoHide()
     }
 
-    /// Abandon the gesture without seeking (the playhead is untouched).
-    func cancelScrub() { isScrubbing = false }
+    /// Abandon scrub mode without seeking (the playhead is untouched).
+    func cancelScrub() {
+        isScrubbing = false
+        armAutoHide()
+    }
+
+    // MARK: - Controls auto-hide
+
+    /// Reveal the transport and re-arm the auto-hide timer. Called on every user interaction.
+    func showControls() {
+        controlsVisible = true
+        armAutoHide()
+    }
+
+    /// Hide the transport after `autoHideDelay` of no interaction — but only while actively playing
+    /// and not scrubbing (paused / buffering / error keep the controls up).
+    private func armAutoHide() {
+        hideControlsTask?.cancel()
+        guard autoHideDelay > 0 else { return }
+        hideControlsTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(autoHideDelay))
+            guard !Task.isCancelled else { return }
+            if phase == .playing, !isScrubbing { controlsVisible = false }
+        }
+    }
 
     func selectSubtitle(id: String) { engine.selectSubtitleTrack(id: id) }
     func selectSubtitleOff() { engine.selectSubtitleTrack(id: nil) }
@@ -235,6 +270,7 @@ final class PlayerModel {
     func teardown() async {
         eventTask?.cancel()
         loadTask?.cancel()
+        hideControlsTask?.cancel()
         await recordProgress(position, duration)
         engine.stop()
     }

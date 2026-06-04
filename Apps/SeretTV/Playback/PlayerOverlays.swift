@@ -52,22 +52,25 @@ struct TransportOverlay: View {
                 Text(model.label).font(.title3.bold())
                 Spacer()
                 // Highlight (move focus up) + press to open the Subtitles & Audio panel.
-                Button { onOpenTracks() } label: {
+                Button { model.showControls(); onOpenTracks() } label: {
                     Label("Subtitles & Audio", systemImage: "captions.bubble")
                 }
                 .buttonStyle(.bordered)
                 .focused($focus, equals: .subtitles)
             }
-            // Highlightable scrubber. Swipe the trackpad to glide the preview (ScrubPad); a
-            // directional click nudges ±10s — the preview while scrubbing, else the playhead.
+            // Scrubber. Select press enters/commits scrub mode; while scrubbing, a trackpad swipe
+            // glides the preview fast (ScrubPad) and a directional click nudges ±10s; not scrubbing,
+            // a directional click skips the playhead ±10s.
             ScrubBar(model: model)
                 .focusable()
                 .focused($focus, equals: .scrubber)
                 .overlay {
-                    ScrubPad(model: model, isActive: focus == .scrubber)
-                        .allowsHitTesting(focus == .scrubber)
+                    ScrubPad(model: model, isActive: model.isScrubbing)
+                        .allowsHitTesting(model.isScrubbing)
                 }
+                .onTapGesture { model.isScrubbing ? model.commitScrub() : model.beginScrub() }
                 .onMoveCommand { direction in
+                    model.showControls()
                     switch direction {
                     case .left:  model.isScrubbing ? model.updateScrub(by: -10) : model.skip(-10)
                     case .right: model.isScrubbing ? model.updateScrub(by: 10)  : model.skip(10)
@@ -87,15 +90,17 @@ private struct ScrubBar: View {
     @Environment(\.isFocused) private var isFocused
 
     var body: some View {
-        // While scrubbing, the bar follows the preview marker, not the live playhead.
+        // While scrubbing, the bar follows the preview marker, not the live playhead, and shows the
+        // tall/bubble treatment even though focus technically sits on the ScrubPad overlay.
+        let active = isFocused || model.isScrubbing
         let shown = model.isScrubbing ? model.scrubTarget : model.position
         let frac = model.duration > 0 ? min(1, max(0, shown / model.duration)) : 0
         VStack(spacing: 10) {
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
-                    Capsule().fill(.white.opacity(0.25)).frame(height: isFocused ? 12 : 6)
-                    Capsule().fill(.white).frame(width: geo.size.width * frac, height: isFocused ? 12 : 6)
-                    if isFocused {
+                    Capsule().fill(.white.opacity(0.25)).frame(height: active ? 12 : 6)
+                    Capsule().fill(.white).frame(width: geo.size.width * frac, height: active ? 12 : 6)
+                    if active {
                         Text(Timecode.format(shown))
                             .font(.callout.monospacedDigit().bold())
                             .padding(.horizontal, 12).padding(.vertical, 6)

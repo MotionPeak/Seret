@@ -10,10 +10,11 @@ import DebridCore
         engine: FakeVideoPlayerEngine,
         unrestrict: @escaping (String) async throws -> URL = { _ in URL(string: "https://cdn/x.mkv")! },
         subtitles: SubtitleProvider? = nil,
-        recorded: @escaping (Double, Double) async -> Void = { _, _ in }
+        recorded: @escaping (Double, Double) async -> Void = { _, _ in },
+        autoHideDelay: Double = 4
     ) -> PlayerModel {
         PlayerModel(request: request, engine: engine, unrestrict: unrestrict,
-                    recordProgress: recorded, subtitles: subtitles)
+                    recordProgress: recorded, subtitles: subtitles, autoHideDelay: autoHideDelay)
     }
 
     @Test func startUnrestrictsLoadsAndPlays() async {
@@ -197,6 +198,38 @@ import DebridCore
         #expect(model.phase == .buffering)
         engine.emit(.time(.init(position: 3, duration: 100))); await model.waitForIdleForTesting()
         #expect(model.phase == .playing)        // promoted by time progress, no .playing state needed
+    }
+
+    @Test func controlsAutoHideWhilePlayingThenWakeShows() async {
+        let engine = FakeVideoPlayerEngine()
+        let model = makeModel(request: Fixture.request(), engine: engine, autoHideDelay: 0.02)
+        model.start(); await model.waitForIdleForTesting()
+        engine.emit(.state(.playing)); await model.waitForIdleForTesting()
+        #expect(model.controlsVisible == true)              // visible as playback starts
+        try? await Task.sleep(nanoseconds: 60_000_000)      // past autoHideDelay
+        #expect(model.controlsVisible == false)             // auto-hid
+        model.showControls()
+        #expect(model.controlsVisible == true)              // woke back up
+    }
+
+    @Test func scrubModeNeverAutoHidesControls() async {
+        let engine = FakeVideoPlayerEngine()
+        let model = makeModel(request: Fixture.request(), engine: engine, autoHideDelay: 0.02)
+        model.start(); await model.waitForIdleForTesting()
+        engine.emit(.state(.playing)); await model.waitForIdleForTesting()
+        model.beginScrub()
+        try? await Task.sleep(nanoseconds: 60_000_000)      // past autoHideDelay
+        #expect(model.isScrubbing == true)
+        #expect(model.controlsVisible == true)              // stays up mid-scrub
+    }
+
+    @Test func pausedKeepsControlsVisible() async {
+        let engine = FakeVideoPlayerEngine()
+        let model = makeModel(request: Fixture.request(), engine: engine, autoHideDelay: 0.02)
+        model.start(); await model.waitForIdleForTesting()
+        engine.emit(.state(.paused)); await model.waitForIdleForTesting()
+        try? await Task.sleep(nanoseconds: 60_000_000)
+        #expect(model.controlsVisible == true)              // a paused viewer keeps the controls
     }
 
     @Test func scrubPreviewTracksThenCommitsSeek() async {
