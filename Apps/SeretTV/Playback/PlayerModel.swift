@@ -176,6 +176,10 @@ final class PlayerModel {
     func skip(_ delta: Double) { engine.seek(to: max(0, position + delta)) }
     func scrub(to seconds: Double) { engine.seek(to: seconds) }
 
+    func selectSubtitle(id: String) { engine.selectSubtitleTrack(id: id) }
+    func selectSubtitleOff() { engine.selectSubtitleTrack(id: nil) }
+    func selectAudio(id: String) { engine.selectAudioTrack(id: id) }
+
     // MARK: - Teardown
 
     func teardown() async {
