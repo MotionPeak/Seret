@@ -51,8 +51,28 @@ struct LibraryShell: View {
                     }
                 }
                 .navigationDestination(for: PlaybackRequest.self) { request in
-                    PlayerPlaceholderView(request: request)
+                    if let (model, engine) = session.makePlayer(for: request) {
+                        PlayerView(model: model, engine: engine,
+                                   backdropURL: TMDBClient.imageURL(path: request.item.backdropPath, size: "original"))
+                    } else {
+                        PlaybackUnavailableView()
+                    }
                 }
         }
+    }
+}
+
+/// Shown only if a player can't be built while signed in (e.g. the SwiftData container failed).
+/// Gives the user a way back instead of a soft-locked blank screen.
+private struct PlaybackUnavailableView: View {
+    @Environment(\.dismiss) private var dismiss
+    var body: some View {
+        VStack(spacing: 20) {
+            Image(systemName: "exclamationmark.triangle").font(.system(size: 54))
+            Text("Unable to start playback.").font(.title2)
+            Button("Back") { dismiss() }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onExitCommand { dismiss() }
     }
 }

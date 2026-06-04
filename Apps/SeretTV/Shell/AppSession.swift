@@ -27,6 +27,11 @@ final class AppSession {
     /// 7c's player + a later Continue-Watching feed reuse this same instance.
     private(set) var watchStore: WatchProgressProviding?
 
+    /// On-demand OpenSubtitles provider (nil while signed out or if no key+account configured).
+    private(set) var subtitlesProvider: SubtitleProvider?
+    private var watchProgressStore: WatchProgressStore?   // concrete ref for PlaybackCoordinator
+    private var torrents: TorrentsClient?
+
     let realDebrid: RealDebridSession
 
     init(realDebrid: RealDebridSession) {
@@ -73,6 +78,9 @@ final class AppSession {
         libraryStore = nil
         detailsProvider = nil
         watchStore = nil
+        watchProgressStore = nil
+        torrents = nil
+        subtitlesProvider = nil
         state = .signedOut
     }
 
@@ -81,16 +89,50 @@ final class AppSession {
     private func enterSignedIn() {
         guard state != .signedIn else { return }
         let tmdb = TMDBClient(apiKey: Secrets.tmdbAPIKey)
+        let torrents = TorrentsClient(tokens: realDebrid)
+        self.torrents = torrents
         let service = LibraryService(
-            torrents: TorrentsClient(tokens: realDebrid),
+            torrents: torrents,
             builder: LibraryBuilder(),
             enricher: MetadataEnricher(tmdb: tmdb),
             store: LibrarySnapshotStore(directory: Self.cachesDirectory))
         libraryStore = LibraryStore(library: service)
         detailsProvider = TMDBDetailsService(client: tmdb)
-        watchStore = (try? ModelContainer(for: WatchProgress.self))
-            .map { WatchProgressStore(modelContainer: $0) as WatchProgressProviding }
+        let concreteStore = (try? ModelContainer(for: WatchProgress.self))
+            .map { WatchProgressStore(modelContainer: $0) }
+        watchProgressStore = concreteStore
+        watchStore = concreteStore.map { $0 as WatchProgressProviding }
+        let osKey = Secrets.openSubtitlesAPIKey
+        if !osKey.isEmpty,
+           let account = KeychainSecretStore(service: "com.solomons.seret.opensubtitles").readAccount() {
+            subtitlesProvider = OpenSubtitlesProvider(apiKey: osKey, credentials: account.credentials)
+        } else {
+            subtitlesProvider = nil
+        }
         state = .signedIn
+    }
+
+    /// Build a fully-wired player for a playback request, or nil if not signed in.
+    func makePlayer(for request: PlaybackRequest) -> (PlayerModel, VLCKitVideoPlayerEngine)? {
+        guard let torrents, let store = watchProgressStore else { return nil }
+        let coordinator = PlaybackCoordinator(store: store)
+        let engine = VLCKitVideoPlayerEngine()
+        let contentKey = request.contentKey
+        let sourceKey = WatchKey.source(request.source)
+        let model = PlayerModel(
+            request: request,
+            engine: engine,
+            unrestrict: { link in
+                let unrestricted = try await torrents.unrestrict(link: link)
+                guard let url = URL(string: unrestricted.download) else { throw URLError(.badURL) }
+                return url
+            },
+            recordProgress: { position, duration in
+                await coordinator.record(contentKey: contentKey, sourceKey: sourceKey,
+                                         position: position, duration: duration)
+            },
+            subtitles: subtitlesProvider)
+        return (model, engine)
     }
 
     private static var cachesDirectory: URL {

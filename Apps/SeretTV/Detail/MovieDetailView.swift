@@ -47,7 +47,7 @@ struct MovieDetailView: View {
             if let best = store.bestSource {
                 if let resume = resumeSeconds {
                     NavigationLink(value: store.playRequest(source: best, episode: nil, label: item.title)) {
-                        Label("Resume \(PlayerPlaceholderView.timecode(resume))", systemImage: "play.fill")
+                        Label("Resume \(Timecode.format(resume))", systemImage: "play.fill")
                     }
                     NavigationLink(value: store.playRequest(source: best, episode: nil,
                                                             label: item.title, fromStart: true)) {

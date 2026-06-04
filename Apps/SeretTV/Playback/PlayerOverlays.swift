@@ -56,9 +56,9 @@ struct TransportOverlay: View {
                     .buttonStyle(.bordered)
                 }
                 HStack(spacing: 12) {
-                    Text(timecode(model.position)).font(.caption.monospacedDigit())
+                    Text(Timecode.format(model.position)).font(.caption.monospacedDigit())
                     ProgressView(value: model.duration > 0 ? model.position / model.duration : 0)
-                    Text("-" + timecode(max(0, model.duration - model.position)))
+                    Text("-" + Timecode.format(max(0, model.duration - model.position)))
                         .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                 }
             }
@@ -66,10 +66,6 @@ struct TransportOverlay: View {
             .background(LinearGradient(colors: [.black.opacity(0.85), .clear],
                                        startPoint: .bottom, endPoint: .top))
         }
-    }
-    private func timecode(_ s: Double) -> String {
-        let t = Int(s), h = t / 3600, m = (t % 3600) / 60, sec = t % 60
-        return h > 0 ? String(format: "%d:%02d:%02d", h, m, sec) : String(format: "%d:%02d", m, sec)
     }
 }
 

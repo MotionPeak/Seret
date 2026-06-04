@@ -8,4 +8,5 @@ struct PlaybackRequest: Hashable {
     let source: MediaSource
     let resumeAt: Double?   // seconds; nil = from the start
     let label: String       // e.g. "Dune: Part Two" or "Game of Thrones — S1·E3"
+    let contentKey: String  // WatchKey for this movie or show+episode; the player records progress under it
 }

@@ -68,6 +68,6 @@ enum Fixture {
     static func request(resumeAt: Double? = nil, sources: [MediaSource]? = nil) -> PlaybackRequest {
         let srcs = sources ?? [movieSource()]
         return PlaybackRequest(item: movie(sources: srcs), source: srcs[0],
-                               resumeAt: resumeAt, label: "Dune: Part Two")
+                               resumeAt: resumeAt, label: "Dune: Part Two", contentKey: "m1")
     }
 }
