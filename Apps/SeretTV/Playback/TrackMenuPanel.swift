@@ -36,11 +36,13 @@ struct TrackMenuPanel: View {
         HStack(spacing: 14) {
             ForEach(Tab.allCases, id: \.self) { t in
                 Button { tab = t } label: {
-                    Text(t.rawValue).font(.title3.weight(.semibold))
-                        .padding(.horizontal, 24).padding(.vertical, 12)
+                    Text(t.rawValue)
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(tab == t ? Color.black : Color.white)   // readable in both states
+                        .padding(.horizontal, 28).padding(.vertical, 14)
+                        .background(tab == t ? Color.white : Color.white.opacity(0.18), in: Capsule())
                 }
-                .buttonStyle(.bordered)
-                .tint(tab == t ? .white : .gray)
+                .buttonStyle(.plain)   // .bordered's white tint hid the selected label (white-on-white)
             }
         }
     }

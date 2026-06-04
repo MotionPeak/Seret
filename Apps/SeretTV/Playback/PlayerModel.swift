@@ -228,6 +228,7 @@ final class PlayerModel {
         scrubPreviewImage = nil
         controlsVisible = true
         hideControlsTask?.cancel()            // never auto-hide mid-scrub
+        scheduleThumbnail()                   // show the frame at the current spot right away
     }
 
     /// Move the preview marker by `deltaSeconds`, clamped to the media's bounds. No seek yet.

@@ -58,6 +58,7 @@ struct TransportOverlay: View {
                 }
                 .buttonStyle(.bordered)
             }
+            .opacity(model.isScrubbing ? 0 : 1)   // clear the way for the preview window while scrubbing
             // Scrubber. The focusable ScrubPad (a UIView) sits over the bar visuals and receives the
             // remote's trackpad swipes: a horizontal swipe glides a fast preview across the whole clip
             // and lifting seeks there. Click up to reach the Subtitles button.
@@ -99,7 +100,7 @@ private struct ScrubBar: View {
                     if model.isScrubbing {
                         // Frame-preview window centered above the scrubber head.
                         ScrubPreview(image: model.scrubPreviewImage, time: shown, width: previewWidth)
-                            .offset(x: max(0, min(geo.size.width - previewWidth, headX - previewWidth / 2)), y: -100)
+                            .offset(x: max(0, min(geo.size.width - previewWidth, headX - previewWidth / 2)), y: -120)
                     }
                 }
                 .frame(maxHeight: .infinity, alignment: .center)
