@@ -10,23 +10,22 @@ struct ShowDetailView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 32) {
-                hero
+                // Bottom-anchored hero over the backdrop; the season picker + episodes follow below.
+                hero.frame(maxWidth: .infinity, minHeight: 560, alignment: .bottomLeading)
                 seasonPicker
                 episodeList
             }
             .padding(60)
         }
         .background(BackdropBackground(path: store.backdropPath, posterFallback: item.posterPath))
-        .navigationTitle(item.title)
     }
 
     private var hero: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Spacer().frame(height: 200)
             Text(item.title).font(.system(size: 60, weight: .bold))
             Text(metaLine).font(.title3).foregroundStyle(.secondary)
             if let overview = store.overview {
-                Text(overview).font(.title3).frame(maxWidth: 1100, alignment: .leading)
+                Text(overview).font(.title3).frame(maxWidth: 1100, alignment: .leading).lineLimit(3)
             }
             heroActions
         }

@@ -12,23 +12,23 @@ struct MovieDetailView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 36) {
-                hero
+                // Anchor the hero to the bottom of the first screenful so the backdrop breathes
+                // above it and the title/actions sit on a consistent baseline (Apple-TV style).
+                hero.frame(maxWidth: .infinity, minHeight: 840, alignment: .bottomLeading)
                 if store.versions.count > 1 { versionsSection }   // single source → no disclosure (spec §6)
             }
             .padding(60)
         }
         .background(BackdropBackground(path: store.backdropPath, posterFallback: item.posterPath))
-        .navigationTitle(item.title)
     }
 
     private var hero: some View {
         VStack(alignment: .leading, spacing: 20) {
-            Spacer().frame(height: 220)        // let the backdrop breathe at the top
             Text(item.title).font(.system(size: 64, weight: .bold))
             Text(metaLine).font(.title3).foregroundStyle(.secondary)
             if let best = store.bestSource { QualityChips(parsed: best.parsed) }
             if let overview = store.overview {
-                Text(overview).font(.title3).frame(maxWidth: 1100, alignment: .leading)
+                Text(overview).font(.title3).frame(maxWidth: 1100, alignment: .leading).lineLimit(3)
             }
             actions
         }
