@@ -10,9 +10,9 @@ import UIKit
 /// removing those steps left no scrub at all.)
 ///
 /// This representable hosts a focusable `UIView` with an indirect-touch `UIPanGestureRecognizer`; the
-/// SwiftUI `ScrubBar` draws the visuals on top (non-interactive). A horizontal swipe enters scrub
-/// mode and glides the preview; lifting commits the seek. Vertical movement is ignored so a dpad
-/// click up can still move focus to the Subtitles button.
+/// SwiftUI `ScrubBar` draws the visuals on top (non-interactive). A **click (select press) engages
+/// scrub mode** — only then does a swipe glide the preview (so merely resting a finger on the
+/// trackpad while focused doesn't scrub). A second click commits the seek; Menu cancels.
 struct ScrubPad: UIViewRepresentable {
     let model: PlayerModel
 
@@ -31,9 +31,8 @@ struct ScrubPad: UIViewRepresentable {
 final class ScrubInteractionView: UIView {
     weak var model: PlayerModel?
 
-    /// Fraction of the whole timeline a full-width trackpad swipe traverses. >1 lets one swipe cover
-    /// the entire clip (the owner wants fast full-clip scrubbing). Tune on a real Apple TV.
-    private let sensitivity: Double = 1.5
+    /// Fraction of the whole timeline a full-width trackpad swipe traverses. Tune on a real Apple TV.
+    private let sensitivity: Double = 1.0
 
     override var canBecomeFocused: Bool { true }
 
@@ -53,24 +52,21 @@ final class ScrubInteractionView: UIView {
         model?.setScrubberFocused(context.nextFocusedView === self)
     }
 
-    @objc private func handlePan(_ pan: UIPanGestureRecognizer) {
-        guard let model else { return }
-        switch pan.state {
-        case .changed:
-            let t = pan.translation(in: self)
-            if !model.isScrubbing {
-                guard abs(t.x) > abs(t.y), abs(t.x) > 8 else { return }  // horizontal only
-                model.beginScrub()
-            }
-            pan.setTranslation(.zero, in: self)                          // pure incremental deltas
-            let secondsPerPoint = model.duration / Double(max(1, bounds.width)) * sensitivity
-            model.updateScrub(by: Double(t.x) * secondsPerPoint)
-        case .ended:
-            if model.isScrubbing { model.commitScrub() }                 // lift to seek
-        case .cancelled, .failed:
-            if model.isScrubbing { model.cancelScrub() }
-        default:
-            break
+    /// A click toggles scrub mode: first click engages it, second click commits the seek.
+    override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        if let model, presses.contains(where: { $0.type == .select }) {
+            if model.isScrubbing { model.commitScrub() } else { model.beginScrub() }
+        } else {
+            super.pressesBegan(presses, with: event)   // let Menu/Play-Pause propagate
         }
+    }
+
+    @objc private func handlePan(_ pan: UIPanGestureRecognizer) {
+        // Only scrub once a click has engaged scrub mode — never on a bare hover/swipe.
+        guard let model, model.isScrubbing, pan.state == .changed else { return }
+        let t = pan.translation(in: self)
+        pan.setTranslation(.zero, in: self)                              // pure incremental deltas
+        let secondsPerPoint = model.duration / Double(max(1, bounds.width)) * sensitivity
+        model.updateScrub(by: Double(t.x) * secondsPerPoint)
     }
 }

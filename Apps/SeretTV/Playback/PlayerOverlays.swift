@@ -83,17 +83,27 @@ private struct ScrubBar: View {
         let active = model.scrubberFocused || model.isScrubbing
         let shown = model.isScrubbing ? model.scrubTarget : model.position
         let frac = model.duration > 0 ? min(1, max(0, shown / model.duration)) : 0
+        let previewWidth: CGFloat = 150
         VStack(spacing: 10) {
             GeometryReader { geo in
+                let headX = geo.size.width * frac
                 ZStack(alignment: .leading) {
-                    Capsule().fill(.white.opacity(0.25)).frame(height: active ? 12 : 6)
-                    Capsule().fill(.white).frame(width: geo.size.width * frac, height: active ? 12 : 6)
+                    Capsule().fill(.white.opacity(0.25)).frame(height: active ? 10 : 6)
+                    Capsule().fill(.white).frame(width: headX, height: active ? 10 : 6)
                     if active {
+                        // The scrubber head.
+                        Circle().fill(.white).frame(width: 22, height: 22)
+                            .offset(x: min(geo.size.width - 22, max(0, headX - 11)))
+                    }
+                    if model.isScrubbing {
+                        // Small preview window centered above the scrubber head.
                         Text(Timecode.format(shown))
-                            .font(.callout.monospacedDigit().bold())
-                            .padding(.horizontal, 12).padding(.vertical, 6)
-                            .background(.ultraThinMaterial, in: Capsule())
-                            .offset(x: max(0, min(geo.size.width - 80, geo.size.width * frac - 40)), y: -42)
+                            .font(.title3.monospacedDigit().bold())
+                            .padding(.horizontal, 20).padding(.vertical, 12)
+                            .frame(minWidth: previewWidth)
+                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                            .overlay(RoundedRectangle(cornerRadius: 12).stroke(.white.opacity(0.25), lineWidth: 1))
+                            .offset(x: max(0, min(geo.size.width - previewWidth, headX - previewWidth / 2)), y: -70)
                     }
                 }
                 .frame(maxHeight: .infinity, alignment: .center)

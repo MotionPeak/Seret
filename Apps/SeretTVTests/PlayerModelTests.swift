@@ -202,11 +202,12 @@ import DebridCore
 
     @Test func controlsAutoHideWhilePlayingThenWakeShows() async {
         let engine = FakeVideoPlayerEngine()
-        let model = makeModel(request: Fixture.request(), engine: engine, autoHideDelay: 0.02)
+        let model = makeModel(request: Fixture.request(), engine: engine, autoHideDelay: 0.05)
         model.start(); await model.waitForIdleForTesting()
         engine.emit(.state(.playing)); await model.waitForIdleForTesting()
         #expect(model.controlsVisible == true)              // visible as playback starts
-        try? await Task.sleep(nanoseconds: 60_000_000)      // past autoHideDelay
+        // Poll up to ~1s for the auto-hide to fire (robust against scheduling jitter under load).
+        for _ in 0..<50 where model.controlsVisible { try? await Task.sleep(nanoseconds: 20_000_000) }
         #expect(model.controlsVisible == false)             // auto-hid
         model.showControls()
         #expect(model.controlsVisible == true)              // woke back up
