@@ -37,8 +37,21 @@ public actor RealDebridSession {
         cached = creds
     }
 
+    /// Persist a personal API token (real-debrid.com/apitoken). Static: no refresh token,
+    /// no device credentials — `validAccessToken()` returns it as-is and never refreshes.
+    public func establishStaticToken(_ token: String) throws {
+        let creds = StoredCredentials(
+            token: RDToken(accessToken: token, refreshToken: "", expiresIn: 0, tokenType: "Bearer"),
+            deviceCredentials: RDDeviceCredentials(clientID: "", clientSecret: ""),
+            obtainedAt: now(),
+            isStatic: true)
+        try store.save(creds)
+        cached = creds
+    }
+
     public func validAccessToken() async throws -> String {
         guard let creds = try currentCredentials() else { throw RealDebridSessionError.notSignedIn }
+        if creds.isStatic { return creds.token.accessToken }   // personal token: never refresh
         guard isExpired(creds) else { return creds.token.accessToken }
         let refreshed = try await refreshedCredentials(replacing: creds)
         return refreshed.token.accessToken
