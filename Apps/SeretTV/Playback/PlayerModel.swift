@@ -154,6 +154,15 @@ final class PlayerModel {
     private func tick(_ t: PlaybackTime) async {
         position = t.position
         duration = t.duration
+        // VLCKit can sit in `.buffering` (or never emit a clean `.playing`) while it is
+        // actually rendering frames. The playhead moving is the reliable "we're playing"
+        // signal — promote out of the loading overlay so working playback isn't hidden
+        // behind "Buffering…".
+        if t.position > 0, phase == .buffering || phase == .preparing {
+            phase = .playing
+            audioTracks = engine.audioTracks
+            subtitleTracks = engine.subtitleTracks
+        }
         if position - lastSavedPosition >= saveInterval {
             lastSavedPosition = position
             await recordProgress(position, duration)

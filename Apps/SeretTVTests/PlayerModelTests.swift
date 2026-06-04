@@ -186,4 +186,16 @@ import DebridCore
         await model.requestSubtitle(language: "he")
         #expect(model.subtitleRows.first(where: { $0.language == "he" })?.state == .noAccount)
     }
+
+    @Test func playingInferredFromTimeProgressWithoutPlayingState() async {
+        // VLCKit can stay in .buffering while actually rendering — the playhead moving must
+        // clear the loading overlay even if no .playing state arrives.
+        let engine = FakeVideoPlayerEngine()
+        let model = makeModel(request: Fixture.request(), engine: engine)
+        model.start(); await model.waitForIdleForTesting()
+        engine.emit(.state(.buffering)); await model.waitForIdleForTesting()
+        #expect(model.phase == .buffering)
+        engine.emit(.time(.init(position: 3, duration: 100))); await model.waitForIdleForTesting()
+        #expect(model.phase == .playing)        // promoted by time progress, no .playing state needed
+    }
 }
