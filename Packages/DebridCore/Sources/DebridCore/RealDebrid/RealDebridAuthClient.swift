@@ -75,6 +75,20 @@ public struct RealDebridAuthClient: Sendable {
             ])
     }
 
+    /// Confirms a personal API token by calling the authenticated user endpoint.
+    /// `true` on success, `false` if RD rejects the token (401/403); other errors rethrow
+    /// so callers can distinguish a bad token from a transport failure. Never logs the token.
+    public func validateToken(_ token: String) async throws -> Bool {
+        struct UserProbe: Decodable { let id: Int }
+        let url = Self.base.appending(path: "/rest/1.0/user")
+        do {
+            let _: UserProbe = try await http.get(url, headers: ["Authorization": "Bearer \(token)"])
+            return true
+        } catch HTTPError.status(401, _), HTTPError.status(403, _) {
+            return false
+        }
+    }
+
     /// Polls `pollCredentials` on the code's `interval` until the user authorizes
     /// (returns credentials) or the code's `expiresIn` budget is exhausted
     /// (throws `.deviceCodeExpired`). The RD poll **cadence lives here in the brain**
