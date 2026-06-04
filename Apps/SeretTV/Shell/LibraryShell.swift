@@ -8,15 +8,27 @@ struct LibraryShell: View {
     @Environment(AppSession.self) private var session
 
     var body: some View {
-        TabView {
-            Tab("Movies", systemImage: "film") {
-                if let store = session.libraryStore { browse("Movies", store.movies, store) }
+        // One root NavigationStack OUTSIDE the TabView: drilling into Detail / the player pushes a
+        // full-screen view that covers the tab bar (no menu-bar bleed at the top), and Menu pops
+        // straight back to the grid instead of snagging on the tab bar.
+        NavigationStack {
+            TabView {
+                Tab("Movies", systemImage: "film") { grid("Movies", \.movies) }
+                Tab("Shows", systemImage: "tv") { grid("Shows", \.shows) }
+                Tab("Settings", systemImage: "gearshape") { SettingsView() }
             }
-            Tab("Shows", systemImage: "tv") {
-                if let store = session.libraryStore { browse("Shows", store.shows, store) }
+            .navigationDestination(for: MediaItem.self) { item in
+                if let details = session.detailsProvider {
+                    DetailView(item: item, details: details, watch: session.watchStore)
+                }
             }
-            Tab("Settings", systemImage: "gearshape") {
-                SettingsView()
+            .navigationDestination(for: PlaybackRequest.self) { request in
+                if let (model, engine) = session.makePlayer(for: request) {
+                    PlayerView(model: model, engine: engine,
+                               backdropURL: TMDBClient.imageURL(path: request.item.backdropPath, size: "original"))
+                } else {
+                    PlaybackUnavailableView()
+                }
             }
         }
         // Loads once on appear; re-runs when the store's `retry()` bumps `attempt`.
@@ -26,22 +38,10 @@ struct LibraryShell: View {
     }
 
     @ViewBuilder
-    private func browse(_ title: String, _ items: [MediaItem], _ store: LibraryStore) -> some View {
-        NavigationStack {
-            LibraryScreen(title: title, items: items, state: store.state, onRetry: { store.retry() })
-                .navigationDestination(for: MediaItem.self) { item in
-                    if let details = session.detailsProvider {
-                        DetailView(item: item, details: details, watch: session.watchStore)
-                    }
-                }
-                .navigationDestination(for: PlaybackRequest.self) { request in
-                    if let (model, engine) = session.makePlayer(for: request) {
-                        PlayerView(model: model, engine: engine,
-                                   backdropURL: TMDBClient.imageURL(path: request.item.backdropPath, size: "original"))
-                    } else {
-                        PlaybackUnavailableView()
-                    }
-                }
+    private func grid(_ title: String, _ items: KeyPath<LibraryStore, [MediaItem]>) -> some View {
+        if let store = session.libraryStore {
+            LibraryScreen(title: title, items: store[keyPath: items], state: store.state,
+                          onRetry: { store.retry() })
         }
     }
 }
