@@ -22,7 +22,7 @@ targets:
       - path: Apps/SeretTV
     dependencies:
       - package: DebridCore
-      - framework: Frameworks/TVVLCKit.xcframework
+      - framework: Frameworks/VLCKit.xcframework
         embed: true
         codeSign: true
     info:
