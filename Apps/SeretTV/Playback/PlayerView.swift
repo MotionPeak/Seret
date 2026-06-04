@@ -1,10 +1,6 @@
 import SwiftUI
 import DebridCore
 
-/// Which transport control currently holds focus. Drives the highlight + which view
-/// receives the remote's left/right (the scrubber skips ±10s; the button opens the panel).
-enum PlayerControl: Hashable { case scrubber, subtitles }
-
 /// A transparent, focusable full-screen catcher shown while the transport is auto-hidden. The first
 /// remote move/click brings the controls back without performing a transport action.
 private struct WakeLayer: View {
@@ -25,7 +21,6 @@ struct PlayerView: View {
     @State private var model: PlayerModel
     @State private var engine: VLCKitVideoPlayerEngine
     @State private var showTracks = false
-    @FocusState private var focus: PlayerControl?
     @Environment(\.dismiss) private var dismiss
     let backdropURL: URL?
 
@@ -48,7 +43,7 @@ struct PlayerView: View {
                              onBack: { dismiss() })
             case .playing, .paused, .ended:
                 if model.controlsVisible {
-                    TransportOverlay(model: model, focus: $focus) { showTracks = true }
+                    TransportOverlay(model: model) { showTracks = true }
                 } else {
                     // Controls auto-hid: an invisible focusable layer catches the first remote
                     // interaction and brings them back (without seeking).
@@ -68,14 +63,8 @@ struct PlayerView: View {
             else { dismiss() }
         }
         .onAppear { model.start() }
-        // Land focus on the scrubber when controls appear / the panel closes, so the remote works
-        // and Menu (onExitCommand above) fires from within the player.
-        .onChange(of: model.phase) { _, p in
-            if case .playing = p, focus == nil { focus = .scrubber }
-        }
-        .onChange(of: model.controlsVisible) { _, visible in focus = visible ? .scrubber : nil }
-        .onChange(of: focus) { _, f in if f != nil { model.showControls() } }   // moving focus = interaction
-        .onChange(of: showTracks) { _, open in if !open { focus = .scrubber } }
+        // Focus is driven by the focus engine: the focusable ScrubPad (prefersDefaultFocus) lands
+        // focus when the transport appears, and the WakeLayer self-focuses when controls hide.
         .onChange(of: model.shouldDismiss) { _, dismissNow in if dismissNow { dismiss() } }
         .onDisappear { Task { await model.teardown() } }
     }

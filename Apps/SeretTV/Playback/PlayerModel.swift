@@ -52,6 +52,8 @@ final class PlayerModel {
     /// `scrubTarget` instead of the live playhead; the seek only happens on `commitScrub()`.
     private(set) var isScrubbing: Bool = false
     private(set) var scrubTarget: Double = 0
+    /// Whether the (UIKit-focusable) scrub surface holds focus — drives the bar's focused look.
+    private(set) var scrubberFocused: Bool = false
 
     // MARK: - Stored properties
 
@@ -247,6 +249,12 @@ final class PlayerModel {
     func showControls() {
         controlsVisible = true
         armAutoHide()
+    }
+
+    /// The UIKit scrub surface gained/lost focus. Keep the controls up while it's focused.
+    func setScrubberFocused(_ focused: Bool) {
+        scrubberFocused = focused
+        if focused { showControls() }
     }
 
     /// Hide the transport after `autoHideDelay` of no interaction — but only while actively playing

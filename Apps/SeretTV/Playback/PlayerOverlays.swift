@@ -42,8 +42,8 @@ struct ErrorOverlay: View {
 
 struct TransportOverlay: View {
     @Bindable var model: PlayerModel
-    @FocusState.Binding var focus: PlayerControl?
     let onOpenTracks: () -> Void
+    @Namespace private var focusScope
 
     var body: some View {
         VStack(spacing: 28) {
@@ -51,38 +51,36 @@ struct TransportOverlay: View {
             HStack {
                 Text(model.label).font(.title3.bold())
                 Spacer()
-                // Highlight (move focus up) + press to open the Subtitles & Audio panel.
+                // Click up from the scrubber to reach this; press to open the Subtitles & Audio panel.
                 Button { model.showControls(); onOpenTracks() } label: {
                     Label("Subtitles & Audio", systemImage: "captions.bubble")
                 }
                 .buttonStyle(.bordered)
-                .focused($focus, equals: .subtitles)
             }
-            // Scrubber. When focused, a horizontal trackpad swipe glides a fast preview across the
-            // whole clip (ScrubPad) and lifting seeks there. Swipe up to reach the Subtitles button.
+            // Scrubber. The focusable ScrubPad (a UIView) sits over the bar visuals and receives the
+            // remote's trackpad swipes: a horizontal swipe glides a fast preview across the whole clip
+            // and lifting seeks there. Click up to reach the Subtitles button.
             ScrubBar(model: model)
-                .focusable()
-                .focused($focus, equals: .scrubber)
                 .overlay {
-                    ScrubPad(model: model, isActive: focus == .scrubber)
-                        .allowsHitTesting(focus == .scrubber)
+                    ScrubPad(model: model)
+                        .prefersDefaultFocus(in: focusScope)   // land here when controls appear
                 }
         }
         .padding(48)
         .background(LinearGradient(colors: [.black.opacity(0.9), .clear],
                                    startPoint: .bottom, endPoint: .top))
+        .focusScope(focusScope)
     }
 }
 
-/// The progress bar. Grows + shows a timecode preview bubble when focused.
+/// The progress bar. Grows + shows a timecode preview bubble when the scrub surface is focused.
 private struct ScrubBar: View {
     @Bindable var model: PlayerModel
-    @Environment(\.isFocused) private var isFocused
 
     var body: some View {
-        // While scrubbing, the bar follows the preview marker, not the live playhead, and shows the
-        // tall/bubble treatment even though focus technically sits on the ScrubPad overlay.
-        let active = isFocused || model.isScrubbing
+        // While scrubbing (or merely focused on the ScrubPad overlay), the bar follows the preview
+        // marker and shows the tall/bubble treatment.
+        let active = model.scrubberFocused || model.isScrubbing
         let shown = model.isScrubbing ? model.scrubTarget : model.position
         let frac = model.duration > 0 ? min(1, max(0, shown / model.duration)) : 0
         VStack(spacing: 10) {
