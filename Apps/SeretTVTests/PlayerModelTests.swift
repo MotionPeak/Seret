@@ -198,4 +198,15 @@ import DebridCore
         engine.emit(.time(.init(position: 3, duration: 100))); await model.waitForIdleForTesting()
         #expect(model.phase == .playing)        // promoted by time progress, no .playing state needed
     }
+
+    @Test func lateBufferingDoesNotRevertPlaying() async {
+        // VLCKit emits .buffering after playback starts; it must not flash the loading overlay back.
+        let engine = FakeVideoPlayerEngine()
+        let model = makeModel(request: Fixture.request(), engine: engine)
+        model.start(); await model.waitForIdleForTesting()
+        engine.emit(.state(.playing));   await model.waitForIdleForTesting()
+        #expect(model.phase == .playing)
+        engine.emit(.state(.buffering)); await model.waitForIdleForTesting()
+        #expect(model.phase == .playing)        // stays playing — no flicker
+    }
 }

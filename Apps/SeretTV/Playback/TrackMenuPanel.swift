@@ -3,11 +3,10 @@ import DebridCore
 
 struct TrackMenuPanel: View {
     @Bindable var model: PlayerModel
-    let onClose: () -> Void
 
     var body: some View {
         HStack(spacing: 0) {
-            Color.black.opacity(0.35).onTapGesture { onClose() }
+            Color.black.opacity(0.35)   // dim; non-interactive (close via Menu — handled by PlayerView)
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     Text("Subtitles").font(.title3.bold())
@@ -26,6 +25,7 @@ struct TrackMenuPanel: View {
                     }
                 }
                 .padding(28)
+                .focusSection()   // ensures focus lands in the panel when it opens (Menu closes it)
             }
             .frame(width: 600)
             .background(.ultraThinMaterial)

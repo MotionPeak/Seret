@@ -42,7 +42,6 @@ struct ErrorOverlay: View {
 
 struct TransportOverlay: View {
     @Bindable var model: PlayerModel
-    let onOpenTracks: () -> Void
     var body: some View {
         VStack {
             Spacer()
@@ -50,10 +49,10 @@ struct TransportOverlay: View {
                 HStack {
                     Text(model.label).font(.headline)
                     Spacer()
-                    Button { onOpenTracks() } label: {
-                        Label("Subtitles & Audio", systemImage: "captions.bubble")
-                    }
-                    .buttonStyle(.bordered)
+                    // Visual hint only — a focusable button here would steal focus and break
+                    // swipe-to-skip. The panel opens via swipe-down (onMoveCommand .down).
+                    Label("Swipe down for Subtitles & Audio", systemImage: "captions.bubble")
+                        .font(.callout).foregroundStyle(.secondary)
                 }
                 HStack(spacing: 12) {
                     Text(Timecode.format(model.position)).font(.caption.monospacedDigit())

@@ -137,7 +137,9 @@ final class PlayerModel {
     private func handle(state: PlaybackState) {
         switch state {
         case .idle, .buffering:
-            phase = .buffering
+            // VLCKit emits .buffering even after playback has started; don't let it revert an
+            // active session (that caused the loading overlay to flicker over the video at start).
+            if phase != .playing && phase != .paused { phase = .buffering }
         case .playing:
             phase = .playing
             audioTracks = engine.audioTracks
