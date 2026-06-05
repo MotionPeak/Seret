@@ -1,5 +1,4 @@
 import Observation
-import DebridUI
 import Foundation
 import CoreGraphics
 import DebridCore
@@ -9,11 +8,11 @@ import DebridCore
 /// Injected via closures + seams so the full lifecycle is unit-testable without VLCKit.
 @MainActor
 @Observable
-final class PlayerModel {
+public final class PlayerModel {
 
     // MARK: - Phase
 
-    enum Phase: Equatable {
+    public enum Phase: Equatable {
         case preparing
         case buffering
         case playing
@@ -24,7 +23,7 @@ final class PlayerModel {
 
     // MARK: - Subtitle state
 
-    enum SubtitleRowState: Equatable {
+    public enum SubtitleRowState: Equatable {
         case idle
         case downloading
         case attached(String)
@@ -33,31 +32,31 @@ final class PlayerModel {
         case noAccount
     }
 
-    struct SubtitleRow: Identifiable, Equatable {
-        let language: String
-        var state: SubtitleRowState
-        var id: String { language }
+    public struct SubtitleRow: Identifiable, Equatable {
+        public let language: String
+        public var state: SubtitleRowState
+        public var id: String { language }
     }
 
     // MARK: - Published state
 
-    private(set) var phase: Phase = .preparing
-    private(set) var position: Double = 0
-    private(set) var duration: Double = 0
-    private(set) var controlsVisible: Bool = true
-    private(set) var audioTracks: [MediaTrack] = []
-    private(set) var subtitleTracks: [MediaTrack] = []
-    private(set) var subtitleRows: [SubtitleRow]
-    private(set) var shouldDismiss: Bool = false
+    public private(set) var phase: Phase = .preparing
+    public private(set) var position: Double = 0
+    public private(set) var duration: Double = 0
+    public private(set) var controlsVisible: Bool = true
+    public private(set) var audioTracks: [MediaTrack] = []
+    public private(set) var subtitleTracks: [MediaTrack] = []
+    public private(set) var subtitleRows: [SubtitleRow]
+    public private(set) var shouldDismiss: Bool = false
 
     /// Continuous swipe-scrub (Step 2). While `isScrubbing`, the transport shows a preview marker at
     /// `scrubTarget` instead of the live playhead; the seek only happens on `commitScrub()`.
-    private(set) var isScrubbing: Bool = false
-    private(set) var scrubTarget: Double = 0
+    public private(set) var isScrubbing: Bool = false
+    public private(set) var scrubTarget: Double = 0
     /// Whether the (UIKit-focusable) scrub surface holds focus — drives the bar's focused look.
-    private(set) var scrubberFocused: Bool = false
+    public private(set) var scrubberFocused: Bool = false
     /// Best-effort video frame at the current scrub target (nil until one lands / if unsupported).
-    private(set) var scrubPreviewImage: CGImage?
+    public private(set) var scrubPreviewImage: CGImage?
 
     // MARK: - Stored properties
 
@@ -65,7 +64,7 @@ final class PlayerModel {
     private let sources: [MediaSource]
     private var sourceIndex: Int = 0
     private let resumeAt: Double?
-    let label: String
+    public let label: String
     private let engine: VideoPlayerEngine
     private let unrestrict: (String) async throws -> URL
     private let recordProgress: (Double, Double) async -> Void
@@ -83,12 +82,12 @@ final class PlayerModel {
 
     // MARK: - Computed helpers
 
-    var canTryAnotherVersion: Bool { sourceIndex + 1 < sources.count }
-    var currentSource: MediaSource { sources[sourceIndex] }
+    public var canTryAnotherVersion: Bool { sourceIndex + 1 < sources.count }
+    public var currentSource: MediaSource { sources[sourceIndex] }
 
     // MARK: - Init
 
-    init(request: PlaybackRequest,
+    public init(request: PlaybackRequest,
          engine: VideoPlayerEngine,
          unrestrict: @escaping (String) async throws -> URL,
          recordProgress: @escaping (Double, Double) async -> Void,
@@ -116,7 +115,7 @@ final class PlayerModel {
     /// the engine's AsyncStream) and loads the first source. retry()/tryAnotherVersion() re-load
     /// WITHOUT relaunching the loop, so the single VLCKit stream is consumed continuously across
     /// source switches.
-    func start() {
+    public func start() {
         eventTask?.cancel()
         eventTask = Task { await self.consumeEvents() }
         reload()
@@ -212,18 +211,18 @@ final class PlayerModel {
 
     // MARK: - Transport controls
 
-    func togglePlayPause() {
+    public func togglePlayPause() {
         if phase == .playing { engine.pause() } else { engine.play() }
     }
 
-    func skip(_ delta: Double) { engine.seek(to: max(0, position + delta)) }
-    func scrub(to seconds: Double) { engine.seek(to: seconds) }
+    public func skip(_ delta: Double) { engine.seek(to: max(0, position + delta)) }
+    public func scrub(to seconds: Double) { engine.seek(to: seconds) }
 
     // MARK: - Swipe-scrub (Step 2)
 
     /// Enter scrub mode (a select press on the focused bar). The preview marker starts at the
     /// playhead; the user then swipes to glide it and presses again to seek. Controls stay up.
-    func beginScrub() {
+    public func beginScrub() {
         scrubTarget = position
         isScrubbing = true
         scrubPreviewImage = nil
@@ -233,7 +232,7 @@ final class PlayerModel {
     }
 
     /// Move the preview marker by `deltaSeconds`, clamped to the media's bounds. No seek yet.
-    func updateScrub(by deltaSeconds: Double) {
+    public func updateScrub(by deltaSeconds: Double) {
         guard isScrubbing else { return }
         let upper = duration > 0 ? duration : scrubTarget + max(0, deltaSeconds)
         scrubTarget = min(max(0, scrubTarget + deltaSeconds), upper)
@@ -243,7 +242,7 @@ final class PlayerModel {
 
     /// Seek to the preview marker and leave scrub mode. Optimistically advance the playhead so the
     /// bar doesn't snap back to the old position before the engine reports the new time.
-    func commitScrub() {
+    public func commitScrub() {
         guard isScrubbing else { return }
         isScrubbing = false
         thumbnailTask?.cancel()
@@ -254,7 +253,7 @@ final class PlayerModel {
     }
 
     /// Abandon scrub mode without seeking (the playhead is untouched).
-    func cancelScrub() {
+    public func cancelScrub() {
         isScrubbing = false
         thumbnailTask?.cancel()
         scrubPreviewImage = nil
@@ -279,13 +278,13 @@ final class PlayerModel {
     // MARK: - Controls auto-hide
 
     /// Reveal the transport and re-arm the auto-hide timer. Called on every user interaction.
-    func showControls() {
+    public func showControls() {
         controlsVisible = true
         armAutoHide()
     }
 
     /// The UIKit scrub surface gained/lost focus. Keep the controls up while it's focused.
-    func setScrubberFocused(_ focused: Bool) {
+    public func setScrubberFocused(_ focused: Bool) {
         scrubberFocused = focused
         if focused { showControls() }
     }
@@ -302,13 +301,13 @@ final class PlayerModel {
         }
     }
 
-    func selectSubtitle(id: String) { engine.selectSubtitleTrack(id: id) }
-    func selectSubtitleOff() { engine.selectSubtitleTrack(id: nil) }
-    func selectAudio(id: String) { engine.selectAudioTrack(id: id) }
+    public func selectSubtitle(id: String) { engine.selectSubtitleTrack(id: id) }
+    public func selectSubtitleOff() { engine.selectSubtitleTrack(id: nil) }
+    public func selectAudio(id: String) { engine.selectAudioTrack(id: id) }
 
     // MARK: - Teardown
 
-    func teardown() async {
+    public func teardown() async {
         eventTask?.cancel()
         loadTask?.cancel()
         hideControlsTask?.cancel()
@@ -319,9 +318,9 @@ final class PlayerModel {
 
     // MARK: - Recovery
 
-    func retry() { reload() }
+    public func retry() { reload() }
 
-    func tryAnotherVersion() {
+    public func tryAnotherVersion() {
         guard sourceIndex + 1 < sources.count else { return }
         sourceIndex += 1
         reload()
@@ -329,7 +328,7 @@ final class PlayerModel {
 
     // MARK: - Subtitles
 
-    func requestSubtitle(language: String) async {
+    public func requestSubtitle(language: String) async {
         guard let subtitles else { setRow(language, .noAccount); return }
         guard subtitleRows.first(where: { $0.language == language })?.state != .downloading else { return }
         setRow(language, .downloading)
@@ -362,7 +361,7 @@ final class PlayerModel {
 
     /// Yields the current task so in-flight async work can complete before assertions.
     /// Used only in unit tests — see `PlayerModelTests`.
-    func waitForIdleForTesting() async {
+    public func waitForIdleForTesting() async {
         await Task.yield()
         try? await Task.sleep(nanoseconds: 20_000_000)
     }

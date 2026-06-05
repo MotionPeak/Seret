@@ -1,5 +1,5 @@
+import CoreGraphics
 import DebridCore
-import DebridUI
 import Foundation
 import Observation
 import SwiftData
@@ -8,34 +8,34 @@ import SwiftData
 /// `AccessTokenProviding` source that 7b's library + 7c's playback will consume.
 @MainActor
 @Observable
-final class AppSession {
-    enum State: Equatable { case unknown, signedIn, signedOut }
+public final class AppSession {
+    public enum State: Equatable { case unknown, signedIn, signedOut }
 
-    private(set) var state: State = .unknown
+    public private(set) var state: State = .unknown
 
     /// The sign-in model for the current signed-out episode (nil while signed in or
     /// unresolved). Built when *entering* `.signedOut` so the view never creates it
     /// during `body` evaluation.
-    private(set) var signInModel: SignInModel?
+    public private(set) var signInModel: SignInModel?
 
     /// The library store for the current signed-in episode (nil while signed out).
-    private(set) var libraryStore: LibraryStore?
+    public private(set) var libraryStore: LibraryStore?
 
     /// On-demand TMDB detail provider for the Detail screen (nil while signed out).
-    private(set) var detailsProvider: MediaDetailsProviding?
+    public private(set) var detailsProvider: MediaDetailsProviding?
 
     /// Shared watch-progress store (nil while signed out, or if the container fails to build).
     /// 7c's player + a later Continue-Watching feed reuse this same instance.
-    private(set) var watchStore: WatchProgressProviding?
+    public private(set) var watchStore: WatchProgressProviding?
 
     /// On-demand OpenSubtitles provider (nil while signed out or if no key+account configured).
-    private(set) var subtitlesProvider: SubtitleProvider?
+    public private(set) var subtitlesProvider: SubtitleProvider?
     private var watchProgressStore: WatchProgressStore?   // concrete ref for PlaybackCoordinator
     private var torrents: TorrentsClient?
 
-    let realDebrid: RealDebridSession
+    public let realDebrid: RealDebridSession
 
-    init(realDebrid: RealDebridSession) {
+    public init(realDebrid: RealDebridSession) {
         self.realDebrid = realDebrid
     }
 
@@ -43,7 +43,7 @@ final class AppSession {
     /// `.notSignedIn` ONLY when there are no stored credentials, which lets us treat
     /// offline-with-credentials as optimistically signed in (spec §143) while a server
     /// rejection of the refresh token routes back to sign-in (spec §165).
-    func resolve() async {
+    public func resolve() async {
         do {
             _ = try await realDebrid.validAccessToken()
             enterSignedIn()
@@ -65,7 +65,7 @@ final class AppSession {
         signInModel = nil
     }
 
-    func signOut() async {
+    public func signOut() async {
         try? await realDebrid.signOut()
         enterSignedOut()
     }
@@ -113,15 +113,17 @@ final class AppSession {
         state = .signedIn
     }
 
-    /// Build a fully-wired player for a playback request, or nil if not signed in.
-    func makePlayer(for request: PlaybackRequest) -> (PlayerModel, VLCKitVideoPlayerEngine)? {
+    /// Build a fully-wired player for a playback request, or nil if not signed in. The platform
+    /// engine + thumbnail source are injected by the app target (VLCKit is per-platform), so this
+    /// shared factory owns only the brain wiring (unrestrict / progress / subtitles).
+    public func makePlayer(for request: PlaybackRequest,
+                           engine: VideoPlayerEngine,
+                           fetchThumbnail: @escaping (URL, Double) async -> CGImage?) -> PlayerModel? {
         guard let torrents, let store = watchProgressStore else { return nil }
         let coordinator = PlaybackCoordinator(store: store)
-        let engine = VLCKitVideoPlayerEngine()
-        let thumbnails = ThumbnailProvider()
         let contentKey = request.contentKey
         let sourceKey = WatchKey.source(request.source)
-        let model = PlayerModel(
+        return PlayerModel(
             request: request,
             engine: engine,
             unrestrict: { link in
@@ -134,8 +136,7 @@ final class AppSession {
                                          position: position, duration: duration)
             },
             subtitles: subtitlesProvider,
-            fetchThumbnail: { url, fraction in await thumbnails.frame(url: url, fraction: fraction) })
-        return (model, engine)
+            fetchThumbnail: fetchThumbnail)
     }
 
     private static var cachesDirectory: URL {

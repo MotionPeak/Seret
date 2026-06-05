@@ -1,17 +1,16 @@
 import Observation
-import DebridUI
 import DebridCore
 
 @MainActor
 @Observable
-final class SettingsModel {
-    var username: String = ""
-    var password: String = ""
-    private(set) var isConnected: Bool
+public final class SettingsModel {
+    public var username: String = ""
+    public var password: String = ""
+    public private(set) var isConnected: Bool
 
     private let secretStore: SecretStore
 
-    init(secretStore: SecretStore) {
+    public init(secretStore: SecretStore) {
         self.secretStore = secretStore
         if let account = secretStore.readAccount() {
             username = account.username
@@ -21,7 +20,7 @@ final class SettingsModel {
         }
     }
 
-    func save() {
+    public func save() {
         let u = username.trimmingCharacters(in: .whitespaces)
         let p = password   // passwords are NOT trimmed — leading/trailing spaces can be significant
         guard !u.isEmpty, !p.isEmpty else { return }
@@ -29,7 +28,7 @@ final class SettingsModel {
         isConnected = secretStore.readAccount() != nil
     }
 
-    func remove() {
+    public func remove() {
         try? secretStore.clear()
         username = ""
         password = ""

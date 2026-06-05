@@ -1,5 +1,4 @@
 import DebridCore
-import DebridUI
 
 /// Thrown when a pasted personal API token is rejected by Real-Debrid.
 enum TokenSignInError: Error, Equatable { case invalidToken }

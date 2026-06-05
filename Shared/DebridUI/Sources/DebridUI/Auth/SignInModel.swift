@@ -1,5 +1,4 @@
 import DebridCore
-import DebridUI
 import Foundation
 import Observation
 
@@ -8,8 +7,8 @@ import Observation
 /// view disappears. No RD/networking logic here — it delegates to `AuthFlow`.
 @MainActor
 @Observable
-final class SignInModel {
-    enum Phase: Equatable {
+public final class SignInModel {
+    public enum Phase: Equatable {
         case idle
         case requestingCode
         case awaitingAuthorization(RDDeviceCode)
@@ -18,9 +17,9 @@ final class SignInModel {
         case failed(String)
     }
 
-    private(set) var phase: Phase = .idle
+    public private(set) var phase: Phase = .idle
     /// Bumped by `retry()`; drives the view's `.task(id:)` so a retry restarts the run.
-    private(set) var attempt = 0
+    public private(set) var attempt = 0
 
     private let flow: AuthFlow
     private let onSignedIn: () -> Void
@@ -36,7 +35,7 @@ final class SignInModel {
 
     /// Run the full flow once. Reuses a still-valid device code on retry so repeated
     /// attempts don't re-hit RD's throttled `device/code` endpoint.
-    func run() async {
+    public func run() async {
         do {
             let code = try await currentOrFreshCode()
             phase = .awaitingAuthorization(code)
@@ -65,10 +64,10 @@ final class SignInModel {
         return code
     }
 
-    func retry() { attempt += 1 }
+    public func retry() { attempt += 1 }
 
     /// Sign in with a pasted personal API token instead of the device-code flow.
-    func signInWithToken(_ token: String) async {
+    public func signInWithToken(_ token: String) async {
         let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         phase = .validatingToken

@@ -1,5 +1,4 @@
 import DebridCore
-import DebridUI
 import Observation
 
 /// The Detail screen's source of truth for one title. Renders instantly from the cached
@@ -7,23 +6,23 @@ import Observation
 /// on failure (keeps base info), mirroring 7b-i's `LibraryStore`.
 @MainActor
 @Observable
-final class DetailStore {
-    enum RichState: Equatable { case idle, loading, loaded, failed }
+public final class DetailStore {
+    public enum RichState: Equatable { case idle, loading, loaded, failed }
 
-    let item: MediaItem
+    public let item: MediaItem
     private let details: MediaDetailsProviding
     private let watch: WatchProgressProviding?
 
-    private(set) var richState: RichState = .idle
-    private(set) var backdropPath: String?
-    private(set) var runtime: Int?
-    private(set) var genres: [String] = []
-    private(set) var overview: String?
-    private(set) var selectedSeason: Int
-    private(set) var episodeMeta: [Int: [Int: TMDBEpisodeDetails]] = [:]   // season → epNo → meta
-    private(set) var watchByKey: [String: WatchState] = [:]                // contentKey → state
+    public private(set) var richState: RichState = .idle
+    public private(set) var backdropPath: String?
+    public private(set) var runtime: Int?
+    public private(set) var genres: [String] = []
+    public private(set) var overview: String?
+    public private(set) var selectedSeason: Int
+    public private(set) var episodeMeta: [Int: [Int: TMDBEpisodeDetails]] = [:]   // season → epNo → meta
+    public private(set) var watchByKey: [String: WatchState] = [:]                // contentKey → state
 
-    init(item: MediaItem, details: MediaDetailsProviding, watch: WatchProgressProviding?) {
+    public init(item: MediaItem, details: MediaDetailsProviding, watch: WatchProgressProviding?) {
         self.item = item
         self.details = details
         self.watch = watch
@@ -33,10 +32,10 @@ final class DetailStore {
     }
 
     // Movies: ranked sources.
-    var versions: [MediaSource] { item.sources.bestFirst() }
-    var bestSource: MediaSource? { item.sources.best }
+    public var versions: [MediaSource] { item.sources.bestFirst() }
+    public var bestSource: MediaSource? { item.sources.best }
 
-    func load() async {
+    public func load() async {
         // Re-entrancy guard: one load per store (a retry after failure is still allowed).
         guard richState == .idle || richState == .failed else { return }
         richState = .loading
@@ -63,17 +62,17 @@ final class DetailStore {
         }
     }
 
-    func selectSeason(_ n: Int) async {
+    public func selectSeason(_ n: Int) async {
         selectedSeason = n
         await loadWatchForSeason(n)
         guard episodeMeta[n] == nil, let tvID = item.tmdbID else { return }
         await loadSeason(n, tvID: tvID)
     }
 
-    func watchState(forKey key: String) -> WatchState? { watchByKey[key] }
+    public func watchState(forKey key: String) -> WatchState? { watchByKey[key] }
 
     /// Mark a movie or episode watched/unwatched. `source` records the exact file (sourceKey).
-    func setWatched(_ watched: Bool, contentKey: String, source: MediaSource) async {
+    public func setWatched(_ watched: Bool, contentKey: String, source: MediaSource) async {
         guard let watch else { return }
         // A manual mark has no playback position — `finished` drives the UI (full bar / ✓);
         // live playback progress (position) is written later by the 7c player.
@@ -83,7 +82,7 @@ final class DetailStore {
     }
 
     /// Build a playback request for a movie source or an episode.
-    func playRequest(source: MediaSource, episode: Episode?, label: String,
+    public func playRequest(source: MediaSource, episode: Episode?, label: String,
                      fromStart: Bool = false) -> PlaybackRequest {
         let key = episode.map { WatchKey.content(forShow: item, episode: $0) }
             ?? WatchKey.content(forMovie: item)
@@ -96,7 +95,7 @@ final class DetailStore {
     /// Best-effort "what to play next" for a show's hero: first in-progress episode (series
     /// order), else the first not-known-finished episode, else the very first. Uses whatever
     /// watch state is currently loaded.
-    func nextEpisode() -> Episode? {
+    public func nextEpisode() -> Episode? {
         let all = item.seasons.sorted { $0.number < $1.number }
             .flatMap { $0.episodes.sorted { $0.number < $1.number } }
         if let inProgress = all.first(where: {
