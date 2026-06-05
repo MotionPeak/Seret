@@ -68,7 +68,9 @@ struct TransportOverlay: View {
                         .prefersDefaultFocus(in: focusScope)   // land here when controls appear
                 }
         }
-        .padding(48)
+        .padding(.horizontal, 56)
+        .padding(.top, 48)
+        .padding(.bottom, 64)   // keep the bottom timecodes clear of the tvOS overscan edge
         .background(LinearGradient(colors: [.black.opacity(0.9), .clear],
                                    startPoint: .bottom, endPoint: .top))
         .focusScope(focusScope)

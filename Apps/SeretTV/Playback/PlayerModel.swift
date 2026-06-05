@@ -236,7 +236,7 @@ final class PlayerModel {
         guard isScrubbing else { return }
         let upper = duration > 0 ? duration : scrubTarget + max(0, deltaSeconds)
         scrubTarget = min(max(0, scrubTarget + deltaSeconds), upper)
-        scrubPreviewImage = nil                // stale until a frame for the new spot lands
+        // Keep the last frame on screen while the new one loads (avoids spinner flicker per move).
         scheduleThumbnail()
     }
 
@@ -261,13 +261,13 @@ final class PlayerModel {
     }
 
     /// Debounced best-effort frame fetch for the scrub preview — only fires after the marker
-    /// settles (~350ms), so a continuous swipe doesn't spawn a fetch per move.
+    /// settles, so a continuous swipe doesn't spawn a fetch per move.
     private func scheduleThumbnail() {
         guard let fetchThumbnail, let url = currentURL, duration > 0 else { return }
         let fraction = scrubTarget / duration
         thumbnailTask?.cancel()
         thumbnailTask = Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(350))
+            try? await Task.sleep(for: .milliseconds(200))
             guard !Task.isCancelled, isScrubbing else { return }
             let image = await fetchThumbnail(url, fraction)
             guard !Task.isCancelled, isScrubbing else { return }

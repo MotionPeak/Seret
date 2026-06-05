@@ -42,7 +42,11 @@ struct PlayerView: View {
                              onRetry: { model.retry() }, onTryAnother: { model.tryAnotherVersion() },
                              onBack: { dismiss() })
             case .playing, .paused, .ended:
-                if model.controlsVisible {
+                if showTracks {
+                    // The panel is the sole focusable overlay while open, so focus can't bounce to
+                    // the transport underneath and a track pick reliably applies + closes.
+                    TrackMenuPanel(model: model, onClose: { showTracks = false })
+                } else if model.controlsVisible {
                     TransportOverlay(model: model) { showTracks = true }
                 } else {
                     // Controls auto-hid: an invisible focusable layer catches the first remote
@@ -50,8 +54,6 @@ struct PlayerView: View {
                     WakeLayer { model.showControls() }
                 }
             }
-
-            if showTracks { TrackMenuPanel(model: model) }
         }
         .onPlayPauseCommand {
             if model.isScrubbing { model.commitScrub() } else { model.togglePlayPause() }

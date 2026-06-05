@@ -13,7 +13,7 @@ final class ThumbnailProvider {
 
     /// A frame at `fraction` (0–1) of `url`, or nil on timeout/failure.
     func frame(url: URL, fraction: Double,
-               size: CGSize = CGSize(width: 384, height: 216)) async -> CGImage? {
+               size: CGSize = CGSize(width: 256, height: 144)) async -> CGImage? {
         let box: ImageBox? = await withCheckedContinuation { continuation in
             guard let media = VLCMedia(url: url) else { continuation.resume(returning: nil); return }
             let delegate = Delegate { continuation.resume(returning: $0) }

@@ -5,6 +5,7 @@ import DebridCore
 /// piling into one messy column; each shows a clean, de-duplicated, language-named list.
 struct TrackMenuPanel: View {
     @Bindable var model: PlayerModel
+    let onClose: () -> Void
     @State private var tab: Tab = .subtitles
 
     enum Tab: String, CaseIterable { case subtitles = "Subtitles", audio = "Audio" }
@@ -12,34 +13,34 @@ struct TrackMenuPanel: View {
     var body: some View {
         HStack(spacing: 0) {
             Color.black.opacity(0.35)   // dim; non-interactive (close via Menu — handled by PlayerView)
-            VStack(alignment: .leading, spacing: 26) {
+            VStack(alignment: .leading, spacing: 18) {
                 tabBar
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 14) {
+                    VStack(alignment: .leading, spacing: 8) {
                         switch tab {
                         case .subtitles: subtitlesList
                         case .audio:     audioList
                         }
                     }
-                    .padding(.trailing, 8)
+                    .padding(.trailing, 6)
                     .focusSection()   // ensures focus lands in the list when the panel opens
                 }
             }
-            .padding(40)
-            .frame(width: 640)
+            .padding(28)
+            .frame(width: 460)
             .background(.ultraThinMaterial)
         }
         .ignoresSafeArea()
     }
 
     private var tabBar: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 10) {
             ForEach(Tab.allCases, id: \.self) { t in
                 Button { tab = t } label: {
                     Text(t.rawValue)
-                        .font(.title3.weight(.semibold))
+                        .font(.headline)
                         .foregroundStyle(tab == t ? Color.black : Color.white)   // readable in both states
-                        .padding(.horizontal, 28).padding(.vertical, 14)
+                        .padding(.horizontal, 20).padding(.vertical, 10)
                         .background(tab == t ? Color.white : Color.white.opacity(0.18), in: Capsule())
                 }
                 .buttonStyle(.plain)   // .bordered's white tint hid the selected label (white-on-white)
@@ -50,12 +51,12 @@ struct TrackMenuPanel: View {
     // MARK: - Subtitles
 
     @ViewBuilder private var subtitlesList: some View {
-        Button("Off") { model.selectSubtitleOff() }
+        Button("Off") { model.selectSubtitleOff(); onClose() }   // pick = apply + close (fast)
         ForEach(labeled(model.subtitleTracks), id: \.track.id) { entry in
-            Button(entry.label) { model.selectSubtitle(id: entry.track.id) }
+            Button(entry.label) { model.selectSubtitle(id: entry.track.id); onClose() }
         }
         Text("Download from OpenSubtitles")
-            .font(.caption).foregroundStyle(.secondary).padding(.top, 10)
+            .font(.caption).foregroundStyle(.secondary).padding(.top, 8)
         ForEach(model.subtitleRows) { row in
             SubtitleRowButton(row: row) { Task { await model.requestSubtitle(language: row.language) } }
         }
@@ -68,7 +69,7 @@ struct TrackMenuPanel: View {
             Text("No audio tracks").font(.callout).foregroundStyle(.secondary)
         } else {
             ForEach(labeled(model.audioTracks), id: \.track.id) { entry in
-                Button(entry.label) { model.selectAudio(id: entry.track.id) }
+                Button(entry.label) { model.selectAudio(id: entry.track.id); onClose() }
             }
         }
     }
