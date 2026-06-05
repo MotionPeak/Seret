@@ -9,18 +9,21 @@ import UIKit
 ///   • center click (.select) → play / pause
 struct ScrubPad: UIViewRepresentable {
     let model: PlayerModel
+    let isInteractive: Bool      // false while SettingsPanel is open → ScrubPad ignores all input
     let onShowSettings: () -> Void
 
     func makeUIView(context: Context) -> ScrubInteractionView {
         let view = ScrubInteractionView()
         view.model = model
         view.onShowSettings = onShowSettings
+        view.isInteractive = isInteractive
         return view
     }
 
     func updateUIView(_ uiView: ScrubInteractionView, context: Context) {
         uiView.model = model
         uiView.onShowSettings = onShowSettings
+        uiView.isInteractive = isInteractive
     }
 }
 
@@ -28,6 +31,14 @@ struct ScrubPad: UIViewRepresentable {
 final class ScrubInteractionView: UIView {
     weak var model: PlayerModel?
     var onShowSettings: (() -> Void)?
+    var isInteractive: Bool = true {
+        didSet {
+            if oldValue != isInteractive {
+                pan.isEnabled = isInteractive
+                setNeedsFocusUpdate()
+            }
+        }
+    }
 
     /// Fraction of the whole timeline a full-width trackpad swipe traverses. Lower = slower,
     /// easier to swipe precisely.
@@ -38,13 +49,14 @@ final class ScrubInteractionView: UIView {
     private enum Gesture { case horizontal, verticalDown }
     private var current: Gesture?
     private var pulledSettings = false
+    private let pan = UIPanGestureRecognizer()
 
-    override var canBecomeFocused: Bool { true }
+    override var canBecomeFocused: Bool { isInteractive }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .clear
-        let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
+        pan.addTarget(self, action: #selector(handlePan(_:)))
         pan.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.indirect.rawValue)]  // Siri remote
         addGestureRecognizer(pan)
     }
@@ -53,7 +65,7 @@ final class ScrubInteractionView: UIView {
 
     /// Click is play/pause. (On this remote every press arrives as .select, even side clicks.)
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
-        if let model, presses.contains(where: { $0.type == .select }) {
+        if isInteractive, let model, presses.contains(where: { $0.type == .select }) {
             model.togglePlayPause()
         } else {
             super.pressesBegan(presses, with: event)

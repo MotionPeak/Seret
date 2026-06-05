@@ -28,10 +28,16 @@ struct PlayerView: View {
                              onBack: { dismiss() })
             case .playing, .paused, .ended:
                 // Clean by default. The focusable ScrubPad covers the screen invisibly to receive
-                // remote gestures: horizontal swipe → scrub, swipe down → show settings, click → play/pause.
-                ScrubPad(model: model, onShowSettings: { showSettings = true })
-                // Minimal scrub bar surfaces only while scrubbing (no chrome otherwise).
-                if model.isScrubbing { MinimalScrubBar(model: model) }
+                // remote gestures: horizontal swipe → scrub, swipe down → show settings, click →
+                // play/pause. While the settings panel is open it goes inert so swipes navigate the
+                // panel instead of starting a scrub.
+                ScrubPad(model: model, isInteractive: !showSettings,
+                         onShowSettings: { showSettings = true })
+                // Thin scrub bar: appears on click + during scrub, sticky 5s, fades in/out.
+                MinimalScrubBar(model: model)
+                    .opacity(model.scrubBarVisible ? 1 : 0)
+                    .animation(.easeInOut(duration: 0.25), value: model.scrubBarVisible)
+                    .allowsHitTesting(false)
             }
 
             if showSettings {
@@ -39,7 +45,7 @@ struct PlayerView: View {
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
-        .animation(.easeInOut(duration: 0.2), value: showSettings)
+        .animation(.easeInOut(duration: 0.25), value: showSettings)
         .onPlayPauseCommand {
             if model.isScrubbing { model.commitScrub() } else { model.togglePlayPause() }
         }

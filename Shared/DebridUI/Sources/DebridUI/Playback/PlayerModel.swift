@@ -54,6 +54,9 @@ public final class PlayerModel {
     public private(set) var scrubTarget: Double = 0
     /// Whether the (UIKit-focusable) scrub surface holds focus — drives the bar's focused look.
     public private(set) var scrubberFocused: Bool = false
+    /// Whether the thin scrub bar should be on screen (sticky for `scrubBarDwell` seconds after the
+    /// last interaction). Distinct from `isScrubbing` (mid-gesture only).
+    public private(set) var scrubBarVisible: Bool = false
 
     // MARK: - Stored properties
 
@@ -70,9 +73,11 @@ public final class PlayerModel {
     private var eventTask: Task<Void, Never>?
     private var loadTask: Task<Void, Never>?
     private var hideControlsTask: Task<Void, Never>?
+    private var scrubBarHideTask: Task<Void, Never>?
     private var lastSavedPosition: Double = -.infinity
     private let saveInterval: Double = 5
     private let autoHideDelay: Double
+    private let scrubBarDwell: Double = 5      // bar stays visible for 5s after the last interaction
 
     // MARK: - Computed helpers
 
@@ -204,6 +209,19 @@ public final class PlayerModel {
 
     public func togglePlayPause() {
         if phase == .playing { engine.pause() } else { engine.play() }
+        revealScrubBar()
+    }
+
+    /// Reveal the thin scrub bar and re-arm a 5s sticky timer. Called on every player interaction
+    /// (click, swipe, commit). Cancels any pending hide; PlayerView fades it in/out.
+    public func revealScrubBar() {
+        scrubBarVisible = true
+        scrubBarHideTask?.cancel()
+        scrubBarHideTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(scrubBarDwell))
+            guard !Task.isCancelled, !isScrubbing else { return }
+            scrubBarVisible = false
+        }
     }
 
     public func skip(_ delta: Double) { engine.seek(to: max(0, position + delta)) }
@@ -225,6 +243,8 @@ public final class PlayerModel {
         isScrubbing = true
         controlsVisible = true
         hideControlsTask?.cancel()            // never auto-hide mid-scrub
+        scrubBarHideTask?.cancel()
+        scrubBarVisible = true
     }
 
     /// Move the preview marker by `deltaSeconds`, clamped to the media's bounds. No seek yet.
@@ -242,12 +262,14 @@ public final class PlayerModel {
         position = scrubTarget
         engine.seek(to: scrubTarget)
         armAutoHide()
+        revealScrubBar()                       // sticky 5s after commit
     }
 
     /// Abandon scrub mode without seeking (the playhead is untouched).
     public func cancelScrub() {
         isScrubbing = false
         armAutoHide()
+        revealScrubBar()
     }
 
     // MARK: - Controls auto-hide
@@ -286,6 +308,7 @@ public final class PlayerModel {
         eventTask?.cancel()
         loadTask?.cancel()
         hideControlsTask?.cancel()
+        scrubBarHideTask?.cancel()
         await recordProgress(position, duration)
         engine.stop()
     }
