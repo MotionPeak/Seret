@@ -1,4 +1,5 @@
 import SwiftUI
+import DebridUI
 import CoreGraphics
 import DebridCore
 

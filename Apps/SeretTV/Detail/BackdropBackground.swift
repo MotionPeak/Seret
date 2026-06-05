@@ -1,4 +1,5 @@
 import DebridCore
+import DebridUI
 import SwiftUI
 
 /// Full-screen backdrop (or poster fallback) with a darkening scrim, behind a Detail screen.

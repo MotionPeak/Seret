@@ -1,4 +1,5 @@
 import DebridCore
+import DebridUI
 import SwiftUI
 
 /// One focusable poster tile. The poster itself is the `.card` (tvOS focus lift + ring); the title

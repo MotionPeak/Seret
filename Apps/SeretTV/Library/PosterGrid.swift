@@ -1,4 +1,5 @@
 import DebridCore
+import DebridUI
 import SwiftUI
 
 /// A scrolling grid of poster cards. tvOS's focus engine handles poster scaling + the ring.

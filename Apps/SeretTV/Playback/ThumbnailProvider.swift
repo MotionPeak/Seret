@@ -1,4 +1,5 @@
 import VLCKit
+import DebridUI
 import CoreGraphics
 
 /// Fetches a single video frame at a fractional position, for the scrub preview.

@@ -1,4 +1,5 @@
 import DebridCore
+import DebridUI
 import Foundation
 import Observation
 import SwiftData

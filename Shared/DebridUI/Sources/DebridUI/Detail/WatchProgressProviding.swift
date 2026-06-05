@@ -3,7 +3,7 @@ import Foundation
 
 /// Sendable seam over `WatchProgressStore` so `DetailStore` reads/writes progress without
 /// pulling SwiftData into the app's unit tests.
-protocol WatchProgressProviding: Sendable {
+public protocol WatchProgressProviding: Sendable {
     func progress(forContentKey key: String) async throws -> WatchState?
     func record(contentKey: String, sourceKey: String,
                 positionSeconds: Double, durationSeconds: Double, finished: Bool) async throws

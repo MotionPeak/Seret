@@ -1,4 +1,5 @@
 import SwiftUI
+import DebridUI
 import DebridCore
 
 /// The Subtitles & Audio side panel. Two tabs (Subtitles · Audio) keep the long track lists from

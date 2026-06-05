@@ -1,4 +1,5 @@
 import DebridCore
+import DebridUI
 import SwiftUI
 
 /// The signed-in root: a tvOS top tab bar (Movies · Shows · Settings) over the library store.

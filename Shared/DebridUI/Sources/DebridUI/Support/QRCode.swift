@@ -2,10 +2,10 @@ import CoreImage.CIFilterBuiltins
 import SwiftUI
 
 /// Generates a crisp QR `Image` from a string (e.g. the RD verification URL).
-enum QRCode {
+public enum QRCode {
     private static let context = CIContext()
 
-    static func image(from string: String, scale: CGFloat = 12) -> Image? {
+    public static func image(from string: String, scale: CGFloat = 12) -> Image? {
         let filter = CIFilter.qrCodeGenerator()
         filter.message = Data(string.utf8)
         filter.correctionLevel = "M"

@@ -1,4 +1,5 @@
 import DebridCore
+import DebridUI
 import SwiftUI
 
 /// The sign-in screen. Default: device-code. Secondary: paste a personal API token

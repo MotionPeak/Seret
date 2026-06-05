@@ -1,4 +1,5 @@
 import SwiftUI
+import DebridUI
 
 /// Hosts the UIView that `VLCKitVideoPlayerEngine` renders into.
 struct VLCVideoView: UIViewRepresentable {

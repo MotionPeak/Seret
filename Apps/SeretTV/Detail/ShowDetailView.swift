@@ -1,4 +1,5 @@
 import DebridCore
+import DebridUI
 import SwiftUI
 
 /// Show Detail: backdrop hero with Resume/Play-next, a focusable season picker, and the

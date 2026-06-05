@@ -1,4 +1,5 @@
 import Observation
+import DebridUI
 import Foundation
 import CoreGraphics
 import DebridCore

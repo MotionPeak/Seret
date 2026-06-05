@@ -1,4 +1,5 @@
 import DebridCore
+import DebridUI
 import SwiftUI
 
 /// Movie Detail: backdrop hero, metadata, overview, Play/Resume, Versions, Mark Watched.

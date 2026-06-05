@@ -1,4 +1,5 @@
 import DebridCore
+import DebridUI
 import SwiftUI
 
 /// Renders one tab (Movies or Shows): the poster grid when loaded, otherwise the

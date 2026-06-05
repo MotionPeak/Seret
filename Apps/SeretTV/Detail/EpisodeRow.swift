@@ -1,4 +1,5 @@
 import DebridCore
+import DebridUI
 import SwiftUI
 
 /// One episode in the vertical list: still + number/title + synopsis + progress, selectable

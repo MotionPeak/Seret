@@ -1,4 +1,5 @@
 import SwiftUI
+import DebridUI
 
 /// Resolves launch state, then routes between sign-in and the library shell.
 struct RootView: View {

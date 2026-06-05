@@ -1,4 +1,5 @@
 import DebridCore
+import DebridUI
 import Observation
 
 /// The Detail screen's source of truth for one title. Renders instantly from the cached

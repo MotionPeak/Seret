@@ -1,4 +1,5 @@
 import UIKit
+import DebridUI
 import VLCKit
 import DebridCore
 

@@ -1,4 +1,5 @@
 import DebridCore
+import DebridUI
 import Observation
 
 /// The library UI's single source of truth: cache-first instant render, then a background

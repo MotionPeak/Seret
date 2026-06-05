@@ -1,4 +1,5 @@
 import DebridCore
+import DebridUI
 import SwiftUI
 
 /// Renders the quality/source/codec chips for a parsed release.

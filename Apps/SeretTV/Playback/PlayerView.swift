@@ -1,4 +1,5 @@
 import SwiftUI
+import DebridUI
 import DebridCore
 
 /// A transparent, focusable full-screen catcher shown while the transport is auto-hidden. The first
