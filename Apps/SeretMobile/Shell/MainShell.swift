@@ -48,7 +48,7 @@ struct MainShell: View {
 
     private func sectionStack(_ section: Section) -> some View {
         NavigationStack {
-            SectionStub(section: section)
+            LibrarySection(section: section)
                 .navigationTitle(section.title)
         }
     }
