@@ -25,11 +25,11 @@ struct MovieDetailView: View {
 
     private var hero: some View {
         VStack(alignment: .leading, spacing: 20) {
-            Text(item.title).font(.system(size: 64, weight: .bold))
-            Text(metaLine).font(.title3).foregroundStyle(.secondary)
+            Text(item.title).font(.system(size: 48, weight: .bold))
+            Text(metaLine).font(.body).foregroundStyle(.secondary)
             if let best = store.bestSource { QualityChips(parsed: best.parsed) }
             if let overview = store.overview {
-                Text(overview).font(.title3).frame(maxWidth: 1100, alignment: .leading).lineLimit(3)
+                Text(overview).font(.body).frame(maxWidth: 1100, alignment: .leading).lineLimit(3)
             }
             actions
         }

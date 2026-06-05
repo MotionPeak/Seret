@@ -38,6 +38,7 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
     func load(url: URL, headers: [String: String]) {
         let media = VLCMedia(url: url)
         for (k, v) in headers { media?.addOption(":http-\(k.lowercased())=\(v)") } // unused for RD CDN
+        media?.addOption(":network-caching=3000")   // buffer more for high-bitrate RD streams (fewer stalls)
         player.media = media
     }
 

@@ -50,7 +50,7 @@ struct TransportOverlay: View {
         VStack(spacing: 28) {
             Spacer()
             HStack {
-                Text(model.label).font(.title3.bold())
+                Text(model.label).font(.headline)
                 Spacer()
                 // Click up from the scrubber to reach this; press to open the Subtitles & Audio panel.
                 Button { model.showControls(); onOpenTracks() } label: {
@@ -88,10 +88,10 @@ private struct ScrubBar: View {
         VStack(spacing: 14) {
             // Times ABOVE the bar — never clipped by the bottom overscan edge, and readable.
             HStack {
-                Text(Timecode.format(shown)).font(.title3.monospacedDigit().bold())
+                Text(Timecode.format(shown)).font(.body.monospacedDigit().weight(.semibold))
                 Spacer()
                 Text("-" + Timecode.format(max(0, model.duration - shown)))
-                    .font(.title3.monospacedDigit()).foregroundStyle(.secondary)
+                    .font(.body.monospacedDigit()).foregroundStyle(.secondary)
             }
             GeometryReader { geo in
                 let headX = geo.size.width * frac

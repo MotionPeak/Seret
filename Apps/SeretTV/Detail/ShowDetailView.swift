@@ -23,10 +23,10 @@ struct ShowDetailView: View {
 
     private var hero: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text(item.title).font(.system(size: 60, weight: .bold))
-            Text(metaLine).font(.title3).foregroundStyle(.secondary)
+            Text(item.title).font(.system(size: 46, weight: .bold))
+            Text(metaLine).font(.body).foregroundStyle(.secondary)
             if let overview = store.overview {
-                Text(overview).font(.title3).frame(maxWidth: 1100, alignment: .leading).lineLimit(3)
+                Text(overview).font(.body).frame(maxWidth: 1100, alignment: .leading).lineLimit(3)
             }
             heroActions
         }
