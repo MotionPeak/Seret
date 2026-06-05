@@ -33,6 +33,7 @@ struct PlayerView: View {
 
     var body: some View {
         ZStack {
+            Color.black.ignoresSafeArea()   // black backing during the open transition (no grey flash)
             VLCVideoView(videoView: engine.videoView).ignoresSafeArea()
 
             switch model.phase {
