@@ -29,8 +29,9 @@ final class ScrubInteractionView: UIView {
     weak var model: PlayerModel?
     var onShowSettings: (() -> Void)?
 
-    /// Fraction of the whole timeline a full-width trackpad swipe traverses.
-    private let sensitivity: Double = 1.0
+    /// Fraction of the whole timeline a full-width trackpad swipe traverses. Lower = slower,
+    /// easier to swipe precisely.
+    private let sensitivity: Double = 0.4
     /// Vertical distance (points) before a down swipe is treated as "show settings".
     private let pullThreshold: CGFloat = 60
     /// Direction the current pan committed to, if any.
