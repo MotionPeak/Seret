@@ -13,10 +13,13 @@ final class ThumbnailProvider {
     private var current: (thumbnailer: VLCMediaThumbnailer, delegate: Delegate)?
 
     /// A frame at `fraction` (0–1) of `url`, or nil on timeout/failure.
+    /// Tiny + low-quality on purpose so it decodes as fast as possible (scrub preview, not a poster).
     func frame(url: URL, fraction: Double,
-               size: CGSize = CGSize(width: 256, height: 144)) async -> CGImage? {
+               size: CGSize = CGSize(width: 160, height: 90)) async -> CGImage? {
         let box: ImageBox? = await withCheckedContinuation { continuation in
             guard let media = VLCMedia(url: url) else { continuation.resume(returning: nil); return }
+            media.addOption(":no-audio")                    // skip audio — we only want one frame
+            media.addOption(":avcodec-skiploopfilter=all")  // skip the loop filter → faster decode
             let delegate = Delegate { continuation.resume(returning: $0) }
             let thumbnailer = VLCMediaThumbnailer(media: media, andDelegate: delegate)
             thumbnailer.snapshotPosition = Float(min(max(0, fraction), 1))

@@ -1,6 +1,6 @@
 import Testing
 import Foundation
-@testable import Seret
+@testable import DebridUI
 import DebridCore
 
 @MainActor

@@ -30,6 +30,7 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
         events = AsyncStream(bufferingPolicy: .bufferingNewest(64)) { cont = $0 }
         continuation = cont
         super.init()
+        videoView.backgroundColor = .black   // base stays black (no grey flash before VLCKit renders)
         player.drawable = videoView
         player.delegate = self
     }

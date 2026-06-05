@@ -1,7 +1,7 @@
 import Testing
 import Foundation
 import DebridCore
-@testable import Seret
+@testable import DebridUI
 
 private func makeDeviceCode() -> RDDeviceCode {
     let json = #"""

@@ -1,7 +1,7 @@
 import Testing
 import Foundation
 import DebridCore
-@testable import Seret
+@testable import DebridUI
 
 private func movie(_ id: String, poster: String? = nil) -> MediaItem {
     MediaItem(id: id, kind: .movie, title: "Movie \(id)", year: 2024,
