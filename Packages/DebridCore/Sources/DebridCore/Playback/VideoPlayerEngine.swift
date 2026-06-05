@@ -15,6 +15,8 @@ public protocol VideoPlayerEngine: AnyObject {
     /// its `events` stream finishes. Called from `PlayerModel.teardown()`.
     func stop()
     func seek(to seconds: Double)
+    /// Playback speed multiplier (1.0 = normal). Engines that don't support varispeed should no-op.
+    func setRate(_ rate: Double)
 
     var audioTracks: [MediaTrack] { get }
     var subtitleTracks: [MediaTrack] { get }

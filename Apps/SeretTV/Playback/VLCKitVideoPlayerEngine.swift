@@ -45,6 +45,7 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
     func play()  { player.play() }
     func pause() { player.pause() }
     func seek(to seconds: Double) { player.time = VLCTime(int: Int32(seconds * 1000)) }
+    func setRate(_ rate: Double) { player.rate = Float(rate) }
     func stop()  { player.stop(); continuation.finish() }
 
     func addExternalSubtitle(url: URL) {

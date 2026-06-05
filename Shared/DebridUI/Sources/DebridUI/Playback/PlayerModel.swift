@@ -209,6 +209,13 @@ public final class PlayerModel {
     public func skip(_ delta: Double) { engine.seek(to: max(0, position + delta)) }
     public func scrub(to seconds: Double) { engine.seek(to: seconds) }
 
+    /// Playback rate multiplier (1 = normal). Settings panel uses 0.5/0.75/1/1.25/1.5.
+    public private(set) var playbackSpeed: Double = 1
+    public func setPlaybackSpeed(_ rate: Double) {
+        playbackSpeed = rate
+        engine.setRate(rate)
+    }
+
     // MARK: - Swipe-scrub (Step 2)
 
     /// Enter scrub mode (a select press on the focused bar). The preview marker starts at the

@@ -8,6 +8,7 @@ import DebridCore
 final class FakeVideoPlayerEngine: VideoPlayerEngine {
     private(set) var loadedURL: URL?
     private(set) var seekedTo: Double?
+    private(set) var rateSet: Double = 1
     private(set) var playCalled = false
     private(set) var stopCalled = false
     private(set) var addedSubtitles: [URL] = []
@@ -30,6 +31,7 @@ final class FakeVideoPlayerEngine: VideoPlayerEngine {
     func pause() {}
     func stop() { stopCalled = true; continuation.finish() }
     func seek(to seconds: Double) { seekedTo = seconds }
+    func setRate(_ rate: Double) { rateSet = rate }
     func selectAudioTrack(id: String?) {}
     func selectSubtitleTrack(id: String?) { selectedSubtitleID = id }
     func addExternalSubtitle(url: URL) { addedSubtitles.append(url) }

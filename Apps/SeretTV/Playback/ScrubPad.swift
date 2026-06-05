@@ -2,38 +2,41 @@ import SwiftUI
 import DebridUI
 import UIKit
 
-/// The focusable scrub surface.
-///
-/// On tvOS the Siri-remote trackpad delivers its (indirect) touches to the **focused view's own**
-/// gesture recognizers — not to passive overlays. So a continuous scrub needs the pan recognizer to
-/// live on a view that is itself focusable *and* currently focused. (Earlier attempts put the pan on
-/// a non-focusable overlay, so swipes never arrived and fell through to `onMoveCommand`'s ±10s steps;
-/// removing those steps left no scrub at all.)
-///
-/// This representable hosts a focusable `UIView` with an indirect-touch `UIPanGestureRecognizer`; the
-/// SwiftUI `ScrubBar` draws the visuals on top (non-interactive). A **click (select press) engages
-/// scrub mode** — only then does a swipe glide the preview (so merely resting a finger on the
-/// trackpad while focused doesn't scrub). A second click commits the seek; Menu cancels.
+/// The invisible focusable surface that owns ALL the player's gestures. On tvOS, indirect-touch
+/// gestures reach only the focused view, so this is the focused view by default. It receives:
+///   • horizontal swipe → scrub mode (auto-engages once horizontal distance exceeds the threshold)
+///   • vertical-DOWN swipe from anywhere → reveal the settings panel (top-down)
+///   • center click (.select) → play / pause
 struct ScrubPad: UIViewRepresentable {
     let model: PlayerModel
+    let onShowSettings: () -> Void
 
     func makeUIView(context: Context) -> ScrubInteractionView {
         let view = ScrubInteractionView()
         view.model = model
+        view.onShowSettings = onShowSettings
         return view
     }
 
     func updateUIView(_ uiView: ScrubInteractionView, context: Context) {
         uiView.model = model
+        uiView.onShowSettings = onShowSettings
     }
 }
 
 @MainActor
 final class ScrubInteractionView: UIView {
     weak var model: PlayerModel?
+    var onShowSettings: (() -> Void)?
 
-    /// Fraction of the whole timeline a full-width trackpad swipe traverses. Tune on a real Apple TV.
+    /// Fraction of the whole timeline a full-width trackpad swipe traverses.
     private let sensitivity: Double = 1.0
+    /// Vertical distance (points) before a down swipe is treated as "show settings".
+    private let pullThreshold: CGFloat = 60
+    /// Direction the current pan committed to, if any.
+    private enum Gesture { case horizontal, verticalDown }
+    private var current: Gesture?
+    private var pulledSettings = false
 
     override var canBecomeFocused: Bool { true }
 
@@ -43,62 +46,55 @@ final class ScrubInteractionView: UIView {
         let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
         pan.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.indirect.rawValue)]  // Siri remote
         addGestureRecognizer(pan)
-        // Left/right clicks → ±10s. The focus engine swallows arrow presses before they reach
-        // pressesBegan, so catch them with press-typed tap recognizers instead.
-        let back = UITapGestureRecognizer(target: self, action: #selector(skipBackward))
-        back.allowedPressTypes = [NSNumber(value: UIPress.PressType.leftArrow.rawValue)]
-        addGestureRecognizer(back)
-        let forward = UITapGestureRecognizer(target: self, action: #selector(skipForward))
-        forward.allowedPressTypes = [NSNumber(value: UIPress.PressType.rightArrow.rawValue)]
-        addGestureRecognizer(forward)
-    }
-
-    @objc private func skipForward() {
-        guard let model else { return }
-        if model.isScrubbing { model.updateScrub(by: 10) } else { model.skip(10) }
-    }
-    @objc private func skipBackward() {
-        guard let model else { return }
-        if model.isScrubbing { model.updateScrub(by: -10) } else { model.skip(-10) }
     }
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError("init(coder:) unavailable") }
 
-    override func didUpdateFocus(in context: UIFocusUpdateContext,
-                                 with coordinator: UIFocusAnimationCoordinator) {
-        super.didUpdateFocus(in: context, with: coordinator)
-        model?.setScrubberFocused(context.nextFocusedView === self)
-    }
-
-    /// Every click on this remote arrives as a center `.select` (the sides too), so a click is
-    /// play/pause. Seeking is done by swiping. (±10s left/right still works via the tap recognizers
-    /// on remotes whose side-clicks send real arrow presses.)
+    /// Click is play/pause. (On this remote every press arrives as .select, even side clicks.)
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
         if let model, presses.contains(where: { $0.type == .select }) {
             model.togglePlayPause()
         } else {
-            super.pressesBegan(presses, with: event)   // Up/Down focus moves, Menu, Play/Pause
+            super.pressesBegan(presses, with: event)
         }
     }
 
-    /// A horizontal swipe scrubs (seeks to anywhere); lifting commits the seek. Vertical movement is
-    /// ignored so a click up can still move focus to the Subtitles button.
     @objc private func handlePan(_ pan: UIPanGestureRecognizer) {
         guard let model else { return }
         switch pan.state {
+        case .began:
+            current = nil
+            pulledSettings = false
         case .changed:
             let t = pan.translation(in: self)
-            if !model.isScrubbing {
-                guard abs(t.x) > abs(t.y), abs(t.x) > 8 else { return }
-                model.beginScrub()
+            // Commit to a direction on first meaningful movement.
+            if current == nil {
+                if abs(t.x) > abs(t.y), abs(t.x) > 8 {
+                    current = .horizontal
+                    model.beginScrub()
+                } else if t.y > 8, abs(t.y) > abs(t.x) {
+                    current = .verticalDown
+                }
             }
-            pan.setTranslation(.zero, in: self)
-            let secondsPerPoint = model.duration / Double(max(1, bounds.width)) * sensitivity
-            model.updateScrub(by: Double(t.x) * secondsPerPoint)
+            switch current {
+            case .horizontal:
+                pan.setTranslation(.zero, in: self)
+                let secondsPerPoint = model.duration / Double(max(1, bounds.width)) * sensitivity
+                model.updateScrub(by: Double(t.x) * secondsPerPoint)
+            case .verticalDown:
+                if !pulledSettings, t.y > pullThreshold {
+                    pulledSettings = true
+                    onShowSettings?()        // fires once per gesture
+                }
+            case nil:
+                break
+            }
         case .ended:
-            if model.isScrubbing { model.commitScrub() }
+            if current == .horizontal, model.isScrubbing { model.commitScrub() }
+            current = nil
         case .cancelled, .failed:
-            if model.isScrubbing { model.cancelScrub() }
+            if current == .horizontal, model.isScrubbing { model.cancelScrub() }
+            current = nil
         default:
             break
         }
