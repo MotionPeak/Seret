@@ -70,3 +70,59 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Seret.app/Seret"
         BUNDLE_LOADER: "$(TEST_HOST)"
+  SeretMobile:
+    type: application
+    platform: iOS
+    deploymentTarget: "18.0"
+    sources:
+      - path: Apps/SeretMobile
+    dependencies:
+      - package: DebridCore
+      - package: DebridUI
+    info:
+      path: Apps/SeretMobile/Info.plist
+      properties:
+        CFBundleDisplayName: Seret
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        TMDBAPIKey: "$(TMDB_API_KEY)"
+        OpenSubtitlesAPIKey: "$(OPENSUBTITLES_API_KEY)"
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+    settings:
+      base:
+        PRODUCT_NAME: Seret
+        PRODUCT_BUNDLE_IDENTIFIER: com.solomons.seret.mobile
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: ML9HDN3QZS
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        LD_RUNPATH_SEARCH_PATHS:
+          - "$(inherited)"
+          - "@executable_path/Frameworks"
+    configFiles:
+      Debug: Secrets.xcconfig
+      Release: Secrets.xcconfig
+    scheme:
+      testTargets:
+        - SeretMobileTests
+  SeretMobileTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "18.0"
+    sources:
+      - path: Apps/SeretMobileTests
+    dependencies:
+      - target: SeretMobile
+      - package: DebridCore
+      - package: DebridUI
+    settings:
+      base:
+        SWIFT_VERSION: "6.0"
+        SWIFT_STRICT_CONCURRENCY: complete
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Seret.app/Seret"
+        BUNDLE_LOADER: "$(TEST_HOST)"
