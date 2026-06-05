@@ -2,44 +2,40 @@ import DebridCore
 import DebridUI
 import SwiftUI
 
-/// One episode in the vertical list: still + number/title + synopsis + progress, selectable
-/// to play, with a context-menu Mark Watched/Unwatched.
+/// One episode card in the side-scrolling row: a 16:9 still (the focusable `.card`) with the
+/// number/title, runtime·resolution, and a progress bar below. Select to play; context-menu
+/// Mark Watched/Unwatched.
 struct EpisodeRow: View {
     let store: DetailStore
     let episode: Episode
     let meta: TMDBEpisodeDetails?
+
+    private let width: CGFloat = 320
 
     private var contentKey: String { WatchKey.content(forShow: store.item, episode: episode) }
     private var watch: WatchState? { store.watchState(forKey: contentKey) }
     private var isWatched: Bool { watch?.finished == true }
 
     var body: some View {
-        NavigationLink(value: store.playRequest(source: episode.source, episode: episode, label: label)) {
-            HStack(alignment: .top, spacing: 20) {
+        VStack(alignment: .leading, spacing: 8) {
+            NavigationLink(value: store.playRequest(source: episode.source, episode: episode, label: label)) {
                 still
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 10) {
-                        Text(title).font(.title3.weight(.semibold))
-                        if isWatched { Image(systemName: "checkmark.circle.fill").foregroundStyle(.green) }
-                    }
-                    if !subtitle.isEmpty {
-                        Text(subtitle).font(.callout).foregroundStyle(.secondary)
-                    }
-                    if let overview = meta?.overview, !overview.isEmpty {
-                        Text(overview).font(.callout).foregroundStyle(.secondary).lineLimit(2)
-                    }
-                    progressBar
+            }
+            .buttonStyle(.card)
+            .contextMenu {
+                Button(isWatched ? "Mark Unwatched" : "Mark Watched") {
+                    Task { await store.setWatched(!isWatched, contentKey: contentKey, source: episode.source) }
                 }
-                Spacer(minLength: 0)
             }
-            .padding(16)
-        }
-        .contextMenu {
-            Button(isWatched ? "Mark Unwatched" : "Mark Watched") {
-                Task { await store.setWatched(!isWatched, contentKey: contentKey, source: episode.source) }
+            HStack(spacing: 8) {
+                Text(title).font(.headline).lineLimit(1)
+                if isWatched { Image(systemName: "checkmark.circle.fill").foregroundStyle(.green) }
+            }
+            if !subtitle.isEmpty {
+                Text(subtitle).font(.caption).foregroundStyle(.secondary)
             }
         }
-        .frame(maxWidth: 1200, alignment: .leading)
+        .frame(width: width, alignment: .leading)
     }
 
     private var label: String { "\(store.item.title) — S\(episode.season)·E\(episode.number)" }
@@ -53,12 +49,14 @@ struct EpisodeRow: View {
         Group {
             if let url = TMDBClient.imageURL(path: meta?.stillPath, size: "w300") {
                 AsyncImage(url: url) { $0.resizable().aspectRatio(contentMode: .fill) }
-                    placeholder: { Color.gray.opacity(0.3) }
+                    placeholder: { ZStack { Color.gray.opacity(0.25); ProgressView() } }
             } else {
                 Color.gray.opacity(0.3)
             }
         }
-        .frame(width: 214, height: 120).clipped().cornerRadius(8)
+        .frame(width: width, height: width * 9 / 16)
+        .clipped()
+        .overlay(alignment: .bottom) { progressBar }
     }
 
     @ViewBuilder private var progressBar: some View {
@@ -72,10 +70,10 @@ struct EpisodeRow: View {
     private func bar(fraction: Double, color: Color) -> some View {
         GeometryReader { geo in
             ZStack(alignment: .leading) {
-                Capsule().fill(.white.opacity(0.2))
+                Color.black.opacity(0.4)
                 Capsule().fill(color).frame(width: geo.size.width * min(max(fraction, 0), 1))
             }
         }
-        .frame(width: 214, height: 4)
+        .frame(height: 5)
     }
 }

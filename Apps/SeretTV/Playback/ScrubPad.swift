@@ -70,22 +70,37 @@ final class ScrubInteractionView: UIView {
         model?.setScrubberFocused(context.nextFocusedView === self)
     }
 
-    /// Center click toggles scrub mode: first click engages it, second click commits the seek.
-    /// (±10s on left/right is handled by the press-typed tap recognizers set up in init.)
+    /// Every click on this remote arrives as a center `.select` (the sides too), so a click is
+    /// play/pause. Seeking is done by swiping. (±10s left/right still works via the tap recognizers
+    /// on remotes whose side-clicks send real arrow presses.)
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
         if let model, presses.contains(where: { $0.type == .select }) {
-            if model.isScrubbing { model.commitScrub() } else { model.beginScrub() }
+            model.togglePlayPause()
         } else {
             super.pressesBegan(presses, with: event)   // Up/Down focus moves, Menu, Play/Pause
         }
     }
 
+    /// A horizontal swipe scrubs (seeks to anywhere); lifting commits the seek. Vertical movement is
+    /// ignored so a click up can still move focus to the Subtitles button.
     @objc private func handlePan(_ pan: UIPanGestureRecognizer) {
-        // Only scrub once a click has engaged scrub mode — never on a bare hover/swipe.
-        guard let model, model.isScrubbing, pan.state == .changed else { return }
-        let t = pan.translation(in: self)
-        pan.setTranslation(.zero, in: self)                              // pure incremental deltas
-        let secondsPerPoint = model.duration / Double(max(1, bounds.width)) * sensitivity
-        model.updateScrub(by: Double(t.x) * secondsPerPoint)
+        guard let model else { return }
+        switch pan.state {
+        case .changed:
+            let t = pan.translation(in: self)
+            if !model.isScrubbing {
+                guard abs(t.x) > abs(t.y), abs(t.x) > 8 else { return }
+                model.beginScrub()
+            }
+            pan.setTranslation(.zero, in: self)
+            let secondsPerPoint = model.duration / Double(max(1, bounds.width)) * sensitivity
+            model.updateScrub(by: Double(t.x) * secondsPerPoint)
+        case .ended:
+            if model.isScrubbing { model.commitScrub() }
+        case .cancelled, .failed:
+            if model.isScrubbing { model.cancelScrub() }
+        default:
+            break
+        }
     }
 }

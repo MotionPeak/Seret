@@ -60,8 +60,8 @@ struct ShowDetailView: View {
             HStack(spacing: 14) {
                 ForEach(item.seasons) { season in
                     Button { Task { await store.selectSeason(season.number) } } label: {
-                        Text("Season \(season.number)").font(.title3.weight(.semibold))
-                            .padding(.horizontal, 22).padding(.vertical, 12)
+                        Text("Season \(season.number)").font(.headline)
+                            .padding(.horizontal, 18).padding(.vertical, 9)
                     }
                     .buttonStyle(.bordered)
                     .tint(season.number == store.selectedSeason ? .white : .gray)
@@ -72,10 +72,13 @@ struct ShowDetailView: View {
 
     @ViewBuilder private var episodeList: some View {
         if let season = item.seasons.first(where: { $0.number == store.selectedSeason }) {
-            VStack(spacing: 22) {
-                ForEach(season.episodes) { ep in
-                    EpisodeRow(store: store, episode: ep, meta: store.episodeMeta[season.number]?[ep.number])
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(alignment: .top, spacing: 30) {
+                    ForEach(season.episodes) { ep in
+                        EpisodeRow(store: store, episode: ep, meta: store.episodeMeta[season.number]?[ep.number])
+                    }
                 }
+                .padding(.vertical, 16)   // room for the focus lift
             }
         }
     }
