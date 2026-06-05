@@ -43,6 +43,23 @@ final class ScrubInteractionView: UIView {
         let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
         pan.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.indirect.rawValue)]  // Siri remote
         addGestureRecognizer(pan)
+        // Left/right clicks → ±10s. The focus engine swallows arrow presses before they reach
+        // pressesBegan, so catch them with press-typed tap recognizers instead.
+        let back = UITapGestureRecognizer(target: self, action: #selector(skipBackward))
+        back.allowedPressTypes = [NSNumber(value: UIPress.PressType.leftArrow.rawValue)]
+        addGestureRecognizer(back)
+        let forward = UITapGestureRecognizer(target: self, action: #selector(skipForward))
+        forward.allowedPressTypes = [NSNumber(value: UIPress.PressType.rightArrow.rawValue)]
+        addGestureRecognizer(forward)
+    }
+
+    @objc private func skipForward() {
+        guard let model else { return }
+        if model.isScrubbing { model.updateScrub(by: 10) } else { model.skip(10) }
+    }
+    @objc private func skipBackward() {
+        guard let model else { return }
+        if model.isScrubbing { model.updateScrub(by: -10) } else { model.skip(-10) }
     }
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError("init(coder:) unavailable") }
@@ -53,12 +70,13 @@ final class ScrubInteractionView: UIView {
         model?.setScrubberFocused(context.nextFocusedView === self)
     }
 
-    /// A click toggles scrub mode: first click engages it, second click commits the seek.
+    /// Center click toggles scrub mode: first click engages it, second click commits the seek.
+    /// (±10s on left/right is handled by the press-typed tap recognizers set up in init.)
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
         if let model, presses.contains(where: { $0.type == .select }) {
             if model.isScrubbing { model.commitScrub() } else { model.beginScrub() }
         } else {
-            super.pressesBegan(presses, with: event)   // let Menu/Play-Pause propagate
+            super.pressesBegan(presses, with: event)   // Up/Down focus moves, Menu, Play/Pause
         }
     }
 

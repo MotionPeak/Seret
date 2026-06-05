@@ -25,10 +25,7 @@ struct LibraryShell: View {
             }
             .navigationDestination(for: PlaybackRequest.self) { request in
                 let engine = VLCKitVideoPlayerEngine()
-                let thumbnails = ThumbnailProvider()
-                if let model = session.makePlayer(
-                    for: request, engine: engine,
-                    fetchThumbnail: { url, fraction in await thumbnails.frame(url: url, fraction: fraction) }) {
+                if let model = session.makePlayer(for: request, engine: engine) {
                     PlayerView(model: model, engine: engine,
                                backdropURL: TMDBClient.imageURL(path: request.item.backdropPath, size: "original"))
                 } else {

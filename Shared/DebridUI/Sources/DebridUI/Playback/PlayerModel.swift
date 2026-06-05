@@ -1,6 +1,5 @@
 import Observation
 import Foundation
-import CoreGraphics
 import DebridCore
 
 /// Orchestrates a single playback session: unrestrict → load → resume → play,
@@ -55,8 +54,6 @@ public final class PlayerModel {
     public private(set) var scrubTarget: Double = 0
     /// Whether the (UIKit-focusable) scrub surface holds focus — drives the bar's focused look.
     public private(set) var scrubberFocused: Bool = false
-    /// Best-effort video frame at the current scrub target (nil until one lands / if unsupported).
-    public private(set) var scrubPreviewImage: CGImage?
 
     // MARK: - Stored properties
 
@@ -69,13 +66,10 @@ public final class PlayerModel {
     private let unrestrict: (String) async throws -> URL
     private let recordProgress: (Double, Double) async -> Void
     private let subtitles: SubtitleProvider?
-    private let fetchThumbnail: ((URL, Double) async -> CGImage?)?
 
-    private var currentURL: URL?
     private var eventTask: Task<Void, Never>?
     private var loadTask: Task<Void, Never>?
     private var hideControlsTask: Task<Void, Never>?
-    private var thumbnailTask: Task<Void, Never>?
     private var lastSavedPosition: Double = -.infinity
     private let saveInterval: Double = 5
     private let autoHideDelay: Double
@@ -92,10 +86,8 @@ public final class PlayerModel {
          unrestrict: @escaping (String) async throws -> URL,
          recordProgress: @escaping (Double, Double) async -> Void,
          subtitles: SubtitleProvider?,
-         fetchThumbnail: ((URL, Double) async -> CGImage?)? = nil,
          autoHideDelay: Double = 4) {
         self.autoHideDelay = autoHideDelay
-        self.fetchThumbnail = fetchThumbnail
         self.item = request.item
         // Preferred source first, then remaining sources in quality order (deduped).
         self.sources = [request.source] + request.item.sources.bestFirst().filter { $0 != request.source }
@@ -144,7 +136,6 @@ public final class PlayerModel {
         do {
             let url = try await unrestrict(currentSource.restrictedLink)
             guard !Task.isCancelled else { return }   // superseded by a newer reload()
-            currentURL = url                          // for scrub-preview thumbnails
             engine.load(url: url, headers: [:])
             if let resumeAt, resumeAt > 0 { engine.seek(to: resumeAt) }
             engine.play()
@@ -225,10 +216,8 @@ public final class PlayerModel {
     public func beginScrub() {
         scrubTarget = position
         isScrubbing = true
-        scrubPreviewImage = nil
         controlsVisible = true
         hideControlsTask?.cancel()            // never auto-hide mid-scrub
-        scheduleThumbnail()                   // show the frame at the current spot right away
     }
 
     /// Move the preview marker by `deltaSeconds`, clamped to the media's bounds. No seek yet.
@@ -236,8 +225,6 @@ public final class PlayerModel {
         guard isScrubbing else { return }
         let upper = duration > 0 ? duration : scrubTarget + max(0, deltaSeconds)
         scrubTarget = min(max(0, scrubTarget + deltaSeconds), upper)
-        // Keep the last frame on screen while the new one loads (avoids spinner flicker per move).
-        scheduleThumbnail()
     }
 
     /// Seek to the preview marker and leave scrub mode. Optimistically advance the playhead so the
@@ -245,8 +232,6 @@ public final class PlayerModel {
     public func commitScrub() {
         guard isScrubbing else { return }
         isScrubbing = false
-        thumbnailTask?.cancel()
-        scrubPreviewImage = nil
         position = scrubTarget
         engine.seek(to: scrubTarget)
         armAutoHide()
@@ -255,24 +240,7 @@ public final class PlayerModel {
     /// Abandon scrub mode without seeking (the playhead is untouched).
     public func cancelScrub() {
         isScrubbing = false
-        thumbnailTask?.cancel()
-        scrubPreviewImage = nil
         armAutoHide()
-    }
-
-    /// Debounced best-effort frame fetch for the scrub preview — only fires after the marker
-    /// settles, so a continuous swipe doesn't spawn a fetch per move.
-    private func scheduleThumbnail() {
-        guard let fetchThumbnail, let url = currentURL, duration > 0 else { return }
-        let fraction = scrubTarget / duration
-        thumbnailTask?.cancel()
-        thumbnailTask = Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(200))
-            guard !Task.isCancelled, isScrubbing else { return }
-            let image = await fetchThumbnail(url, fraction)
-            guard !Task.isCancelled, isScrubbing else { return }
-            scrubPreviewImage = image
-        }
     }
 
     // MARK: - Controls auto-hide
@@ -311,7 +279,6 @@ public final class PlayerModel {
         eventTask?.cancel()
         loadTask?.cancel()
         hideControlsTask?.cancel()
-        thumbnailTask?.cancel()
         await recordProgress(position, duration)
         engine.stop()
     }

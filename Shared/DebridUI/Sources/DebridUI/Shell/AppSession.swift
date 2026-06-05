@@ -1,4 +1,3 @@
-import CoreGraphics
 import DebridCore
 import Foundation
 import Observation
@@ -117,8 +116,7 @@ public final class AppSession {
     /// engine + thumbnail source are injected by the app target (VLCKit is per-platform), so this
     /// shared factory owns only the brain wiring (unrestrict / progress / subtitles).
     public func makePlayer(for request: PlaybackRequest,
-                           engine: VideoPlayerEngine,
-                           fetchThumbnail: @escaping (URL, Double) async -> CGImage?) -> PlayerModel? {
+                           engine: VideoPlayerEngine) -> PlayerModel? {
         guard let torrents, let store = watchProgressStore else { return nil }
         let coordinator = PlaybackCoordinator(store: store)
         let contentKey = request.contentKey
@@ -135,8 +133,7 @@ public final class AppSession {
                 await coordinator.record(contentKey: contentKey, sourceKey: sourceKey,
                                          position: position, duration: duration)
             },
-            subtitles: subtitlesProvider,
-            fetchThumbnail: fetchThumbnail)
+            subtitles: subtitlesProvider)
     }
 
     private static var cachesDirectory: URL {
