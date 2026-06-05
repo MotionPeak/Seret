@@ -18,27 +18,14 @@ struct LibrarySection: View {
                     state: store.state,
                     onRetry: { store.retry() })
                 .navigationDestination(for: MediaItem.self) { item in
-                    DetailPlaceholder(item: item)
+                    if let details = session.detailsProvider {
+                        DetailScreen(item: item, details: details, watch: session.watchStore)
+                    }
                 }
                 .task(id: store.attempt) { await store.load() }
             } else {
                 ProgressView()
             }
         }
-    }
-}
-
-/// Temporary Detail target until 8b's next increment wires the real movie/show Detail.
-struct DetailPlaceholder: View {
-    let item: MediaItem
-
-    var body: some View {
-        ContentUnavailableView {
-            Label(item.title, systemImage: "play.rectangle")
-        } description: {
-            Text("Detail + playback land in the next step.")
-        }
-        .navigationTitle(item.title)
-        .navigationBarTitleDisplayMode(.inline)
     }
 }
