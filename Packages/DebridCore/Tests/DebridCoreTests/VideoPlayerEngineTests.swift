@@ -12,6 +12,7 @@ final class MockPlayerEngine: VideoPlayerEngine {
     private(set) var selectedAudioID: String?
     private(set) var selectedSubtitleID: String?
     private(set) var externalSubtitle: URL?
+    private(set) var rate: Double?
     var audioTracks: [MediaTrack] = []
     var subtitleTracks: [MediaTrack] = []
 
@@ -28,6 +29,7 @@ final class MockPlayerEngine: VideoPlayerEngine {
     func pause() { didPause = true }
     func stop() { didStop = true; continuation.finish() }
     func seek(to seconds: Double) { seekedTo = seconds }
+    func setRate(_ rate: Double) { self.rate = rate }
     func selectAudioTrack(id: String?) { selectedAudioID = id }
     func selectSubtitleTrack(id: String?) { selectedSubtitleID = id }
     func addExternalSubtitle(url: URL) { externalSubtitle = url }
