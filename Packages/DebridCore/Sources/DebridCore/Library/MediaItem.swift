@@ -59,11 +59,15 @@ public struct MediaItem: Sendable, Equatable, Hashable, Identifiable, Codable {
     public let posterPath: String?
     public let backdropPath: String?
     public let overview: String?
+    /// When this item entered the RD library (newest torrent's `added` date). Optional so
+    /// old cached snapshots (which lack the key) still decode. Powers "Recently Added".
+    public let addedAt: Date?
 
     public init(id: String, kind: MediaKind, title: String, year: Int?,
                 sources: [MediaSource], seasons: [Season],
                 tmdbID: Int? = nil, posterPath: String? = nil,
-                backdropPath: String? = nil, overview: String? = nil) {
+                backdropPath: String? = nil, overview: String? = nil,
+                addedAt: Date? = nil) {
         self.id = id
         self.kind = kind
         self.title = title
@@ -74,5 +78,6 @@ public struct MediaItem: Sendable, Equatable, Hashable, Identifiable, Codable {
         self.posterPath = posterPath
         self.backdropPath = backdropPath
         self.overview = overview
+        self.addedAt = addedAt
     }
 }

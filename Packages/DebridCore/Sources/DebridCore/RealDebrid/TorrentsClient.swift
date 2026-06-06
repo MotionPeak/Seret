@@ -70,7 +70,7 @@ public struct TorrentsClient: Sendable {
     /// info fetch fails is skipped rather than failing the whole load.
     public func allTorrentInfos() async throws -> [TorrentInfo] {
         let list = try await allTorrents()
-        return await withTaskGroup(of: TorrentInfo?.self) { group in
+        let infos = await withTaskGroup(of: TorrentInfo?.self) { group in
             for torrent in list {
                 // TODO: fan-out is currently unbounded; add a concurrency cap once RD
                 // rate-limit behavior is characterised (v1-descoped).
@@ -81,6 +81,21 @@ public struct TorrentsClient: Sendable {
                 if let result { infos.append(result) }
             }
             return infos
+        }
+        // `/torrents/info/{id}` omits `added`; carry it from the `/torrents` list (by id) so
+        // the library can surface a "Recently Added" rail.
+        return Self.attachAddedDates(infos: infos, torrents: list)
+    }
+
+    /// Attaches each torrent's `added` timestamp (from the `/torrents` list) onto its
+    /// `TorrentInfo` (whose own `added` is nil from `/torrents/info/{id}`), matched by id.
+    static func attachAddedDates(infos: [TorrentInfo], torrents: [Torrent]) -> [TorrentInfo] {
+        let addedByID = Dictionary(torrents.map { ($0.id, $0.added) }, uniquingKeysWith: { first, _ in first })
+        return infos.map { info in
+            guard let added = addedByID[info.id] else { return info }
+            return TorrentInfo(id: info.id, filename: info.filename, hash: info.hash, bytes: info.bytes,
+                               progress: info.progress, status: info.status, files: info.files,
+                               links: info.links, added: added)
         }
     }
 }

@@ -14,7 +14,8 @@ public extension MediaItem {
             tmdbID: tmdbID,
             posterPath: posterPath,
             backdropPath: backdropPath,
-            overview: overview)
+            overview: overview,
+            addedAt: addedAt)
     }
 }
 

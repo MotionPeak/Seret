@@ -46,11 +46,15 @@ public struct TorrentInfo: Decodable, Sendable, Equatable {
     public let status: String
     public let files: [TorrentFile]
     public let links: [String]
+    /// ISO-8601 date the torrent was added to RD. Nil from `/torrents/info/{id}` (which omits
+    /// it); `TorrentsClient.allTorrentInfos()` carries it over from the `/torrents` list.
+    public let added: String?
 
     public init(id: String, filename: String, hash: String, bytes: Int, progress: Double,
-                status: String, files: [TorrentFile], links: [String]) {
+                status: String, files: [TorrentFile], links: [String], added: String? = nil) {
         self.id = id; self.filename = filename; self.hash = hash; self.bytes = bytes
         self.progress = progress; self.status = status; self.files = files; self.links = links
+        self.added = added
     }
 }
 

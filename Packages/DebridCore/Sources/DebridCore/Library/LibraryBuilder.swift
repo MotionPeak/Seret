@@ -30,7 +30,7 @@ public struct LibraryBuilder: Sendable {
                 movies.append(MediaItem(
                     id: "movie:\(Self.titleKey(parsed.title))\(parsed.year.map { ":\($0)" } ?? "")",
                     kind: .movie, title: parsed.title, year: parsed.year,
-                    sources: [source], seasons: []))
+                    sources: [source], seasons: [], addedAt: Self.parseAdded(info.added)))
             }
         }
 
@@ -45,6 +45,7 @@ public struct LibraryBuilder: Sendable {
     /// contributes one episode; a season pack (season but no episode in the torrent name)
     /// is expanded by parsing each selected video file path for its episode number.
     private func ingestTV(_ info: TorrentInfo, _ parsed: ParsedRelease, into acc: ShowAccumulator) {
+        acc.observe(added: Self.parseAdded(info.added))
         if let episode = parsed.episode, let primary = info.primaryVideoFile() {
             acc.add(season: parsed.season ?? 1, number: episode,
                     source: MediaSource(torrentID: info.id, fileID: primary.file.id,
@@ -72,6 +73,17 @@ public struct LibraryBuilder: Sendable {
     static func titleKey(_ title: String) -> String {
         title.lowercased().filter { $0.isLetter || $0.isNumber }
     }
+
+    /// Parses RD's ISO-8601 `added` timestamp (with or without fractional seconds).
+    static func parseAdded(_ string: String?) -> Date? {
+        guard let string else { return nil }
+        let withFraction = ISO8601DateFormatter()
+        withFraction.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = withFraction.date(from: string) { return date }
+        let plain = ISO8601DateFormatter()
+        plain.formatOptions = [.withInternetDateTime]
+        return plain.date(from: string)
+    }
 }
 
 /// Mutable accumulator for a single show's episodes (deduped by season+episode).
@@ -79,10 +91,18 @@ private final class ShowAccumulator {
     let title: String
     let year: Int?
     private var episodes: [String: Episode] = [:]
+    private(set) var newestAdded: Date?
 
     init(title: String, year: Int?) {
         self.title = title
         self.year = year
+    }
+
+    /// Tracks the most recent torrent `added` date across the show's torrents,
+    /// so a freshly-added episode resurfaces the show in "Recently Added".
+    func observe(added: Date?) {
+        guard let added else { return }
+        newestAdded = newestAdded.map { max($0, added) } ?? added
     }
 
     func add(season: Int, number: Int, source: MediaSource) {
@@ -98,6 +118,7 @@ private final class ShowAccumulator {
             Season(number: number, episodes: bySeason[number]!.sorted { $0.number < $1.number })
         }
         return MediaItem(id: "show:\(LibraryBuilder.titleKey(title))", kind: .show,
-                         title: title, year: year, sources: [], seasons: seasons)
+                         title: title, year: year, sources: [], seasons: seasons,
+                         addedAt: newestAdded)
     }
 }
