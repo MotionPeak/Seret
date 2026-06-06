@@ -2,23 +2,56 @@ import DebridCore
 import DebridUI
 import SwiftUI
 
-/// The player's playback sheet: audio tracks, subtitles (existing + on-demand he/en download),
-/// and speed — grouped Gold Glass cards with a gold check on the current selection.
+/// The player's playback sheet: audio, subtitles (existing + on-demand he/en), and speed —
+/// each laid out as wrapping Gold Glass chips (selected = gold), not a vertical list.
 struct PlayerSettingsSheet: View {
     let model: PlayerModel
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         NavigationStack {
-            List {
-                audioSection
-                subtitleSection
-                speedSection
+            ScrollView {
+                VStack(alignment: .leading, spacing: Theme.Space.xxl) {
+                    section("Audio", "speaker.wave.2.fill") {
+                        if model.audioTracks.isEmpty {
+                            Text("No alternate tracks")
+                                .font(Theme.Typo.body()).foregroundStyle(Theme.Palette.textSecondary)
+                        } else {
+                            FlowLayout {
+                                ForEach(labeled(model.audioTracks), id: \.track.id) { e in
+                                    chip(e.label, selected: model.selectedAudioID == e.track.id) {
+                                        model.selectAudio(id: e.track.id)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    section("Subtitles", "captions.bubble.fill") {
+                        FlowLayout {
+                            chip("Off", selected: model.selectedSubtitleID == nil) { model.selectSubtitleOff() }
+                            ForEach(labeled(model.subtitleTracks), id: \.track.id) { e in
+                                chip(e.label, selected: model.selectedSubtitleID == e.track.id) {
+                                    model.selectSubtitle(id: e.track.id)
+                                }
+                            }
+                            ForEach(model.subtitleRows) { row in downloadChip(row) }
+                        }
+                    }
+
+                    section("Speed", "speedometer") {
+                        FlowLayout {
+                            ForEach(speeds, id: \.value) { opt in
+                                chip(opt.label, selected: model.playbackSpeed == opt.value) {
+                                    model.setPlaybackSpeed(opt.value)
+                                }
+                            }
+                        }
+                    }
+                }
+                .padding(Theme.Space.lg)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
-            .background(CanvasBackground())
-            .tint(Theme.Palette.gold)
             .navigationTitle("Playback")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -29,89 +62,60 @@ struct PlayerSettingsSheet: View {
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
+        .presentationBackground(Theme.Palette.canvas)
+        .tint(Theme.Palette.gold)
     }
 
-    private var audioSection: some View {
-        Section {
-            if model.audioTracks.isEmpty {
-                Text("None").foregroundStyle(Theme.Palette.textSecondary)
-            }
-            ForEach(labeled(model.audioTracks), id: \.track.id) { entry in
-                selectRow(entry.label, selected: model.selectedAudioID == entry.track.id) {
-                    model.selectAudio(id: entry.track.id)
-                }
-            }
-        } header: { header("Audio", "speaker.wave.2.fill") }
-        .listRowBackground(Theme.Palette.surface1)
+    @ViewBuilder private func section<C: View>(_ title: String, _ icon: String,
+                                              @ViewBuilder content: () -> C) -> some View {
+        VStack(alignment: .leading, spacing: Theme.Space.md) {
+            Label(title, systemImage: icon)
+                .font(Theme.Typo.label()).tracking(1).foregroundStyle(Theme.Palette.gold)
+            content()
+        }
     }
 
-    private var subtitleSection: some View {
-        Section {
-            selectRow("Off", selected: model.selectedSubtitleID == nil) { model.selectSubtitleOff() }
-            ForEach(labeled(model.subtitleTracks), id: \.track.id) { entry in
-                selectRow(entry.label, selected: model.selectedSubtitleID == entry.track.id) {
-                    model.selectSubtitle(id: entry.track.id)
-                }
-            }
-            ForEach(model.subtitleRows) { row in downloadRow(row) }
-        } header: { header("Subtitles", "captions.bubble.fill") }
-        .listRowBackground(Theme.Palette.surface1)
-    }
-
-    private var speedSection: some View {
-        Section {
-            ForEach(speeds, id: \.value) { opt in
-                selectRow(opt.label, selected: model.playbackSpeed == opt.value) {
-                    model.setPlaybackSpeed(opt.value)
-                }
-            }
-        } header: { header("Speed", "speedometer") }
-        .listRowBackground(Theme.Palette.surface1)
-    }
-
-    private func header(_ title: String, _ icon: String) -> some View {
-        Label(title, systemImage: icon)
-            .font(Theme.Typo.label()).tracking(1).foregroundStyle(Theme.Palette.gold)
-    }
-
-    private func selectRow(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
+    private func chip(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack {
-                Text(title).foregroundStyle(Theme.Palette.textPrimary)
-                Spacer()
-                if selected {
-                    Image(systemName: "checkmark").foregroundStyle(Theme.Palette.gold).fontWeight(.bold)
-                }
+            HStack(spacing: 5) {
+                if selected { Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)) }
+                Text(title).font(.system(size: 14, weight: .semibold))
             }
-            .contentShape(Rectangle())
+            .foregroundStyle(selected ? Color(hex: 0x1A1400) : Theme.Palette.textPrimary)
+            .padding(.vertical, 9).padding(.horizontal, 15)
+            .background(selected ? AnyShapeStyle(Theme.Palette.goldGradient)
+                                 : AnyShapeStyle(Theme.Palette.surface2), in: Capsule())
+            .overlay(Capsule().stroke(Theme.Palette.hairline, lineWidth: selected ? 0 : 1))
         }
         .buttonStyle(.plain)
     }
 
-    @ViewBuilder private func downloadRow(_ row: PlayerModel.SubtitleRow) -> some View {
+    @ViewBuilder private func downloadChip(_ row: PlayerModel.SubtitleRow) -> some View {
         let lang = row.language == "he" ? "Hebrew" : "English"
         Button {
             Task { await model.requestSubtitle(language: row.language) }
         } label: {
-            HStack(spacing: Theme.Space.sm) {
-                Image(systemName: "arrow.down.circle").foregroundStyle(Theme.Palette.textSecondary)
-                Text("\(lang) subtitles").foregroundStyle(Theme.Palette.textPrimary)
-                Spacer()
-                downloadState(row.state)
+            HStack(spacing: 6) {
+                downloadGlyph(row.state)
+                Text(lang).font(.system(size: 14, weight: .semibold))
             }
-            .contentShape(Rectangle())
+            .foregroundStyle(Theme.Palette.textPrimary)
+            .padding(.vertical, 9).padding(.horizontal, 15)
+            .background(Theme.Palette.surface2, in: Capsule())
+            .overlay(Capsule().stroke(Theme.Palette.gold.opacity(0.45),
+                                      style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
         }
         .buttonStyle(.plain)
         .disabled(isDisabled(row))
     }
 
-    @ViewBuilder private func downloadState(_ state: PlayerModel.SubtitleRowState) -> some View {
+    @ViewBuilder private func downloadGlyph(_ state: PlayerModel.SubtitleRowState) -> some View {
         switch state {
-        case .idle:        EmptyView()
-        case .downloading: ProgressView()
-        case .attached:    Image(systemName: "checkmark").foregroundStyle(Theme.Palette.gold).fontWeight(.bold)
-        case .capReached:  Text("Daily limit").font(.caption).foregroundStyle(Theme.Palette.textTertiary)
-        case .noAccount:   Text("Add account in Settings").font(.caption).foregroundStyle(Theme.Palette.textTertiary)
+        case .idle:        Image(systemName: "arrow.down.circle").foregroundStyle(Theme.Palette.gold)
+        case .downloading: ProgressView().controlSize(.mini)
+        case .attached:    Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.Palette.gold)
+        case .capReached:  Image(systemName: "clock").foregroundStyle(Theme.Palette.textSecondary)
+        case .noAccount:   Image(systemName: "person.crop.circle.badge.xmark").foregroundStyle(Theme.Palette.textSecondary)
         case .error:       Image(systemName: "exclamationmark.triangle").foregroundStyle(Theme.Palette.gold)
         }
     }
