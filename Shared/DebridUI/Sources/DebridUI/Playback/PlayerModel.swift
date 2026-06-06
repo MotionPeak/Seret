@@ -280,6 +280,16 @@ public final class PlayerModel {
         armAutoHide()
     }
 
+    /// Touch tap-to-toggle: hide the transport if it's up, else reveal it (and re-arm auto-hide).
+    public func toggleControls() {
+        if controlsVisible {
+            controlsVisible = false
+            hideControlsTask?.cancel()
+        } else {
+            showControls()
+        }
+    }
+
     /// The UIKit scrub surface gained/lost focus. Keep the controls up while it's focused.
     public func setScrubberFocused(_ focused: Bool) {
         scrubberFocused = focused

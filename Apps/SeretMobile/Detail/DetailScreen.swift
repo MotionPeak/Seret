@@ -6,6 +6,7 @@ import SwiftUI
 /// route (a placeholder until 8c's MobileVLCKit player lands).
 struct DetailScreen: View {
     @State private var store: DetailStore
+    @Environment(AppSession.self) private var session
 
     init(item: MediaItem, details: MediaDetailsProviding, watch: WatchProgressProviding?) {
         _store = State(initialValue: DetailStore(item: item, details: details, watch: watch))
@@ -19,7 +20,18 @@ struct DetailScreen: View {
             }
         }
         .task { await store.load() }
-        .navigationDestination(for: PlaybackRequest.self) { PlayerPlaceholder(request: $0) }
+        .navigationDestination(for: PlaybackRequest.self) { request in
+            let engine = VLCKitVideoPlayerEngine()
+            if let model = session.makePlayer(for: request, engine: engine) {
+                PlayerView(model: model, engine: engine,
+                           backdropURL: TMDBClient.imageURL(path: request.item.backdropPath, size: "w1280"))
+                    .navigationBarBackButtonHidden(true)
+                    .toolbar(.hidden, for: .navigationBar)
+                    .toolbar(.hidden, for: .tabBar)
+            } else {
+                PlayerPlaceholder(request: request)
+            }
+        }
     }
 }
 
@@ -64,14 +76,14 @@ struct QualityChip: View {
     }
 }
 
-/// Placeholder player target until 8c wires the `MobileVLCKit` touch player.
+/// Fallback when a player can't be built (e.g. signed out / no Real-Debrid session).
 struct PlayerPlaceholder: View {
     let request: PlaybackRequest
     var body: some View {
         ContentUnavailableView {
-            Label(request.label, systemImage: "play.rectangle.fill")
+            Label(request.label, systemImage: "play.slash")
         } description: {
-            Text("The player lands in 8c (MobileVLCKit).")
+            Text("Playback isn't available right now.")
         }
         .navigationTitle("Play")
         .navigationBarTitleDisplayMode(.inline)
