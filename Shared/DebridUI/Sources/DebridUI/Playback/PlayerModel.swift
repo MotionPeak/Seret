@@ -145,8 +145,9 @@ public final class PlayerModel {
         do {
             let url = try await unrestrict(currentSource.restrictedLink)
             guard !Task.isCancelled else { return }   // superseded by a newer reload()
-            engine.load(url: url, headers: [:])
-            if let resumeAt, resumeAt > 0 { engine.seek(to: resumeAt) }
+            // Resume via the engine's start-time, NOT a seek-after-load: VLCKit ignores a seek
+            // issued before it has parsed the media, which made playback start at 0 and then jump.
+            engine.load(url: url, headers: [:], startTime: resumeAt ?? 0)
             engine.play()
         } catch is CancellationError {
             return                                       // superseded; not a real failure

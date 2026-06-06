@@ -28,14 +28,18 @@ import DebridCore
         #expect(engine.loadedURL == URL(string: "https://cdn/x.mkv"))
         #expect(engine.playCalled == true)
         #expect(engine.seekedTo == nil)
+        #expect(engine.loadStartTime == 0)        // no resume → start from the beginning
     }
 
-    @Test func seeksToResumePositionWhenProvided() async {
+    @Test func resumeStartsAtOffsetViaStartTimeNotSeek() async {
+        // Resume must hand the offset to load() (VLCKit `:start-time`), NOT seek after load — a
+        // pre-parse seek is ignored, which made playback flash 0 then jump to the resume point.
         let engine = FakeVideoPlayerEngine()
         let model = makeModel(request: Fixture.request(resumeAt: 615), engine: engine)
         model.start()
         await model.waitForIdleForTesting()
-        #expect(engine.seekedTo == 615)
+        #expect(engine.loadStartTime == 615)
+        #expect(engine.seekedTo == nil)
     }
 
     @Test func mapsEngineStatesToPhase() async {
