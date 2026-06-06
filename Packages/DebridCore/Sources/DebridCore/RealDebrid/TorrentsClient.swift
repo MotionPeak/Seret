@@ -50,6 +50,15 @@ public struct TorrentsClient: Sendable {
                             headers: try await authHeaders())
     }
 
+    /// Selects which files of a torrent to download. `files` is RD's raw param:
+    /// the literal `"all"` or a comma-separated list of file ids ("1,2,3").
+    /// `POST /torrents/selectFiles/{id}` returns 204.
+    public func selectFiles(torrentID: String, files: String) async throws {
+        try await http.postForm(Self.base.appending(path: "torrents/selectFiles/\(torrentID)"),
+                                form: ["files": files],
+                                headers: try await authHeaders())
+    }
+
     /// Convenience: pick the torrent's primary video file and unrestrict its link.
     /// Returns nil if the torrent has no selected video file.
     public func playableURL(for info: TorrentInfo) async throws -> UnrestrictedLink? {
