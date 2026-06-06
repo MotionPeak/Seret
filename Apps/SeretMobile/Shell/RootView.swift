@@ -1,3 +1,4 @@
+import DebridCore
 import DebridUI
 import SwiftUI
 
@@ -6,6 +7,7 @@ struct RootView: View {
     @Environment(AppSession.self) private var session
 
     @State private var showSplash = true
+    @State private var router = AppRouter()
 
     var body: some View {
         ZStack {
@@ -14,6 +16,14 @@ struct RootView: View {
                 SplashView { withAnimation(Theme.Motion.fade) { showSplash = false } }
                     .transition(.opacity)
                     .zIndex(1)
+            }
+        }
+        .environment(router)
+        // Detail (and the player nested in it) is presented HERE — above the TabView/SplitView —
+        // so rotating the device doesn't dismiss it.
+        .fullScreenCover(item: Binding(get: { router.detail }, set: { router.detail = $0 })) { item in
+            if let details = session.detailsProvider {
+                DetailScreen(item: item, details: details, watch: session.watchStore)
             }
         }
         .onChange(of: session.state) { oldValue, newValue in

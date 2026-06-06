@@ -7,7 +7,7 @@ import SwiftUI
 struct HomeScreen: View {
     @Environment(AppSession.self) private var session
     @Environment(\.horizontalSizeClass) private var hSize
-    @State private var detailItem: MediaItem?
+    @Environment(AppRouter.self) private var router
 
     private var isRegular: Bool { hSize == .regular }
     private var posterW: CGFloat { isRegular ? 150 : 112 }
@@ -21,11 +21,6 @@ struct HomeScreen: View {
                 content
             }
             .navigationTitle("Home")
-        }
-        .fullScreenCover(item: $detailItem) { item in
-            if let details = session.detailsProvider {
-                DetailScreen(item: item, details: details, watch: session.watchStore)
-            }
         }
         .task {
             await session.libraryStore?.load()
@@ -46,7 +41,7 @@ struct HomeScreen: View {
                         if !home.continueWatching.isEmpty {
                             Rail(title: "Continue Watching") {
                                 ForEach(home.continueWatching) { hi in
-                                    Button { detailItem = hi.item } label: {
+                                    Button { router.detail = hi.item } label: {
                                         LandscapeProgressCard(title: hi.item.title, subtitle: hi.subtitle,
                                                               imageURL: backdropURL(hi.item),
                                                               fraction: hi.fraction, width: landW)
@@ -57,7 +52,7 @@ struct HomeScreen: View {
                         if !home.recentlyAdded.isEmpty {
                             Rail(title: "Recently Added") {
                                 ForEach(home.recentlyAdded) { item in
-                                    Button { detailItem = item } label: {
+                                    Button { router.detail = item } label: {
                                         PosterCard(title: item.title,
                                                    posterURL: posterURL(item), width: posterW)
                                     }.pressable()
@@ -75,7 +70,7 @@ struct HomeScreen: View {
 
     @ViewBuilder private func hero(_ home: HomeStore) -> some View {
         if let f = home.featured {
-            Button { detailItem = f.item } label: {
+            Button { router.detail = f.item } label: {
                 HeroBackdrop(imageURL: backdropURL(f.item), height: heroH) {
                     VStack(alignment: .leading, spacing: Theme.Space.sm) {
                         Text(f.subtitle.isEmpty ? "Continue Watching" : "Continue · \(f.subtitle)")
