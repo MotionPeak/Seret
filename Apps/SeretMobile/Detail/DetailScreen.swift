@@ -41,7 +41,8 @@ struct DetailScreen: View {
             let engine = VLCKitVideoPlayerEngine()
             if let model = session.makePlayer(for: presented.request, engine: engine) {
                 PlayerView(model: model, engine: engine,
-                           backdropURL: TMDBClient.imageURL(path: presented.request.item.backdropPath, size: "w1280"))
+                           backdropURL: TMDBClient.imageURL(path: presented.request.item.backdropPath, size: "w1280"),
+                           onExit: { playback = nil })
             } else {
                 PlayerPlaceholder(request: presented.request)
             }

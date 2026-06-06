@@ -9,13 +9,17 @@ struct PlayerView: View {
     @State private var model: PlayerModel
     @State private var engine: VLCKitVideoPlayerEngine
     @State private var showSettings = false
-    @Environment(\.dismiss) private var dismiss
+    @State private var dragOffset: CGFloat = 0          // interactive pull-down-to-dismiss
     let backdropURL: URL?
+    /// Leave the player. An explicit closure (the presenter sets its item to nil) rather than
+    /// @Environment(\.dismiss), which is unreliable from a fullScreenCover nested inside another.
+    let onExit: () -> Void
 
-    init(model: PlayerModel, engine: VLCKitVideoPlayerEngine, backdropURL: URL?) {
+    init(model: PlayerModel, engine: VLCKitVideoPlayerEngine, backdropURL: URL?, onExit: @escaping () -> Void) {
         _model = State(initialValue: model)
         _engine = State(initialValue: engine)
         self.backdropURL = backdropURL
+        self.onExit = onExit
     }
 
     var body: some View {
@@ -31,7 +35,7 @@ struct PlayerView: View {
             case .failed(let reason):
                 ErrorOverlay(reason: reason, canTryAnother: model.canTryAnotherVersion, backdropURL: backdropURL,
                              onRetry: { model.retry() }, onTryAnother: { model.tryAnotherVersion() },
-                             onBack: { dismiss() })
+                             onBack: { onExit() })
             default:
                 gestureLayer                                  // base: tap = toggle, double-tap = ∓10s
                 if model.controlsVisible {
@@ -40,12 +44,16 @@ struct PlayerView: View {
                 }
             }
         }
+        // Pull down to exit: the whole player follows the finger and shrinks slightly, like other
+        // fullscreen players. Released past the threshold it dismisses (in pullToDismiss).
+        .scaleEffect(1 - min(max(dragOffset, 0), 240) / 1600)
+        .offset(y: max(0, dragOffset))
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
         .sheet(isPresented: $showSettings) { PlayerSettingsSheet(model: model) }
         .animation(.easeInOut(duration: 0.2), value: model.controlsVisible)
         .onAppear { model.start() }
-        .onChange(of: model.shouldDismiss) { _, done in if done { dismiss() } }
+        .onChange(of: model.shouldDismiss) { _, done in if done { onExit() } }
         .onDisappear { Task { await model.teardown() } }
     }
 
@@ -57,6 +65,23 @@ struct PlayerView: View {
             tapZone(skip: 10)
         }
         .ignoresSafeArea()
+        .simultaneousGesture(pullToDismiss)   // vertical pull-down on the video area exits the movie
+    }
+
+    /// Pull the player down to exit, like other fullscreen video apps. Vertical-down drags only, so
+    /// it never fights the horizontal scrubber (which sits on top and wins at its own location).
+    /// Release past the threshold dismisses; otherwise it springs back.
+    private var pullToDismiss: some Gesture {
+        DragGesture(minimumDistance: 18)
+            .onChanged { value in
+                if value.translation.height > 0, value.translation.height > abs(value.translation.width) {
+                    dragOffset = value.translation.height        // follow the finger 1:1
+                }
+            }
+            .onEnded { value in
+                if value.translation.height > 140 { onExit() }
+                else { withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) { dragOffset = 0 } }
+            }
     }
 
     private func tapZone(skip seconds: Double) -> some View {
@@ -89,14 +114,18 @@ struct PlayerView: View {
 
     private var topBar: some View {
         HStack {
-            Button { dismiss() } label: {
+            Button { onExit() } label: {
                 Image(systemName: "chevron.down").font(.title3.weight(.semibold))
+                    .frame(width: 44, height: 44)            // generous hit target — taps can't fall
+                    .contentShape(Rectangle())               // through to the gesture layer below
             }
             Spacer()
             Text(model.label).font(.headline).lineLimit(1)
             Spacer()
             Button { showSettings = true } label: {
                 Image(systemName: "slider.horizontal.3").font(.title3)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
         }
     }
