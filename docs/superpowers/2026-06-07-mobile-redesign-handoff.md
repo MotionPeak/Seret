@@ -7,14 +7,14 @@ memory file `project_seret_redesign.md` to pick up exactly where this session le
 
 ## TL;DR
 
-- **Branch:** `feat/mobile-redesign` (off `feat/mobile-foundation`). **HEAD `7765f74`.** 22 commits. Working tree clean. **Nothing pushed or merged — all local.**
+- **Branch:** `feat/mobile-redesign` (off `feat/mobile-foundation`). **Pushed to `origin/feat/mobile-redesign` (2026-06-07); NOT merged** to `feat/mobile-foundation`/`main`. (HEAD was `871c816` at handoff; a small doc commit follows.)
 - **Done & verified:** full **iPhone/iPad Gold Glass redesign** — new icon, animated splash, new **Home** tab (Continue Watching + Recently Added), full-screen Detail + Player, bigger iPad layout, branded sidebar, chip playback sheet, rotation fix.
 - **tvOS:** a Gold Glass port was built then **reverted** at the owner's request (looked worse). SeretTV is back to its original look. The redesign is **iPhone/iPad-only**.
 - **Builds green:** SeretMobile (iPhone + iPad) + SeretTV. **Tests:** DebridCore **138** + DebridUI **50**.
 - **Real VLCKit playback works on the iOS simulator** with the owner's RD token.
 
 ### The pending decision
-Owner reviews on real devices (especially **rotate mid-movie**, **iPhone landscape**, the **chip playback sheet**), then decides: **push `feat/mobile-redesign` to origin** and/or **merge into `feat/mobile-foundation`**. Do **not** push without asking.
+The branch is **pushed to origin**. Owner reviews on real devices (especially **rotate mid-movie**, **iPhone landscape**, the **chip playback sheet**), then decides whether to **merge `feat/mobile-redesign` into `feat/mobile-foundation`** (and onward to `main`). Don't merge without asking.
 
 ---
 
