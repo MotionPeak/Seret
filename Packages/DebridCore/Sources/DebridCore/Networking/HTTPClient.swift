@@ -81,6 +81,29 @@ public struct HTTPClient: Sendable {
         return data
     }
 
+    /// POSTs a form-urlencoded body and validates the status, discarding the response body.
+    /// For endpoints that return 204 No Content (e.g. RD `selectFiles`).
+    public func postForm(_ url: URL, form: [String: String], headers: [String: String] = [:]) async throws {
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        for (k, v) in headers { request.setValue(v, forHTTPHeaderField: k) }
+        request.httpBody = Data(Self.encodeForm(form).utf8)
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch {
+            throw HTTPError.transport(String(describing: error))
+        }
+        guard let http = response as? HTTPURLResponse else {
+            throw HTTPError.transport("Non-HTTP response")
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            throw HTTPError.status(code: http.statusCode, body: String(decoding: data, as: UTF8.self))
+        }
+    }
+
     /// `application/x-www-form-urlencoded` body builder. Percent-encodes keys and values.
     public static func encodeForm(_ form: [String: String]) -> String {
         form.map { key, value in
