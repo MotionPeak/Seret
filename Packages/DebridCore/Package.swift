@@ -9,6 +9,7 @@ let package = Package(
     ],
     targets: [
         .target(name: "DebridCore"),
-        .testTarget(name: "DebridCoreTests", dependencies: ["DebridCore"]),
+        .testTarget(name: "DebridCoreTests", dependencies: ["DebridCore"],
+                    resources: [.copy("Fixtures")]),
     ]
 )

@@ -1,0 +1,29 @@
+{
+  "streams": [
+    {
+      "name": "[RD⚡] Comet 2160p",
+      "description": "📄 The.Matrix.1999.2160p.UHD.BluRay.REMUX.HEVC.TrueHD-GROUP\n📹 HEVC | 🔊 TrueHD\n⭐ REMUX | 🏷 GROUP\n👤 50 💾 60.1 GB 🔎 Tracker\n🇺🇸/🇫🇷",
+      "behaviorHints": {
+        "bingeGroup": "comet|aaaa",
+        "filename": "The.Matrix.mkv",
+        "videoSize": 64500000000
+      },
+      "url": "https://comet.elfhosted.com/playback/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/0/0/n/n?name=x"
+    },
+    {
+      "name": "[RD⚡] Comet 1080p",
+      "description": "📄 The.Matrix.1999.1080p.BluRay.x264-GROUP\n📹 x264 | 🔊 DTS\n⭐ BluRay | 🏷 GROUP\n👤 30 💾 12.0 GB 🔎 Tracker\n🇺🇸",
+      "behaviorHints": {
+        "bingeGroup": "comet|bbbb",
+        "filename": "The.Matrix.1080p.mkv",
+        "videoSize": 12000000000
+      },
+      "url": "https://comet.elfhosted.com/playback/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/0/n/n/n?name=y"
+    },
+    {
+      "name": "[⛔️] Comet",
+      "description": "This stream has no playback url and must be ignored",
+      "url": "https://comet.elfhosted.com/configure"
+    }
+  ]
+}
