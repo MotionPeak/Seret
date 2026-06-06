@@ -23,9 +23,10 @@ struct SettingsPanel: View {
                     Button { tab = t } label: {
                         Text(t.rawValue)
                             .font(.headline)
-                            .foregroundStyle(tab == t ? .black : .white)
+                            .foregroundStyle(tab == t ? Color(hex: 0x1A1400) : Theme.Palette.textPrimary)
                             .padding(.horizontal, 22).padding(.vertical, 10)
-                            .background(tab == t ? Color.white : Color.white.opacity(0.18), in: Capsule())
+                            .background(tab == t ? AnyShapeStyle(Theme.Palette.goldGradient)
+                                                 : AnyShapeStyle(Color.white.opacity(0.14)), in: Capsule())
                     }
                     .buttonStyle(.plain)
                 }
@@ -48,8 +49,8 @@ struct SettingsPanel: View {
         .background(
             // Dark translucent backdrop — matches the native player.
             RoundedRectangle(cornerRadius: 24)
-                .fill(.black.opacity(0.78))
-                .overlay(RoundedRectangle(cornerRadius: 24).stroke(.white.opacity(0.10), lineWidth: 1))
+                .fill(Theme.Palette.canvas.opacity(0.92))
+                .overlay(RoundedRectangle(cornerRadius: 24).stroke(Theme.Palette.gold.opacity(0.18), lineWidth: 1))
         )
         .padding(.horizontal, 60)
         .padding(.top, 40)                // sits at the top of the screen
@@ -81,7 +82,7 @@ private struct PlaybackColumns: View {
     private var audioColumn: some View {
         SettingsColumn(header: "AUDIO STREAMS") {
             ForEach(labeled(model.audioTracks), id: \.track.id) { entry in
-                CheckRow(title: entry.label, checked: false) {
+                CheckRow(title: entry.label, checked: model.selectedAudioID == entry.track.id) {
                     model.selectAudio(id: entry.track.id); onPick()
                 }
             }
@@ -93,10 +94,10 @@ private struct PlaybackColumns: View {
 
     private var subtitlesColumn: some View {
         SettingsColumn(header: "SUBTITLES") {
-            CheckRow(title: "Off", checked: false) { model.selectSubtitleOff(); onPick() }
+            CheckRow(title: "Off", checked: model.selectedSubtitleID == nil) { model.selectSubtitleOff(); onPick() }
                 .focused($landingFocused)         // first focused when the panel opens
             ForEach(labeled(model.subtitleTracks), id: \.track.id) { entry in
-                CheckRow(title: entry.label, checked: false) {
+                CheckRow(title: entry.label, checked: model.selectedSubtitleID == entry.track.id) {
                     model.selectSubtitle(id: entry.track.id); onPick()
                 }
             }
@@ -192,7 +193,7 @@ private struct SettingsColumn<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text(header).font(.caption.weight(.bold))
-                .foregroundStyle(.white.opacity(0.55))
+                .foregroundStyle(Theme.Palette.gold)
                 .tracking(1.2)
             content
         }
@@ -211,6 +212,7 @@ private struct CheckRow: View {
             HStack(spacing: 10) {
                 Image(systemName: "checkmark")
                     .font(.callout.bold())
+                    .foregroundStyle(Theme.Palette.gold)
                     .opacity(checked ? 1 : 0)
                 Text(title).font(.callout)
                 Spacer(minLength: 0)

@@ -29,7 +29,7 @@ struct EpisodeRow: View {
             }
             HStack(spacing: 8) {
                 Text(title).font(.headline).lineLimit(1)
-                if isWatched { Image(systemName: "checkmark.circle.fill").foregroundStyle(.green) }
+                if isWatched { Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.Palette.gold) }
             }
             if !subtitle.isEmpty {
                 Text(subtitle).font(.caption).foregroundStyle(.secondary)
@@ -61,9 +61,9 @@ struct EpisodeRow: View {
 
     @ViewBuilder private var progressBar: some View {
         if isWatched {
-            bar(fraction: 1, color: .green)
+            bar(fraction: 1, color: Theme.Palette.gold)
         } else if let w = watch, w.durationSeconds > 0, w.positionSeconds > 0 {
-            bar(fraction: w.positionSeconds / w.durationSeconds, color: .white)
+            bar(fraction: w.positionSeconds / w.durationSeconds, color: Theme.Palette.gold)
         }
     }
 

@@ -64,7 +64,7 @@ struct ShowDetailView: View {
                             .padding(.horizontal, 18).padding(.vertical, 9)
                     }
                     .buttonStyle(.bordered)
-                    .tint(season.number == store.selectedSeason ? .white : .gray)
+                    .tint(season.number == store.selectedSeason ? Theme.Palette.gold : Theme.Palette.textSecondary)
                 }
             }
         }
