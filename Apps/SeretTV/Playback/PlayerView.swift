@@ -19,14 +19,20 @@ struct PlayerView: View {
             Color.black.ignoresSafeArea()                      // black backing for the open transition
             VLCVideoView(videoView: engine.videoView).ignoresSafeArea()
 
+            // Show the full LoadingOverlay ONLY for the initial load (no frames yet). After that —
+            // including a seek-triggered rebuffer — keep the player chrome up and surface a small
+            // spinner inline under the scrub bar instead of dimming the whole screen.
+            let rebuffering = model.phase == .buffering && model.position > 0
             switch model.phase {
-            case .preparing: LoadingOverlay(caption: "Preparing…", title: model.label, backdropURL: backdropURL)
-            case .buffering: LoadingOverlay(caption: "Buffering…", title: model.label, backdropURL: backdropURL)
+            case .preparing:
+                LoadingOverlay(caption: "Preparing…", title: model.label, backdropURL: backdropURL)
+            case .buffering where !rebuffering:
+                LoadingOverlay(caption: "Buffering…", title: model.label, backdropURL: backdropURL)
             case .failed(let reason):
                 ErrorOverlay(reason: reason, canTryAnother: model.canTryAnotherVersion, backdropURL: backdropURL,
                              onRetry: { model.retry() }, onTryAnother: { model.tryAnotherVersion() },
                              onBack: { dismiss() })
-            case .playing, .paused, .ended:
+            case .playing, .paused, .ended, .buffering:
                 // Clean by default. The focusable ScrubPad covers the screen invisibly to receive
                 // remote gestures: horizontal swipe → scrub, swipe down → show settings, click →
                 // play/pause. While the settings panel is open it goes inert so swipes navigate the
@@ -34,9 +40,11 @@ struct PlayerView: View {
                 ScrubPad(model: model, isInteractive: !showSettings,
                          onShowSettings: { showSettings = true })
                 // Thin scrub bar: appears on click + during scrub, sticky 5s, fades in/out.
-                MinimalScrubBar(model: model)
-                    .opacity(model.scrubBarVisible ? 1 : 0)
+                // Forced visible while a seek is rebuffering, so the user gets the loading hint.
+                MinimalScrubBar(model: model, rebuffering: rebuffering)
+                    .opacity((model.scrubBarVisible || rebuffering) ? 1 : 0)
                     .animation(.easeInOut(duration: 0.25), value: model.scrubBarVisible)
+                    .animation(.easeInOut(duration: 0.25), value: rebuffering)
                     .allowsHitTesting(false)
             }
 
@@ -54,7 +62,10 @@ struct PlayerView: View {
             else if model.isScrubbing { model.cancelScrub() }
             else { dismiss() }
         }
-        .onAppear { model.start() }
+        .onAppear {
+            model.start()
+            model.revealScrubBar()           // show the bar right away on open (sticky 5s)
+        }
         .onChange(of: model.shouldDismiss) { _, dismissNow in if dismissNow { dismiss() } }
         .onDisappear { Task { await model.teardown() } }
     }
@@ -63,6 +74,7 @@ struct PlayerView: View {
 /// Thin bottom scrubber shown only while scrubbing — current time, mini bar, remaining.
 private struct MinimalScrubBar: View {
     @Bindable var model: PlayerModel
+    let rebuffering: Bool
 
     var body: some View {
         let shown = model.scrubTarget
@@ -86,6 +98,15 @@ private struct MinimalScrubBar: View {
                     Spacer()
                     Text("-" + Timecode.format(max(0, model.duration - shown)))
                         .font(.body.monospacedDigit()).foregroundStyle(.secondary)
+                }
+                // Inline loading hint under the bar when a seek is rebuffering — the bar stays up.
+                if rebuffering {
+                    HStack(spacing: 10) {
+                        ProgressView().controlSize(.small).tint(.white)
+                        Text("Loading…").font(.caption).foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .transition(.opacity)
                 }
             }
             .padding(.horizontal, 80)

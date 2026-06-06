@@ -42,7 +42,7 @@ final class ScrubInteractionView: UIView {
 
     /// Fraction of the whole timeline a full-width trackpad swipe traverses. Lower = slower,
     /// easier to swipe precisely.
-    private let sensitivity: Double = 0.4
+    private let sensitivity: Double = 0.15
     /// Vertical distance (points) before a down swipe is treated as "show settings".
     private let pullThreshold: CGFloat = 60
     /// Direction the current pan committed to, if any.
@@ -53,23 +53,66 @@ final class ScrubInteractionView: UIView {
 
     override var canBecomeFocused: Bool { isInteractive }
 
+    /// Last reported touch X on the remote's trackpad (in this view's coords). Used to decide
+    /// whether a center `.select` click came from the LEFT, CENTER, or RIGHT third of the pad.
+    private var lastTouchX: CGFloat?
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .clear
         pan.addTarget(self, action: #selector(handlePan(_:)))
         pan.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.indirect.rawValue)]  // Siri remote
         addGestureRecognizer(pan)
+        // Older remotes' side-clicks fire .leftArrow / .rightArrow presses directly. Catch those too.
+        let back = UITapGestureRecognizer(target: self, action: #selector(skipBackward))
+        back.allowedPressTypes = [NSNumber(value: UIPress.PressType.leftArrow.rawValue)]
+        addGestureRecognizer(back)
+        let fwd  = UITapGestureRecognizer(target: self, action: #selector(skipForward))
+        fwd.allowedPressTypes = [NSNumber(value: UIPress.PressType.rightArrow.rawValue)]
+        addGestureRecognizer(fwd)
     }
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError("init(coder:) unavailable") }
 
-    /// Click is play/pause. (On this remote every press arrives as .select, even side clicks.)
+    // Track touch location so a center .select click can be routed by which third of the pad
+    // the finger was on (this is how the native player does ±10s on remotes that send only .select).
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        super.touchesBegan(touches, with: event)
+        if let t = touches.first(where: { $0.type == .indirect }) { lastTouchX = t.location(in: self).x }
+    }
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+        super.touchesMoved(touches, with: event)
+        if let t = touches.first(where: { $0.type == .indirect }) { lastTouchX = t.location(in: self).x }
+    }
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        super.touchesEnded(touches, with: event)
+        // keep `lastTouchX` so a click immediately after lift still routes correctly
+    }
+
+    /// A center `.select` press: route by trackpad-third (left = -10s, right = +10s, center = play/pause).
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
-        if isInteractive, let model, presses.contains(where: { $0.type == .select }) {
-            model.togglePlayPause()
-        } else {
-            super.pressesBegan(presses, with: event)
+        guard isInteractive, let model, presses.contains(where: { $0.type == .select }) else {
+            super.pressesBegan(presses, with: event); return
         }
+        let leftEdge  = bounds.width * 0.30
+        let rightEdge = bounds.width * 0.70
+        if let x = lastTouchX, x < leftEdge {
+            model.skip(-10)
+        } else if let x = lastTouchX, x > rightEdge {
+            model.skip(10)
+        } else {
+            model.togglePlayPause()
+        }
+        model.revealScrubBar()
+    }
+
+    @objc private func skipBackward() {
+        guard isInteractive, let model else { return }
+        model.skip(-10); model.revealScrubBar()
+    }
+    @objc private func skipForward() {
+        guard isInteractive, let model else { return }
+        model.skip(10); model.revealScrubBar()
     }
 
     @objc private func handlePan(_ pan: UIPanGestureRecognizer) {
