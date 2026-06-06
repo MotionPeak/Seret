@@ -14,7 +14,7 @@ struct MovieDetail: View {
             VStack(alignment: .leading, spacing: 16) {
                 Text(item.title).font(.largeTitle.bold())
                 Text(metaLine).font(.subheadline).foregroundStyle(.secondary)
-                if let best = store.bestSource { QualityChip(parsed: best.parsed) }
+                if let best = store.bestSource { QualityChipRow(parsed: best.parsed) }
                 if let overview = store.overview {
                     Text(overview).font(.callout).foregroundStyle(.secondary)
                 }
@@ -64,7 +64,7 @@ struct MovieDetail: View {
             ForEach(store.versions, id: \.self) { src in
                 NavigationLink(value: store.playRequest(source: src, episode: nil, label: item.title)) {
                     HStack {
-                        QualityChip(parsed: src.parsed)
+                        QualityChipRow(parsed: src.parsed)
                         Spacer()
                         Image(systemName: "play.circle").foregroundStyle(.secondary)
                     }

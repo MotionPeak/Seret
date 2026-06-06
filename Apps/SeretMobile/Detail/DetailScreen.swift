@@ -60,7 +60,7 @@ struct DetailBackdrop: View {
 }
 
 /// Quality / source / codec chips for a parsed release (mirrors the tvOS `QualityChips`, touch-styled).
-struct QualityChip: View {
+struct QualityChipRow: View {
     let parsed: ParsedRelease
     private var chips: [String] {
         [parsed.resolution, parsed.source, parsed.videoCodec, parsed.audioCodec].compactMap { $0 }
