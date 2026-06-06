@@ -9,7 +9,7 @@
 
 It replaces this old stack: `DMM (Instant RD) → Real-Debrid → Zurg+rclone mount → Plex Server (Synology) → Plex app`. Seret is the app *and* the server *and* the organizer, all on-device.
 
-## Status — **Plans 1–6 + 7a + 7b + 7c DONE** — `DebridCore` brain feature-complete **and the `SeretTV` tvOS app (sign-in + library grids + Detail/episodes + real VLCKit player) merged to `main`**; **Plan 8 (iPhone/iPad app) DONE on `feat/mobile-foundation`** (pushed to origin; NOT merged to main — real-playback owner-pending). Home / Search→Add (Stage 2) next
+## Status — **Plans 1–6 + 7a + 7b + 7c DONE** — `DebridCore` brain feature-complete **and the `SeretTV` tvOS app (sign-in + library grids + Detail/episodes + real VLCKit player) merged to `main`**; **Plan 8 (iPhone/iPad app) DONE on `feat/mobile-foundation`** (pushed to origin; NOT merged to main — real-playback owner-pending); **Stage 2 (Search → Instant RD Add) STARTED — Slice A (brain/engine) DONE & green** on `feat/stage2-search-add` (DebridCore 169 tests, 0 warnings; NOT pushed/merged), Slice B (DebridUI) planned-not-built. See `docs/superpowers/2026-06-07-stage2-search-add-handoff.md`. Home (Continue Watching/Recently Added on tvOS) also still pending.
 
 **The `DebridCore` package is real, on `main` ([github.com/MotionPeak/Seret](https://github.com/MotionPeak/Seret)) — 122 tests green, zero warnings.** Built test-first via the superpowers pipeline (brainstorm → spec → one plan per slice → subagent-driven TDD), each plan adversarially reviewed (spec + code-quality + final) before a fast-forward merge to `main`.
 
