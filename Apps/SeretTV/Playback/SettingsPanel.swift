@@ -63,12 +63,18 @@ struct SettingsPanel: View {
 private struct PlaybackColumns: View {
     @Bindable var model: PlayerModel
     let onPick: () -> Void
+    /// Seeds focus to the "Subtitles → Off" row when the panel opens, so arrows can navigate.
+    @FocusState private var landingFocused: Bool
 
     var body: some View {
         HStack(alignment: .top, spacing: 60) {
             audioColumn
             subtitlesColumn
             speedColumn
+        }
+        .onAppear {
+            // Tick after the transition so the focus engine sees the views.
+            DispatchQueue.main.async { landingFocused = true }
         }
     }
 
@@ -88,6 +94,7 @@ private struct PlaybackColumns: View {
     private var subtitlesColumn: some View {
         SettingsColumn(header: "SUBTITLES") {
             CheckRow(title: "Off", checked: false) { model.selectSubtitleOff(); onPick() }
+                .focused($landingFocused)         // first focused when the panel opens
             ForEach(labeled(model.subtitleTracks), id: \.track.id) { entry in
                 CheckRow(title: entry.label, checked: false) {
                     model.selectSubtitle(id: entry.track.id); onPick()

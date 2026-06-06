@@ -77,7 +77,8 @@ private struct MinimalScrubBar: View {
     let rebuffering: Bool
 
     var body: some View {
-        let shown = model.scrubTarget
+        // Mid-scrub → preview target; otherwise the live playhead.
+        let shown = model.isScrubbing ? model.scrubTarget : model.position
         let frac = model.duration > 0 ? min(1, max(0, shown / model.duration)) : 0
         VStack {
             Spacer()
