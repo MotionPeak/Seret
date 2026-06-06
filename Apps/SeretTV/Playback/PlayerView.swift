@@ -19,20 +19,17 @@ struct PlayerView: View {
             Color.black.ignoresSafeArea()                      // black backing for the open transition
             VLCVideoView(videoView: engine.videoView).ignoresSafeArea()
 
-            // Show the full LoadingOverlay ONLY for the initial load (no frames yet). After that —
-            // including a seek-triggered rebuffer — keep the player chrome up and surface a small
-            // spinner inline under the scrub bar instead of dimming the whole screen.
-            let rebuffering = model.phase == .buffering && model.position > 0
-            switch model.phase {
-            case .preparing:
-                LoadingOverlay(caption: "Preparing…", title: model.label, backdropURL: backdropURL)
-            case .buffering where !rebuffering:
-                LoadingOverlay(caption: "Buffering…", title: model.label, backdropURL: backdropURL)
-            case .failed(let reason):
+            // Full-screen loading until the first frame is actually on screen — it never hides over
+            // a still-black picture. After that, a seek/rebuffer keeps the video up and surfaces only
+            // a small inline hint under the scrub bar instead of dimming the whole screen.
+            if case .failed(let reason) = model.phase {
                 ErrorOverlay(reason: reason, canTryAnother: model.canTryAnotherVersion, backdropURL: backdropURL,
                              onRetry: { model.retry() }, onTryAnother: { model.tryAnotherVersion() },
                              onBack: { dismiss() })
-            case .playing, .paused, .ended, .buffering:
+            } else if !model.hasRenderedFrame {
+                LoadingOverlay(caption: model.phase == .preparing ? "Preparing…" : "Buffering…",
+                               title: model.label, backdropURL: backdropURL)
+            } else {
                 // Clean by default. The focusable ScrubPad covers the screen invisibly to receive
                 // remote gestures: horizontal swipe → scrub, swipe down → show settings, click →
                 // play/pause. While the settings panel is open it goes inert so swipes navigate the
@@ -40,11 +37,11 @@ struct PlayerView: View {
                 ScrubPad(model: model, isInteractive: !showSettings,
                          onShowSettings: { showSettings = true })
                 // Thin scrub bar: appears on click + during scrub, sticky 5s, fades in/out.
-                // Forced visible while a seek is rebuffering, so the user gets the loading hint.
-                MinimalScrubBar(model: model, rebuffering: rebuffering)
-                    .opacity((model.scrubBarVisible || rebuffering) ? 1 : 0)
+                // Forced visible while buffering (a seek/rebuffer), so the user gets the loading hint.
+                MinimalScrubBar(model: model, buffering: model.isBuffering)
+                    .opacity((model.scrubBarVisible || model.isBuffering) ? 1 : 0)
                     .animation(.easeInOut(duration: 0.25), value: model.scrubBarVisible)
-                    .animation(.easeInOut(duration: 0.25), value: rebuffering)
+                    .animation(.easeInOut(duration: 0.25), value: model.isBuffering)
                     .allowsHitTesting(false)
             }
 
@@ -74,7 +71,7 @@ struct PlayerView: View {
 /// Thin bottom scrubber shown only while scrubbing — current time, mini bar, remaining.
 private struct MinimalScrubBar: View {
     @Bindable var model: PlayerModel
-    let rebuffering: Bool
+    let buffering: Bool
 
     var body: some View {
         // Mid-scrub → preview target; otherwise the live playhead.
@@ -100,8 +97,8 @@ private struct MinimalScrubBar: View {
                     Text("-" + Timecode.format(max(0, model.duration - shown)))
                         .font(.body.monospacedDigit()).foregroundStyle(.secondary)
                 }
-                // Inline loading hint under the bar when a seek is rebuffering — the bar stays up.
-                if rebuffering {
+                // Inline loading hint under the bar while buffering (a seek/rebuffer) — bar stays up.
+                if buffering {
                     HStack(spacing: 10) {
                         ProgressView().controlSize(.small).tint(.white)
                         Text("Loading…").font(.caption).foregroundStyle(.secondary)
