@@ -122,8 +122,9 @@ struct PlayerView: View {
         return VStack(spacing: 6) {
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
-                    Capsule().fill(.white.opacity(0.3)).frame(height: 4)
-                    Capsule().fill(.white).frame(width: geo.size.width * frac, height: 4)
+                    Capsule().fill(.white.opacity(0.25)).frame(height: 4)
+                    Capsule().fill(Theme.Palette.gold).frame(width: geo.size.width * frac, height: 4)
+                        .goldGlow(6, opacity: 0.7)
                     Circle().fill(.white)
                         .frame(width: model.isScrubbing ? 20 : 14, height: model.isScrubbing ? 20 : 14)
                         .offset(x: min(geo.size.width - 14, max(-2, geo.size.width * frac - 7)))

@@ -8,9 +8,9 @@ struct LoadingOverlay: View {
     var body: some View {
         DimBackdrop(url: backdropURL) {
             VStack(spacing: 14) {
-                ProgressView().controlSize(.large).tint(.white)
-                Text(caption).font(.headline)
-                Text(title).font(.subheadline).foregroundStyle(.white.opacity(0.7))
+                ProgressView().controlSize(.large).tint(Theme.Palette.gold)
+                Text(caption).font(Theme.Typo.headline())
+                Text(title).font(Theme.Typo.body()).foregroundStyle(.white.opacity(0.7))
             }
             .foregroundStyle(.white)
         }
@@ -28,16 +28,20 @@ struct ErrorOverlay: View {
     var body: some View {
         DimBackdrop(url: backdropURL) {
             VStack(spacing: 18) {
-                Image(systemName: "exclamationmark.triangle").font(.system(size: 48))
+                Image(systemName: "exclamationmark.triangle")
+                    .font(.system(size: 48)).foregroundStyle(Theme.Palette.gold)
                 Text("Couldn't play this source").font(.title2.bold())
                 Text(reason).font(.callout).foregroundStyle(.white.opacity(0.7))
                     .multilineTextAlignment(.center)
-                HStack(spacing: 14) {
-                    Button("Retry", action: onRetry).buttonStyle(.borderedProminent)
-                    if canTryAnother { Button("Try another", action: onTryAnother).buttonStyle(.bordered) }
-                    Button("Back", action: onBack).buttonStyle(.bordered)
+                VStack(spacing: Theme.Space.md) {
+                    Button("Retry", action: onRetry).buttonStyle(GoldButtonStyle())
+                    HStack(spacing: Theme.Space.md) {
+                        if canTryAnother {
+                            Button("Try another", action: onTryAnother).buttonStyle(GhostButtonStyle())
+                        }
+                        Button("Back", action: onBack).buttonStyle(GhostButtonStyle())
+                    }
                 }
-                .tint(.white)
             }
             .foregroundStyle(.white)
             .padding()

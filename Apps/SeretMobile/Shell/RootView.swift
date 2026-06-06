@@ -20,6 +20,7 @@ struct RootView: View {
             // Replay the branded intro right after a fresh sign-in, over the first library load.
             if newValue == .signedIn, oldValue == .signedOut { showSplash = true }
         }
+        .preferredColorScheme(.dark)
     }
 
     @ViewBuilder private var content: some View {

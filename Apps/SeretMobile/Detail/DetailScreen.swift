@@ -67,11 +67,7 @@ struct QualityChipRow: View {
     }
     var body: some View {
         HStack(spacing: 6) {
-            ForEach(chips, id: \.self) { c in
-                Text(c).font(.caption2.weight(.semibold))
-                    .padding(.horizontal, 9).padding(.vertical, 4)
-                    .background(.white.opacity(0.15), in: Capsule())
-            }
+            ForEach(chips, id: \.self) { QualityChip(text: $0) }
         }
     }
 }

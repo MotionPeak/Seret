@@ -2,7 +2,7 @@ import DebridCore
 import DebridUI
 import SwiftUI
 
-/// Movie Detail: backdrop, title + meta, quality chips, overview, Play/Resume, and Versions.
+/// Movie Detail: backdrop, title + meta, quality chips, Play/Resume, overview, and Versions.
 struct MovieDetail: View {
     let store: DetailStore
     private var item: MediaItem { store.item }
@@ -11,19 +11,20 @@ struct MovieDetail: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                Text(item.title).font(.largeTitle.bold())
-                Text(metaLine).font(.subheadline).foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: Theme.Space.lg) {
+                Text(item.title).font(Theme.Typo.titleXL()).foregroundStyle(Theme.Palette.textPrimary)
+                Text(metaLine).font(Theme.Typo.body()).foregroundStyle(Theme.Palette.textSecondary)
                 if let best = store.bestSource { QualityChipRow(parsed: best.parsed) }
-                if let overview = store.overview {
-                    Text(overview).font(.callout).foregroundStyle(.secondary)
-                }
                 actions
+                if let overview = store.overview {
+                    Text(overview).font(Theme.Typo.body())
+                        .foregroundStyle(Theme.Palette.textSecondary).lineSpacing(3)
+                }
                 if store.versions.count > 1 { versionsSection }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding()
-            .padding(.top, 220)
+            .padding(Theme.Space.lg)
+            .padding(.top, 200)
         }
         .background(DetailBackdrop(path: store.backdropPath, posterFallback: item.posterPath))
         .navigationTitle(item.title)
@@ -40,35 +41,36 @@ struct MovieDetail: View {
 
     @ViewBuilder private var actions: some View {
         if let best = store.bestSource {
-            HStack(spacing: 12) {
+            HStack(spacing: Theme.Space.md) {
                 if let resume = resumeSeconds {
                     NavigationLink(value: store.playRequest(source: best, episode: nil, label: item.title)) {
-                        Label("Resume \(Timecode.format(resume))", systemImage: "play.fill")
-                    }.buttonStyle(.borderedProminent)
+                        Label("Resume · \(Timecode.format(resume))", systemImage: "play.fill")
+                    }.buttonStyle(GoldButtonStyle())
                     NavigationLink(value: store.playRequest(source: best, episode: nil,
                                                             label: item.title, fromStart: true)) {
                         Label("Start", systemImage: "gobackward")
-                    }.buttonStyle(.bordered)
+                    }.buttonStyle(GhostButtonStyle())
                 } else {
                     NavigationLink(value: store.playRequest(source: best, episode: nil, label: item.title)) {
                         Label("Play", systemImage: "play.fill")
-                    }.buttonStyle(.borderedProminent)
+                    }.buttonStyle(GoldButtonStyle())
                 }
             }
         }
     }
 
     private var versionsSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Versions").font(.headline)
+        VStack(alignment: .leading, spacing: Theme.Space.sm) {
+            Text("VERSIONS").font(Theme.Typo.label()).tracking(1.5).foregroundStyle(Theme.Palette.gold)
             ForEach(store.versions, id: \.self) { src in
                 NavigationLink(value: store.playRequest(source: src, episode: nil, label: item.title)) {
                     HStack {
                         QualityChipRow(parsed: src.parsed)
                         Spacer()
-                        Image(systemName: "play.circle").foregroundStyle(.secondary)
+                        Image(systemName: "play.circle.fill").foregroundStyle(Theme.Palette.gold)
                     }
-                    .padding(.vertical, 4)
+                    .padding(Theme.Space.md)
+                    .background(Theme.Palette.surface2, in: RoundedRectangle(cornerRadius: Theme.Radius.chip))
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)

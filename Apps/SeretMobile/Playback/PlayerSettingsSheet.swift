@@ -4,7 +4,7 @@ import SwiftUI
 
 /// The player's settings sheet (presented from the transport): audio tracks, subtitles
 /// (existing tracks + on-demand Hebrew/English download), and playback speed. Drives the
-/// shared `PlayerModel`. Mirrors the tvOS `SettingsPanel`, as an iOS sheet.
+/// shared `PlayerModel`.
 struct PlayerSettingsSheet: View {
     let model: PlayerModel
     @Environment(\.dismiss) private var dismiss
@@ -14,23 +14,25 @@ struct PlayerSettingsSheet: View {
             List {
                 Section("Audio") {
                     if model.audioTracks.isEmpty {
-                        Text("None").foregroundStyle(.secondary)
+                        Text("None").foregroundStyle(Theme.Palette.textSecondary)
                     }
                     ForEach(labeled(model.audioTracks), id: \.track.id) { entry in
                         Button(entry.label) { model.selectAudio(id: entry.track.id); dismiss() }
-                            .foregroundStyle(.primary)
+                            .foregroundStyle(Theme.Palette.textPrimary)
                     }
                 }
+                .listRowBackground(Theme.Palette.surface1)
 
                 Section("Subtitles") {
                     Button("Off") { model.selectSubtitleOff(); dismiss() }
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(Theme.Palette.textPrimary)
                     ForEach(labeled(model.subtitleTracks), id: \.track.id) { entry in
                         Button(entry.label) { model.selectSubtitle(id: entry.track.id); dismiss() }
-                            .foregroundStyle(.primary)
+                            .foregroundStyle(Theme.Palette.textPrimary)
                     }
                     ForEach(model.subtitleRows) { row in downloadRow(row) }
                 }
+                .listRowBackground(Theme.Palette.surface1)
 
                 Section("Playback Speed") {
                     ForEach(speeds, id: \.value) { opt in
@@ -40,13 +42,19 @@ struct PlayerSettingsSheet: View {
                             HStack {
                                 Text(opt.label)
                                 Spacer()
-                                if model.playbackSpeed == opt.value { Image(systemName: "checkmark") }
+                                if model.playbackSpeed == opt.value {
+                                    Image(systemName: "checkmark").foregroundStyle(Theme.Palette.gold)
+                                }
                             }
                         }
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(Theme.Palette.textPrimary)
                     }
                 }
+                .listRowBackground(Theme.Palette.surface1)
             }
+            .scrollContentBackground(.hidden)
+            .background(CanvasBackground())
+            .tint(Theme.Palette.gold)
             .navigationTitle("Playback")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
@@ -63,16 +71,16 @@ struct PlayerSettingsSheet: View {
                 Text("\(lang) (download)")
                 Spacer()
                 switch row.state {
-                case .idle:           Image(systemName: "arrow.down.circle").foregroundStyle(.secondary)
+                case .idle:           Image(systemName: "arrow.down.circle").foregroundStyle(Theme.Palette.textSecondary)
                 case .downloading:    ProgressView()
-                case .attached:       Image(systemName: "checkmark")
-                case .capReached:     Text("Daily limit").font(.caption).foregroundStyle(.secondary)
-                case .noAccount:      Text("Add account in Settings").font(.caption).foregroundStyle(.secondary)
-                case .error:          Image(systemName: "exclamationmark.triangle").foregroundStyle(.yellow)
+                case .attached:       Image(systemName: "checkmark").foregroundStyle(Theme.Palette.gold)
+                case .capReached:     Text("Daily limit").font(.caption).foregroundStyle(Theme.Palette.textSecondary)
+                case .noAccount:      Text("Add account in Settings").font(.caption).foregroundStyle(Theme.Palette.textSecondary)
+                case .error:          Image(systemName: "exclamationmark.triangle").foregroundStyle(Theme.Palette.gold)
                 }
             }
         }
-        .foregroundStyle(.primary)
+        .foregroundStyle(Theme.Palette.textPrimary)
         .disabled(isDisabled(row))
     }
 

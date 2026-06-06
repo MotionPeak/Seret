@@ -10,18 +10,19 @@ struct ShowDetail: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                Text(item.title).font(.largeTitle.bold())
-                Text(metaLine).font(.subheadline).foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: Theme.Space.lg) {
+                Text(item.title).font(Theme.Typo.titleXL()).foregroundStyle(Theme.Palette.textPrimary)
+                Text(metaLine).font(Theme.Typo.body()).foregroundStyle(Theme.Palette.textSecondary)
                 if let overview = store.overview {
-                    Text(overview).font(.callout).foregroundStyle(.secondary).lineLimit(4)
+                    Text(overview).font(Theme.Typo.body())
+                        .foregroundStyle(Theme.Palette.textSecondary).lineLimit(4)
                 }
                 heroAction
                 seasonPicker
                 episodeList
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding()
+            .padding(Theme.Space.lg)
             .padding(.top, 200)
         }
         .background(DetailBackdrop(path: store.backdropPath, posterFallback: item.posterPath))
@@ -44,19 +45,21 @@ struct ShowDetail: View {
                 label: "\(item.title) — S\(next.season)·E\(next.number)")) {
                 Label("Play S\(next.season)·E\(next.number)", systemImage: "play.fill")
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(GoldButtonStyle())
         }
     }
 
     private var seasonPicker: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 10) {
+            HStack(spacing: Theme.Space.sm) {
                 ForEach(item.seasons) { season in
-                    Button("Season \(season.number)") {
-                        Task { await store.selectSeason(season.number) }
-                    }
-                    .buttonStyle(.bordered)
-                    .tint(season.number == store.selectedSeason ? .primary : .secondary)
+                    let selected = season.number == store.selectedSeason
+                    Button("Season \(season.number)") { Task { await store.selectSeason(season.number) } }
+                        .font(Theme.Typo.headline())
+                        .foregroundStyle(selected ? Color(hex: 0x1A1400) : Theme.Palette.textSecondary)
+                        .padding(.vertical, 7).padding(.horizontal, Theme.Space.lg)
+                        .background(selected ? AnyShapeStyle(Theme.Palette.goldGradient)
+                                             : AnyShapeStyle(Theme.Palette.surface2), in: Capsule())
                 }
             }
         }
@@ -68,7 +71,7 @@ struct ShowDetail: View {
                 ForEach(season.episodes) { ep in
                     EpisodeRowView(store: store, episode: ep,
                                    meta: store.episodeMeta[season.number]?[ep.number])
-                    Divider()
+                    Divider().overlay(Theme.Palette.hairline)
                 }
             }
         }
@@ -86,23 +89,25 @@ struct EpisodeRowView: View {
 
     var body: some View {
         NavigationLink(value: store.playRequest(source: episode.source, episode: episode, label: label)) {
-            HStack(alignment: .top, spacing: 12) {
+            HStack(alignment: .top, spacing: Theme.Space.md) {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
                         Text("\(episode.number). \(meta?.name ?? "Episode \(episode.number)")")
-                            .font(.callout.weight(.medium))
+                            .font(Theme.Typo.headline()).foregroundStyle(Theme.Palette.textPrimary)
                         if watch?.finished == true {
-                            Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).font(.caption)
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(Theme.Palette.gold).font(.caption)
                         }
                     }
                     if let o = meta?.overview, !o.isEmpty {
-                        Text(o).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                        Text(o).font(Theme.Typo.caption())
+                            .foregroundStyle(Theme.Palette.textSecondary).lineLimit(2)
                     }
                 }
                 Spacer(minLength: 8)
-                Image(systemName: "play.circle").foregroundStyle(.secondary)
+                Image(systemName: "play.circle.fill").foregroundStyle(Theme.Palette.gold)
             }
-            .padding(.vertical, 10)
+            .padding(.vertical, Theme.Space.md)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
