@@ -8,6 +8,7 @@ import SwiftUI
 struct PlayerView: View {
     @State private var model: PlayerModel
     @State private var engine: VLCKitVideoPlayerEngine
+    @State private var showSettings = false
     @Environment(\.dismiss) private var dismiss
     let backdropURL: URL?
 
@@ -41,6 +42,7 @@ struct PlayerView: View {
         }
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
+        .sheet(isPresented: $showSettings) { PlayerSettingsSheet(model: model) }
         .animation(.easeInOut(duration: 0.2), value: model.controlsVisible)
         .onAppear { model.start() }
         .onChange(of: model.shouldDismiss) { _, done in if done { dismiss() } }
@@ -93,8 +95,9 @@ struct PlayerView: View {
             Spacer()
             Text(model.label).font(.headline).lineLimit(1)
             Spacer()
-            // Settings (tracks / subtitles / speed) lands in 8c-2; keep the layout balanced.
-            Image(systemName: "chevron.down").font(.title3).opacity(0)
+            Button { showSettings = true } label: {
+                Image(systemName: "slider.horizontal.3").font(.title3)
+            }
         }
     }
 
