@@ -22,6 +22,7 @@ targets:
     deploymentTarget: "18.0"
     sources:
       - path: Apps/SeretTV
+      - path: Shared/SeretPlayer
     dependencies:
       - package: DebridCore
       - package: DebridUI
@@ -76,9 +77,13 @@ targets:
     deploymentTarget: "18.0"
     sources:
       - path: Apps/SeretMobile
+      - path: Shared/SeretPlayer
     dependencies:
       - package: DebridCore
       - package: DebridUI
+      - framework: Frameworks/VLCKit.xcframework
+        embed: true
+        codeSign: true
     info:
       path: Apps/SeretMobile/Info.plist
       properties:
