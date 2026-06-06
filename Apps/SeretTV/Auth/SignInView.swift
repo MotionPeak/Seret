@@ -11,7 +11,6 @@ struct SignInView: View {
 
     var body: some View {
         ZStack {
-            CanvasBackground()
             if showingTokenEntry {
                 tokenEntry
             } else {
@@ -35,7 +34,7 @@ struct SignInView: View {
 
     private func deviceCode(_ code: RDDeviceCode) -> some View {
         VStack(spacing: 48) {
-            Wordmark(hebrewSize: 64)
+            Text("Sign in to Real‑Debrid").font(.largeTitle.bold())
             HStack(alignment: .center, spacing: 80) {
                 VStack(alignment: .leading, spacing: 20) {
                     Text("On your phone or computer, go to")
@@ -86,7 +85,7 @@ struct SignInView: View {
     private func failure(_ message: String) -> some View {
         VStack(spacing: 32) {
             Image(systemName: "exclamationmark.triangle")
-                .font(.system(size: 72)).foregroundStyle(Theme.Palette.gold)
+                .font(.system(size: 72)).foregroundStyle(.yellow)
             Text(message).font(.title2).multilineTextAlignment(.center).frame(maxWidth: 800)
             HStack(spacing: 24) {
                 Button("Try Again") { model.retry() }

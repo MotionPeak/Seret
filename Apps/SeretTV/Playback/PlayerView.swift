@@ -86,9 +86,8 @@ private struct MinimalScrubBar: View {
                 GeometryReader { geo in
                     let headX = geo.size.width * frac
                     ZStack(alignment: .leading) {
-                        Capsule().fill(.white.opacity(0.22)).frame(height: 6)
-                        Capsule().fill(Theme.Palette.gold).frame(width: headX, height: 6)
-                            .shadow(color: Theme.Palette.goldGlow, radius: 6)
+                        Capsule().fill(.white.opacity(0.25)).frame(height: 6)
+                        Capsule().fill(.white).frame(width: headX, height: 6)
                         Circle().fill(.white).frame(width: 16, height: 16)
                             .offset(x: min(geo.size.width - 16, max(0, headX - 8)))
                     }

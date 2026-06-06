@@ -9,7 +9,7 @@ struct LoadingOverlay: View {
     var body: some View {
         DimBackdrop(url: backdropURL) {
             VStack(spacing: 16) {
-                ProgressView().controlSize(.large).tint(Theme.Palette.gold)
+                ProgressView().controlSize(.large)
                 Text(caption).font(.title3)
                 Text(title).font(.headline).foregroundStyle(.secondary)
             }
@@ -28,7 +28,6 @@ struct ErrorOverlay: View {
         DimBackdrop(url: backdropURL) {
             VStack(spacing: 20) {
                 Image(systemName: "exclamationmark.triangle").font(.system(size: 54))
-                    .foregroundStyle(Theme.Palette.gold)
                 Text("Couldn't play this source").font(.title2.bold())
                 Text(reason).font(.callout).foregroundStyle(.secondary)
                     .multilineTextAlignment(.center).frame(maxWidth: 800)
