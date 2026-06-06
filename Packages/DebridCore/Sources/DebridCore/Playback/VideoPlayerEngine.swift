@@ -7,11 +7,10 @@ import Foundation
 @MainActor
 public protocol VideoPlayerEngine: AnyObject {
     /// Load a direct (unrestricted) media URL. `headers` are passed to the underlying player
-    /// (e.g. an `Authorization` header if a source ever needs one). `startTime` (seconds, 0 = from
-    /// the start) tells the engine to begin decoding at that offset — the native way to resume, so
-    /// playback never briefly starts at 0 and then jumps (a seek issued before the media is parsed
-    /// is ignored).
-    func load(url: URL, headers: [String: String], startTime: Double)
+    /// (e.g. an `Authorization` header if a source ever needs one). Resume is a deferred `seek`
+    /// after playback starts (see `PlayerModel`), NOT a load-time start-time — a start-time clips
+    /// the timeline so you can't rewind before the resume point.
+    func load(url: URL, headers: [String: String])
     func play()
     func pause()
     /// Halt playback and release the underlying player. After `stop()`, the engine is done —

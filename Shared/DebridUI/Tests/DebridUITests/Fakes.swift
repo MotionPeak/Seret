@@ -7,7 +7,6 @@ import DebridCore
 @MainActor
 final class FakeVideoPlayerEngine: VideoPlayerEngine {
     private(set) var loadedURL: URL?
-    private(set) var loadStartTime: Double?
     private(set) var seekedTo: Double?
     private(set) var rateSet: Double = 1
     private(set) var playCalled = false
@@ -27,7 +26,7 @@ final class FakeVideoPlayerEngine: VideoPlayerEngine {
     }
     func emit(_ e: PlaybackEvent) { continuation.yield(e) }
 
-    func load(url: URL, headers: [String: String], startTime: Double) { loadedURL = url; loadStartTime = startTime }
+    func load(url: URL, headers: [String: String]) { loadedURL = url }
     func play() { playCalled = true }
     func pause() {}
     func stop() { stopCalled = true; continuation.finish() }

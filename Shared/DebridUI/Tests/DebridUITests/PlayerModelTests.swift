@@ -27,19 +27,25 @@ import DebridCore
         #expect(unrestrictedLink == "rd://link")
         #expect(engine.loadedURL == URL(string: "https://cdn/x.mkv"))
         #expect(engine.playCalled == true)
-        #expect(engine.seekedTo == nil)
-        #expect(engine.loadStartTime == 0)        // no resume → start from the beginning
+        #expect(engine.seekedTo == nil)           // no resume → no seek
     }
 
-    @Test func resumeStartsAtOffsetViaStartTimeNotSeek() async {
-        // Resume must hand the offset to load() (VLCKit `:start-time`), NOT seek after load — a
-        // pre-parse seek is ignored, which made playback flash 0 then jump to the resume point.
+    @Test func resumeDefersSeekUntilPlaybackStartsKeepingFullTimeline() async {
+        // Resume must NOT use a load-time start-time (that clips the timeline — no rewinding before
+        // the point). Instead: no seek until playback starts, then a deferred seek to the offset,
+        // with the overlay held until the playhead actually arrives (no flash-0-then-jump).
         let engine = FakeVideoPlayerEngine()
         let model = makeModel(request: Fixture.request(resumeAt: 615), engine: engine)
-        model.start()
-        await model.waitForIdleForTesting()
-        #expect(engine.loadStartTime == 615)
-        #expect(engine.seekedTo == nil)
+        model.start(); await model.waitForIdleForTesting()
+        #expect(engine.seekedTo == nil)            // nothing seeked before playback begins
+        engine.emit(.time(.init(position: 0.2, duration: 1000))); await model.waitForIdleForTesting()
+        #expect(engine.seekedTo == 615)            // deferred seek fired once playback started
+        #expect(model.hasRenderedFrame == false)   // overlay still up — haven't reached the point
+        engine.emit(.time(.init(position: 615.1, duration: 1000))); await model.waitForIdleForTesting()
+        #expect(model.hasRenderedFrame == false)   // just arrived; wait for frames to advance
+        engine.emit(.time(.init(position: 615.7, duration: 1000))); await model.waitForIdleForTesting()
+        #expect(model.hasRenderedFrame == true)    // advancing past the point → overlay hides
+        #expect(model.phase == .playing)
     }
 
     @Test func mapsEngineStatesToPhase() async {
@@ -334,18 +340,17 @@ import DebridCore
         #expect(model.isBuffering == false)
     }
 
-    @Test func overlayStaysUntilFramesAdvancePastResumeOffset() async {
-        // With :start-time resume the engine reports ~resumeAt on the very first tick before any
-        // frame is on screen — that echo must NOT clear the loading overlay (the black-screen bug).
+    @Test func overlayHeldUntilFirstFrameAdvancesOnColdStart() async {
+        // No resume: the full overlay stays until the first frame actually advances, so it never
+        // hides over a still-black picture.
         let engine = FakeVideoPlayerEngine()
-        let model = makeModel(request: Fixture.request(resumeAt: 600), engine: engine)
+        let model = makeModel(request: Fixture.request(), engine: engine)
         model.start(); await model.waitForIdleForTesting()
         #expect(model.hasRenderedFrame == false)
-        engine.emit(.time(.init(position: 600, duration: 1000))); await model.waitForIdleForTesting()
-        #expect(model.hasRenderedFrame == false) // start-time echo, not real advance
-        #expect(model.phase != .playing)
-        engine.emit(.time(.init(position: 600.6, duration: 1000))); await model.waitForIdleForTesting()
-        #expect(model.hasRenderedFrame == true)  // frames moving → overlay can hide
+        engine.emit(.state(.buffering)); await model.waitForIdleForTesting()
+        #expect(model.hasRenderedFrame == false)  // buffering, no frames yet → overlay
+        engine.emit(.time(.init(position: 2, duration: 100))); await model.waitForIdleForTesting()
+        #expect(model.hasRenderedFrame == true)   // first advancing frame → overlay hides
         #expect(model.phase == .playing)
     }
 }

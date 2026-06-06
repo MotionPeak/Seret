@@ -88,8 +88,12 @@ public final class PlayerModel {
     private var scrubBarHideTask: Task<Void, Never>?
     private var lastSavedPosition: Double = -.infinity
     /// Last engine-reported position — to detect *sustained* advance (real frames) vs a single
-    /// echoed seek/start-time tick.
+    /// echoed seek tick.
     private var lastTickPosition: Double = 0
+    /// Resume: where to seek to once playback starts (0 = none) and whether that seek has fired. A
+    /// deferred seek (not a load-time start-time) keeps the whole timeline seekable.
+    private var resumeTarget: Double = 0
+    private var resumeSeekIssued: Bool = false
     private let saveInterval: Double = 5
     private let autoHideDelay: Double
     private let scrubBarDwell: Double = 5      // bar stays visible for 5s after the last interaction
@@ -149,7 +153,9 @@ public final class PlayerModel {
         duration = 0
         hasRenderedFrame = false
         isBuffering = true
-        lastTickPosition = resumeAt ?? 0     // the start-time echo must not count as real advance
+        lastTickPosition = 0
+        resumeTarget = (resumeAt ?? 0) > 0 ? (resumeAt ?? 0) : 0   // >0 → deferred-seek there once playing
+        resumeSeekIssued = false
         lastSavedPosition = -.infinity
         loadTask?.cancel()
         loadTask = Task { await self.loadCurrentSource() }
@@ -159,10 +165,10 @@ public final class PlayerModel {
         do {
             let url = try await unrestrict(currentSource.restrictedLink)
             guard !Task.isCancelled else { return }   // superseded by a newer reload()
-            // Resume via the engine's start-time, NOT a seek-after-load: VLCKit ignores a seek
-            // issued before it has parsed the media, which made playback start at 0 and then jump.
-            engine.load(url: url, headers: [:], startTime: resumeAt ?? 0)
+            engine.load(url: url, headers: [:])
             engine.play()
+            // Resume is a DEFERRED seek (issued from tick() once playback starts), not a load-time
+            // start-time: a start-time clips the timeline so you can't rewind before the point.
         } catch is CancellationError {
             return                                       // superseded; not a real failure
         } catch {
@@ -197,13 +203,29 @@ public final class PlayerModel {
     }
 
     private func tick(_ t: PlaybackTime) async {
-        // Sustained advance past the last tick = the decoder is really producing frames. A single
-        // tick at the seek/start-time target is not advance, so the loading overlay stays up until
-        // the picture is actually moving (no overlay-over-black; no bar flashing 0 on resume).
-        let advanced = t.position > lastTickPosition + 0.05
-        lastTickPosition = t.position
         position = t.position
         duration = t.duration
+
+        // Resume: a tick means VLCKit has parsed the media and will honor a seek, so issue the
+        // resume seek ONCE here, then keep the loading overlay up until the playhead actually
+        // reaches the point — the bar never flashes 0 and jumps, and the full timeline stays
+        // seekable (a load-time start-time would clip it: no rewinding before the point).
+        if resumeTarget > 0 {
+            if !resumeSeekIssued {
+                engine.seek(to: resumeTarget)
+                resumeSeekIssued = true
+            }
+            if t.position >= resumeTarget - 5 {        // arrived (keyframe slack) → resume complete
+                lastTickPosition = t.position
+                resumeTarget = 0
+            }
+            return                                      // overlay stays; no promote/save while seeking
+        }
+
+        // Sustained advance past the last tick = the decoder is really producing frames. A single
+        // tick at the seek target is not advance, so the overlay stays until the picture is moving.
+        let advanced = t.position > lastTickPosition + 0.05
+        lastTickPosition = t.position
         if advanced {
             markRendered()
             if phase == .buffering || phase == .preparing {

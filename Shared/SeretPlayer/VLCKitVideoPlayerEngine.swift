@@ -35,13 +35,10 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
         player.delegate = self
     }
 
-    func load(url: URL, headers: [String: String], startTime: Double) {
+    func load(url: URL, headers: [String: String]) {
         let media = VLCMedia(url: url)
         for (k, v) in headers { media?.addOption(":http-\(k.lowercased())=\(v)") } // unused for RD CDN
         media?.addOption(":network-caching=3000")   // buffer more for high-bitrate RD streams (fewer stalls)
-        // Resume natively: VLCKit begins decoding at this offset, so the playhead never flashes 0
-        // and then jumps (a plain seek-after-load is ignored before the media is parsed).
-        if startTime > 0 { media?.addOption(":start-time=\(startTime)") }
         player.media = media
     }
 
