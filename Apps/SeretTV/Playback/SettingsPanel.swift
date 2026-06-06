@@ -9,6 +9,7 @@ struct SettingsPanel: View {
     @Bindable var model: PlayerModel
     let onClose: () -> Void
     @State private var tab: Tab = .playback
+    @FocusState private var focusedTab: Tab?
     @Namespace private var scope
 
     enum Tab: String, CaseIterable {
@@ -17,27 +18,24 @@ struct SettingsPanel: View {
 
     var body: some View {
         VStack(spacing: 24) {
-            // Tab bar (Apple-TV pill style).
+            // Tab bar — switches on FOCUS (no click needed), like the native tvOS player overlay.
             HStack(spacing: 14) {
                 ForEach(Tab.allCases, id: \.self) { t in
-                    Button { tab = t } label: {
-                        Text(t.rawValue)
-                            .font(.headline)
-                            .foregroundStyle(tab == t ? .black : .white)
-                            .padding(.horizontal, 22).padding(.vertical, 10)
-                            .background(tab == t ? Color.white : Color.white.opacity(0.18), in: Capsule())
-                    }
-                    .buttonStyle(.plain)
+                    TabChip(title: t.rawValue, selected: tab == t)
+                        .focusable()
+                        .focused($focusedTab, equals: t)
                 }
             }
             .padding(.top, 28)
+            .onChange(of: focusedTab) { _, newValue in
+                if let newValue { tab = newValue }     // moving across the top switches tabs live
+            }
 
             // Body.
             Group {
                 switch tab {
                 case .info:      InfoColumn(model: model)
                 case .playback:  PlaybackColumns(model: model, onPick: onClose)
-                                    .prefersDefaultFocus(in: scope)
                 case .technical: TechnicalColumn(model: model)
                 }
             }
@@ -63,7 +61,9 @@ struct SettingsPanel: View {
 private struct PlaybackColumns: View {
     @Bindable var model: PlayerModel
     let onPick: () -> Void
-    /// Seeds focus to the "Subtitles → Off" row when the panel opens, so arrows can navigate.
+    /// Seeds focus to the "Subtitles → Off" row when the panel opens, so the arrows navigate the
+    /// options immediately — no extra click to "enter" the menu. `.defaultFocus` is declarative, so
+    /// it lands without the flaky async + prefersDefaultFocus combo it replaces.
     @FocusState private var landingFocused: Bool
 
     var body: some View {
@@ -72,10 +72,7 @@ private struct PlaybackColumns: View {
             subtitlesColumn
             speedColumn
         }
-        .onAppear {
-            // Tick after the transition so the focus engine sees the views.
-            DispatchQueue.main.async { landingFocused = true }
-        }
+        .defaultFocus($landingFocused, true)
     }
 
     private var audioColumn: some View {
@@ -217,6 +214,48 @@ private struct CheckRow: View {
             }
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(SettingsRowButtonStyle())
+    }
+}
+
+/// A top tab styled for focus: a bright white pill when focused, a faint pill for the selected
+/// (current) tab, plain otherwise. Reads `\.isFocused` directly so the highlight is uniform rather
+/// than the inconsistent default-button glow.
+private struct TabChip: View {
+    let title: String
+    let selected: Bool
+    @Environment(\.isFocused) private var focused: Bool
+    var body: some View {
+        Text(title)
+            .font(.headline)
+            .foregroundStyle(focused ? .black : .white)
+            .padding(.horizontal, 22).padding(.vertical, 10)
+            .background(fill, in: Capsule())
+            .scaleEffect(focused ? 1.06 : 1)
+            .animation(.easeOut(duration: 0.15), value: focused)
+    }
+    private var fill: Color {
+        if focused { return .white }
+        if selected { return .white.opacity(0.22) }
+        return .white.opacity(0.08)
+    }
+}
+
+/// A settings row's focus look: a clean white pill + dark text + a subtle lift, replacing the
+/// inconsistent default `.plain` highlight (the "buggy glow").
+private struct SettingsRowButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View { Row(configuration: configuration) }
+    private struct Row: View {
+        let configuration: ButtonStyleConfiguration
+        @Environment(\.isFocused) private var focused: Bool
+        var body: some View {
+            configuration.label
+                .padding(.horizontal, 16).padding(.vertical, 8)
+                .foregroundStyle(focused ? .black : .white)
+                .background(focused ? Color.white : .clear, in: RoundedRectangle(cornerRadius: 10))
+                .scaleEffect(focused ? 1.03 : 1)
+                .opacity(configuration.isPressed ? 0.7 : 1)
+                .animation(.easeOut(duration: 0.15), value: focused)
+        }
     }
 }
