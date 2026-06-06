@@ -33,7 +33,7 @@ public struct TMDBClient: Sendable {
     }
 
     public func tvDetails(id: Int) async throws -> TMDBTVDetails {
-        try await get("tv/\(id)", [])
+        try await get("tv/\(id)", [URLQueryItem(name: "append_to_response", value: "external_ids")])
     }
 
     public func tvSeasonDetails(tvID: Int, season: Int) async throws -> TMDBSeasonDetails {

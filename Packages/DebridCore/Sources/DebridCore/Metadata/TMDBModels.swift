@@ -51,6 +51,8 @@ public struct TMDBMovieDetails: Decodable, Sendable, Equatable, Identifiable {
     public let runtime: Int?
     public let genres: [TMDBGenre]
     public let voteAverage: Double?
+    public let originalLanguage: String?   // ISO 639-1
+    public let imdbID: String?
 
     enum CodingKeys: String, CodingKey {
         case id, title, overview, runtime, genres
@@ -58,14 +60,18 @@ public struct TMDBMovieDetails: Decodable, Sendable, Equatable, Identifiable {
         case posterPath = "poster_path"
         case backdropPath = "backdrop_path"
         case voteAverage = "vote_average"
+        case originalLanguage = "original_language"
+        case imdbID = "imdb_id"
     }
 
     public init(id: Int, title: String, releaseDate: String?, overview: String?,
                 posterPath: String?, backdropPath: String?, runtime: Int?,
-                genres: [TMDBGenre], voteAverage: Double?) {
+                genres: [TMDBGenre], voteAverage: Double?,
+                originalLanguage: String? = nil, imdbID: String? = nil) {
         self.id = id; self.title = title; self.releaseDate = releaseDate
         self.overview = overview; self.posterPath = posterPath; self.backdropPath = backdropPath
         self.runtime = runtime; self.genres = genres; self.voteAverage = voteAverage
+        self.originalLanguage = originalLanguage; self.imdbID = imdbID
     }
 }
 
@@ -79,6 +85,8 @@ public struct TMDBTVDetails: Decodable, Sendable, Equatable, Identifiable {
     public let numberOfSeasons: Int?
     public let genres: [TMDBGenre]
     public let voteAverage: Double?
+    public let originalLanguage: String?   // ISO 639-1
+    public let imdbID: String?             // from append_to_response=external_ids
 
     enum CodingKeys: String, CodingKey {
         case id, name, overview, genres
@@ -87,14 +95,35 @@ public struct TMDBTVDetails: Decodable, Sendable, Equatable, Identifiable {
         case backdropPath = "backdrop_path"
         case numberOfSeasons = "number_of_seasons"
         case voteAverage = "vote_average"
+        case originalLanguage = "original_language"
+        case externalIDs = "external_ids"
     }
+
+    private struct ExternalIDs: Decodable { let imdb_id: String? }
 
     public init(id: Int, name: String, firstAirDate: String?, overview: String?,
                 posterPath: String?, backdropPath: String?, numberOfSeasons: Int?,
-                genres: [TMDBGenre], voteAverage: Double?) {
+                genres: [TMDBGenre], voteAverage: Double?,
+                originalLanguage: String? = nil, imdbID: String? = nil) {
         self.id = id; self.name = name; self.firstAirDate = firstAirDate
         self.overview = overview; self.posterPath = posterPath; self.backdropPath = backdropPath
         self.numberOfSeasons = numberOfSeasons; self.genres = genres; self.voteAverage = voteAverage
+        self.originalLanguage = originalLanguage; self.imdbID = imdbID
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(Int.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        firstAirDate = try c.decodeIfPresent(String.self, forKey: .firstAirDate)
+        overview = try c.decodeIfPresent(String.self, forKey: .overview)
+        posterPath = try c.decodeIfPresent(String.self, forKey: .posterPath)
+        backdropPath = try c.decodeIfPresent(String.self, forKey: .backdropPath)
+        numberOfSeasons = try c.decodeIfPresent(Int.self, forKey: .numberOfSeasons)
+        genres = try c.decodeIfPresent([TMDBGenre].self, forKey: .genres) ?? []
+        voteAverage = try c.decodeIfPresent(Double.self, forKey: .voteAverage)
+        originalLanguage = try c.decodeIfPresent(String.self, forKey: .originalLanguage)
+        imdbID = try c.decodeIfPresent(ExternalIDs.self, forKey: .externalIDs)?.imdb_id
     }
 }
 
