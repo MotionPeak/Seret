@@ -5,6 +5,7 @@ import SwiftUI
 /// Movie Detail: backdrop, title + meta, quality chips, Play/Resume, overview, and Versions.
 struct MovieDetail: View {
     let store: DetailStore
+    let onPlay: (PlaybackRequest) -> Void
     private var item: MediaItem { store.item }
     private var contentKey: String { WatchKey.content(forMovie: item) }
     private var watch: WatchState? { store.watchState(forKey: contentKey) }
@@ -22,6 +23,7 @@ struct MovieDetail: View {
                 }
                 if store.versions.count > 1 { versionsSection }
             }
+            .frame(maxWidth: 720, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(Theme.Space.lg)
             .padding(.top, 200)
@@ -43,15 +45,14 @@ struct MovieDetail: View {
         if let best = store.bestSource {
             HStack(spacing: Theme.Space.md) {
                 if let resume = resumeSeconds {
-                    NavigationLink(value: store.playRequest(source: best, episode: nil, label: item.title)) {
+                    Button { onPlay(store.playRequest(source: best, episode: nil, label: item.title)) } label: {
                         Label("Resume · \(Timecode.format(resume))", systemImage: "play.fill")
                     }.buttonStyle(GoldButtonStyle())
-                    NavigationLink(value: store.playRequest(source: best, episode: nil,
-                                                            label: item.title, fromStart: true)) {
+                    Button { onPlay(store.playRequest(source: best, episode: nil, label: item.title, fromStart: true)) } label: {
                         Label("Start", systemImage: "gobackward")
                     }.buttonStyle(GhostButtonStyle())
                 } else {
-                    NavigationLink(value: store.playRequest(source: best, episode: nil, label: item.title)) {
+                    Button { onPlay(store.playRequest(source: best, episode: nil, label: item.title)) } label: {
                         Label("Play", systemImage: "play.fill")
                     }.buttonStyle(GoldButtonStyle())
                 }
@@ -63,7 +64,7 @@ struct MovieDetail: View {
         VStack(alignment: .leading, spacing: Theme.Space.sm) {
             Text("VERSIONS").font(Theme.Typo.label()).tracking(1.5).foregroundStyle(Theme.Palette.gold)
             ForEach(store.versions, id: \.self) { src in
-                NavigationLink(value: store.playRequest(source: src, episode: nil, label: item.title)) {
+                Button { onPlay(store.playRequest(source: src, episode: nil, label: item.title)) } label: {
                     HStack {
                         QualityChipRow(parsed: src.parsed)
                         Spacer()

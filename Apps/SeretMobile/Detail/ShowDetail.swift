@@ -6,6 +6,7 @@ import SwiftUI
 /// episode list for the selected season.
 struct ShowDetail: View {
     let store: DetailStore
+    let onPlay: (PlaybackRequest) -> Void
     private var item: MediaItem { store.item }
 
     var body: some View {
@@ -21,6 +22,7 @@ struct ShowDetail: View {
                 seasonPicker
                 episodeList
             }
+            .frame(maxWidth: 720, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(Theme.Space.lg)
             .padding(.top, 200)
@@ -40,9 +42,10 @@ struct ShowDetail: View {
 
     @ViewBuilder private var heroAction: some View {
         if let next = store.nextEpisode() {
-            NavigationLink(value: store.playRequest(
-                source: next.source, episode: next,
-                label: "\(item.title) — S\(next.season)·E\(next.number)")) {
+            Button {
+                onPlay(store.playRequest(source: next.source, episode: next,
+                                         label: "\(item.title) — S\(next.season)·E\(next.number)"))
+            } label: {
                 Label("Play S\(next.season)·E\(next.number)", systemImage: "play.fill")
             }
             .buttonStyle(GoldButtonStyle())
@@ -70,7 +73,7 @@ struct ShowDetail: View {
             VStack(spacing: 0) {
                 ForEach(season.episodes) { ep in
                     EpisodeRowView(store: store, episode: ep,
-                                   meta: store.episodeMeta[season.number]?[ep.number])
+                                   meta: store.episodeMeta[season.number]?[ep.number], onPlay: onPlay)
                     Divider().overlay(Theme.Palette.hairline)
                 }
             }
@@ -83,12 +86,15 @@ struct EpisodeRowView: View {
     let store: DetailStore
     let episode: Episode
     let meta: TMDBEpisodeDetails?
+    let onPlay: (PlaybackRequest) -> Void
 
     private var contentKey: String { WatchKey.content(forShow: store.item, episode: episode) }
     private var watch: WatchState? { store.watchState(forKey: contentKey) }
 
     var body: some View {
-        NavigationLink(value: store.playRequest(source: episode.source, episode: episode, label: label)) {
+        Button {
+            onPlay(store.playRequest(source: episode.source, episode: episode, label: label))
+        } label: {
             HStack(alignment: .top, spacing: Theme.Space.md) {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {

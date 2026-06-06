@@ -3,15 +3,21 @@ import DebridUI
 import SwiftUI
 
 /// Renders one library tab (Movies or Shows): an adaptive poster grid when loaded
-/// (~3 columns on iPhone, ~5–7 on iPad/landscape via `GridItem.adaptive`), otherwise the
+/// (~3 columns on iPhone, larger posters/more columns on iPad), otherwise the
 /// loading / empty / failed state — all on the Gold Glass canvas.
 struct LibraryGrid: View {
     let title: String
     let items: [MediaItem]
     let state: LibraryStore.State
     let onRetry: () -> Void
+    let onSelect: (MediaItem) -> Void
+    @Environment(\.horizontalSizeClass) private var hSize
 
-    private let columns = [GridItem(.adaptive(minimum: 110, maximum: 170), spacing: Theme.Space.md)]
+    private var columns: [GridItem] {
+        let minW: CGFloat = hSize == .regular ? 158 : 110
+        let maxW: CGFloat = hSize == .regular ? 220 : 170
+        return [GridItem(.adaptive(minimum: minW, maximum: maxW), spacing: Theme.Space.lg)]
+    }
 
     var body: some View {
         ZStack {
@@ -36,7 +42,7 @@ struct LibraryGrid: View {
                 ScrollView {
                     LazyVGrid(columns: columns, spacing: Theme.Space.xl) {
                         ForEach(items) { item in
-                            NavigationLink(value: item) {
+                            Button { onSelect(item) } label: {
                                 PosterCard(title: item.title,
                                            posterURL: TMDBClient.imageURL(path: item.posterPath, size: "w500"),
                                            width: nil)
@@ -53,7 +59,7 @@ struct LibraryGrid: View {
     private var loadingGrid: some View {
         ScrollView {
             LazyVGrid(columns: columns, spacing: Theme.Space.xl) {
-                ForEach(0..<9, id: \.self) { _ in
+                ForEach(0..<12, id: \.self) { _ in
                     Color.clear.aspectRatio(2.0 / 3.0, contentMode: .fit).overlay { ShimmerView() }
                 }
             }

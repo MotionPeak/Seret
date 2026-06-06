@@ -2,36 +2,54 @@ import DebridCore
 import DebridUI
 import SwiftUI
 
-/// Owns the per-title `DetailStore`, dispatches movie vs. show, and registers the player
-/// route (a placeholder until 8c's MobileVLCKit player lands).
+/// Wraps a `PlaybackRequest` so it can drive a `.fullScreenCover(item:)`.
+struct PlaybackPresentation: Identifiable {
+    let id = UUID()
+    let request: PlaybackRequest
+}
+
+/// Owns the per-title `DetailStore`, dispatches movie vs. show, and presents the player
+/// full-screen (covering the iPad sidebar). Presented itself as a full-screen cover.
 struct DetailScreen: View {
     @State private var store: DetailStore
+    @State private var playback: PlaybackPresentation?
     @Environment(AppSession.self) private var session
+    @Environment(\.dismiss) private var dismiss
 
     init(item: MediaItem, details: MediaDetailsProviding, watch: WatchProgressProviding?) {
         _store = State(initialValue: DetailStore(item: item, details: details, watch: watch))
     }
 
     var body: some View {
-        Group {
-            switch store.item.kind {
-            case .movie: MovieDetail(store: store)
-            case .show:  ShowDetail(store: store)
+        NavigationStack {
+            Group {
+                switch store.item.kind {
+                case .movie: MovieDetail(store: store, onPlay: present)
+                case .show:  ShowDetail(store: store, onPlay: present)
+                }
             }
+            .task { await store.load() }
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { dismiss() } label: { Image(systemName: "chevron.down").font(.headline) }
+                        .tint(Theme.Palette.gold)
+                }
+            }
+            .toolbarBackground(.hidden, for: .navigationBar)
         }
-        .task { await store.load() }
-        .navigationDestination(for: PlaybackRequest.self) { request in
+        .fullScreenCover(item: $playback) { presented in
             let engine = VLCKitVideoPlayerEngine()
-            if let model = session.makePlayer(for: request, engine: engine) {
+            if let model = session.makePlayer(for: presented.request, engine: engine) {
                 PlayerView(model: model, engine: engine,
-                           backdropURL: TMDBClient.imageURL(path: request.item.backdropPath, size: "w1280"))
-                    .navigationBarBackButtonHidden(true)
-                    .toolbar(.hidden, for: .navigationBar)
-                    .toolbar(.hidden, for: .tabBar)
+                           backdropURL: TMDBClient.imageURL(path: presented.request.item.backdropPath, size: "w1280"))
             } else {
-                PlayerPlaceholder(request: request)
+                PlayerPlaceholder(request: presented.request)
             }
         }
+    }
+
+    private func present(_ request: PlaybackRequest) {
+        playback = PlaybackPresentation(request: request)
     }
 }
 
@@ -52,14 +70,14 @@ struct DetailBackdrop: View {
         }
         .overlay(LinearGradient(stops: [
             .init(color: .black.opacity(0.25), location: 0.0),
-            .init(color: .black.opacity(0.75), location: 0.55),
-            .init(color: .black, location: 1.0),
+            .init(color: Theme.Palette.canvas.opacity(0.85), location: 0.6),
+            .init(color: Theme.Palette.canvas, location: 1.0),
         ], startPoint: .top, endPoint: .bottom))
         .ignoresSafeArea()
     }
 }
 
-/// Quality / source / codec chips for a parsed release (mirrors the tvOS `QualityChips`, touch-styled).
+/// Quality / source / codec chips for a parsed release.
 struct QualityChipRow: View {
     let parsed: ParsedRelease
     private var chips: [String] {
@@ -81,7 +99,5 @@ struct PlayerPlaceholder: View {
         } description: {
             Text("Playback isn't available right now.")
         }
-        .navigationTitle("Play")
-        .navigationBarTitleDisplayMode(.inline)
     }
 }

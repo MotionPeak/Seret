@@ -3,9 +3,16 @@ import DebridUI
 import SwiftUI
 
 /// Home tab: a featured hero (most recent Continue item) + Continue Watching and
-/// Recently Added rails, composed on `session.home`. Taps route to Detail.
+/// Recently Added rails, composed on `session.home`. Taps open Detail full-screen.
 struct HomeScreen: View {
     @Environment(AppSession.self) private var session
+    @Environment(\.horizontalSizeClass) private var hSize
+    @State private var detailItem: MediaItem?
+
+    private var isRegular: Bool { hSize == .regular }
+    private var posterW: CGFloat { isRegular ? 150 : 112 }
+    private var landW: CGFloat { isRegular ? 280 : 178 }
+    private var heroH: CGFloat { isRegular ? 380 : 250 }
 
     var body: some View {
         NavigationStack {
@@ -14,10 +21,10 @@ struct HomeScreen: View {
                 content
             }
             .navigationTitle("Home")
-            .navigationDestination(for: MediaItem.self) { item in
-                if let details = session.detailsProvider {
-                    DetailScreen(item: item, details: details, watch: session.watchStore)
-                }
+        }
+        .fullScreenCover(item: $detailItem) { item in
+            if let details = session.detailsProvider {
+                DetailScreen(item: item, details: details, watch: session.watchStore)
             }
         }
         .task {
@@ -39,9 +46,10 @@ struct HomeScreen: View {
                         if !home.continueWatching.isEmpty {
                             Rail(title: "Continue Watching") {
                                 ForEach(home.continueWatching) { hi in
-                                    NavigationLink(value: hi.item) {
+                                    Button { detailItem = hi.item } label: {
                                         LandscapeProgressCard(title: hi.item.title, subtitle: hi.subtitle,
-                                                              imageURL: backdropURL(hi.item), fraction: hi.fraction)
+                                                              imageURL: backdropURL(hi.item),
+                                                              fraction: hi.fraction, width: landW)
                                     }.pressable()
                                 }
                             }
@@ -49,8 +57,9 @@ struct HomeScreen: View {
                         if !home.recentlyAdded.isEmpty {
                             Rail(title: "Recently Added") {
                                 ForEach(home.recentlyAdded) { item in
-                                    NavigationLink(value: item) {
-                                        PosterCard(title: item.title, posterURL: posterURL(item))
+                                    Button { detailItem = item } label: {
+                                        PosterCard(title: item.title,
+                                                   posterURL: posterURL(item), width: posterW)
                                     }.pressable()
                                 }
                             }
@@ -66,8 +75,8 @@ struct HomeScreen: View {
 
     @ViewBuilder private func hero(_ home: HomeStore) -> some View {
         if let f = home.featured {
-            NavigationLink(value: f.item) {
-                HeroBackdrop(imageURL: backdropURL(f.item), height: 240) {
+            Button { detailItem = f.item } label: {
+                HeroBackdrop(imageURL: backdropURL(f.item), height: heroH) {
                     VStack(alignment: .leading, spacing: Theme.Space.sm) {
                         Text(f.subtitle.isEmpty ? "Continue Watching" : "Continue · \(f.subtitle)")
                             .font(Theme.Typo.label()).tracking(1.5).foregroundStyle(Theme.Palette.gold)
@@ -88,7 +97,7 @@ struct HomeScreen: View {
 
     private var loading: some View {
         VStack(spacing: Theme.Space.lg) {
-            ShimmerView().frame(height: 210).padding(.horizontal, Theme.Space.lg)
+            ShimmerView().frame(height: heroH).padding(.horizontal, Theme.Space.lg)
             ShimmerView().frame(height: 120).padding(.horizontal, Theme.Space.lg)
         }.padding(.top, Theme.Space.lg).frame(maxHeight: .infinity, alignment: .top)
     }
