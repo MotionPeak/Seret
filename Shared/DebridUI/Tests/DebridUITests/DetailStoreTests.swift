@@ -57,6 +57,9 @@ private actor FakeWatch: WatchProgressProviding {
                                       positionSeconds: positionSeconds, durationSeconds: durationSeconds,
                                       finished: finished, updatedAt: Date(timeIntervalSince1970: 0))
     }
+    func recentlyWatched(limit: Int) async throws -> [WatchState] {
+        Array(rows.values.filter { !$0.finished && $0.positionSeconds > 0 }.prefix(limit))
+    }
 }
 
 // MARK: - Tests

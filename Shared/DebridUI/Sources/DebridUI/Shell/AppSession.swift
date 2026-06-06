@@ -27,6 +27,9 @@ public final class AppSession {
     /// 7c's player + a later Continue-Watching feed reuse this same instance.
     public private(set) var watchStore: WatchProgressProviding?
 
+    /// Home feed (Continue Watching + Recently Added), composed from the library + watch store.
+    public private(set) var home: HomeStore?
+
     /// On-demand OpenSubtitles provider (nil while signed out or if no key+account configured).
     public private(set) var subtitlesProvider: SubtitleProvider?
     private var watchProgressStore: WatchProgressStore?   // concrete ref for PlaybackCoordinator
@@ -78,6 +81,7 @@ public final class AppSession {
         libraryStore = nil
         detailsProvider = nil
         watchStore = nil
+        home = nil
         watchProgressStore = nil
         torrents = nil
         subtitlesProvider = nil
@@ -102,6 +106,7 @@ public final class AppSession {
             .map { WatchProgressStore(modelContainer: $0) }
         watchProgressStore = concreteStore
         watchStore = concreteStore.map { $0 as WatchProgressProviding }
+        home = watchStore.map { HomeStore(watch: $0) }
         let osKey = Secrets.openSubtitlesAPIKey
         if !osKey.isEmpty,
            let account = KeychainSecretStore(service: "com.solomons.seret.opensubtitles").readAccount() {

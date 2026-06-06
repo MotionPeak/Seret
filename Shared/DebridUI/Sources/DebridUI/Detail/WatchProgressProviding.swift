@@ -7,6 +7,8 @@ public protocol WatchProgressProviding: Sendable {
     func progress(forContentKey key: String) async throws -> WatchState?
     func record(contentKey: String, sourceKey: String,
                 positionSeconds: Double, durationSeconds: Double, finished: Bool) async throws
+    /// Continue-Watching feed: unfinished rows with progress, newest first.
+    func recentlyWatched(limit: Int) async throws -> [WatchState]
 }
 
 extension WatchProgressStore: WatchProgressProviding {
