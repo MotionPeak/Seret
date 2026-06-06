@@ -59,6 +59,48 @@ public struct TorrentsClient: Sendable {
                                 headers: try await authHeaders())
     }
 
+    /// Terminal RD failure statuses for the add flow.
+    private static let errorStatuses: Set<String> = ["error", "magnet_error", "dead", "virus"]
+
+    /// High-level add for an instantly-cached torrent: addMagnet → wait for file listing →
+    /// selectFiles(all) → wait for `downloaded` → return its `TorrentInfo`. Because the torrent
+    /// is already cached, RD resolves it in seconds. Throws `RDAddError.notInstant` if it does
+    /// not reach `downloaded` within `maxPollAttempts`, or `.failed` on a terminal status.
+    /// `sleep` is injected for testability (pass a no-op in tests).
+    public func add(magnetHash: String,
+                    maxPollAttempts: Int = 20,
+                    pollInterval: Duration = .seconds(1),
+                    sleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
+    ) async throws -> TorrentInfo {
+        let added = try await addMagnet(magnet: "magnet:?xt=urn:btih:\(magnetHash)")
+        let id = added.id
+
+        // 1) Wait until RD has listed files / is ready for selection.
+        var info = try await self.info(id: id)
+        var attempts = 0
+        while info.files.isEmpty && info.status != "waiting_files_selection" && attempts < maxPollAttempts {
+            if Self.errorStatuses.contains(info.status) { throw RDAddError.failed(status: info.status, torrentID: id) }
+            try await sleep(pollInterval)
+            info = try await self.info(id: id)
+            attempts += 1
+        }
+
+        // 2) Select all files (cached pack → all episodes available; movie → the film).
+        try await selectFiles(torrentID: id, files: "all")
+
+        // 3) Wait for the cached torrent to flip to `downloaded`.
+        info = try await self.info(id: id)
+        attempts = 0
+        while info.status != "downloaded" && attempts < maxPollAttempts {
+            if Self.errorStatuses.contains(info.status) { throw RDAddError.failed(status: info.status, torrentID: id) }
+            try await sleep(pollInterval)
+            info = try await self.info(id: id)
+            attempts += 1
+        }
+        guard info.status == "downloaded" else { throw RDAddError.notInstant(torrentID: id) }
+        return info
+    }
+
     /// Convenience: pick the torrent's primary video file and unrestrict its link.
     /// Returns nil if the torrent has no selected video file.
     public func playableURL(for info: TorrentInfo) async throws -> UnrestrictedLink? {
