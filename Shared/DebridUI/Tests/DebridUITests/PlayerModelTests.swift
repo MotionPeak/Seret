@@ -292,4 +292,60 @@ import DebridCore
         engine.emit(.state(.buffering)); await model.waitForIdleForTesting()
         #expect(model.phase == .playing)        // stays playing — no flicker
     }
+
+    @Test func skipGivesOptimisticPositionAndBuffersUntilTimeResumes() async {
+        // ±10s must feel instant: the bar jumps and a loading hint shows immediately, rather than
+        // sitting on a black frame with no feedback until the engine reports the new time.
+        let engine = FakeVideoPlayerEngine()
+        let model = makeModel(request: Fixture.request(), engine: engine)
+        model.start(); await model.waitForIdleForTesting()
+        engine.emit(.time(.init(position: 50, duration: 100))); await model.waitForIdleForTesting()
+        #expect(model.hasRenderedFrame == true)
+        model.skip(10)
+        #expect(model.position == 60)            // bar jumps immediately
+        #expect(model.isBuffering == true)       // loading hint while the seek rebuffers
+        #expect(engine.seekedTo == 60)
+        engine.emit(.time(.init(position: 60.6, duration: 100))); await model.waitForIdleForTesting()
+        #expect(model.isBuffering == false)      // cleared once time advances again
+    }
+
+    @Test func skipClampsToZeroAndDuration() async {
+        let engine = FakeVideoPlayerEngine()
+        let model = makeModel(request: Fixture.request(), engine: engine)
+        model.start(); await model.waitForIdleForTesting()
+        engine.emit(.time(.init(position: 5, duration: 100))); await model.waitForIdleForTesting()
+        model.skip(-30)
+        #expect(model.position == 0)             // clamped at 0
+        engine.emit(.time(.init(position: 95, duration: 100))); await model.waitForIdleForTesting()
+        model.skip(50)
+        #expect(model.position == 100)           // clamped at duration
+    }
+
+    @Test func midPlaybackBufferingShowsHintButKeepsVideoVisible() async {
+        let engine = FakeVideoPlayerEngine()
+        let model = makeModel(request: Fixture.request(), engine: engine)
+        model.start(); await model.waitForIdleForTesting()
+        engine.emit(.time(.init(position: 10, duration: 100))); await model.waitForIdleForTesting()
+        #expect(model.phase == .playing)
+        engine.emit(.state(.buffering)); await model.waitForIdleForTesting()
+        #expect(model.phase == .playing)         // stays playing → the video isn't hidden
+        #expect(model.isBuffering == true)       // …but the spinner shows
+        engine.emit(.time(.init(position: 11, duration: 100))); await model.waitForIdleForTesting()
+        #expect(model.isBuffering == false)
+    }
+
+    @Test func overlayStaysUntilFramesAdvancePastResumeOffset() async {
+        // With :start-time resume the engine reports ~resumeAt on the very first tick before any
+        // frame is on screen — that echo must NOT clear the loading overlay (the black-screen bug).
+        let engine = FakeVideoPlayerEngine()
+        let model = makeModel(request: Fixture.request(resumeAt: 600), engine: engine)
+        model.start(); await model.waitForIdleForTesting()
+        #expect(model.hasRenderedFrame == false)
+        engine.emit(.time(.init(position: 600, duration: 1000))); await model.waitForIdleForTesting()
+        #expect(model.hasRenderedFrame == false) // start-time echo, not real advance
+        #expect(model.phase != .playing)
+        engine.emit(.time(.init(position: 600.6, duration: 1000))); await model.waitForIdleForTesting()
+        #expect(model.hasRenderedFrame == true)  // frames moving → overlay can hide
+        #expect(model.phase == .playing)
+    }
 }

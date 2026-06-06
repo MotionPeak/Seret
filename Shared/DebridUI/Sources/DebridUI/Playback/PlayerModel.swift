@@ -62,6 +62,14 @@ public final class PlayerModel {
     /// last interaction). Distinct from `isScrubbing` (mid-gesture only).
     public private(set) var scrubBarVisible: Bool = false
 
+    /// First real video frame has rendered for the current source (sustained time advance or a real
+    /// `.playing`). Gates the full-screen loading overlay so it never hides over a still-black
+    /// picture.
+    public private(set) var hasRenderedFrame: Bool = false
+    /// Waiting on frames — initial load, a skip/seek, or a mid-stream rebuffer. Drives the loading
+    /// indicator (full overlay before the first frame; a small inline hint after).
+    public private(set) var isBuffering: Bool = true
+
     // MARK: - Stored properties
 
     private let item: MediaItem
@@ -79,6 +87,9 @@ public final class PlayerModel {
     private var hideControlsTask: Task<Void, Never>?
     private var scrubBarHideTask: Task<Void, Never>?
     private var lastSavedPosition: Double = -.infinity
+    /// Last engine-reported position — to detect *sustained* advance (real frames) vs a single
+    /// echoed seek/start-time tick.
+    private var lastTickPosition: Double = 0
     private let saveInterval: Double = 5
     private let autoHideDelay: Double
     private let scrubBarDwell: Double = 5      // bar stays visible for 5s after the last interaction
@@ -136,6 +147,9 @@ public final class PlayerModel {
         phase = .preparing
         position = 0
         duration = 0
+        hasRenderedFrame = false
+        isBuffering = true
+        lastTickPosition = resumeAt ?? 0     // the start-time echo must not count as real advance
         lastSavedPosition = -.infinity
         loadTask?.cancel()
         loadTask = Task { await self.loadCurrentSource() }
@@ -160,14 +174,19 @@ public final class PlayerModel {
         switch state {
         case .idle, .buffering:
             // VLCKit emits .buffering even after playback has started; don't let it revert an
-            // active session (that caused the loading overlay to flicker over the video at start).
+            // active session's phase (that flashed the overlay over the video). It does mean we're
+            // waiting on frames — flag buffering so the UI shows a small inline hint (the full
+            // overlay only shows before the first frame).
+            isBuffering = true
             if phase != .playing && phase != .paused { phase = .buffering }
         case .playing:
             phase = .playing
+            markRendered()
             refreshTracks()
             armAutoHide()
         case .paused:
             phase = .paused
+            isBuffering = false
             controlsVisible = true            // a paused viewer is looking — keep controls up
             hideControlsTask?.cancel()
         case .ended:
@@ -178,16 +197,20 @@ public final class PlayerModel {
     }
 
     private func tick(_ t: PlaybackTime) async {
+        // Sustained advance past the last tick = the decoder is really producing frames. A single
+        // tick at the seek/start-time target is not advance, so the loading overlay stays up until
+        // the picture is actually moving (no overlay-over-black; no bar flashing 0 on resume).
+        let advanced = t.position > lastTickPosition + 0.05
+        lastTickPosition = t.position
         position = t.position
         duration = t.duration
-        // VLCKit can sit in `.buffering` (or never emit a clean `.playing`) while it is
-        // actually rendering frames. The playhead moving is the reliable "we're playing"
-        // signal — promote out of the loading overlay so working playback isn't hidden
-        // behind "Buffering…".
-        if t.position > 0, phase == .buffering || phase == .preparing {
-            phase = .playing
-            refreshTracks()
-            armAutoHide()
+        if advanced {
+            markRendered()
+            if phase == .buffering || phase == .preparing {
+                phase = .playing
+                refreshTracks()
+                armAutoHide()
+            }
         }
         if position - lastSavedPosition >= saveInterval {
             lastSavedPosition = position
@@ -201,6 +224,12 @@ public final class PlayerModel {
     private func refreshTracks() {
         audioTracks = engine.audioTracks
         subtitleTracks = engine.subtitleTracks
+    }
+
+    /// First frames are on screen. Clears the loading state so the overlay/spinner hide.
+    private func markRendered() {
+        hasRenderedFrame = true
+        isBuffering = false
     }
 
     private func finish() async {
@@ -229,8 +258,20 @@ public final class PlayerModel {
         }
     }
 
-    public func skip(_ delta: Double) { engine.seek(to: max(0, position + delta)) }
-    public func scrub(to seconds: Double) { engine.seek(to: seconds) }
+    public func skip(_ delta: Double) {
+        let target = clamp(position + delta)
+        position = target            // optimistic: the scrub bar jumps to the new time immediately
+        isBuffering = true           // …and shows the loading hint while the seek rebuffers
+        lastTickPosition = target    // re-arm advance detection past the target
+        engine.seek(to: target)
+    }
+    public func scrub(to seconds: Double) { engine.seek(to: clamp(seconds)) }
+
+    /// Clamp a time to `[0, duration]` (duration may be 0 before it is known).
+    private func clamp(_ t: Double) -> Double {
+        let upper = duration > 0 ? duration : max(0, t)
+        return min(max(0, t), upper)
+    }
 
     /// Playback rate multiplier (1 = normal). Settings panel uses 0.5/0.75/1/1.25/1.5.
     public private(set) var playbackSpeed: Double = 1
@@ -265,6 +306,8 @@ public final class PlayerModel {
         guard isScrubbing else { return }
         isScrubbing = false
         position = scrubTarget
+        lastTickPosition = scrubTarget
+        isBuffering = true                     // loading hint while the seek rebuffers
         engine.seek(to: scrubTarget)
         armAutoHide()
         revealScrubBar()                       // sticky 5s after commit
