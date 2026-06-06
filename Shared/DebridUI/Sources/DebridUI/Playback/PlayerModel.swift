@@ -48,6 +48,10 @@ public final class PlayerModel {
     public private(set) var subtitleRows: [SubtitleRow]
     public private(set) var shouldDismiss: Bool = false
 
+    /// Currently-selected track ids — drives the settings sheet's selection indicator.
+    public private(set) var selectedAudioID: String?
+    public private(set) var selectedSubtitleID: String?   // nil = Off
+
     /// Continuous swipe-scrub (Step 2). While `isScrubbing`, the transport shows a preview marker at
     /// `scrubTarget` instead of the live playhead; the seek only happens on `commitScrub()`.
     public private(set) var isScrubbing: Bool = false
@@ -308,9 +312,9 @@ public final class PlayerModel {
         }
     }
 
-    public func selectSubtitle(id: String) { engine.selectSubtitleTrack(id: id) }
-    public func selectSubtitleOff() { engine.selectSubtitleTrack(id: nil) }
-    public func selectAudio(id: String) { engine.selectAudioTrack(id: id) }
+    public func selectSubtitle(id: String) { selectedSubtitleID = id; engine.selectSubtitleTrack(id: id) }
+    public func selectSubtitleOff() { selectedSubtitleID = nil; engine.selectSubtitleTrack(id: nil) }
+    public func selectAudio(id: String) { selectedAudioID = id; engine.selectAudioTrack(id: id) }
 
     // MARK: - Teardown
 
@@ -349,6 +353,7 @@ public final class PlayerModel {
             subtitleTracks = engine.subtitleTracks
             let newID = subtitleTracks.first(where: { !before.contains($0.id) })?.id
             engine.selectSubtitleTrack(id: newID)
+            selectedSubtitleID = newID
             setRow(language, .attached(newID ?? language))
         } catch let SubtitleError.dailyCapReached(reset) {
             setRow(language, .capReached(reset))

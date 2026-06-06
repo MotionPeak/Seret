@@ -2,9 +2,8 @@ import DebridCore
 import DebridUI
 import SwiftUI
 
-/// The player's settings sheet (presented from the transport): audio tracks, subtitles
-/// (existing tracks + on-demand Hebrew/English download), and playback speed. Drives the
-/// shared `PlayerModel`.
+/// The player's playback sheet: audio tracks, subtitles (existing + on-demand he/en download),
+/// and speed — grouped Gold Glass cards with a gold check on the current selection.
 struct PlayerSettingsSheet: View {
     let model: PlayerModel
     @Environment(\.dismiss) private var dismiss
@@ -12,54 +11,81 @@ struct PlayerSettingsSheet: View {
     var body: some View {
         NavigationStack {
             List {
-                Section("Audio") {
-                    if model.audioTracks.isEmpty {
-                        Text("None").foregroundStyle(Theme.Palette.textSecondary)
-                    }
-                    ForEach(labeled(model.audioTracks), id: \.track.id) { entry in
-                        Button(entry.label) { model.selectAudio(id: entry.track.id); dismiss() }
-                            .foregroundStyle(Theme.Palette.textPrimary)
-                    }
-                }
-                .listRowBackground(Theme.Palette.surface1)
-
-                Section("Subtitles") {
-                    Button("Off") { model.selectSubtitleOff(); dismiss() }
-                        .foregroundStyle(Theme.Palette.textPrimary)
-                    ForEach(labeled(model.subtitleTracks), id: \.track.id) { entry in
-                        Button(entry.label) { model.selectSubtitle(id: entry.track.id); dismiss() }
-                            .foregroundStyle(Theme.Palette.textPrimary)
-                    }
-                    ForEach(model.subtitleRows) { row in downloadRow(row) }
-                }
-                .listRowBackground(Theme.Palette.surface1)
-
-                Section("Playback Speed") {
-                    ForEach(speeds, id: \.value) { opt in
-                        Button {
-                            model.setPlaybackSpeed(opt.value)
-                        } label: {
-                            HStack {
-                                Text(opt.label)
-                                Spacer()
-                                if model.playbackSpeed == opt.value {
-                                    Image(systemName: "checkmark").foregroundStyle(Theme.Palette.gold)
-                                }
-                            }
-                        }
-                        .foregroundStyle(Theme.Palette.textPrimary)
-                    }
-                }
-                .listRowBackground(Theme.Palette.surface1)
+                audioSection
+                subtitleSection
+                speedSection
             }
+            .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
             .background(CanvasBackground())
             .tint(Theme.Palette.gold)
             .navigationTitle("Playback")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }.fontWeight(.semibold)
+                }
+            }
         }
         .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+    }
+
+    private var audioSection: some View {
+        Section {
+            if model.audioTracks.isEmpty {
+                Text("None").foregroundStyle(Theme.Palette.textSecondary)
+            }
+            ForEach(labeled(model.audioTracks), id: \.track.id) { entry in
+                selectRow(entry.label, selected: model.selectedAudioID == entry.track.id) {
+                    model.selectAudio(id: entry.track.id)
+                }
+            }
+        } header: { header("Audio", "speaker.wave.2.fill") }
+        .listRowBackground(Theme.Palette.surface1)
+    }
+
+    private var subtitleSection: some View {
+        Section {
+            selectRow("Off", selected: model.selectedSubtitleID == nil) { model.selectSubtitleOff() }
+            ForEach(labeled(model.subtitleTracks), id: \.track.id) { entry in
+                selectRow(entry.label, selected: model.selectedSubtitleID == entry.track.id) {
+                    model.selectSubtitle(id: entry.track.id)
+                }
+            }
+            ForEach(model.subtitleRows) { row in downloadRow(row) }
+        } header: { header("Subtitles", "captions.bubble.fill") }
+        .listRowBackground(Theme.Palette.surface1)
+    }
+
+    private var speedSection: some View {
+        Section {
+            ForEach(speeds, id: \.value) { opt in
+                selectRow(opt.label, selected: model.playbackSpeed == opt.value) {
+                    model.setPlaybackSpeed(opt.value)
+                }
+            }
+        } header: { header("Speed", "speedometer") }
+        .listRowBackground(Theme.Palette.surface1)
+    }
+
+    private func header(_ title: String, _ icon: String) -> some View {
+        Label(title, systemImage: icon)
+            .font(Theme.Typo.label()).tracking(1).foregroundStyle(Theme.Palette.gold)
+    }
+
+    private func selectRow(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack {
+                Text(title).foregroundStyle(Theme.Palette.textPrimary)
+                Spacer()
+                if selected {
+                    Image(systemName: "checkmark").foregroundStyle(Theme.Palette.gold).fontWeight(.bold)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     @ViewBuilder private func downloadRow(_ row: PlayerModel.SubtitleRow) -> some View {
@@ -67,21 +93,27 @@ struct PlayerSettingsSheet: View {
         Button {
             Task { await model.requestSubtitle(language: row.language) }
         } label: {
-            HStack {
-                Text("\(lang) (download)")
+            HStack(spacing: Theme.Space.sm) {
+                Image(systemName: "arrow.down.circle").foregroundStyle(Theme.Palette.textSecondary)
+                Text("\(lang) subtitles").foregroundStyle(Theme.Palette.textPrimary)
                 Spacer()
-                switch row.state {
-                case .idle:           Image(systemName: "arrow.down.circle").foregroundStyle(Theme.Palette.textSecondary)
-                case .downloading:    ProgressView()
-                case .attached:       Image(systemName: "checkmark").foregroundStyle(Theme.Palette.gold)
-                case .capReached:     Text("Daily limit").font(.caption).foregroundStyle(Theme.Palette.textSecondary)
-                case .noAccount:      Text("Add account in Settings").font(.caption).foregroundStyle(Theme.Palette.textSecondary)
-                case .error:          Image(systemName: "exclamationmark.triangle").foregroundStyle(Theme.Palette.gold)
-                }
+                downloadState(row.state)
             }
+            .contentShape(Rectangle())
         }
-        .foregroundStyle(Theme.Palette.textPrimary)
+        .buttonStyle(.plain)
         .disabled(isDisabled(row))
+    }
+
+    @ViewBuilder private func downloadState(_ state: PlayerModel.SubtitleRowState) -> some View {
+        switch state {
+        case .idle:        EmptyView()
+        case .downloading: ProgressView()
+        case .attached:    Image(systemName: "checkmark").foregroundStyle(Theme.Palette.gold).fontWeight(.bold)
+        case .capReached:  Text("Daily limit").font(.caption).foregroundStyle(Theme.Palette.textTertiary)
+        case .noAccount:   Text("Add account in Settings").font(.caption).foregroundStyle(Theme.Palette.textTertiary)
+        case .error:       Image(systemName: "exclamationmark.triangle").foregroundStyle(Theme.Palette.gold)
+        }
     }
 
     private func isDisabled(_ row: PlayerModel.SubtitleRow) -> Bool {
@@ -95,7 +127,7 @@ struct PlayerSettingsSheet: View {
         [("0.5×", 0.5), ("0.75×", 0.75), ("Normal", 1.0), ("1.25×", 1.25), ("1.5×", 1.5)]
     }
 
-    /// De-duplicated language naming (mirrors the tvOS panel): "[German]" → "German", "German 2".
+    /// De-duplicated language naming: "[German]" → "German", "German 2".
     private func labeled(_ tracks: [MediaTrack]) -> [(track: MediaTrack, label: String)] {
         let totals = Dictionary(grouping: tracks, by: { language($0) }).mapValues(\.count)
         var seen: [String: Int] = [:]
