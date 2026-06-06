@@ -42,6 +42,14 @@ public struct TorrentsClient: Sendable {
                             headers: try await authHeaders())
     }
 
+    /// Adds a magnet to the user's RD account. Returns the new torrent's id.
+    /// `POST /torrents/addMagnet` (form `magnet`). RD returns 201.
+    public func addMagnet(magnet: String) async throws -> AddMagnetResponse {
+        try await http.post(Self.base.appending(path: "torrents/addMagnet"),
+                            form: ["magnet": magnet],
+                            headers: try await authHeaders())
+    }
+
     /// Convenience: pick the torrent's primary video file and unrestrict its link.
     /// Returns nil if the torrent has no selected video file.
     public func playableURL(for info: TorrentInfo) async throws -> UnrestrictedLink? {

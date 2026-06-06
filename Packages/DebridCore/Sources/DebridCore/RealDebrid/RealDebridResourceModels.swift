@@ -78,6 +78,16 @@ public extension TorrentInfo {
     }
 }
 
+/// Response from `POST /torrents/addMagnet` (also `addTorrent`).
+public struct AddMagnetResponse: Decodable, Sendable, Equatable {
+    public let id: String
+    public let uri: String?
+
+    public init(id: String, uri: String? = nil) {
+        self.id = id; self.uri = uri
+    }
+}
+
 /// A restricted link resolved into a directly-streamable URL (`POST /unrestrict/link`).
 public struct UnrestrictedLink: Decodable, Sendable, Equatable {
     public let download: String      // the direct, streamable URL — hand this to the player
