@@ -334,7 +334,8 @@ private struct DownloadSection: View {
                 requesting = true
                 let candidates = await flow.uncachedCandidates()
                 await session.downloadStore?.request(tmdbID: flow.tmdbID, title: flow.title,
-                                                     kind: flow.mediaKind, candidates: candidates)
+                                                     kind: flow.mediaKind, candidates: candidates,
+                                                     posterPath: flow.posterPath)
                 requesting = false
             }
         } label: { Label(title, systemImage: "arrow.down.circle") }
