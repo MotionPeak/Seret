@@ -26,7 +26,7 @@ struct ShowDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 32) {
                 // Bottom-anchored hero over the backdrop; the season picker + episodes follow below.
-                hero.frame(maxWidth: .infinity, minHeight: 560, alignment: .bottomLeading)
+                hero.frame(maxWidth: .infinity, minHeight: 400, alignment: .bottomLeading)
                 seasonPicker
                 SeasonDownloadButton(store: seasonStore, onAdded: onSeasonAdded)
                 episodeList

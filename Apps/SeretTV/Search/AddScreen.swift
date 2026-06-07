@@ -105,9 +105,11 @@ private struct ShowAdd: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 28) {
-                Spacer(minLength: 480)
-                Text(flow.title).font(.system(size: 48, weight: .bold))
+            VStack(alignment: .leading, spacing: 16) {
+                // Small top inset so the title sits low over the backdrop but the season pills +
+                // Download + episode row all fit on the first screen (no scroll to reach episodes).
+                Spacer(minLength: 230)
+                Text(flow.title).font(.system(size: 44, weight: .bold))
                 if let overview = flow.overview {
                     Text(overview).font(.body).frame(maxWidth: 1100, alignment: .leading).lineLimit(2)
                 }
@@ -119,7 +121,7 @@ private struct ShowAdd: View {
                     AddActions(flow: flow, add: add, onPlay: onPlay)
                 }
             }
-            .padding(60)
+            .padding(.horizontal, 60).padding(.vertical, 36)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
