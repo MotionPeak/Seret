@@ -36,8 +36,10 @@ private final class FakeSearch: SearchProviding {
             tv: .success([result(2, "High", vote: 8)])))
         await store.search(query: "matrix")
         #expect(store.state == .results)
-        #expect(store.results.first?.id == 2)   // higher vote first
+        #expect(store.results.first?.result.id == 2)   // higher vote first
+        #expect(store.results.first?.kind == .show)    // the TV hit
         #expect(store.results.count == 2)
+        #expect(store.results.last?.kind == .movie)
     }
 
     @Test func noHitsIsEmpty() async {

@@ -165,6 +165,14 @@ public final class AppSession {
                         streamSource: streamSource, add: addService)
     }
 
+    /// Vend the Add-flow orchestrator for a picked search hit (nil while signed out). It
+    /// resolves the title's TMDB details, then drives the per-target `AddStore` itself.
+    public func makeAddFlow(for hit: SearchHit) -> AddFlowStore? {
+        guard let detailsProvider, let streamSource, let addService else { return nil }
+        return AddFlowStore(hit: hit, details: detailsProvider,
+                            streamSource: streamSource, add: addService)
+    }
+
     private static var cachesDirectory: URL {
         FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSTemporaryDirectory())

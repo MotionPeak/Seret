@@ -1,6 +1,18 @@
 import DebridCore
 import Observation
 
+/// One title from a search, tagged with its `MediaKind`. TMDB movie and TV ids live in
+/// separate namespaces (the same integer can be a movie *and* a show), so kind must travel
+/// with the result rather than be inferred downstream.
+public struct SearchHit: Identifiable, Equatable, Sendable {
+    public let result: TMDBSearchResult
+    public let kind: MediaKind
+    public init(result: TMDBSearchResult, kind: MediaKind) {
+        self.result = result; self.kind = kind
+    }
+    public var id: String { "\(kind.rawValue)-\(result.id)" }
+}
+
 /// Debounced TMDB title search across movies + TV, merged best-first by vote average.
 @MainActor
 @Observable
@@ -8,7 +20,7 @@ public final class SearchStore {
     public enum State: Equatable { case idle, searching, results, empty, failed(String) }
 
     public private(set) var state: State = .idle
-    public private(set) var results: [TMDBSearchResult] = []
+    public private(set) var results: [SearchHit] = []
 
     private let search: SearchProviding
 
@@ -23,7 +35,9 @@ public final class SearchStore {
         do {
             async let movies = search.searchMovie(query: trimmed, year: nil)
             async let tv = search.searchTV(query: trimmed, firstAirYear: nil)
-            let merged = try await (movies + tv).sorted { ($0.voteAverage ?? 0) > ($1.voteAverage ?? 0) }
+            let hits = try await movies.map { SearchHit(result: $0, kind: .movie) }
+                + tv.map { SearchHit(result: $0, kind: .show) }
+            let merged = hits.sorted { ($0.result.voteAverage ?? 0) > ($1.result.voteAverage ?? 0) }
             try Task.checkCancellation()
             results = merged
             state = merged.isEmpty ? .empty : .results
