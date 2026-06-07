@@ -16,7 +16,11 @@ struct LibraryShell: View {
             TabView {
                 Tab("Movies", systemImage: "film") { grid("Movies", \.movies) }
                 Tab("Shows", systemImage: "tv") { grid("Shows", \.shows) }
+                Tab("Search", systemImage: "magnifyingglass") { SearchScreen() }
                 Tab("Settings", systemImage: "gearshape") { SettingsView() }
+            }
+            .navigationDestination(for: SearchHit.self) { hit in
+                AddScreen(hit: hit)
             }
             .navigationDestination(for: MediaItem.self) { item in
                 if let details = session.detailsProvider {
