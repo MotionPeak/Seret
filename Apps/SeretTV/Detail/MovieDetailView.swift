@@ -10,12 +10,15 @@ struct MovieDetailView: View {
     private var item: MediaItem { store.item }
     private var contentKey: String { WatchKey.content(forMovie: item) }
     private var watch: WatchState? { store.watchState(forKey: contentKey) }
+    @State private var trailerURL: URL?
+    @State private var expandTrailer = false
 
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
                 TrailerHero(tmdbID: item.tmdbID, kind: .movie,
-                            backdropPath: store.backdropPath, posterFallback: item.posterPath)
+                            backdropPath: store.backdropPath, posterFallback: item.posterPath,
+                            resolvedURL: $trailerURL)
                 VStack(alignment: .leading, spacing: 36) {
                     hero.frame(maxWidth: .infinity, alignment: .leading)
                     if store.versions.count > 1 { versionsSection }   // single source → no disclosure (spec §6)
@@ -24,6 +27,9 @@ struct MovieDetailView: View {
             }
         }
         .background(CanvasBackground())
+        .fullScreenCover(isPresented: $expandTrailer) {
+            if let u = trailerURL { FullScreenTrailer(url: u) }
+        }
     }
 
     private var hero: some View {
@@ -77,12 +83,16 @@ struct MovieDetailView: View {
                       systemImage: isWatched ? "checkmark.circle.fill" : "checkmark.circle")
             }
             .disabled(item.sources.isEmpty)
-            TrailerButton(tmdbID: item.tmdbID, kind: .movie)
             Button(role: .destructive) { onRemove() } label: {
                 Label("Remove from Library", systemImage: "trash")
             }
         }
         .font(.title3)
+        // Swipe UP on the remote while the action row is focused → watch the trailer full-screen
+        // with sound. The muted hero keeps playing underneath; Menu returns here (focus on Play).
+        .onMoveCommand { direction in
+            if direction == .up, trailerURL != nil { expandTrailer = true }
+        }
     }
 
     private var resumeSeconds: Double? {

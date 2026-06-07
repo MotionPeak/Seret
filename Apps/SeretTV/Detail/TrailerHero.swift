@@ -11,6 +11,8 @@ struct TrailerHero: View {
     let kind: MediaKind
     let backdropPath: String?
     let posterFallback: String?
+    /// Published up once resolved so the detail can present "swipe up" full-screen playback.
+    @Binding var resolvedURL: URL?
 
     @Environment(AppSession.self) private var session
     @State private var model: TrailerModel?
@@ -60,6 +62,7 @@ struct TrailerHero: View {
         model = m
         async let delay: () = Task.sleep(for: .seconds(4))
         await m.prepare(tmdbID: tmdbID, kind: kind)
+        resolvedURL = m.streamURL          // publish up for swipe-up full-screen
         try? await delay
         guard m.autoplayAllowed, !Task.isCancelled else { return }
         withAnimation(.easeInOut(duration: 0.6)) { showVideo = true }

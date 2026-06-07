@@ -17,6 +17,8 @@ struct ShowDetailView: View {
     @State private var seasonStore: AddStore?
     /// Which season pill has focus — moving across them switches the season live (no press).
     @FocusState private var focusedSeason: Int?
+    @State private var trailerURL: URL?
+    @State private var expandTrailer = false
     private var item: MediaItem { store.item }
 
     /// Re-keys the season-pack lookup whenever the resolved imdbID or the selected season changes.
@@ -26,7 +28,8 @@ struct ShowDetailView: View {
         ScrollView {
             VStack(spacing: 0) {
                 TrailerHero(tmdbID: item.tmdbID, kind: .show,
-                            backdropPath: store.backdropPath, posterFallback: item.posterPath)
+                            backdropPath: store.backdropPath, posterFallback: item.posterPath,
+                            resolvedURL: $trailerURL)
                 VStack(alignment: .leading, spacing: 32) {
                     hero.frame(maxWidth: .infinity, alignment: .leading)
                     seasonPicker
@@ -37,6 +40,9 @@ struct ShowDetailView: View {
             }
         }
         .background(CanvasBackground())
+        .fullScreenCover(isPresented: $expandTrailer) {
+            if let u = trailerURL { FullScreenTrailer(url: u) }
+        }
         .task(id: seasonDownloadKey) {
             guard let imdb = store.imdbID else { return }
             let s = makeSeasonDownload(imdb, store.selectedSeason, store.originalLanguage)
@@ -78,12 +84,16 @@ struct ShowDetailView: View {
                           systemImage: "play.fill")
                 }
             }
-            TrailerButton(tmdbID: item.tmdbID, kind: .show)
             Button(role: .destructive) { onRemove() } label: {
                 Label("Remove from Library", systemImage: "trash")
             }
         }
         .font(.title3)
+        // Swipe UP on the remote here → watch the trailer full-screen with sound; the muted hero
+        // keeps playing underneath, Menu returns here.
+        .onMoveCommand { direction in
+            if direction == .up, trailerURL != nil { expandTrailer = true }
+        }
     }
 
     @ViewBuilder private var seasonPicker: some View {
