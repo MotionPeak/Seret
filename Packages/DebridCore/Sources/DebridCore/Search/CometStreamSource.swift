@@ -42,17 +42,35 @@ public struct CometStreamSource: StreamSource {
     }
 
     private func map(_ dto: CometStreamDTO) -> CachedStream? {
-        guard let (hash, fileIdx) = Self.parsePlayback(dto.url) else { return nil }
+        // The public elfhosted instance ENCRYPTS the `/playback/` path, so the infohash is no
+        // longer plaintext in the URL. It's still exposed in `behaviorHints.bingeGroup`
+        // ("comet|<service>|<40-hex>"). Prefer that; fall back to a plaintext
+        // `/playback/{40-hex}/…/{fileIdx}/` path (vanilla Comet / MediaFusion drop-in).
+        let fromURL = Self.parsePlayback(dto.url)
+        guard let hash = Self.infoHash(fromBingeGroup: dto.behaviorHints?.bingeGroup) ?? fromURL?.hash else {
+            return nil
+        }
         let text = dto.description ?? dto.name ?? ""
-        let rawTitle = Self.torrentTitle(from: text) ?? dto.name ?? hash
+        // The real release name is the richest signal for quality parsing; prefer the
+        // filename, then the description's first line.
+        let rawTitle = dto.behaviorHints?.filename ?? Self.torrentTitle(from: text) ?? dto.name ?? hash
         return CachedStream(
             infoHash: hash,
-            fileIdx: fileIdx,
+            fileIdx: fromURL?.fileIdx,   // only recoverable from an unencrypted URL
             rawTitle: rawTitle,
             parsed: parser.parse(rawTitle),
             languages: languages.detect(in: text),
             sizeBytes: dto.behaviorHints?.videoSize,
             sourceName: dto.name)
+    }
+
+    /// Pulls the 40-hex infohash out of a Comet `behaviorHints.bingeGroup`
+    /// ("comet|realdebrid|<40-hex>"). Returns nil when absent or malformed.
+    static func infoHash(fromBingeGroup group: String?) -> String? {
+        guard let last = group?.split(separator: "|").last else { return nil }
+        let hash = last.lowercased()
+        guard hash.count == 40, hash.allSatisfy(\.isHexDigit) else { return nil }
+        return hash
     }
 
     /// Extracts (infohash, fileIdx?) from `…/playback/{hash}/{entry}/{fileIdx}/{s}/{e}`.
@@ -94,5 +112,6 @@ struct CometStreamDTO: Decodable {
     struct BehaviorHints: Decodable {
         let videoSize: Int?
         let filename: String?
+        let bingeGroup: String?
     }
 }

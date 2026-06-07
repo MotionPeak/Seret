@@ -2,27 +2,27 @@
   "streams": [
     {
       "name": "[RD⚡] Comet 2160p",
-      "description": "📄 The.Matrix.1999.2160p.UHD.BluRay.REMUX.HEVC.TrueHD-GROUP\n📹 HEVC | 🔊 TrueHD\n⭐ REMUX | 🏷 GROUP\n👤 50 💾 60.1 GB 🔎 Tracker\n🇺🇸/🇫🇷",
+      "description": "📄 The.Matrix.1999.2160p.UHD.BluRay.REMUX.HEVC.TrueHD-GROUP\n📹 HEVC | 🔊 TrueHD\n⭐ REMUX | 🏷 GROUP\n👤 50 💾 60.1 GB 🔎 ElfCache\n🇺🇸/🇫🇷",
       "behaviorHints": {
-        "bingeGroup": "comet|aaaa",
-        "filename": "The.Matrix.mkv",
+        "bingeGroup": "comet|realdebrid|aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "filename": "The.Matrix.1999.2160p.UHD.BluRay.REMUX.HEVC.TrueHD-GROUP.mkv",
         "videoSize": 64500000000
       },
-      "url": "https://comet.elfhosted.com/playback/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/0/0/n/n?name=x"
+      "url": "https://comet.elfhosted.com/playback/LJvj6c4wJFkmkkTgOxEPg8L95gW410S0VIQyaqOyzv0jC_768mwLeG7rhqZx5avk/HGK-lvHsxMuWCL3n6wfPV/EPLWQt5izryWoHlu"
     },
     {
       "name": "[RD⚡] Comet 1080p",
-      "description": "📄 The.Matrix.1999.1080p.BluRay.x264-GROUP\n📹 x264 | 🔊 DTS\n⭐ BluRay | 🏷 GROUP\n👤 30 💾 12.0 GB 🔎 Tracker\n🇺🇸",
+      "description": "📄 The.Matrix.1999.1080p.BluRay.x264-GROUP\n📹 x264 | 🔊 DTS\n⭐ BluRay | 🏷 GROUP\n👤 30 💾 12.0 GB 🔎 ElfCache\n🇺🇸",
       "behaviorHints": {
-        "bingeGroup": "comet|bbbb",
-        "filename": "The.Matrix.1080p.mkv",
+        "bingeGroup": "comet|realdebrid|bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "filename": "The.Matrix.1999.1080p.BluRay.x264-GROUP.mkv",
         "videoSize": 12000000000
       },
-      "url": "https://comet.elfhosted.com/playback/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/0/n/n/n?name=y"
+      "url": "https://comet.elfhosted.com/playback/6P5HVLNiOuIg-6AL1nDUgssz6m0bxhfL2K5bRA8zv56DMQvd4kh5S-hBfzqlTenX/NP8Qyr2Xm4uJH5w9yIlv/thkeja6Yki2Dy8O2"
     },
     {
       "name": "[⛔️] Comet",
-      "description": "This stream has no playback url and must be ignored",
+      "description": "This stream has no playback url and no infohash and must be ignored",
       "url": "https://comet.elfhosted.com/configure"
     }
   ]

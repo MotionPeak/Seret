@@ -62,6 +62,17 @@ extension MockTests {
             #expect(streams[1].languages == ["en"])
         }
 
+        @Test func extractsInfoHashFromBingeGroup() {
+            // The elfhosted instance encrypts the /playback/ URL; the infohash rides in
+            // behaviorHints.bingeGroup as "comet|<service>|<40-hex>".
+            let hash = String(repeating: "9c46e91d", count: 5)  // 40 hex chars
+            #expect(CometStreamSource.infoHash(fromBingeGroup: "comet|realdebrid|\(hash)") == hash)
+            #expect(CometStreamSource.infoHash(fromBingeGroup: "comet|torrent|\(hash.uppercased())") == hash)
+            #expect(CometStreamSource.infoHash(fromBingeGroup: "comet|realdebrid") == nil)   // no hash part
+            #expect(CometStreamSource.infoHash(fromBingeGroup: "comet|realdebrid|nothex") == nil)
+            #expect(CometStreamSource.infoHash(fromBingeGroup: nil) == nil)
+        }
+
         @Test func parsesFileIndexFromPlaybackURLWhenNumeric() async throws {
             let json = #"""
             {"streams":[{"name":"[RD⚡] Comet 1080p",
