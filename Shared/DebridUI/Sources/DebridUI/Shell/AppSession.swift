@@ -20,6 +20,9 @@ public final class AppSession {
     /// The library store for the current signed-in episode (nil while signed out).
     public private(set) var libraryStore: LibraryStore?
 
+    /// Title-search store for the Stage 2 Search tab (nil while signed out).
+    public private(set) var searchStore: SearchStore?
+
     /// On-demand TMDB detail provider for the Detail screen (nil while signed out).
     public private(set) var detailsProvider: MediaDetailsProviding?
 
@@ -34,6 +37,11 @@ public final class AppSession {
     public private(set) var subtitlesProvider: SubtitleProvider?
     private var watchProgressStore: WatchProgressStore?   // concrete ref for PlaybackCoordinator
     private var torrents: TorrentsClient?
+
+    /// Stage 2 Add-flow seams, composed at sign-in and consumed by the per-title `AddStore`
+    /// the `makeAddStore(...)` factory vends (nil while signed out).
+    private var streamSource: StreamSource?
+    private var addService: AddProviding?
 
     public let realDebrid: RealDebridSession
 
@@ -79,11 +87,14 @@ public final class AppSession {
             flow: LiveAuthFlow(auth: RealDebridAuthClient(), session: realDebrid),
             onSignedIn: { [weak self] in self?.markSignedIn() })
         libraryStore = nil
+        searchStore = nil
         detailsProvider = nil
         watchStore = nil
         home = nil
         watchProgressStore = nil
         torrents = nil
+        streamSource = nil
+        addService = nil
         subtitlesProvider = nil
         state = .signedOut
     }
@@ -101,6 +112,9 @@ public final class AppSession {
             enricher: MetadataEnricher(tmdb: tmdb),
             store: LibrarySnapshotStore(directory: Self.cachesDirectory))
         libraryStore = LibraryStore(library: service)
+        searchStore = SearchStore(search: TMDBSearchService(client: tmdb))
+        streamSource = CometStreamSource(tokens: realDebrid)
+        addService = RealDebridAddService(torrents: torrents)
         detailsProvider = TMDBDetailsService(client: tmdb)
         let concreteStore = (try? ModelContainer(for: WatchProgress.self))
             .map { WatchProgressStore(modelContainer: $0) }
@@ -139,6 +153,16 @@ public final class AppSession {
                                          position: position, duration: duration)
             },
             subtitles: subtitlesProvider)
+    }
+
+    /// Vend a per-title `AddStore` for the chosen TMDB title, or nil if not signed in.
+    /// `AddStore` is per-title (it carries the imdbID/kind/originalLanguage), so it is built
+    /// on demand rather than held on the session like `searchStore`.
+    public func makeAddStore(imdbID: String, kind: StreamQuery.Kind,
+                             originalLanguage: String?) -> AddStore? {
+        guard let streamSource, let addService else { return nil }
+        return AddStore(imdbID: imdbID, kind: kind, originalLanguage: originalLanguage,
+                        streamSource: streamSource, add: addService)
     }
 
     private static var cachesDirectory: URL {
