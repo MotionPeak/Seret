@@ -63,6 +63,37 @@ import Testing
         #expect(matcher.matchesMovie(r, title: "", year: 2026))
     }
 
+    // MARK: - Real-world DMM listing for "Obsession" (2026, tt37287335)
+
+    private let parser = FilenameParser()
+    private func gate(_ name: String) -> Bool {
+        matcher.matchesMovie(parser.parse(name), title: "Obsession", year: 2026)
+    }
+
+    @Test func realObsession2026ReleasesPass() {
+        for name in [
+            "Obsession 2026 1080p CAM x264-DKS",
+            "Obsession.2026.1080p.TELESYNC.x264-UNiON",
+            "Obsession.2026.1080p.TELESYNC.x264",
+            "Obsession.2025.D.TELECINE.1O8Op.mkv",
+            "Obsession (2026) English HQ HDTS - 1080p - x264 - HQ Clean - AAC.mkv",
+        ] {
+            #expect(gate(name), "should accept the real release: \(name)")
+        }
+    }
+
+    @Test func wrongAndAdultObsessionReleasesAreRejected() {
+        for name in [
+            "Obsession 1949 720p BluRay x264 FLAC20-HAL",            // wrong year
+            "Obsession.1976.1080p.BluRay.H264.AAC-RARBG",           // wrong year
+            "Obsesja (2009) [1080p.BluRay.REMUX.AVC]",              // different (Polish) film
+            "Escándalo, relato de una obsesión RUS",                // different film
+            "BlackForWife 19 05 30 Gia Milana Sex Obsession XXX 2160p MP4-KT", // porn, yearless + 2160p
+        ] {
+            #expect(!gate(name), "should reject: \(name)")
+        }
+    }
+
     // MARK: - Series (title-only; per-episode years are unreliable, so no year gate)
 
     @Test func acceptsEpisodeOfTheRequestedShow() {

@@ -22,15 +22,19 @@ public struct ReleaseMatcher: Sendable {
     public func matchesMovie(_ parsed: ParsedRelease, title: String, year: Int?) -> Bool {
         let req = Self.normalize(title)
         guard !req.isEmpty else { return true }
-        guard Self.normalize(parsed.title).contains(req) else { return false }
+        let rel = Self.normalize(parsed.title)
 
         if let want = year, let got = parsed.year {
-            return abs(want - got) <= 1
+            // A matching year (±1) is a strong signal, so a lenient substring title is fine here.
+            return rel.contains(req) && abs(want - got) <= 1
         }
         if parsed.year == nil {
-            return parsed.resolution != nil || parsed.source != nil
+            // No year to lean on → demand a stronger title match (the release must LEAD with the
+            // requested title, not merely contain it) plus real quality metadata. This rejects junk
+            // like "BlackForWife … Sex Obsession XXX 2160p" where the title is buried mid-string.
+            return rel.hasPrefix(req) && (parsed.resolution != nil || parsed.source != nil)
         }
-        return true   // release has a year, request didn't — title gate already passed
+        return rel.contains(req)   // release has a year, request didn't — title gate only
     }
 
     /// A series release matches on title alone. Per-episode years are unreliable (an episode is
