@@ -23,6 +23,7 @@ private final class FakeLibrary: LibraryProviding {
     }
     func loadCached() -> [MediaItem]? { cached }
     func refresh() async throws -> [MediaItem] { try refreshResult.get() }
+    func remove(_ item: MediaItem) async throws {}   // not exercised by these tests
 }
 
 @MainActor
