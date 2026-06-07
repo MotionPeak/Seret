@@ -53,8 +53,14 @@ struct BrowseScreen: View {
             switch browse.state {
             case .idle, .loading:
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .task(id: kind) { await browse.load() }   // kick off the feed (self-guards re-runs)
             case .failed:
-                message("Couldn't load.", systemImage: "exclamationmark.triangle")
+                VStack(spacing: 28) {
+                    Image(systemName: "exclamationmark.triangle").font(.system(size: 64)).foregroundStyle(.secondary)
+                    Text("Couldn't load.").font(.title3)
+                    Button("Retry") { Task { await browse.load() } }.buttonStyle(.bordered)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             case .loaded:
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 40) {

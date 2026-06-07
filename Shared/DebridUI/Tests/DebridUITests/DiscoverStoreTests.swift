@@ -92,4 +92,22 @@ private func movie(_ id: Int) -> TMDBSearchResult {
         await store.load()
         #expect(store.state == .failed)
     }
+
+    /// The browse feed's retry path: after a failed load the store must re-run `load()`
+    /// when the source recovers. The Movies/TV browse UI depends on this contract to
+    /// drive its "Retry" button (and to load at all on appear).
+    @Test func retryAfterFailureReloads() async {
+        let fake = FakeDiscover()
+        fake.trendingMovie = .failure(.boom)
+        fake.newMovie = .failure(.boom)
+        fake.topRatedMovie = .failure(.boom)
+        let store = DiscoverStore(kind: .movie, discover: fake)
+        await store.load()
+        #expect(store.state == .failed)            // all rows empty → failed
+
+        fake.trendingMovie = .success([movie(1)])  // source recovers
+        await store.load()                         // load() re-runs from .failed
+        #expect(store.state == .loaded)
+        #expect(store.rows.first?.hits.first?.result.id == 1)
+    }
 }
