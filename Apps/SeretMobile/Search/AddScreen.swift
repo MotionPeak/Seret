@@ -102,10 +102,11 @@ private struct MovieAddBody: View {
                 TrailerButton(tmdbID: flow.tmdbID, kind: flow.mediaKind)
                 if let add = flow.add { AddActionsView(flow: flow, add: add, onPlay: onPlay) }
             }
-            .frame(maxWidth: 720, alignment: .leading)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(Theme.Space.lg)
+            .frame(maxWidth: 700, alignment: .leading)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, Theme.Space.lg)
             .padding(.top, 200)
+            .padding(.bottom, Theme.Space.xxl)
         }
     }
 }
@@ -133,10 +134,11 @@ private struct ShowAddBody: View {
                 }
                 episodeList
             }
-            .frame(maxWidth: 720, alignment: .leading)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(Theme.Space.lg)
+            .frame(maxWidth: 700, alignment: .leading)
+            .frame(maxWidth: .infinity)            // center the readable column (no left-edge crop on iPad)
+            .padding(.horizontal, Theme.Space.lg)
             .padding(.top, 200)
+            .padding(.bottom, Theme.Space.xxl)
         }
     }
 

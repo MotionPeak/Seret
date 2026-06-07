@@ -23,10 +23,11 @@ struct MovieDetail: View {
                 }
                 if store.versions.count > 1 { versionsSection }
             }
-            .frame(maxWidth: 720, alignment: .leading)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(Theme.Space.lg)
+            .frame(maxWidth: 700, alignment: .leading)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, Theme.Space.lg)
             .padding(.top, 200)
+            .padding(.bottom, Theme.Space.xxl)
         }
         .background(DetailBackdrop(path: store.backdropPath, posterFallback: item.posterPath))
         .navigationTitle(item.title)
