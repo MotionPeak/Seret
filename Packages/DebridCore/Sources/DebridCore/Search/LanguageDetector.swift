@@ -28,7 +28,11 @@ public struct LanguageDetector: Sendable {
         // 2) Whole-word language names, in order of appearance.
         let lowered = text.lowercased()
         var wordMatches: [(offset: Int, code: String)] = []
-        for (word, code) in Self.wordToLanguage {
+        // Full language names AND 3-letter scene abbreviations ("ITA"/"GER"/"ENG"/"FRE"…).
+        // Release names use the abbreviations far more than full words, so without these a
+        // dual-audio dub like "Ger.Eng.Dubbed" reads as having no languages and slips past
+        // the original-language ranking.
+        for (word, code) in Self.wordToLanguage.merging(Self.abbrevToLanguage, uniquingKeysWith: { a, _ in a }) {
             if let range = Self.rangeOfWord(word, in: lowered) {
                 wordMatches.append((lowered.distance(from: lowered.startIndex, to: range.lowerBound), code))
             }
@@ -71,5 +75,16 @@ public struct LanguageDetector: Sendable {
         "finnish": "fi", "polish": "pl", "turkish": "tr", "hebrew": "he",
         "hindi": "hi", "arabic": "ar", "greek": "el", "czech": "cs",
         "hungarian": "hu", "thai": "th", "vietnamese": "vi", "ukrainian": "uk",
+    ]
+
+    /// 3-letter scene/ISO-639-2 abbreviations → ISO 639-1. Curated to avoid common
+    /// English-word / name collisions (e.g. "nor", "dan", "fin", "por" are deliberately
+    /// omitted). Matched as whole words, so they only fire as isolated dotted tokens.
+    static let abbrevToLanguage: [String: String] = [
+        "eng": "en", "fre": "fr", "fra": "fr", "ger": "de", "deu": "de",
+        "ita": "it", "spa": "es", "esp": "es", "rus": "ru", "jpn": "ja",
+        "jap": "ja", "kor": "ko", "chi": "zh", "zho": "zh", "swe": "sv",
+        "pol": "pl", "tur": "tr", "heb": "he", "hin": "hi", "ara": "ar",
+        "ukr": "uk", "cze": "cs", "hun": "hu", "gre": "el", "nld": "nl",
     ]
 }

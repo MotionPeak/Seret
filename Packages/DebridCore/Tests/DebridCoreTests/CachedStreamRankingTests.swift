@@ -68,6 +68,25 @@ import Testing
         #expect(match?.isFallback == true)   // no English at all → genuine fallback
     }
 
+    @Test func qualityDominatesWithinSameAudioTier() {
+        // A 720p English tag must NOT outrank a 2160p clean release just because it's tagged.
+        let tagged720 = stream("a", res: "720p", langs: ["en"], size: 1)   // tier 0 (explicit en)
+        let untagged4k = stream("b", res: "2160p", langs: [], size: 50)    // tier 0 (untagged Latin)
+        let ranked = [tagged720, untagged4k].rankedFor(originalLanguage: "en")
+        #expect(ranked.first?.infoHash == "b")
+    }
+
+    @Test func foreignScriptUntaggedTitleIsDemoted() {
+        // A 68GB untagged Cyrillic "Сплит" REMUX is a Russian release — must lose to clean English.
+        let cyrillic = CachedStream(infoHash: "ru", fileIdx: nil, rawTitle: "Сплит.2016.UHD.Remux.2160p",
+                                    parsed: ParsedRelease(title: "Сплит", resolution: "2160p"),
+                                    languages: [], sizeBytes: 68_000_000_000, sourceName: nil)
+        let cleanEn = stream("en", res: "1080p", langs: ["en"], size: 10)
+        let ranked = [cyrillic, cleanEn].rankedFor(originalLanguage: "en")
+        #expect(ranked.first?.infoHash == "en")
+        #expect([cyrillic].bestMatch(originalLanguage: "en")?.isFallback == true)
+    }
+
     @Test func bestMatchNilWhenEmpty() {
         #expect([CachedStream]().bestMatch(originalLanguage: "en") == nil)
     }
