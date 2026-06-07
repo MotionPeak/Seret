@@ -94,8 +94,8 @@ private struct PlaybackColumns: View {
     private var audioColumn: some View {
         SettingsColumn(header: "AUDIO STREAMS") {
             ForEach(labeled(model.audioTracks), id: \.track.id) { entry in
-                CheckRow(title: entry.label, checked: false) {
-                    model.selectAudio(id: entry.track.id); onPick()
+                CheckRow(title: entry.label, checked: model.selectedAudioID == entry.track.id) {
+                    model.selectAudio(id: entry.track.id)        // stay open — pick more / compare
                 }
             }
             if model.audioTracks.isEmpty {
@@ -106,11 +106,11 @@ private struct PlaybackColumns: View {
 
     private var subtitlesColumn: some View {
         SettingsColumn(header: "SUBTITLES") {
-            CheckRow(title: "Off", checked: model.selectedSubtitleID == nil) { model.selectSubtitleOff(); onPick() }
+            CheckRow(title: "Off", checked: model.selectedSubtitleID == nil) { model.selectSubtitleOff() }
                 .focused($landingFocused)         // first focused when the panel opens
             ForEach(labeled(model.embeddedSubtitleTracks), id: \.track.id) { entry in
                 CheckRow(title: entry.label, checked: model.selectedSubtitleID == entry.track.id) {
-                    model.selectSubtitle(id: entry.track.id); onPick()
+                    model.selectSubtitle(id: entry.track.id)
                 }
             }
             ForEach(model.subtitleRows) { row in
@@ -118,7 +118,7 @@ private struct PlaybackColumns: View {
                     // Downloaded → the language row IS the track (selectable, no duplicate "Track N").
                     CheckRow(title: row.language == "he" ? "Hebrew" : "English",
                              checked: model.selectedSubtitleID == attachedID) {
-                        model.selectSubtitle(id: attachedID); onPick()
+                        model.selectSubtitle(id: attachedID)
                     }
                 } else {
                     let title = row.language == "he" ? "Hebrew (download)" : "English (download)"
