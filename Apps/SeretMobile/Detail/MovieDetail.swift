@@ -13,17 +13,12 @@ struct MovieDetail: View {
     private var contentKey: String { WatchKey.content(forMovie: item) }
     private var watch: WatchState? { store.watchState(forKey: contentKey) }
     @State private var pendingVersionRemoval: MediaSource?
-    @State private var trailerURL: URL?
-    @State private var expandTrailer = false
 
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
-                // The hero area over the backdrop/auto-play trailer: tap it to watch the trailer
-                // full-screen with sound. (Swipe stays scroll-to-episodes; tap doesn't conflict.)
-                Color.clear.frame(height: 200)
-                    .contentShape(Rectangle())
-                    .onTapGesture { if trailerURL != nil { expandTrailer = true } }
+                TrailerHero(tmdbID: item.tmdbID, kind: .movie,
+                            backdropPath: store.backdropPath, posterFallback: item.posterPath)
                 VStack(alignment: .leading, spacing: Theme.Space.lg) {
                 Text(item.title).font(Theme.Typo.titleXL()).foregroundStyle(Theme.Palette.textPrimary)
                 Text(metaLine).font(Theme.Typo.body()).foregroundStyle(Theme.Palette.textSecondary)
@@ -42,17 +37,13 @@ struct MovieDetail: View {
             .frame(maxWidth: 700, alignment: .leading)
             .frame(maxWidth: .infinity)
             .padding(.horizontal, Theme.Space.lg)
+            .padding(.top, Theme.Space.lg)
             .padding(.bottom, Theme.Space.xxl)
             }
         }
-        .background(AutoplayBackdrop(tmdbID: item.tmdbID, kind: .movie,
-                                     backdropPath: store.backdropPath, posterFallback: item.posterPath,
-                                     resolvedURL: $trailerURL))
+        .background(CanvasBackground())
         .navigationTitle(item.title)
         .navigationBarTitleDisplayMode(.inline)
-        .fullScreenCover(isPresented: $expandTrailer) {
-            if let u = trailerURL { FullScreenTrailer(url: u) }
-        }
         .confirmationDialog(
             "Remove this version?",
             isPresented: Binding(get: { pendingVersionRemoval != nil },
