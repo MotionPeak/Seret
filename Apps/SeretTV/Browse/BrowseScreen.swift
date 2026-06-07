@@ -69,9 +69,11 @@ struct BrowseScreen: View {
             case .loaded:
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 40) {
-                        // Shorter hero so the segment pills + first rail share the screen —
-                        // switching segments shows the rails change without any forced scroll.
-                        HeroBanner(hit: featuredHit, height: 360)
+                        // The hero collapses while a segment pill is focused, so the rails roll up
+                        // into view ("show me the movies"); it returns when you move onto a poster,
+                        // where it shows the focused title. Height-based (no scrollTo → no focus bounce).
+                        HeroBanner(hit: featuredHit, height: focusedSegment != nil ? 0 : 320)
+                            .animation(.easeInOut(duration: 0.28), value: focusedSegment)
                         segmentPicker(browse).padding(.leading, 60)
                         ForEach(browse.rows) { row in
                             rail(title: row.title, hits: row.hits, cam: false)
