@@ -47,6 +47,20 @@ extension MockTests {
             _ = try await source().streams(for: query())
             #expect(box.flag == true)
         }
+
+        @Test func honorsFlagThroughExistential() async throws {
+            // Regression: streams(for:includeUncached:) must be a protocol requirement, else this
+            // existential call routes to the extension default (cached-only) and ignores the flag.
+            let box = FlagBox()
+            MockURLProtocol.handler = { req in
+                box.flag = Self.cachedOnlyFlag(in: req.url!)
+                return (HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                        Data(#"{"streams":[]}"#.utf8))
+            }
+            let erased: any StreamSource = source()
+            _ = try await erased.streams(for: query(), includeUncached: true)
+            #expect(box.flag == false)   // Comet's override must win through the existential
+        }
     }
 }
 
