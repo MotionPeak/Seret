@@ -33,9 +33,16 @@ final class ScrubInteractionView: UIView {
     var onShowSettings: (() -> Void)?
     var isInteractive: Bool = true {
         didSet {
-            if oldValue != isInteractive {
-                pan.isEnabled = isInteractive
-                setNeedsFocusUpdate()
+            guard oldValue != isInteractive else { return }
+            pan.isEnabled = isInteractive
+            // When the panel opens we become non-focusable, but UIKit won't move focus off us on
+            // its own — and firing the focus update synchronously here happens before SwiftUI has
+            // inserted the SettingsPanel into the focus hierarchy, so focus strands on this dead
+            // pad (the "can't navigate the settings" bug). Defer one run-loop tick so the panel is
+            // present, then hand focus to it.
+            DispatchQueue.main.async { [weak self] in
+                self?.setNeedsFocusUpdate()
+                self?.updateFocusIfNeeded()
             }
         }
     }
