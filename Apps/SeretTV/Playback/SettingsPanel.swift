@@ -46,8 +46,8 @@ struct SettingsPanel: View {
         .background(
             // Dark translucent backdrop — matches the native player.
             RoundedRectangle(cornerRadius: 24)
-                .fill(.black.opacity(0.78))
-                .overlay(RoundedRectangle(cornerRadius: 24).stroke(.white.opacity(0.10), lineWidth: 1))
+                .fill(Theme.Palette.canvas.opacity(0.92))
+                .overlay(RoundedRectangle(cornerRadius: 24).stroke(Theme.Palette.gold.opacity(0.18), lineWidth: 1))
         )
         .padding(.horizontal, 60)
         .padding(.top, 40)                // sits at the top of the screen
@@ -211,7 +211,7 @@ private struct SettingsColumn<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text(header).font(.caption.weight(.bold))
-                .foregroundStyle(.white.opacity(0.55))
+                .foregroundStyle(Theme.Palette.gold)
                 .tracking(1.2)
             content
         }
@@ -230,6 +230,7 @@ private struct CheckRow: View {
             HStack(spacing: 10) {
                 Image(systemName: "checkmark")
                     .font(.callout.bold())
+                    .foregroundStyle(Theme.Palette.gold)
                     .opacity(checked ? 1 : 0)
                 Text(title).font(.callout)
                 Spacer(minLength: 0)
@@ -257,8 +258,8 @@ private struct TabChip: View {
             .animation(.easeOut(duration: 0.15), value: focused)
     }
     private var fill: Color {
-        if focused { return .white }
-        if selected { return .white.opacity(0.22) }
+        if focused { return Theme.Palette.gold }
+        if selected { return Theme.Palette.gold.opacity(0.22) }
         return .white.opacity(0.08)
     }
 }

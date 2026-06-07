@@ -93,7 +93,7 @@ struct ShowDetailView: View {
                         // Gold tint for the selected season — never white, which would render the
                         // label white-on-white (a blank focused capsule) on tvOS.
                         .buttonStyle(.bordered)
-                        .tint(number == store.selectedSeason ? .yellow : .gray)
+                        .tint(number == store.selectedSeason ? Theme.Palette.gold : Theme.Palette.textSecondary)
                     }
                 }
             }

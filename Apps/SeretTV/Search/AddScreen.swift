@@ -165,7 +165,8 @@ private struct AddActions: View {
     let add: AddStore
     let onPlay: (PlaybackRequest) -> Void
     @Environment(AppSession.self) private var session
-    @State private var showVersions = false
+    @State private var showAll = false
+    @State private var loadingAll = false
     /// Queued add awaiting a replace-existing confirmation (set when the title is owned).
     @State private var pendingReplace: PendingAdd?
 
@@ -187,6 +188,7 @@ private struct AddActions: View {
             default:
                 actions
             }
+            if showAllAvailable { showAllVersions }
         }
         .alert("Replace existing version?",
                isPresented: Binding(get: { pendingReplace != nil },
@@ -218,18 +220,75 @@ private struct AddActions: View {
                 Label("Audio may not be in the original language.", systemImage: "info.circle")
                     .font(.callout).foregroundStyle(.secondary)
             }
-            HStack(spacing: 20) {
-                Button { playBest() } label: { Label("Play", systemImage: "play.fill") }
-                if add.ranked.count > 1 {
-                    Button { showVersions.toggle() } label: {
-                        Label("More versions", systemImage: "square.stack.3d.up")
+            Button { playBest() } label: { Label("Play", systemImage: "play.fill") }
+                .font(.title3)
+            addStatus
+        }
+    }
+
+    /// The expander shows whenever the title resolved (a cached best exists, or none is cached).
+    private var showAllAvailable: Bool {
+        if case .noStreams = add.state { return true }
+        return add.best != nil
+    }
+
+    @ViewBuilder private var showAllVersions: some View {
+        Button {
+            showAll.toggle()
+            if showAll && add.allVersions.isEmpty {
+                Task { loadingAll = true; await add.loadAllVersions(); loadingAll = false }
+            }
+        } label: {
+            Label(showAll ? "Hide versions" : "Show all versions", systemImage: "square.stack.3d.up")
+        }
+        .font(.title3)
+        if showAll {
+            if loadingAll {
+                ProgressView().padding(.vertical, 8)
+            } else if add.allVersions.isEmpty {
+                Text("No other versions found.").font(.callout).foregroundStyle(.secondary)
+            } else {
+                allVersionsList
+            }
+        }
+    }
+
+    private var allVersionsList: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            ForEach(add.allVersions) { stream in
+                Button { pick(stream) } label: {
+                    HStack(spacing: 16) {
+                        CacheBadge(isCached: stream.isCached)
+                        QualityChips(parsed: stream.parsed)
+                        LanguageBadges(codes: stream.languages)
+                        Spacer()
+                        if let size = stream.sizeBytes {
+                            Text(Self.sizeGB(size)).font(.callout).foregroundStyle(.secondary)
+                        }
+                        Image(systemName: stream.isCached ? "play.circle" : "arrow.down.circle")
                     }
+                    .padding(.vertical, 6)
                 }
             }
-            .font(.title3)
-            addStatus
-            if showVersions { versionsList }
         }
+        .frame(maxWidth: 1100, alignment: .leading)
+    }
+
+    /// Cached version → add + play now; uncached → start that version's download.
+    private func pick(_ stream: CachedStream) {
+        if stream.isCached {
+            play(stream)
+        } else {
+            Task {
+                await session.downloadStore?.request(tmdbID: flow.tmdbID, title: flow.title,
+                                                     kind: flow.mediaKind, candidates: [stream],
+                                                     posterPath: flow.posterPath)
+            }
+        }
+    }
+
+    static func sizeGB(_ bytes: Int) -> String {
+        String(format: "%.1f GB", Double(bytes) / 1_000_000_000)
     }
 
     @ViewBuilder private var addStatus: some View {
@@ -244,24 +303,6 @@ private struct AddActions: View {
         default:
             EmptyView()
         }
-    }
-
-    private var versionsList: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Versions").font(.title2.bold())
-            ForEach(add.ranked) { stream in
-                Button { play(stream) } label: {       // tap a version → it plays
-                    HStack(spacing: 16) {
-                        QualityChips(parsed: stream.parsed)
-                        LanguageBadges(codes: stream.languages)
-                        Spacer()
-                        Image(systemName: "play.circle")
-                    }
-                    .padding(.vertical, 6)
-                }
-            }
-        }
-        .frame(maxWidth: 1100, alignment: .leading)
     }
 
     /// Add the best instantly-available version (auto-falling-back) and play it.
@@ -341,6 +382,18 @@ private struct DownloadSection: View {
         } label: { Label(title, systemImage: "arrow.down.circle") }
             .font(.title3)
             .disabled(requesting)
+    }
+}
+
+/// ⚡ Instant (already on RD) vs ⬇️ Download (will fetch) — from Comet's cache marker.
+private struct CacheBadge: View {
+    let isCached: Bool
+    var body: some View {
+        Label(isCached ? "Instant" : "Download", systemImage: isCached ? "bolt.fill" : "arrow.down.circle")
+            .font(.caption.weight(.bold))
+            .foregroundStyle(isCached ? Color.green : .yellow)
+            .padding(.vertical, 4).padding(.horizontal, 10)
+            .background((isCached ? Color.green : .yellow).opacity(0.15), in: Capsule())
     }
 }
 

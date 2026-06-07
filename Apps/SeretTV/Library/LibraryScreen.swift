@@ -14,8 +14,11 @@ struct LibraryScreen: View {
     var onRemove: (MediaItem) -> Void = { _ in }
 
     var body: some View {
-        content
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        ZStack {
+            CanvasBackground()
+            content
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     @ViewBuilder private var content: some View {
@@ -38,7 +41,7 @@ struct LibraryScreen: View {
     private func message(_ text: String, systemImage: String,
                          action: (label: String, run: () -> Void)?) -> some View {
         VStack(spacing: 28) {
-            Image(systemName: systemImage).font(.system(size: 64)).foregroundStyle(.secondary)
+            Image(systemName: systemImage).font(.system(size: 64)).foregroundStyle(Theme.Palette.gold)
             Text(text).font(.title3).multilineTextAlignment(.center).frame(maxWidth: 700)
             if let action {
                 Button(action.label, action: action.run).font(.title3)

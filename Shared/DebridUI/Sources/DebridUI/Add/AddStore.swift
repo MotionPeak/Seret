@@ -15,6 +15,9 @@ public final class AddStore {
     public private(set) var ranked: [CachedStream] = []
     public private(set) var best: CachedStream?
     public private(set) var isFallback = false
+    /// All matching versions — cached AND uncached — for the "Show all versions" browse list.
+    /// Empty until `loadAllVersions()` runs.
+    public private(set) var allVersions: [CachedStream] = []
 
     private let imdbID: String
     private let kind: StreamQuery.Kind
@@ -88,6 +91,12 @@ public final class AddStore {
         guard let found = try? await streamSource.streams(for: query, includeUncached: true) else { return [] }
         let candidates = seasonPack.map { found.seasonPacks(forSeason: $0) } ?? found
         return candidates.rankedFor(originalLanguage: originalLanguage)
+    }
+
+    /// Populate `allVersions` with the ranked cached+uncached list for the "Show all versions"
+    /// browse UI (one uncached-inclusive query returns both, each tagged `isCached`).
+    public func loadAllVersions() async {
+        allVersions = await uncachedCandidates()
     }
 
     public func add(stream: CachedStream) async {

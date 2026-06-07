@@ -29,6 +29,7 @@ struct BrowseScreen: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(CanvasBackground())
     }
 
     @ViewBuilder private func content(_ search: SearchStore) -> some View {
@@ -82,7 +83,7 @@ struct BrowseScreen: View {
             ForEach(DiscoverStore.Segment.allCases) { seg in
                 Button(seg.title) { browse.select(seg) }
                     .buttonStyle(.bordered)
-                    .tint(seg == browse.selectedSegment ? .yellow : .gray)
+                    .tint(seg == browse.selectedSegment ? Theme.Palette.gold : Theme.Palette.textSecondary)
             }
         }
     }

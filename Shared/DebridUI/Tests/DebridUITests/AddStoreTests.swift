@@ -122,6 +122,22 @@ private func cachedStream(_ hash: String, res: String, langs: [String], size: In
         #expect(await s.uncachedCandidates().isEmpty)
     }
 
+    // MARK: - Show all versions (browse cached + uncached, DMM-style)
+
+    @Test func loadAllVersionsPopulatesRankedList() async {
+        let s = store(streams: .success([
+            cachedStream("a", res: "2160p", langs: ["en"], size: 100),
+            cachedStream("b", res: "1080p", langs: ["fr"], size: 50)]))   // fr = original language
+        await s.loadAllVersions()
+        #expect(s.allVersions.map(\.infoHash) == ["b", "a"])   // original-language best first
+    }
+
+    @Test func loadAllVersionsEmptyOnError() async {
+        let s = store(streams: .failure(.boom))
+        await s.loadAllVersions()
+        #expect(s.allVersions.isEmpty)
+    }
+
     // MARK: - Season-pack mode
 
     private func seStream(_ hash: String, season: Int, episode: Int?, res: String) -> CachedStream {

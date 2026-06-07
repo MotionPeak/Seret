@@ -16,6 +16,7 @@ struct LibraryShell: View {
                 Tab("My Library", systemImage: "rectangle.stack") { MyLibraryScreen() }
                 Tab("Settings", systemImage: "gearshape") { SettingsView() }
             }
+            .tint(Theme.Palette.gold)
             .navigationDestination(for: SearchHit.self) { hit in
                 AddScreen(hit: hit)
             }
