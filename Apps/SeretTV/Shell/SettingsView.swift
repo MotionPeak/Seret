@@ -54,6 +54,17 @@ struct SettingsView: View {
                 }
                 .frame(maxWidth: 900)
 
+                VStack(alignment: .leading, spacing: 16) {
+                    Label("Trailers", systemImage: "play.rectangle.fill")
+                        .font(.title3.bold()).foregroundStyle(Theme.Palette.gold)
+                    Toggle("Autoplay trailers", isOn: Binding(
+                        get: { session.trailerSettings.autoplayTrailers },
+                        set: { session.trailerSettings.autoplayTrailers = $0 }))
+                    Text("Play a muted trailer on a title's page automatically.")
+                        .font(.callout).foregroundStyle(Theme.Palette.textSecondary)
+                }
+                .frame(maxWidth: 900)
+
                 Button(role: .destructive) {
                     Task { await session.signOut() }
                 } label: {

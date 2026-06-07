@@ -21,7 +21,8 @@ struct MovieDetailView: View {
             }
             .padding(60)
         }
-        .background(BackdropBackground(path: store.backdropPath, posterFallback: item.posterPath))
+        .background(AutoplayBackdrop(tmdbID: item.tmdbID, kind: .movie,
+                                     backdropPath: store.backdropPath, posterFallback: item.posterPath))
     }
 
     private var hero: some View {

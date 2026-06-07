@@ -33,7 +33,8 @@ struct ShowDetailView: View {
             }
             .padding(60)
         }
-        .background(BackdropBackground(path: store.backdropPath, posterFallback: item.posterPath))
+        .background(AutoplayBackdrop(tmdbID: item.tmdbID, kind: .show,
+                                     backdropPath: store.backdropPath, posterFallback: item.posterPath))
         .task(id: seasonDownloadKey) {
             guard let imdb = store.imdbID else { return }
             let s = makeSeasonDownload(imdb, store.selectedSeason, store.originalLanguage)
