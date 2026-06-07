@@ -20,6 +20,9 @@ public struct ReleaseMatcher: Sendable {
     ///
     /// An empty requested title disables filtering (returns `true`) — there's nothing to match against.
     public func matchesMovie(_ parsed: ParsedRelease, title: String, year: Int?) -> Bool {
+        // A movie is never a season pack / episode. Scrapers mis-attribute a same-named TV series
+        // (e.g. "Obsession.S01…") to the movie's IMDB id; reject anything carrying season/episode.
+        guard !parsed.isTV else { return false }
         let req = Self.normalize(title)
         guard !req.isEmpty else { return true }
         let rel = Self.normalize(parsed.title)

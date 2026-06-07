@@ -89,9 +89,19 @@ import Testing
             "Obsesja (2009) [1080p.BluRay.REMUX.AVC]",              // different (Polish) film
             "Escándalo, relato de una obsesión RUS",                // different film
             "BlackForWife 19 05 30 Gia Milana Sex Obsession XXX 2160p MP4-KT", // porn, yearless + 2160p
+            "Obsession.S01.1080p.Ultradox",                         // the 2023 TV SERIES, not the movie
         ] {
             #expect(!gate(name), "should reject: \(name)")
         }
+    }
+
+    @Test func movieQueryRejectsTVReleases() {
+        // A series season pack or episode mis-attributed to the movie's IMDB id must never appear
+        // as a movie version — even with a matching title and no year.
+        #expect(!matcher.matchesMovie(ParsedRelease(title: "Obsession", season: 1, resolution: "1080p"),
+                                      title: "Obsession", year: 2026))
+        #expect(!matcher.matchesMovie(ParsedRelease(title: "Obsession", season: 1, episode: 2, resolution: "1080p"),
+                                      title: "Obsession", year: 2026))
     }
 
     // MARK: - Series (title-only; per-episode years are unreliable, so no year gate)
