@@ -164,14 +164,13 @@ private struct ShowAddBody: View {
     }
 
     private func episodeStill(_ ep: TMDBEpisodeDetails) -> some View {
-        Color.clear.frame(width: 124, height: 70)
-            .overlay {
-                AsyncImage(url: TMDBClient.imageURL(path: ep.stillPath, size: "w300")) { phase in
-                    if case .success(let img) = phase { img.resizable().scaledToFill() }
-                    else { ZStack { Theme.Palette.surface2; Image(systemName: "film").foregroundStyle(Theme.Palette.textTertiary) } }
-                }
-            }
-            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.chip))
+        AsyncImage(url: TMDBClient.imageURL(path: ep.stillPath, size: "w300")) { phase in
+            if case .success(let img) = phase { img.resizable().aspectRatio(contentMode: .fill) }
+            else { ZStack { Theme.Palette.surface2; Image(systemName: "film").foregroundStyle(Theme.Palette.textTertiary) } }
+        }
+        .frame(width: 124, height: 70)
+        .clipped()
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.chip))
     }
 
     @ViewBuilder private var seasonPicker: some View {

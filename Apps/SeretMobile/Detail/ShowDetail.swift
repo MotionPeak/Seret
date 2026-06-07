@@ -124,14 +124,13 @@ struct EpisodeRowView: View {
     }
 
     private var still: some View {
-        Color.clear.frame(width: 124, height: 70)
-            .overlay {
-                AsyncImage(url: TMDBClient.imageURL(path: meta?.stillPath, size: "w300")) { phase in
-                    if case .success(let img) = phase { img.resizable().scaledToFill() }
-                    else { ZStack { Theme.Palette.surface2; Image(systemName: "film").foregroundStyle(Theme.Palette.textTertiary) } }
-                }
-            }
-            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.chip))
+        AsyncImage(url: TMDBClient.imageURL(path: meta?.stillPath, size: "w300")) { phase in
+            if case .success(let img) = phase { img.resizable().aspectRatio(contentMode: .fill) }
+            else { ZStack { Theme.Palette.surface2; Image(systemName: "film").foregroundStyle(Theme.Palette.textTertiary) } }
+        }
+        .frame(width: 124, height: 70)
+        .clipped()
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.chip))
     }
 
     private var label: String {
