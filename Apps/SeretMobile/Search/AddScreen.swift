@@ -228,7 +228,17 @@ private struct AddActionsView: View {
     let flow: AddFlowStore
     let add: AddStore
     let onPlay: (PlaybackRequest) -> Void
+    @Environment(AppSession.self) private var session
     @State private var showVersions = false
+    /// What the user just tapped to play, queued behind a "replace existing?" confirm. Set when
+    /// the title is already in the library; cleared on confirm or cancel.
+    @State private var pendingReplace: PendingAdd?
+
+    /// Either "best" (auto-fallback) or a specific user-picked stream.
+    private enum PendingAdd: Identifiable {
+        case best, stream(CachedStream)
+        var id: String { if case .stream(let s) = self { return s.infoHash } else { return "best" } }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.md) {
@@ -246,6 +256,26 @@ private struct AddActionsView: View {
                 actions
             }
         }
+        .confirmationDialog(
+            "Replace existing version?",
+            isPresented: Binding(get: { pendingReplace != nil },
+                                 set: { if !$0 { pendingReplace = nil } }),
+            titleVisibility: .visible,
+            presenting: pendingReplace) { pending in
+                Button("Replace", role: .destructive) {
+                    Task {
+                        if let owned = ownedItem() { await session.libraryStore?.remove(owned) }
+                        switch pending {
+                        case .best:           performPlayBest()
+                        case .stream(let s):  performPlay(s)
+                        }
+                        pendingReplace = nil
+                    }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: { _ in
+                Text("\u{201C}\(flow.title)\u{201D} is already in your library. Replacing removes the existing version first.")
+            }
     }
 
     @ViewBuilder private var actions: some View {
@@ -308,17 +338,36 @@ private struct AddActionsView: View {
 
     /// Add the best instantly-available version (auto-falling-back) and play it.
     private func playBest() {
+        if ownedItem() != nil { pendingReplace = .best } else { performPlayBest() }
+    }
+    /// Add a specific chosen version and play it.
+    private func play(_ stream: CachedStream) {
+        if ownedItem() != nil { pendingReplace = .stream(stream) } else { performPlay(stream) }
+    }
+
+    private func performPlayBest() {
         Task {
             await flow.addBest()
             if case let .added(info) = add.state, let req = flow.playbackRequest(from: info) { onPlay(req) }
         }
     }
-
-    /// Add a specific chosen version and play it.
-    private func play(_ stream: CachedStream) {
+    private func performPlay(_ stream: CachedStream) {
         Task {
             await flow.add(stream: stream)
             if case let .added(info) = add.state, let req = flow.playbackRequest(from: info) { onPlay(req) }
         }
     }
+
+    /// The user's existing library item for this title, if any (movies only — shows aren't
+    /// versioned at the item level).
+    private func ownedItem() -> MediaItem? {
+        guard flow.mediaKind == .movie else { return nil }
+        return session.libraryStore?.ownedItem(tmdbID: flow.tmdbID)
+    }
+}
+
+private extension AddActionsView {
+    /// Replace-existing confirmation: surfaced when Play / a version is tapped on a title that's
+    /// already in the library. Confirming removes the old item, then adds + plays the new pick.
+    /// Lives at the bottom of the body via a modifier.
 }
