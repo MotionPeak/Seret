@@ -5,6 +5,7 @@ import SwiftUI
 /// Movie Detail: backdrop hero, metadata, overview, Play/Resume, Versions, Mark Watched.
 struct MovieDetailView: View {
     let store: DetailStore
+    var onRemove: () -> Void = {}
 
     private var item: MediaItem { store.item }
     private var contentKey: String { WatchKey.content(forMovie: item) }
@@ -71,6 +72,9 @@ struct MovieDetailView: View {
             }
             .disabled(item.sources.isEmpty)
             TrailerButton(tmdbID: item.tmdbID, kind: .movie)
+            Button(role: .destructive) { onRemove() } label: {
+                Label("Remove from Library", systemImage: "trash")
+            }
         }
         .font(.title3)
     }

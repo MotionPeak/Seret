@@ -6,6 +6,7 @@ import SwiftUI
 /// vertical episode list for the selected season.
 struct ShowDetailView: View {
     let store: DetailStore
+    var onRemove: () -> Void = {}
     private var item: MediaItem { store.item }
 
     var body: some View {
@@ -54,6 +55,9 @@ struct ShowDetailView: View {
                 }
             }
             TrailerButton(tmdbID: item.tmdbID, kind: .show)
+            Button(role: .destructive) { onRemove() } label: {
+                Label("Remove from Library", systemImage: "trash")
+            }
         }
         .font(.title3)
     }

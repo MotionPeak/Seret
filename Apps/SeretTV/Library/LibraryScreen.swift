@@ -11,6 +11,7 @@ struct LibraryScreen: View {
     let items: [MediaItem]
     let state: LibraryStore.State
     let onRetry: () -> Void
+    var onRemove: (MediaItem) -> Void = { _ in }
 
     var body: some View {
         content
@@ -29,7 +30,7 @@ struct LibraryScreen: View {
             if items.isEmpty {
                 message("No \(title.lowercased()) yet.", systemImage: "tray", action: nil)
             } else {
-                PosterGrid(items: items)
+                PosterGrid(items: items, onRemove: onRemove)
             }
         }
     }

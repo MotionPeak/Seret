@@ -6,6 +6,7 @@ import SwiftUI
 /// sits *below* the card as plain text — no grey caption box — so the grid reads cleanly.
 struct PosterCard: View {
     let item: MediaItem
+    var onRemove: (MediaItem) -> Void = { _ in }
 
     private let width: CGFloat = 220
     private let height: CGFloat = 330
@@ -14,6 +15,11 @@ struct PosterCard: View {
         VStack(alignment: .leading, spacing: 12) {
             NavigationLink(value: item) { poster }
                 .buttonStyle(.card)
+                .contextMenu {
+                    Button("Remove from Library", systemImage: "trash", role: .destructive) {
+                        onRemove(item)
+                    }
+                }
             Text(item.title)
                 .font(.callout.weight(.semibold))
                 .lineLimit(1)
