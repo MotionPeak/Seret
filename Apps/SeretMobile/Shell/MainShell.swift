@@ -26,6 +26,8 @@ struct MainShell: View {
                 .tabItem { Label(Section.movies.title, systemImage: Section.movies.icon) }
             sectionStack(.shows)
                 .tabItem { Label(Section.shows.title, systemImage: Section.shows.icon) }
+            NavigationStack { SearchScreen() }
+                .tabItem { Label(Section.search.title, systemImage: Section.search.icon) }
             NavigationStack { SettingsView() }
                 .tabItem { Label(Section.settings.title, systemImage: Section.settings.icon) }
         }
@@ -44,6 +46,7 @@ struct MainShell: View {
             case .home: HomeScreen()
             case .movies: sectionStack(.movies)
             case .shows: sectionStack(.shows)
+            case .search: NavigationStack { SearchScreen() }
             case .settings: NavigationStack { SettingsView() }
             }
         }
@@ -96,13 +99,14 @@ struct MainShell: View {
     }
 
     enum Section: Hashable, CaseIterable, Identifiable {
-        case home, movies, shows, settings
+        case home, movies, shows, search, settings
         var id: Self { self }
         var title: String {
             switch self {
             case .home: "Home"
             case .movies: "Movies"
             case .shows: "Shows"
+            case .search: "Search"
             case .settings: "Settings"
             }
         }
@@ -111,6 +115,7 @@ struct MainShell: View {
             case .home: "house"
             case .movies: "film"
             case .shows: "tv"
+            case .search: "magnifyingglass"
             case .settings: "gearshape"
             }
         }
@@ -119,6 +124,7 @@ struct MainShell: View {
             case .home: "house.fill"
             case .movies: "film.fill"
             case .shows: "tv.fill"
+            case .search: "magnifyingglass"
             case .settings: "gearshape.fill"
             }
         }

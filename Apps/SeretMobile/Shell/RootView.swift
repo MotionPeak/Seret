@@ -26,6 +26,11 @@ struct RootView: View {
                 DetailScreen(item: item, details: details, watch: session.watchStore)
             }
         }
+        // The Add flow is presented here too (above the shell) so it and its nested player
+        // survive rotation, exactly like Detail.
+        .fullScreenCover(item: Binding(get: { router.addHit }, set: { router.addHit = $0 })) { hit in
+            AddScreen(hit: hit)
+        }
         .onChange(of: session.state) { oldValue, newValue in
             // Replay the branded intro right after a fresh sign-in, over the first library load.
             if newValue == .signedIn, oldValue == .signedOut { showSplash = true }

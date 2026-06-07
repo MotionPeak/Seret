@@ -1,0 +1,267 @@
+import DebridCore
+import DebridUI
+import SwiftUI
+
+/// The Add screen for a picked search result. Resolves TMDB details via `AddFlowStore`, then
+/// offers **Get best · Add & Play · More versions** for a movie, or a season/episode picker
+/// (then the same actions) for a show. Presented full-screen by `RootView` (rotation-safe);
+/// presents the player itself, mirroring `DetailScreen`.
+struct AddScreen: View {
+    let hit: SearchHit
+
+    @Environment(AppSession.self) private var session
+    @Environment(\.dismiss) private var dismiss
+    @State private var flow: AddFlowStore?
+    @State private var playback: PlaybackPresentation?
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                DetailBackdrop(path: flow?.backdropPath, posterFallback: flow?.posterPath)
+                content
+            }
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { dismiss() } label: { Image(systemName: "chevron.down").font(.headline) }
+                        .tint(Theme.Palette.gold)
+                }
+            }
+            .toolbarBackground(.hidden, for: .navigationBar)
+        }
+        .task {
+            guard flow == nil else { return }
+            let f = session.makeAddFlow(for: hit)
+            flow = f
+            await f?.resolve()
+        }
+        .fullScreenCover(item: $playback) { presented in
+            let engine = VLCKitVideoPlayerEngine()
+            if let model = session.makePlayer(for: presented.request, engine: engine) {
+                PlayerView(model: model, engine: engine,
+                           backdropURL: TMDBClient.imageURL(path: presented.request.item.backdropPath, size: "w1280"),
+                           onExit: { playback = nil })
+            } else {
+                PlayerPlaceholder(request: presented.request)
+            }
+        }
+    }
+
+    @ViewBuilder private var content: some View {
+        if let flow {
+            switch flow.phase {
+            case .resolving:
+                ProgressView().tint(Theme.Palette.gold)
+            case .resolveFailed(let msg):
+                message(msg, systemImage: "exclamationmark.triangle")
+            case .movie:
+                MovieAddBody(flow: flow, onPlay: present)
+            case .show:
+                ShowAddBody(flow: flow, onPlay: present)
+            }
+        } else {
+            ProgressView().tint(Theme.Palette.gold)
+        }
+    }
+
+    private func present(_ request: PlaybackRequest) {
+        playback = PlaybackPresentation(request: request)
+    }
+
+    private func message(_ text: String, systemImage: String) -> some View {
+        VStack(spacing: Theme.Space.md) {
+            Image(systemName: systemImage).font(.system(size: 42)).foregroundStyle(Theme.Palette.gold)
+            Text(text).font(Theme.Typo.body()).foregroundStyle(Theme.Palette.textSecondary)
+                .multilineTextAlignment(.center).padding(.horizontal, Theme.Space.xxl)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+// MARK: - Movie
+
+private struct MovieAddBody: View {
+    let flow: AddFlowStore
+    let onPlay: (PlaybackRequest) -> Void
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: Theme.Space.lg) {
+                Text(flow.title).font(Theme.Typo.titleXL()).foregroundStyle(Theme.Palette.textPrimary)
+                if let year = flow.year {
+                    Text(String(year)).font(Theme.Typo.body()).foregroundStyle(Theme.Palette.textSecondary)
+                }
+                if let overview = flow.overview {
+                    Text(overview).font(Theme.Typo.body())
+                        .foregroundStyle(Theme.Palette.textSecondary).lineSpacing(3)
+                }
+                if let add = flow.add { AddActionsView(flow: flow, add: add, onPlay: onPlay) }
+            }
+            .frame(maxWidth: 720, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(Theme.Space.lg)
+            .padding(.top, 200)
+        }
+    }
+}
+
+// MARK: - Show
+
+private struct ShowAddBody: View {
+    let flow: AddFlowStore
+    let onPlay: (PlaybackRequest) -> Void
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: Theme.Space.lg) {
+                Text(flow.title).font(Theme.Typo.titleXL()).foregroundStyle(Theme.Palette.textPrimary)
+                if let overview = flow.overview {
+                    Text(overview).font(Theme.Typo.body())
+                        .foregroundStyle(Theme.Palette.textSecondary).lineLimit(3)
+                }
+                seasonPicker
+                episodeList
+                if flow.selectedEpisode != nil, let add = flow.add {
+                    AddActionsView(flow: flow, add: add, onPlay: onPlay)
+                }
+            }
+            .frame(maxWidth: 720, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(Theme.Space.lg)
+            .padding(.top, 200)
+        }
+    }
+
+    @ViewBuilder private var seasonPicker: some View {
+        if flow.seasons.count > 1 {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: Theme.Space.sm) {
+                    ForEach(flow.seasons, id: \.self) { s in
+                        let selected = s == flow.selectedSeason
+                        Button("Season \(s)") { Task { await flow.selectSeason(s) } }
+                            .font(Theme.Typo.headline())
+                            .foregroundStyle(selected ? Color(hex: 0x1A1400) : Theme.Palette.textSecondary)
+                            .padding(.vertical, 7).padding(.horizontal, Theme.Space.lg)
+                            .background(selected ? AnyShapeStyle(Theme.Palette.goldGradient)
+                                                 : AnyShapeStyle(Theme.Palette.surface2), in: Capsule())
+                    }
+                }
+            }
+        }
+    }
+
+    private var episodeList: some View {
+        VStack(spacing: 0) {
+            ForEach(flow.episodes) { ep in
+                Button { Task { await flow.selectEpisode(ep.episodeNumber) } } label: {
+                    HStack(alignment: .top, spacing: Theme.Space.md) {
+                        Text("\(ep.episodeNumber). \(ep.name ?? "Episode \(ep.episodeNumber)")")
+                            .font(Theme.Typo.headline()).foregroundStyle(Theme.Palette.textPrimary)
+                        Spacer(minLength: 8)
+                        Image(systemName: ep.episodeNumber == flow.selectedEpisode
+                              ? "checkmark.circle.fill" : "chevron.right")
+                            .foregroundStyle(Theme.Palette.gold)
+                    }
+                    .padding(.vertical, Theme.Space.md)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                Divider().overlay(Theme.Palette.hairline)
+            }
+        }
+    }
+}
+
+// MARK: - Shared add actions
+
+private struct AddActionsView: View {
+    let flow: AddFlowStore
+    let add: AddStore
+    let onPlay: (PlaybackRequest) -> Void
+    @State private var showVersions = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.md) {
+            switch add.state {
+            case .loadingStreams:
+                ProgressView("Finding cached versions…").tint(Theme.Palette.gold)
+            case .noStreams:
+                Label("No cached versions found.", systemImage: "magnifyingglass")
+                    .font(Theme.Typo.body()).foregroundStyle(Theme.Palette.textSecondary)
+            case .failed(let msg):
+                Label(msg, systemImage: "exclamationmark.triangle")
+                    .font(Theme.Typo.body()).foregroundStyle(Theme.Palette.textSecondary)
+                Button("Try Again") { Task { await add.loadStreams() } }.buttonStyle(GhostButtonStyle())
+            default:
+                actions
+            }
+        }
+    }
+
+    @ViewBuilder private var actions: some View {
+        if let best = add.best {
+            HStack(spacing: Theme.Space.sm) {
+                QualityChipRow(parsed: best.parsed)
+                ForEach(best.languages.prefix(3), id: \.self) { QualityChip(text: $0.uppercased()) }
+            }
+            if add.isFallback {
+                Label("Audio may not be in the original language.", systemImage: "info.circle")
+                    .font(Theme.Typo.caption()).foregroundStyle(Theme.Palette.textSecondary)
+            }
+            HStack(spacing: Theme.Space.md) {
+                Button { Task { await flow.addBest() } } label: {
+                    Label("Get best", systemImage: "plus.circle.fill")
+                }.buttonStyle(GhostButtonStyle())
+                Button {
+                    Task {
+                        await flow.addBest()
+                        if case let .added(info) = add.state, let req = flow.playbackRequest(from: info) {
+                            onPlay(req)
+                        }
+                    }
+                } label: { Label("Add & Play", systemImage: "play.fill") }
+                    .buttonStyle(GoldButtonStyle())
+            }
+            if add.ranked.count > 1 {
+                Button(showVersions ? "Hide versions" : "More versions") { showVersions.toggle() }
+                    .buttonStyle(GhostButtonStyle())
+            }
+            addStatus
+            if showVersions { versionsList }
+        }
+    }
+
+    @ViewBuilder private var addStatus: some View {
+        switch add.state {
+        case .adding:
+            ProgressView("Adding to Real‑Debrid…").tint(Theme.Palette.gold)
+        case .added:
+            Label("Added — find it in your library.", systemImage: "checkmark.circle.fill")
+                .font(Theme.Typo.body()).foregroundStyle(Theme.Palette.gold)
+        case .addFailed(let msg):
+            Label(msg, systemImage: "exclamationmark.triangle")
+                .font(Theme.Typo.body()).foregroundStyle(.orange)
+        default:
+            EmptyView()
+        }
+    }
+
+    private var versionsList: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.sm) {
+            Text("VERSIONS").font(Theme.Typo.label()).tracking(1.5).foregroundStyle(Theme.Palette.gold)
+            ForEach(add.ranked) { stream in
+                Button { Task { await flow.add(stream: stream) } } label: {
+                    HStack(spacing: Theme.Space.sm) {
+                        QualityChipRow(parsed: stream.parsed)
+                        ForEach(stream.languages.prefix(2), id: \.self) { QualityChip(text: $0.uppercased()) }
+                        Spacer()
+                        Image(systemName: "plus.circle.fill").foregroundStyle(Theme.Palette.gold)
+                    }
+                    .padding(Theme.Space.md)
+                    .background(Theme.Palette.surface2, in: RoundedRectangle(cornerRadius: Theme.Radius.chip))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+}
