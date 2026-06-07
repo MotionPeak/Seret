@@ -72,6 +72,48 @@ extension MockTests {
             #expect(svc.loadCached()?.map(\.id) == ["gone"])   // snapshot untouched
         }
 
+        @Test func midLoop404ContinuesToNextTorrentAndDropsFromSnapshot() async throws {
+            let dir = tempDir()
+            let svc = service(directory: dir)
+            try LibrarySnapshotStore(directory: dir).save(
+                LibrarySnapshot(items: [movie("gone", torrents: ["A", "B"])]))
+            let box = RecordedDeletes()
+            MockURLProtocol.handler = { req in
+                if req.httpMethod == "DELETE" { box.append(req.url!.lastPathComponent) }
+                let status = req.url!.lastPathComponent == "A" ? 204 : 404
+                return Self.resp(req, status)
+            }
+            try await svc.remove(movie("gone", torrents: ["A", "B"]))   // must NOT throw
+            #expect(Set(box.values) == ["A", "B"])
+            #expect(svc.loadCached()?.isEmpty == true)
+        }
+
+        private func show(_ id: String, seasons: [Season]) -> MediaItem {
+            MediaItem(id: id, kind: .show, title: "S \(id)", year: 2024,
+                      sources: [], seasons: seasons)
+        }
+
+        @Test func deletesUniqueEpisodeTorrentIdsForShowAndDropsFromSnapshot() async throws {
+            // Two episodes share torrent "T1"; a third uses "T2" — dedup must yield exactly {T1, T2}.
+            let episodes: [Episode] = [
+                Episode(season: 1, number: 1, source: src("T1")),
+                Episode(season: 1, number: 2, source: src("T1")),
+                Episode(season: 1, number: 3, source: src("T2")),
+            ]
+            let item = show("gone", seasons: [Season(number: 1, episodes: episodes)])
+            let dir = tempDir()
+            let svc = service(directory: dir)
+            try LibrarySnapshotStore(directory: dir).save(LibrarySnapshot(items: [item]))
+            let box = RecordedDeletes()
+            MockURLProtocol.handler = { req in
+                if req.httpMethod == "DELETE" { box.append(req.url!.lastPathComponent) }
+                return Self.resp(req, 204)
+            }
+            try await svc.remove(item)
+            #expect(Set(box.values) == ["T1", "T2"])
+            #expect(svc.loadCached()?.isEmpty == true)
+        }
+
         private static func resp(_ req: URLRequest, _ status: Int) -> (HTTPURLResponse, Data) {
             (HTTPURLResponse(url: req.url!, statusCode: status, httpVersion: nil, headerFields: nil)!, Data())
         }
