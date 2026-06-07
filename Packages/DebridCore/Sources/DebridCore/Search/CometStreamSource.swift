@@ -1,8 +1,8 @@
 import Foundation
 
-/// `StreamSource` backed by the Comet Stremio addon. Returns instantly-cached torrents
-/// (config sets `cachedOnly:true`) for a title, with quality + languages parsed from each
-/// stream's title text and the infohash/file-index parsed from its `/playback/` URL.
+/// `StreamSource` backed by the Comet Stremio addon. Returns cached (or optionally uncached)
+/// torrents for a title, with quality + languages parsed from each stream's title text and
+/// the infohash/file-index parsed from its `/playback/` URL.
 public struct CometStreamSource: StreamSource {
     public static let defaultBaseURL = URL(string: "https://comet.elfhosted.com")!
 
@@ -22,9 +22,14 @@ public struct CometStreamSource: StreamSource {
     }
 
     public func streams(for query: StreamQuery) async throws -> [CachedStream] {
+        try await streams(for: query, includeUncached: false)
+    }
+
+    public func streams(for query: StreamQuery, includeUncached: Bool) async throws -> [CachedStream] {
         let token = try await tokens.validAccessToken()
+        let cachedOnly = includeUncached ? "false" : "true"
         let config = #"{"debridService":"realdebrid","debridApiKey":""# + token
-            + #"","cachedOnly":true,"resultFormat":["all"]}"#
+            + #"","cachedOnly":"# + cachedOnly + #","resultFormat":["all"]}"#
         let b64 = Data(config.utf8).base64EncodedString()
 
         let id: String
