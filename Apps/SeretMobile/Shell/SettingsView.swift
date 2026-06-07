@@ -72,6 +72,18 @@ struct SettingsView: View {
             .listRowBackground(Theme.Palette.surface1)
 
             Section {
+                Toggle("Autoplay trailers", isOn: Binding(
+                    get: { session.trailerSettings.autoplayTrailers },
+                    set: { session.trailerSettings.autoplayTrailers = $0 }))
+            } header: {
+                Text("Trailers").foregroundStyle(Theme.Palette.gold)
+            } footer: {
+                Text("Play a muted trailer on a title's page automatically.")
+                    .font(.footnote).foregroundStyle(Theme.Palette.textSecondary)
+            }
+            .listRowBackground(Theme.Palette.surface1)
+
+            Section {
                 LabeledContent("Version", value: appVersion)
                     .foregroundStyle(Theme.Palette.textSecondary)
             } footer: {

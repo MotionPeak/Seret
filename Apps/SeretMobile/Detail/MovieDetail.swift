@@ -37,7 +37,8 @@ struct MovieDetail: View {
             .padding(.top, 200)
             .padding(.bottom, Theme.Space.xxl)
         }
-        .background(DetailBackdrop(path: store.backdropPath, posterFallback: item.posterPath))
+        .background(AutoplayBackdrop(tmdbID: item.tmdbID, kind: .movie,
+                                     backdropPath: store.backdropPath, posterFallback: item.posterPath))
         .navigationTitle(item.title)
         .navigationBarTitleDisplayMode(.inline)
         .confirmationDialog(
