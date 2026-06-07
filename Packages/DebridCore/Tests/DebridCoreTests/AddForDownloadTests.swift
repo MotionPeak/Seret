@@ -35,6 +35,25 @@ extension MockTests {
             #expect(selected.value == true)         // files were selected
         }
 
+        @Test func exhaustsListAttemptsThenSelectsAndReturns() async throws {
+            // A slow-to-hash torrent never lists files within the budget and never errors. The
+            // loop exits on the attempt cap; we still selectFiles("all") and return (no throw).
+            let selected = SelectFlag()
+            MockURLProtocol.handler = { req in
+                let u = req.url!.absoluteString
+                if u.contains("addMagnet") { return Self.resp(req, 201, #"{"id":"TID","uri":"u"}"#) }
+                if u.contains("selectFiles") { selected.value = true; return Self.resp(req, 204, "") }
+                if u.contains("/torrents/info/") {
+                    return Self.resp(req, 200, #"{"id":"TID","filename":"x","hash":"h","bytes":1,"progress":0,"status":"queued","files":[],"links":[]}"#)
+                }
+                return Self.resp(req, 200, "{}")
+            }
+            let info = try await client().addForDownload(magnetHash: "abc", maxListAttempts: 2,
+                                                         pollInterval: .zero, sleep: { _ in })
+            #expect(selected.value == true)      // selectFiles("all") still fired
+            #expect(info.status == "queued")     // returned without throwing
+        }
+
         @Test func terminalStatusDuringListingThrows() async throws {
             MockURLProtocol.handler = { req in
                 let u = req.url!.absoluteString
