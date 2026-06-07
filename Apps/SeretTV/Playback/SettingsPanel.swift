@@ -42,6 +42,7 @@ struct SettingsPanel: View {
             .padding(.horizontal, 60)
             .padding(.bottom, 32)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .focusSection()          // let DOWN from the tab pills move into the columns
         }
         .background(
             // Dark translucent backdrop — matches the native player.

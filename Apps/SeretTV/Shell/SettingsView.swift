@@ -75,6 +75,7 @@ struct SettingsView: View {
                 .padding(.horizontal, 80)
                 .padding(.top, 20)
                 .padding(.bottom, 80)
+                .focusSection()      // let DOWN from the top nav bar move into the form
             }
         }
     }
