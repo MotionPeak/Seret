@@ -35,10 +35,10 @@ struct MovieDetail: View {
                 if !store.versions.isEmpty { versionsSection }
             }
             .frame(maxWidth: 700, alignment: .leading)
-            .frame(maxWidth: .infinity)
             .padding(.horizontal, Theme.Space.lg)
             .padding(.top, Theme.Space.lg)
             .padding(.bottom, Theme.Space.xxl)
+            .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .background(CanvasBackground())

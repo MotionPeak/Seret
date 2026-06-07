@@ -17,18 +17,21 @@ struct TrailerHero: View {
     @State private var showVideo = false
 
     var body: some View {
-        ZStack {
-            backdropImage
-            if showVideo, let url = model?.streamURL {
-                InlineMutedTrailer(url: url).transition(.opacity)
+        // Fixed-size base so the aspect-fill backdrop/trailer (clipped overlays) can't dictate and
+        // overflow the banner's width — which would push the content below off-screen.
+        Color.clear
+            .frame(maxWidth: .infinity)
+            .frame(height: 620)
+            .overlay { backdropImage }
+            .overlay {
+                if showVideo, let url = model?.streamURL {
+                    InlineMutedTrailer(url: url).transition(.opacity)
+                }
             }
-        }
-        .frame(maxWidth: .infinity)
-        .frame(height: 620)
-        .clipped()
-        .overlay(scrim)
-        .task(id: tmdbID) { await prepare() }
-        .onDisappear { showVideo = false }
+            .clipped()
+            .overlay(scrim)
+            .task(id: tmdbID) { await prepare() }
+            .onDisappear { showVideo = false }
     }
 
     private var backdropImage: some View {

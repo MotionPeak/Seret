@@ -5,8 +5,8 @@ import SwiftUI
 /// Contained hero banner at the top of a Detail page: the TMDB backdrop, which ~4s after the page
 /// opens cross-fades to a muted, looping trailer (when autoplay is on and a stream resolves). The
 /// bottom edge fades into the solid app canvas so the title/overview below stay perfectly legible.
-/// Tap the banner to watch the trailer full-screen with sound. Self-contained (owns the model,
-/// timing, and full-screen presentation).
+/// While the trailer plays it shows a speaker (unmute) and an expand control; tapping the banner
+/// (or the expand control) opens the trailer full-screen with sound. Self-contained.
 struct TrailerHero: View {
     let tmdbID: Int?
     let kind: MediaKind
@@ -17,22 +17,26 @@ struct TrailerHero: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var model: TrailerModel?
     @State private var showVideo = false
+    @State private var muted = true
     @State private var expand = false
 
     private var heroHeight: CGFloat { sizeClass == .regular ? 380 : 260 }
 
     var body: some View {
-        ZStack {
-            backdropImage
-            if showVideo, let url = model?.streamURL {
-                InlineMutedTrailer(url: url, muted: .constant(true)).transition(.opacity)
+        // A fixed-size base (Color.clear) establishes the banner's width/height; the backdrop and
+        // trailer are clipped OVERLAYS so their aspect-fill can't dictate (and overflow) the width.
+        Color.clear
+            .frame(maxWidth: .infinity)
+            .frame(height: heroHeight)
+            .overlay { backdropImage }
+            .overlay {
+                if showVideo, let url = model?.streamURL {
+                    InlineMutedTrailer(url: url, muted: $muted).transition(.opacity)
+                }
             }
-        }
-        .frame(maxWidth: .infinity)
-        .frame(height: heroHeight)
-        .clipped()
-        .overlay(scrim)
-        .overlay(alignment: .bottomTrailing) { if showVideo { expandHint } }
+            .clipped()
+            .overlay(scrim)
+        .overlay(alignment: .bottomTrailing) { if showVideo { controls } }
         .contentShape(Rectangle())
         .onTapGesture { if model?.streamURL != nil { expand = true } }
         .task(id: tmdbID) { await prepare() }
@@ -40,6 +44,26 @@ struct TrailerHero: View {
         .fullScreenCover(isPresented: $expand) {
             if let u = model?.streamURL { FullScreenTrailer(url: u) }
         }
+    }
+
+    private var controls: some View {
+        HStack(spacing: 10) {
+            controlButton(muted ? "speaker.slash.fill" : "speaker.wave.2.fill") { muted.toggle() }
+            controlButton("arrow.up.left.and.arrow.down.right") { expand = true }
+        }
+        .padding(.trailing, Theme.Space.lg)
+        .padding(.bottom, Theme.Space.md)
+    }
+
+    private func controlButton(_ systemName: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.subheadline.weight(.bold))
+                .frame(width: 38, height: 38)
+                .background(.black.opacity(0.5), in: Circle())
+                .foregroundStyle(.white)
+        }
+        .buttonStyle(.plain)
     }
 
     private var backdropImage: some View {
@@ -64,19 +88,9 @@ struct TrailerHero: View {
         ], startPoint: .top, endPoint: .bottom)
     }
 
-    private var expandHint: some View {
-        Image(systemName: "arrow.up.left.and.arrow.down.right")
-            .font(.caption.weight(.bold))
-            .padding(9)
-            .background(.black.opacity(0.45), in: Circle())
-            .foregroundStyle(.white)
-            .padding(12)
-    }
-
     private func prepare() async {
         guard let tmdbID, model == nil, let m = session.makeTrailerModel() else { return }
         model = m
-        // Min on-backdrop delay runs CONCURRENTLY with resolution → appears at ~4s.
         async let delay: () = Task.sleep(for: .seconds(4))
         await m.prepare(tmdbID: tmdbID, kind: kind)
         try? await delay
