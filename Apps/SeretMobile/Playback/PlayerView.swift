@@ -106,10 +106,29 @@ struct PlayerView: View {
             centerControls
             Spacer()
             scrubber
+            nextEpisodeBar
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 16)
         .foregroundStyle(.white)
+    }
+
+    /// "Next Episode" under the scrub bar — shows only for a show with another episode after the
+    /// one playing. Tapping it advances in-place (the same player keeps running).
+    @ViewBuilder private var nextEpisodeBar: some View {
+        if model.hasNextEpisode {
+            HStack {
+                Spacer()
+                Button { model.playNext(); model.showControls() } label: {
+                    Label("Next Episode", systemImage: "forward.end.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .padding(.horizontal, 16).padding(.vertical, 9)
+                        .background(.white.opacity(0.16), in: Capsule())
+                        .contentShape(Capsule())
+                }
+            }
+            .padding(.top, 12)
+        }
     }
 
     private var topBar: some View {

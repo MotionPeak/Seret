@@ -89,7 +89,8 @@ public final class DetailStore {
         let resume: Double? = fromStart ? nil : watchByKey[key].flatMap {
             (!$0.finished && $0.positionSeconds > 0) ? $0.positionSeconds : nil
         }
-        return PlaybackRequest(item: item, source: source, resumeAt: resume, label: label, contentKey: key)
+        return PlaybackRequest(item: item, source: source, resumeAt: resume, label: label,
+                               contentKey: key, episode: episode)
     }
 
     /// Best-effort "what to play next" for a show's hero: first in-progress episode (series

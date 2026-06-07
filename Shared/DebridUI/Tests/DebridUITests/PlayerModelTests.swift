@@ -10,7 +10,7 @@ import DebridCore
         engine: FakeVideoPlayerEngine,
         unrestrict: @escaping (String) async throws -> URL = { _ in URL(string: "https://cdn/x.mkv")! },
         subtitles: SubtitleProvider? = nil,
-        recorded: @escaping (Double, Double) async -> Void = { _, _ in },
+        recorded: @escaping (String, String, Double, Double) async -> Void = { _, _, _, _ in },
         autoHideDelay: Double = 4
     ) -> PlayerModel {
         PlayerModel(request: request, engine: engine, unrestrict: unrestrict,
@@ -73,7 +73,7 @@ import DebridCore
     @Test func savesAtMostEveryFiveSeconds() async {
         let engine = FakeVideoPlayerEngine()
         var saves: [(Double, Double)] = []
-        let model = makeModel(request: Fixture.request(), engine: engine, recorded: { p, d in saves.append((p, d)) })
+        let model = makeModel(request: Fixture.request(), engine: engine, recorded: { _, _, p, d in saves.append((p, d)) })
         model.start(); await model.waitForIdleForTesting()
         engine.emit(.time(.init(position: 1, duration: 100))); await model.waitForIdleForTesting()
         engine.emit(.time(.init(position: 3, duration: 100))); await model.waitForIdleForTesting()
@@ -84,7 +84,7 @@ import DebridCore
     @Test func endedSavesFinalAndRequestsDismiss() async {
         let engine = FakeVideoPlayerEngine()
         var saves: [(Double, Double)] = []
-        let model = makeModel(request: Fixture.request(), engine: engine, recorded: { p, d in saves.append((p, d)) })
+        let model = makeModel(request: Fixture.request(), engine: engine, recorded: { _, _, p, d in saves.append((p, d)) })
         model.start(); await model.waitForIdleForTesting()
         engine.emit(.time(.init(position: 95, duration: 100))); await model.waitForIdleForTesting()
         engine.emit(.state(.ended)); await model.waitForIdleForTesting()
@@ -97,7 +97,7 @@ import DebridCore
         let engine = FakeVideoPlayerEngine()
         var saves: [(Double, Double)] = []
         let model = makeModel(request: Fixture.request(), engine: engine,
-                              recorded: { p, d in saves.append((p, d)) })
+                              recorded: { _, _, p, d in saves.append((p, d)) })
         model.start(); await model.waitForIdleForTesting()
         engine.emit(.state(.ended)); await model.waitForIdleForTesting()
         engine.emit(.state(.ended)); await model.waitForIdleForTesting()
@@ -108,7 +108,7 @@ import DebridCore
     @Test func teardownPersistsCurrentPosition() async {
         let engine = FakeVideoPlayerEngine()
         var saves: [(Double, Double)] = []
-        let model = makeModel(request: Fixture.request(), engine: engine, recorded: { p, d in saves.append((p, d)) })
+        let model = makeModel(request: Fixture.request(), engine: engine, recorded: { _, _, p, d in saves.append((p, d)) })
         model.start(); await model.waitForIdleForTesting()
         engine.emit(.time(.init(position: 42, duration: 100))); await model.waitForIdleForTesting()
         await model.teardown()
@@ -359,5 +359,56 @@ import DebridCore
         engine.emit(.time(.init(position: 2, duration: 100))); await model.waitForIdleForTesting()
         #expect(model.hasRenderedFrame == true)   // first advancing frame → overlay hides
         #expect(model.phase == .playing)
+    }
+
+    // MARK: - Next episode (binge)
+
+    @Test func movieHasNoNextEpisode() async {
+        let model = makeModel(request: Fixture.request(), engine: FakeVideoPlayerEngine())
+        #expect(model.nextEpisode == nil)
+        #expect(model.hasNextEpisode == false)
+    }
+
+    @Test func showExposesNextEpisodeUntilTheLast() async {
+        let onE1 = makeModel(request: Fixture.showRequest(playingEpisode: 1), engine: FakeVideoPlayerEngine())
+        #expect(onE1.nextEpisode?.number == 2)
+        #expect(onE1.hasNextEpisode == true)
+        let onE2 = makeModel(request: Fixture.showRequest(playingEpisode: 2), engine: FakeVideoPlayerEngine())
+        #expect(onE2.nextEpisode == nil)                 // last episode → no next
+    }
+
+    @Test func playNextLoadsNextEpisodeSourceAndRetargetsLabel() async {
+        let engine = FakeVideoPlayerEngine()
+        var unrestricted: [String] = []
+        let model = makeModel(request: Fixture.showRequest(playingEpisode: 1), engine: engine,
+                              unrestrict: { link in unrestricted.append(link); return URL(string: "https://cdn/x.mkv")! })
+        model.start(); await model.waitForIdleForTesting()
+        #expect(unrestricted == ["rd://e1"])
+        model.playNext(); await model.waitForIdleForTesting()
+        #expect(unrestricted == ["rd://e1", "rd://e2"])  // the next episode's source loaded
+        #expect(model.label == "The Show — S1·E2")
+        #expect(model.nextEpisode == nil)                // now on the last episode
+    }
+
+    @Test func endedAutoAdvancesToNextEpisodeRecordingTheFinishedOne() async {
+        let engine = FakeVideoPlayerEngine()
+        var saves: [(String, Double)] = []               // (contentKey, position)
+        let model = makeModel(request: Fixture.showRequest(playingEpisode: 1), engine: engine,
+                              recorded: { key, _, p, _ in saves.append((key, p)) })
+        model.start(); await model.waitForIdleForTesting()
+        engine.emit(.time(.init(position: 1400, duration: 1400))); await model.waitForIdleForTesting()
+        engine.emit(.state(.ended)); await model.waitForIdleForTesting()
+        #expect(model.shouldDismiss == false)            // did not dismiss — advanced instead
+        #expect(model.label == "The Show — S1·E2")
+        #expect(saves.contains { $0.1 == 1400 })         // finished episode's tail recorded before advancing
+    }
+
+    @Test func endedOnLastEpisodeDismisses() async {
+        let engine = FakeVideoPlayerEngine()
+        let model = makeModel(request: Fixture.showRequest(playingEpisode: 2), engine: engine)
+        model.start(); await model.waitForIdleForTesting()
+        engine.emit(.state(.ended)); await model.waitForIdleForTesting()
+        #expect(model.phase == .ended)
+        #expect(model.shouldDismiss == true)             // no next episode → dismiss
     }
 }

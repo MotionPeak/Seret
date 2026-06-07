@@ -91,13 +91,19 @@ public final class PlayerModel {
     // MARK: - Stored properties
 
     private let item: MediaItem
-    private let sources: [MediaSource]
+    private var sources: [MediaSource]
     private var sourceIndex: Int = 0
-    private let resumeAt: Double?
-    public let label: String
+    private var resumeAt: Double?
+    public private(set) var label: String
+    /// The episode currently playing (shows only) and the WatchKey it records progress under.
+    /// Both change when we advance to the next episode in-place.
+    private var episode: Episode?
+    private var contentKey: String
     private let engine: VideoPlayerEngine
     private let unrestrict: (String) async throws -> URL
-    private let recordProgress: (Double, Double) async -> Void
+    /// Records progress for the *currently playing* content — PlayerModel passes the live
+    /// contentKey + sourceKey so next-episode advances record under the right keys.
+    private let recordProgress: (_ contentKey: String, _ sourceKey: String, _ position: Double, _ duration: Double) async -> Void
     private let subtitles: SubtitleProvider?
 
     private var eventTask: Task<Void, Never>?
@@ -121,12 +127,25 @@ public final class PlayerModel {
     public var canTryAnotherVersion: Bool { sourceIndex + 1 < sources.count }
     public var currentSource: MediaSource { sources[sourceIndex] }
 
+    /// The next episode in series order after the one playing, if any. `nil` for movies, for the
+    /// last episode, or when the item carries no season data (e.g. an Add-flow play).
+    public var nextEpisode: Episode? {
+        guard let episode else { return nil }
+        let ordered = item.seasons
+            .sorted { $0.number < $1.number }
+            .flatMap { $0.episodes.sorted { $0.number < $1.number } }
+        guard let i = ordered.firstIndex(where: { $0.season == episode.season && $0.number == episode.number }),
+              i + 1 < ordered.count else { return nil }
+        return ordered[i + 1]
+    }
+    public var hasNextEpisode: Bool { nextEpisode != nil }
+
     // MARK: - Init
 
     public init(request: PlaybackRequest,
          engine: VideoPlayerEngine,
          unrestrict: @escaping (String) async throws -> URL,
-         recordProgress: @escaping (Double, Double) async -> Void,
+         recordProgress: @escaping (_ contentKey: String, _ sourceKey: String, _ position: Double, _ duration: Double) async -> Void,
          subtitles: SubtitleProvider?,
          autoHideDelay: Double = 4) {
         self.autoHideDelay = autoHideDelay
@@ -135,6 +154,8 @@ public final class PlayerModel {
         self.sources = [request.source] + request.item.sources.bestFirst().filter { $0 != request.source }
         self.resumeAt = request.resumeAt
         self.label = request.label
+        self.episode = request.episode
+        self.contentKey = request.contentKey
         self.engine = engine
         self.unrestrict = unrestrict
         self.recordProgress = recordProgress
@@ -254,7 +275,7 @@ public final class PlayerModel {
         }
         if position - lastSavedPosition >= saveInterval {
             lastSavedPosition = position
-            await recordProgress(position, duration)
+            await recordProgress(contentKey, WatchKey.source(currentSource), position, duration)
         }
     }
 
@@ -274,9 +295,45 @@ public final class PlayerModel {
 
     private func finish() async {
         guard phase != .ended else { return }   // VLCKit can emit .stopped + .ended; finish once
-        await recordProgress(position, duration)
+        // Binge: a finished episode records its tail, then auto-advances to the next one in-place
+        // (same player/engine). A movie or last episode records and dismisses.
+        await recordCurrentProgress()
+        if nextEpisode != nil {
+            advanceToNextEpisode()
+            return
+        }
         phase = .ended
         shouldDismiss = true
+    }
+
+    private func recordCurrentProgress() async {
+        await recordProgress(contentKey, WatchKey.source(currentSource), position, duration)
+    }
+
+    /// Manually skip to the next episode (the transport "Next Episode" button). Records the current
+    /// episode's position best-effort, then swaps in-place. No-op past the last episode.
+    public func playNext() {
+        guard hasNextEpisode else { return }
+        Task { await self.recordCurrentProgress() }
+        advanceToNextEpisode()
+    }
+
+    /// Swap the playing episode to the next in series order and reload from the start, in-place (no
+    /// teardown/re-present, same engine + event loop). Subtitle state resets — externals are
+    /// per-episode. Caller is responsible for recording the outgoing episode's progress.
+    private func advanceToNextEpisode() {
+        guard let next = nextEpisode else { return }
+        episode = next
+        sources = [next.source]
+        sourceIndex = 0
+        contentKey = WatchKey.content(forShow: item, episode: next)
+        label = "\(item.title) — S\(next.season)·E\(next.number)"
+        resumeAt = nil                       // a fresh episode starts from the beginning
+        selectedAudioID = nil
+        selectedSubtitleID = nil
+        let initial: SubtitleRowState = subtitles == nil ? .noAccount : .idle
+        subtitleRows = ["he", "en"].map { SubtitleRow(language: $0, state: initial) }
+        reload()
     }
 
     // MARK: - Transport controls
@@ -407,7 +464,7 @@ public final class PlayerModel {
         loadTask?.cancel()
         hideControlsTask?.cancel()
         scrubBarHideTask?.cancel()
-        await recordProgress(position, duration)
+        await recordCurrentProgress()
         engine.stop()
     }
 

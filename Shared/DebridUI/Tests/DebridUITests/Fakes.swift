@@ -79,4 +79,20 @@ enum Fixture {
         return PlaybackRequest(item: movie(sources: srcs), source: srcs[0],
                                resumeAt: resumeAt, label: "Dune: Part Two", contentKey: "m1")
     }
+
+    static func episodeSource(_ torrent: String) -> MediaSource {
+        MediaSource(torrentID: torrent, fileID: nil, restrictedLink: "rd://\(torrent)",
+                    parsed: ParsedRelease(title: "The Show", resolution: nil))
+    }
+    /// A two-episode show (S1E1, S1E2) request currently playing the given episode number.
+    static func showRequest(playingEpisode number: Int = 1) -> PlaybackRequest {
+        let ep1 = Episode(season: 1, number: 1, source: episodeSource("e1"))
+        let ep2 = Episode(season: 1, number: 2, source: episodeSource("e2"))
+        let item = MediaItem(id: "s1", kind: .show, title: "The Show", year: 2023,
+                             sources: [], seasons: [Season(number: 1, episodes: [ep1, ep2])], tmdbID: 1399)
+        let playing = number == 1 ? ep1 : ep2
+        return PlaybackRequest(item: item, source: playing.source, resumeAt: nil,
+                               label: "The Show — S\(playing.season)·E\(playing.number)",
+                               contentKey: WatchKey.content(forShow: item, episode: playing), episode: playing)
+    }
 }

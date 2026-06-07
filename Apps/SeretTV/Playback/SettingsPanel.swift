@@ -68,11 +68,25 @@ private struct PlaybackColumns: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 60) {
+            if model.hasNextEpisode { upNextColumn }
             audioColumn
             subtitlesColumn
             speedColumn
         }
         .defaultFocus($landingFocused, true)
+    }
+
+    /// Shows for a show episode that has another after it — selecting it advances the running player
+    /// in-place. The "next episode option", reachable via the swipe-down panel; the end of an
+    /// episode also auto-advances on its own.
+    @ViewBuilder private var upNextColumn: some View {
+        if let next = model.nextEpisode {
+            SettingsColumn(header: "UP NEXT") {
+                CheckRow(title: "Play S\(next.season)·E\(next.number)", checked: false) {
+                    model.playNext(); onPick()
+                }
+            }
+        }
     }
 
     private var audioColumn: some View {

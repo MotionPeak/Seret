@@ -161,8 +161,6 @@ public final class AppSession {
                            engine: VideoPlayerEngine) -> PlayerModel? {
         guard let torrents, let store = watchProgressStore else { return nil }
         let coordinator = PlaybackCoordinator(store: store)
-        let contentKey = request.contentKey
-        let sourceKey = WatchKey.source(request.source)
         return PlayerModel(
             request: request,
             engine: engine,
@@ -171,7 +169,9 @@ public final class AppSession {
                 guard let url = URL(string: unrestricted.download) else { throw URLError(.badURL) }
                 return url
             },
-            recordProgress: { position, duration in
+            // PlayerModel supplies the live contentKey/sourceKey so a next-episode advance records
+            // against the new episode rather than the one playback started on.
+            recordProgress: { contentKey, sourceKey, position, duration in
                 await coordinator.record(contentKey: contentKey, sourceKey: sourceKey,
                                          position: position, duration: duration)
             },
