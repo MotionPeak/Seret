@@ -28,6 +28,7 @@ struct HeroBanner: View {
                 .init(color: Theme.Palette.canvas.opacity(0.92), location: 0.8),
                 .init(color: Theme.Palette.canvas, location: 1.0),
             ], startPoint: .top, endPoint: .bottom)
+            .frame(height: height)
             if let hit {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("סֶרֶט")
@@ -60,6 +61,9 @@ struct HeroBanner: View {
         } placeholder: {
             Rectangle().fill(Theme.Palette.surface1)
         }
+        .frame(maxWidth: .infinity)
+        .frame(height: height)
+        .clipped()
         .id(hit?.id)
         .transition(.opacity)
     }
