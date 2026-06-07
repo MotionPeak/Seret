@@ -1,0 +1,88 @@
+import Testing
+import Foundation
+@testable import DebridCore
+
+extension MockTests {
+    @Suite struct LibraryServiceRemoveTests {
+        init() { MockURLProtocol.handler = nil }
+
+        struct StubTokens: AccessTokenProviding {
+            func validAccessToken() async throws -> String { "TESTTOKEN" }
+        }
+
+        private func tempDir() -> URL {
+            let dir = FileManager.default.temporaryDirectory.appending(path: "seret-rm-\(UUID().uuidString)")
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            return dir
+        }
+
+        private func service(directory: URL) -> LibraryService {
+            let http = HTTPClient(session: .mock)
+            return LibraryService(
+                torrents: TorrentsClient(http: http, tokens: StubTokens()),
+                builder: LibraryBuilder(),
+                enricher: MetadataEnricher(tmdb: TMDBClient(apiKey: "K", http: http)),
+                store: LibrarySnapshotStore(directory: directory))
+        }
+
+        private func src(_ torrentID: String) -> MediaSource {
+            MediaSource(torrentID: torrentID, fileID: nil, restrictedLink: "https://rd/\(torrentID)",
+                        parsed: ParsedRelease(title: "x"))
+        }
+        private func movie(_ id: String, torrents ids: [String]) -> MediaItem {
+            MediaItem(id: id, kind: .movie, title: "M \(id)", year: 2024,
+                      sources: ids.map(src), seasons: [])
+        }
+
+        @Test func deletesAllTorrentsForAMovieAndDropsFromSnapshot() async throws {
+            let dir = tempDir()
+            let svc = service(directory: dir)
+            try LibrarySnapshotStore(directory: dir).save(
+                LibrarySnapshot(items: [movie("keep", torrents: ["K1"]),
+                                        movie("gone", torrents: ["A", "B"])]))
+            let box = RecordedDeletes()
+            MockURLProtocol.handler = { req in
+                if req.httpMethod == "DELETE" { box.append(req.url!.lastPathComponent) }
+                return Self.resp(req, 204)
+            }
+            try await svc.remove(movie("gone", torrents: ["A", "B"]))
+            #expect(Set(box.values) == ["A", "B"])
+            #expect(svc.loadCached()?.map(\.id) == ["keep"])
+        }
+
+        @Test func treats404AsSuccess() async throws {
+            let dir = tempDir()
+            let svc = service(directory: dir)
+            try LibrarySnapshotStore(directory: dir).save(
+                LibrarySnapshot(items: [movie("gone", torrents: ["A"])]))
+            MockURLProtocol.handler = { req in Self.resp(req, 404) }
+            try await svc.remove(movie("gone", torrents: ["A"]))   // must NOT throw
+            #expect(svc.loadCached()?.isEmpty == true)
+        }
+
+        @Test func nonNotFoundFailureThrowsAndPreservesSnapshot() async throws {
+            let dir = tempDir()
+            let svc = service(directory: dir)
+            try LibrarySnapshotStore(directory: dir).save(
+                LibrarySnapshot(items: [movie("gone", torrents: ["A"])]))
+            MockURLProtocol.handler = { req in Self.resp(req, 500) }
+            await #expect(throws: (any Error).self) {
+                try await svc.remove(movie("gone", torrents: ["A"]))
+            }
+            #expect(svc.loadCached()?.map(\.id) == ["gone"])   // snapshot untouched
+        }
+
+        private static func resp(_ req: URLRequest, _ status: Int) -> (HTTPURLResponse, Data) {
+            (HTTPURLResponse(url: req.url!, statusCode: status, httpVersion: nil, headerFields: nil)!, Data())
+        }
+    }
+}
+
+/// Thread-safe recorder for DELETE paths captured inside the @Sendable mock handler.
+/// Named distinctly from TorrentsAddTests.DeletedBox (which only tracks a boolean).
+private final class RecordedDeletes: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _values: [String] = []
+    func append(_ s: String) { lock.lock(); _values.append(s); lock.unlock() }
+    var values: [String] { lock.lock(); defer { lock.unlock() }; return _values }
+}

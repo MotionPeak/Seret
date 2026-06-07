@@ -64,4 +64,31 @@ public struct LibraryService: Sendable {
         try store.save(LibrarySnapshot(items: library))
         return library
     }
+
+    /// Permanently delete an item from Real-Debrid: removes every torrent backing it, then drops
+    /// it from the persisted snapshot. Idempotent — a `404` (torrent already gone) counts as
+    /// success. Any other RD/network failure throws WITHOUT rewriting the snapshot, so the next
+    /// `refresh()` reconciles the UI to reality.
+    public func remove(_ item: MediaItem) async throws {
+        for id in Self.torrentIDs(for: item) {
+            do {
+                try await torrents.deleteTorrent(id: id)
+            } catch HTTPError.status(let code, _) where code == 404 {
+                continue   // already deleted — treat as success
+            }
+        }
+        let remaining = (store.load()?.items ?? []).filter { $0.id != item.id }
+        try store.save(LibrarySnapshot(items: remaining))
+    }
+
+    /// The unique set of RD torrent ids backing an item: a movie's source torrents, or every
+    /// episode's source torrent for a show (season packs collapse to one id).
+    static func torrentIDs(for item: MediaItem) -> [String] {
+        switch item.kind {
+        case .movie:
+            return Array(Set(item.sources.map(\.torrentID)))
+        case .show:
+            return Array(Set(item.seasons.flatMap { $0.episodes.map(\.source.torrentID) }))
+        }
+    }
 }

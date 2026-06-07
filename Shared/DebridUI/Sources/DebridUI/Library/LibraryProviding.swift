@@ -6,6 +6,7 @@ import DebridCore
 public protocol LibraryProviding: Sendable {
     func loadCached() -> [MediaItem]?
     func refresh() async throws -> [MediaItem]
+    func remove(_ item: MediaItem) async throws
 }
 
 extension LibraryService: LibraryProviding {}
