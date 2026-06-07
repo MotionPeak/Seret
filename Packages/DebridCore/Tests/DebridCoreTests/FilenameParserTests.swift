@@ -17,6 +17,17 @@ struct FilenameParserTests {
         #expect(r.isTV == false)
     }
 
+    @Test func parsesCamAndTelesyncSources() {
+        // Brand-new theatrical releases — the source tag is how you tell a real cam from a fake.
+        #expect(parser.parse("Obsession.2026.1080p.CAM.x264-DKS.mkv").source == "CAM")
+        #expect(parser.parse("Obsession.2026.1080p.TELESYNC.x264-UNiON.mkv").source == "TELESYNC")
+        #expect(parser.parse("Obsession.2025.D.TELECINE.1080p.mkv").source == "TELECINE")
+        #expect(parser.parse("Obsession (2026) English HQ HDTS - 1080p - x264.mkv").source == "HDTS")
+        // The title still stops cleanly before the source tag.
+        #expect(parser.parse("Obsession.2026.1080p.CAM.x264-DKS.mkv").title == "Obsession")
+        #expect(parser.parse("Obsession.2026.1080p.CAM.x264-DKS.mkv").year == 2026)
+    }
+
     @Test func parsesAWebDLMovieWithAudio() {
         let r = parser.parse("Oppenheimer.2023.1080p.WEB-DL.DDP5.1.H264-EVO.mkv")
         #expect(r.title == "Oppenheimer")

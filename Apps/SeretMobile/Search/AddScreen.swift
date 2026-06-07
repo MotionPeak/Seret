@@ -329,16 +329,26 @@ private struct AddActionsView: View {
         VStack(alignment: .leading, spacing: Theme.Space.sm) {
             ForEach(add.allVersions) { stream in
                 Button { pick(stream) } label: {
-                    HStack(spacing: Theme.Space.sm) {
-                        CacheBadge(isCached: stream.isCached)
-                        QualityChipRow(parsed: stream.parsed)
-                        ForEach(stream.languages.prefix(2), id: \.self) { QualityChip(text: $0.uppercased()) }
-                        Spacer()
-                        if let size = stream.sizeBytes {
-                            Text(Self.sizeGB(size)).font(Theme.Typo.caption()).foregroundStyle(Theme.Palette.textTertiary)
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: Theme.Space.sm) {
+                            CacheBadge(isCached: stream.isCached)
+                            if let year = stream.parsed.year {
+                                QualityChip(text: String(year))
+                            }
+                            QualityChipRow(parsed: stream.parsed)
+                            ForEach(stream.languages.prefix(2), id: \.self) { QualityChip(text: $0.uppercased()) }
+                            Spacer()
+                            if let size = stream.sizeBytes {
+                                Text(Self.sizeGB(size)).font(Theme.Typo.caption()).foregroundStyle(Theme.Palette.textTertiary)
+                            }
+                            Image(systemName: stream.isCached ? "play.circle.fill" : "arrow.down.circle.fill")
+                                .foregroundStyle(Theme.Palette.gold)
                         }
-                        Image(systemName: stream.isCached ? "play.circle.fill" : "arrow.down.circle.fill")
-                            .foregroundStyle(Theme.Palette.gold)
+                        // The full release name — read the source (CAM/TELESYNC), year, group to
+                        // confirm it's the right film/version.
+                        Text(stream.rawTitle)
+                            .font(Theme.Typo.caption()).foregroundStyle(Theme.Palette.textTertiary)
+                            .lineLimit(1).truncationMode(.middle)
                     }
                     .padding(Theme.Space.md)
                     .background(Theme.Palette.surface2, in: RoundedRectangle(cornerRadius: Theme.Radius.chip))

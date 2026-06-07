@@ -40,7 +40,7 @@ public struct FilenameParser: Sendable {
 
     private static let reGroup = make(#"-([A-Za-z0-9]{2,})$"#)
     private static let reResolution = make(#"(?i)\b(2160p|1080p|720p|480p)\b"#)
-    private static let reSource = make(#"(?i)\b(blu-?ray|bd-?rip|web-?dl|web-?rip|hdtv|dvd-?rip|remux|hdrip)\b"#)
+    private static let reSource = make(#"(?i)\b(blu-?ray|bd-?rip|web-?dl|web-?rip|hdtv|dvd-?rip|remux|hdrip|hd-?ts|hd-?cam|telesync|telecine|camrip|cam|screener)\b"#)
     private static let reVideo = make(#"(?i)\b(x265|x264|h\.?265|h\.?264|hevc|avc)\b"#)
     private static let reAudio = make(#"(?i)\b(dts-?hd|truehd|atmos|ddp?5\.1|ddp|dts|eac3|ac3|aac|flac)\b"#)
     private static let reYear = make(#"\b(19\d{2}|20\d{2})\b"#)
@@ -60,7 +60,7 @@ public struct FilenameParser: Sendable {
         #"(?i)^\d{1,2}x\d{1,3}$"#,
         #"(?i)^(2160p|1080p|720p|480p)$"#,
         #"(?i)^season$"#,
-        #"(?i)^(bluray|blu-ray|bdrip|web-?dl|web-?rip|hdtv|dvdrip|remux|hdrip|x265|x264|h264|h265|hevc|avc|amzn|uhd|hdr|hdr10|dv|dts|dts-?hd|truehd|atmos|ddp|eac3|ac3|aac|flac)$"#,
+        #"(?i)^(bluray|blu-ray|bdrip|web-?dl|web-?rip|hdtv|dvdrip|remux|hdrip|hd-?ts|hd-?cam|telesync|telecine|camrip|cam|screener|x265|x264|h264|h265|hevc|avc|amzn|uhd|hdr|hdr10|dv|dts|dts-?hd|truehd|atmos|ddp|eac3|ac3|aac|flac)$"#,
     ].map(make)
 
     private static func make(_ pattern: String) -> NSRegularExpression {

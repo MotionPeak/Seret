@@ -257,15 +257,24 @@ private struct AddActions: View {
         VStack(alignment: .leading, spacing: 14) {
             ForEach(add.allVersions) { stream in
                 Button { pick(stream) } label: {
-                    HStack(spacing: 16) {
-                        CacheBadge(isCached: stream.isCached)
-                        QualityChips(parsed: stream.parsed)
-                        LanguageBadges(codes: stream.languages)
-                        Spacer()
-                        if let size = stream.sizeBytes {
-                            Text(Self.sizeGB(size)).font(.callout).foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 16) {
+                            CacheBadge(isCached: stream.isCached)
+                            if let year = stream.parsed.year {
+                                Text(String(year)).font(.caption.weight(.semibold))
+                                    .padding(.horizontal, 10).padding(.vertical, 4)
+                                    .background(.white.opacity(0.12), in: Capsule())
+                            }
+                            QualityChips(parsed: stream.parsed)
+                            LanguageBadges(codes: stream.languages)
+                            Spacer()
+                            if let size = stream.sizeBytes {
+                                Text(Self.sizeGB(size)).font(.callout).foregroundStyle(.secondary)
+                            }
+                            Image(systemName: stream.isCached ? "play.circle" : "arrow.down.circle")
                         }
-                        Image(systemName: stream.isCached ? "play.circle" : "arrow.down.circle")
+                        Text(stream.rawTitle).font(.callout).foregroundStyle(.secondary)
+                            .lineLimit(1).truncationMode(.middle)
                     }
                     .padding(.vertical, 6)
                 }
