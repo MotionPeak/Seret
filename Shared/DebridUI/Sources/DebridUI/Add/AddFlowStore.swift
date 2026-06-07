@@ -130,8 +130,8 @@ public final class AddFlowStore {
     public func addBest() async { await add?.addBest() }
     public func add(stream: CachedStream) async { await add?.add(stream: stream) }
 
-    /// Request a background download (uncached fallback) for the current movie/episode target.
-    public func requestDownload() async { await add?.requestDownload() }
+    /// Ranked uncached candidates for the current movie/episode target (input to a request-download).
+    public func uncachedCandidates() async -> [CachedStream] { await add?.uncachedCandidates() ?? [] }
 
     /// Build a `PlaybackRequest` from a freshly-added torrent for the Add & Play path.
     /// Returns nil if the torrent has no playable video file.

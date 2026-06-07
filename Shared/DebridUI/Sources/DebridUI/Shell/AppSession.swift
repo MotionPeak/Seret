@@ -55,10 +55,13 @@ public final class AppSession {
     private var addService: AddProviding?
 
     /// Request-Download (uncached titles) seams, composed at sign-in (nil while signed out).
-    /// Consumed by Slice 2's download view-models.
     private var downloadService: DownloadRequesting?
     private var downloadsStore: DownloadsStore?
     private var downloadMonitor: DownloadMonitor?
+
+    /// Request-Download view-model: live per-title progress + library "downloading" badge
+    /// (nil while signed out, or if the SwiftData container fails to build).
+    public private(set) var downloadStore: DownloadStore?
 
     public let realDebrid: RealDebridSession
 
@@ -118,6 +121,7 @@ public final class AppSession {
         downloadService = nil
         downloadsStore = nil
         downloadMonitor = nil
+        downloadStore = nil
         subtitlesProvider = nil
         state = .signedOut
     }
@@ -147,11 +151,18 @@ public final class AppSession {
         trailers = TMDBTrailerService(client: tmdb)
         streamSource = CometStreamSource(tokens: realDebrid)
         addService = RealDebridAddService(torrents: torrents)
-        downloadService = RealDebridDownloadService(torrents: torrents)
+        let dlService = RealDebridDownloadService(torrents: torrents)
+        downloadService = dlService
         if let container = try? ModelContainer(for: DownloadRequest.self) {
             let dStore = DownloadsStore(modelContainer: container)
+            let dMonitor = DownloadMonitor(info: torrents, store: dStore)
             downloadsStore = dStore
-            downloadMonitor = DownloadMonitor(info: torrents, store: dStore)
+            downloadMonitor = dMonitor
+            // A finished download flips into the normal library — refresh so it appears + Play lights up.
+            let store = DownloadStore(service: dlService, records: dStore, poller: dMonitor,
+                                      onReady: { [weak self] _ in self?.libraryStore?.retry() })
+            downloadStore = store
+            Task { await store.loadActive() }
         }
         detailsProvider = TMDBDetailsService(client: tmdb)
         home = watchStore.map { HomeStore(watch: $0) }

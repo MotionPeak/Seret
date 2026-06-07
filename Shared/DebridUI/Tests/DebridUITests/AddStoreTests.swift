@@ -14,17 +14,10 @@ private final class FakeStreamSource: StreamSource {
 private final class FakeAdd: AddProviding, @unchecked Sendable {
     let result: Result<TorrentInfo, FakeError>
     let perHash: [String: Result<TorrentInfo, FakeError>]
-    let dlResult: Result<TorrentInfo, FakeError>
-    let dlPerHash: [String: Result<TorrentInfo, FakeError>]
-    init(_ result: Result<TorrentInfo, FakeError>,
-         perHash: [String: Result<TorrentInfo, FakeError>] = [:],
-         dl: Result<TorrentInfo, FakeError>? = nil,
-         dlPerHash: [String: Result<TorrentInfo, FakeError>] = [:]) {
+    init(_ result: Result<TorrentInfo, FakeError>, perHash: [String: Result<TorrentInfo, FakeError>] = [:]) {
         self.result = result; self.perHash = perHash
-        self.dlResult = dl ?? result; self.dlPerHash = dlPerHash
     }
     func add(infoHash: String) async throws -> TorrentInfo { try (perHash[infoHash] ?? result).get() }
-    func addForDownload(infoHash: String) async throws -> TorrentInfo { try (dlPerHash[infoHash] ?? dlResult).get() }
 }
 
 private func cachedStream(_ hash: String, res: String, langs: [String], size: Int) -> CachedStream {
@@ -108,47 +101,25 @@ private func cachedStream(_ hash: String, res: String, langs: [String], size: In
         if case .addFailed = s.state {} else { Issue.record("expected addFailed") }
     }
 
-    // MARK: - Request Download (uncached fallback)
+    // MARK: - Uncached candidates (input to a request-download)
 
-    @Test func requestDownloadStartsBestUncached() async {
-        // No cached version, but an uncached one exists → addForDownload the best, show downloading.
-        // Instant add fails (.boom); the separate download path succeeds.
-        let s = AddStore(imdbID: "tt1", kind: .movie, originalLanguage: "fr",
-                         streamSource: FakeStreamSource(.success([
-                            cachedStream("a", res: "2160p", langs: ["en"], size: 100),
-                            cachedStream("b", res: "1080p", langs: ["fr"], size: 50)])),
-                         add: FakeAdd(.failure(.boom), dl: .success(tv("downloading"))))
-        await s.requestDownload()
-        if case let .downloading(info) = s.state { #expect(info.id == "T") }
-        else { Issue.record("expected downloading, got \(s.state)") }
-        #expect(s.best?.infoHash == "b")   // original-language best
-    }
-
-    @Test func requestDownloadNoCandidatesShowsNoDownload() async {
-        let s = store(streams: .success([]))
-        await s.requestDownload()
-        #expect(s.state == .noDownload)
-    }
-
-    @Test func requestDownloadFallsBackOnTerminalFailure() async {
-        // Best (b) is a dead/virus magnet → addForDownload throws → fall back to next-best (a).
-        let streams: [CachedStream] = [
+    @Test func uncachedCandidatesAreRankedOriginalLanguageFirst() async {
+        let s = store(streams: .success([
             cachedStream("a", res: "2160p", langs: ["en"], size: 100),
-            cachedStream("b", res: "1080p", langs: ["fr"], size: 50)]
-        let s = AddStore(imdbID: "tt1", kind: .movie, originalLanguage: "fr",
-                         streamSource: FakeStreamSource(.success(streams)),
-                         add: FakeAdd(.failure(.boom), dl: .failure(.boom), dlPerHash: ["a": .success(tv("downloading"))]))
-        await s.requestDownload()
-        if case let .downloading(info) = s.state { #expect(info.id == "T") }
-        else { Issue.record("expected downloading, got \(s.state)") }
-        #expect(s.best?.infoHash == "a")   // the one that actually started
+            cachedStream("b", res: "1080p", langs: ["fr"], size: 50)]))   // fr = original language
+        let candidates = await s.uncachedCandidates()
+        #expect(candidates.first?.infoHash == "b")
+        #expect(candidates.count == 2)
     }
 
-    @Test func requestDownloadAllFailShowsDownloadFailed() async {
-        let s = store(streams: .success([cachedStream("b", res: "1080p", langs: ["fr"], size: 50)]),
-                      add: .failure(.boom))   // dl defaults to the same failure
-        await s.requestDownload()
-        if case .downloadFailed = s.state {} else { Issue.record("expected downloadFailed, got \(s.state)") }
+    @Test func uncachedCandidatesEmptyOnNoResults() async {
+        let s = store(streams: .success([]))
+        #expect(await s.uncachedCandidates().isEmpty)
+    }
+
+    @Test func uncachedCandidatesEmptyOnError() async {
+        let s = store(streams: .failure(.boom))
+        #expect(await s.uncachedCandidates().isEmpty)
     }
 
     // MARK: - Season-pack mode

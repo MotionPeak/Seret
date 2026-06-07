@@ -248,27 +248,7 @@ private struct AddActionsView: View {
             case .loadingStreams:
                 ProgressView("Finding cached versions…").tint(Theme.Palette.gold)
             case .noStreams:
-                Label("No cached version found.", systemImage: "magnifyingglass")
-                    .font(Theme.Typo.body()).foregroundStyle(Theme.Palette.textSecondary)
-                Text("It isn't in Real‑Debrid's cache yet. Start a download and it'll appear in your library when it's ready.")
-                    .font(Theme.Typo.caption()).foregroundStyle(Theme.Palette.textTertiary)
-                Button { Task { await flow.requestDownload() } } label: {
-                    Label("Request Download", systemImage: "arrow.down.circle")
-                }.buttonStyle(GoldButtonStyle())
-            case .requestingDownload:
-                ProgressView("Finding a version to download…").tint(Theme.Palette.gold)
-            case .downloading:
-                Label("Downloading to Real‑Debrid… it'll appear in your library when it's ready.",
-                      systemImage: "arrow.down.circle.fill")
-                    .font(Theme.Typo.body()).foregroundStyle(Theme.Palette.gold)
-            case .noDownload:
-                Label("No version available to download.", systemImage: "xmark.circle")
-                    .font(Theme.Typo.body()).foregroundStyle(Theme.Palette.textSecondary)
-            case .downloadFailed(let msg):
-                Label(msg, systemImage: "exclamationmark.triangle")
-                    .font(Theme.Typo.body()).foregroundStyle(.orange)
-                Button("Try Another Version") { Task { await flow.requestDownload() } }
-                    .buttonStyle(GhostButtonStyle())
+                DownloadSection(flow: flow)
             case .failed(let msg):
                 Label(msg, systemImage: "exclamationmark.triangle")
                     .font(Theme.Typo.body()).foregroundStyle(Theme.Palette.textSecondary)
@@ -391,4 +371,57 @@ private extension AddActionsView {
     /// Replace-existing confirmation: surfaced when Play / a version is tapped on a title that's
     /// already in the library. Confirming removes the old item, then adds + plays the new pick.
     /// Lives at the bottom of the body via a modifier.
+}
+
+// MARK: - Request Download (uncached fallback)
+
+/// Shown when a title has no instantly-cached version. Offers "Request Download" (find the best
+/// uncached release + start an RD download), then live progress driven by the app-wide
+/// `DownloadStore`. When the download finishes the title flips into the library (Play lights up).
+private struct DownloadSection: View {
+    let flow: AddFlowStore
+    @Environment(AppSession.self) private var session
+    @State private var requesting = false
+
+    var body: some View {
+        let status = session.downloadStore?.status(forTMDB: flow.tmdbID)
+        VStack(alignment: .leading, spacing: Theme.Space.md) {
+            if requesting && status == nil {
+                ProgressView("Starting download…").tint(Theme.Palette.gold)
+            } else if case .queued = status?.phase {
+                ProgressView("Starting download…").tint(Theme.Palette.gold)
+            } else if case .downloading = status?.phase {
+                let pct = Int((status?.fraction ?? 0) * 100)
+                Label("Downloading \(pct)% to Real‑Debrid…", systemImage: "arrow.down.circle.fill")
+                    .font(Theme.Typo.body()).foregroundStyle(Theme.Palette.gold)
+                ProgressView(value: status?.fraction ?? 0).tint(Theme.Palette.gold)
+                Text("It'll appear in your library when it's ready.")
+                    .font(Theme.Typo.caption()).foregroundStyle(Theme.Palette.textTertiary)
+            } else if case .failed(let reason) = status?.phase {
+                Label(reason, systemImage: "exclamationmark.triangle")
+                    .font(Theme.Typo.body()).foregroundStyle(.orange)
+                requestButton(title: "Try Another Version")
+            } else {
+                Label("No cached version found.", systemImage: "magnifyingglass")
+                    .font(Theme.Typo.body()).foregroundStyle(Theme.Palette.textSecondary)
+                Text("It isn't in Real‑Debrid's cache yet. Start a download and it'll appear in your library when it's ready.")
+                    .font(Theme.Typo.caption()).foregroundStyle(Theme.Palette.textTertiary)
+                requestButton(title: "Request Download")
+            }
+        }
+    }
+
+    private func requestButton(title: String) -> some View {
+        Button {
+            Task {
+                requesting = true
+                let candidates = await flow.uncachedCandidates()
+                await session.downloadStore?.request(tmdbID: flow.tmdbID, title: flow.title,
+                                                     kind: flow.mediaKind, candidates: candidates)
+                requesting = false
+            }
+        } label: { Label(title, systemImage: "arrow.down.circle") }
+            .buttonStyle(GoldButtonStyle())
+            .disabled(requesting)
+    }
 }

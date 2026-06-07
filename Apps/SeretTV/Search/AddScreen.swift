@@ -180,25 +180,7 @@ private struct AddActions: View {
             case .loadingStreams:
                 ProgressView("Finding cached versions…").font(.title3)
             case .noStreams:
-                Label("No cached version found.", systemImage: "magnifyingglass")
-                    .font(.title3).foregroundStyle(.secondary)
-                Text("It isn't in Real‑Debrid's cache yet. Start a download and it'll appear in your library when it's ready.")
-                    .font(.callout).foregroundStyle(.secondary).frame(maxWidth: 900, alignment: .leading)
-                Button { Task { await flow.requestDownload() } } label: {
-                    Label("Request Download", systemImage: "arrow.down.circle")
-                }.font(.title3)
-            case .requestingDownload:
-                ProgressView("Finding a version to download…").font(.title3)
-            case .downloading:
-                Label("Downloading to Real‑Debrid… it'll appear in your library when it's ready.",
-                      systemImage: "arrow.down.circle.fill")
-                    .font(.title3).foregroundStyle(.yellow)
-            case .noDownload:
-                Label("No version available to download.", systemImage: "xmark.circle")
-                    .font(.title3).foregroundStyle(.secondary)
-            case .downloadFailed(let msg):
-                Label(msg, systemImage: "exclamationmark.triangle").font(.title3).foregroundStyle(.orange)
-                Button("Try Another Version") { Task { await flow.requestDownload() } }.font(.title3)
+                DownloadSection(flow: flow)
             case .failed(let msg):
                 Label(msg, systemImage: "exclamationmark.triangle").font(.title3)
                 Button("Try Again") { Task { await add.loadStreams() } }.font(.title3)
@@ -307,6 +289,57 @@ private struct AddActions: View {
     private func ownedItem() -> MediaItem? {
         guard flow.mediaKind == .movie else { return nil }
         return session.libraryStore?.ownedItem(tmdbID: flow.tmdbID)
+    }
+}
+
+// MARK: - Request Download (uncached fallback)
+
+/// Shown when a title has no instantly-cached version. Offers "Request Download" (best uncached
+/// release → RD download), then live progress from the app-wide `DownloadStore`. The title flips
+/// into the library when RD finishes.
+private struct DownloadSection: View {
+    let flow: AddFlowStore
+    @Environment(AppSession.self) private var session
+    @State private var requesting = false
+
+    var body: some View {
+        let status = session.downloadStore?.status(forTMDB: flow.tmdbID)
+        VStack(alignment: .leading, spacing: 16) {
+            if requesting && status == nil {
+                ProgressView("Starting download…").font(.title3)
+            } else if case .queued = status?.phase {
+                ProgressView("Starting download…").font(.title3)
+            } else if case .downloading = status?.phase {
+                let pct = Int((status?.fraction ?? 0) * 100)
+                Label("Downloading \(pct)% to Real‑Debrid…", systemImage: "arrow.down.circle.fill")
+                    .font(.title3).foregroundStyle(.yellow)
+                ProgressView(value: status?.fraction ?? 0).tint(.yellow).frame(maxWidth: 700)
+                Text("It'll appear in your library when it's ready.").font(.callout).foregroundStyle(.secondary)
+            } else if case .failed(let reason) = status?.phase {
+                Label(reason, systemImage: "exclamationmark.triangle").font(.title3).foregroundStyle(.orange)
+                requestButton(title: "Try Another Version")
+            } else {
+                Label("No cached version found.", systemImage: "magnifyingglass")
+                    .font(.title3).foregroundStyle(.secondary)
+                Text("It isn't in Real‑Debrid's cache yet. Start a download and it'll appear in your library when it's ready.")
+                    .font(.callout).foregroundStyle(.secondary).frame(maxWidth: 900, alignment: .leading)
+                requestButton(title: "Request Download")
+            }
+        }
+    }
+
+    private func requestButton(title: String) -> some View {
+        Button {
+            Task {
+                requesting = true
+                let candidates = await flow.uncachedCandidates()
+                await session.downloadStore?.request(tmdbID: flow.tmdbID, title: flow.title,
+                                                     kind: flow.mediaKind, candidates: candidates)
+                requesting = false
+            }
+        } label: { Label(title, systemImage: "arrow.down.circle") }
+            .font(.title3)
+            .disabled(requesting)
     }
 }
 
