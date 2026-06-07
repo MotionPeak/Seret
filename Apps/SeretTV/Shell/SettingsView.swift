@@ -10,7 +10,8 @@ struct SettingsView: View {
     var body: some View {
         ZStack {
             CanvasBackground()
-            VStack(spacing: 40) {
+            ScrollView {
+                VStack(spacing: 40) {
                 Text("Settings").font(.largeTitle.bold()).foregroundStyle(Theme.Palette.textPrimary)
                 Text("Signed in to Real‑Debrid.").font(.title3).foregroundStyle(Theme.Palette.textSecondary)
 
@@ -58,11 +59,13 @@ struct SettingsView: View {
                 } label: {
                     Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right").font(.title3)
                 }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 80)
+                .padding(.top, 20)
+                .padding(.bottom, 80)
             }
-            .padding(80)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .navigationTitle("Settings")
     }
 
     // Bindings into the shared, persisted subtitle preferences.

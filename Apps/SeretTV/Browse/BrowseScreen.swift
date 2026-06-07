@@ -12,6 +12,8 @@ struct BrowseScreen: View {
     @State private var query = ""
     /// The title under remote focus — drives the full-bleed hero. Tiles publish it via FocusedHitKey.
     @State private var featuredHit: SearchHit?
+    /// Which segment pill has focus — moving across them switches the section live (no press).
+    @FocusState private var focusedSegment: DiscoverStore.Segment?
 
     private var browse: DiscoverStore? { kind == .movie ? session.moviesBrowse : session.showsBrowse }
 
@@ -88,8 +90,10 @@ struct BrowseScreen: View {
             ForEach(DiscoverStore.Segment.allCases) { seg in
                 Button(seg.title) { browse.select(seg) }
                     .buttonStyle(SeretPillStyle(selected: seg == browse.selectedSegment))
+                    .focused($focusedSegment, equals: seg)
             }
         }
+        .onChange(of: focusedSegment) { _, new in if let new { browse.select(new) } }
     }
 
     private func rail(title: String, hits: [SearchHit], cam: Bool) -> some View {
