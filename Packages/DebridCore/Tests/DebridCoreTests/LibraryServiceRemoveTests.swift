@@ -88,6 +88,27 @@ extension MockTests {
             #expect(svc.loadCached()?.isEmpty == true)
         }
 
+        @Test func multiTorrentNonNotFoundFailureThrowsAndPreservesSnapshot() async throws {
+            // One torrent succeeds (204), the other fails (500). Whichever order the (Set-derived)
+            // ids run, remove() must throw and leave the snapshot untouched — even if one torrent
+            // was already deleted on RD. The next refresh() reconciles the divergence.
+            let dir = tempDir()
+            let svc = service(directory: dir)
+            try LibrarySnapshotStore(directory: dir).save(
+                LibrarySnapshot(items: [movie("gone", torrents: ["A", "B"])]))
+            let box = RecordedDeletes()
+            MockURLProtocol.handler = { req in
+                if req.httpMethod == "DELETE" { box.append(req.url!.lastPathComponent) }
+                let status = req.url!.lastPathComponent == "A" ? 204 : 500
+                return Self.resp(req, status)
+            }
+            await #expect(throws: (any Error).self) {
+                try await svc.remove(movie("gone", torrents: ["A", "B"]))
+            }
+            #expect(!box.values.isEmpty)                       // at least one delete was attempted
+            #expect(svc.loadCached()?.map(\.id) == ["gone"])   // snapshot untouched on failure
+        }
+
         private func show(_ id: String, seasons: [Season]) -> MediaItem {
             MediaItem(id: id, kind: .show, title: "S \(id)", year: 2024,
                       sources: [], seasons: seasons)
