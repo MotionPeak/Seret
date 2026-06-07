@@ -86,7 +86,7 @@ struct BrowseScreen: View {
             if !title.isEmpty { Text(title).font(.title2.bold()).padding(.leading, 60) }
             ScrollView(.horizontal) {
                 LazyHStack(spacing: 40) {
-                    ForEach(hits) { BrowseTile(hit: $0, cam: cam) }
+                    ForEach(hits) { BrowseTile(hit: $0, cam: cam || (browse?.isCAM($0.result) ?? false)) }
                 }
                 .padding(.horizontal, 60).padding(.vertical, 40)
             }
@@ -98,7 +98,7 @@ struct BrowseScreen: View {
         let columns = [GridItem(.adaptive(minimum: 220, maximum: 260), spacing: 50)]
         return ScrollView {
             LazyVGrid(columns: columns, spacing: 50) {
-                ForEach(hits) { BrowseTile(hit: $0, cam: false) }
+                ForEach(hits) { BrowseTile(hit: $0, cam: browse?.isCAM($0.result) ?? false) }
             }
             .padding(60)
         }

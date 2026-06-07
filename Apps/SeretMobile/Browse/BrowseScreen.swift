@@ -104,7 +104,7 @@ struct BrowseScreen: View {
     @ViewBuilder private func sectionView(_ section: DiscoverStore.Section) -> some View {
         if section.rows.count == 1, section.rows[0].title.isEmpty {
             Rail(title: section.title) {
-                ForEach(section.rows[0].hits) { tile($0, width: 120, cam: section.isCAM) }
+                ForEach(section.rows[0].hits) { tile($0, width: 120, cam: section.isCAM || isCAM($0)) }
             }
         } else {
             VStack(alignment: .leading, spacing: Theme.Space.md) {
@@ -113,17 +113,20 @@ struct BrowseScreen: View {
                     .padding(.horizontal, Theme.Space.lg)
                 ForEach(section.rows) { row in
                     Rail(title: row.title) {
-                        ForEach(row.hits) { tile($0, width: 120, cam: section.isCAM) }
+                        ForEach(row.hits) { tile($0, width: 120, cam: section.isCAM || isCAM($0)) }
                     }
                 }
             }
         }
     }
 
+    /// CAM-likely (theatrical-window) — tagged in every row it appears in, not just In Theatres.
+    private func isCAM(_ hit: SearchHit) -> Bool { browse?.isCAM(hit.result) ?? false }
+
     private func resultsGrid(_ hits: [SearchHit]) -> some View {
         ScrollView {
             LazyVGrid(columns: columns, spacing: Theme.Space.xl) {
-                ForEach(hits) { tile($0, width: nil, cam: false) }
+                ForEach(hits) { tile($0, width: nil, cam: isCAM($0)) }
             }
             .padding(Theme.Space.lg)
         }
