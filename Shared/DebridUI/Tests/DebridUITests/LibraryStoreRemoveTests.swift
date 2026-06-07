@@ -75,4 +75,23 @@ private actor RecordingWatch: WatchProgressProviding {
         store.clearRemovalError()
         #expect(store.removal == .idle)
     }
+
+    @Test func successNotifiesContentChanged() async {
+        let store = LibraryStore(library: RemoveFakeLibrary(cached: [movie("1")]), watch: RecordingWatch())
+        var notifications = 0
+        store.onContentChanged = { notifications += 1 }
+        await store.load()
+        await store.remove(store.movies[0])
+        #expect(notifications == 1)   // dependent rails (Home) get a chance to recompute
+    }
+
+    @Test func failureDoesNotNotifyContentChanged() async {
+        let store = LibraryStore(
+            library: RemoveFakeLibrary(cached: [movie("1")], removeError: .boom), watch: RecordingWatch())
+        var notifications = 0
+        store.onContentChanged = { notifications += 1 }
+        await store.load()
+        await store.remove(store.movies[0])
+        #expect(notifications == 0)   // nothing changed, so no rebuild
+    }
 }

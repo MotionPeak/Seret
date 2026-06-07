@@ -136,6 +136,14 @@ public final class AppSession {
         addService = RealDebridAddService(torrents: torrents)
         detailsProvider = TMDBDetailsService(client: tmdb)
         home = watchStore.map { HomeStore(watch: $0) }
+        // Recompute the Home rails the moment a removal changes the library, so a deleted title
+        // doesn't linger in Continue Watching / Recently Added until the Home tab is revisited.
+        if let home {
+            libraryStore?.onContentChanged = { [weak libraryStore] in
+                guard let libraryStore else { return }
+                await home.rebuild(movies: libraryStore.movies, shows: libraryStore.shows)
+            }
+        }
         let osKey = Secrets.openSubtitlesAPIKey
         if !osKey.isEmpty,
            let account = KeychainSecretStore(service: "com.solomons.seret.opensubtitles").readAccount() {

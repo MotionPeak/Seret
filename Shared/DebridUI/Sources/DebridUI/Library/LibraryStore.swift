@@ -19,6 +19,11 @@ public final class LibraryStore {
     private let library: LibraryProviding
     private let watch: WatchProgressProviding?
 
+    /// Fired after the library's contents change (currently: a successful removal) so dependent
+    /// UI — e.g. the Home rails — can recompute immediately instead of waiting for its next
+    /// `.task`. Wired by the composition root (`AppSession`); `nil` in isolation/tests by default.
+    public var onContentChanged: (@MainActor () async -> Void)?
+
     public init(library: LibraryProviding, watch: WatchProgressProviding? = nil) {
         self.library = library
         self.watch = watch
@@ -52,6 +57,7 @@ public final class LibraryStore {
             shows.removeAll { $0.id == item.id }
             if movies.isEmpty && shows.isEmpty { state = .empty }
             removal = .idle
+            await onContentChanged?()
         } catch {
             removal = .failed("Couldn\u{2019}t remove \u{201C}\(item.title)\u{201D}. Please try again.")
         }
