@@ -41,14 +41,17 @@ struct ShowDetail: View {
     }
 
     @ViewBuilder private var heroAction: some View {
-        if let next = store.nextEpisode() {
-            Button {
-                onPlay(store.playRequest(source: next.source, episode: next,
-                                         label: "\(item.title) — S\(next.season)·E\(next.number)"))
-            } label: {
-                Label("Play S\(next.season)·E\(next.number)", systemImage: "play.fill")
+        HStack(spacing: Theme.Space.md) {
+            if let next = store.nextEpisode() {
+                Button {
+                    onPlay(store.playRequest(source: next.source, episode: next,
+                                             label: "\(item.title) — S\(next.season)·E\(next.number)"))
+                } label: {
+                    Label("Play S\(next.season)·E\(next.number)", systemImage: "play.fill")
+                }
+                .buttonStyle(GoldButtonStyle())
             }
-            .buttonStyle(GoldButtonStyle())
+            TrailerButton(tmdbID: item.tmdbID, kind: .show)
         }
     }
 

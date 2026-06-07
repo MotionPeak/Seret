@@ -99,6 +99,7 @@ private struct MovieAddBody: View {
                     Text(overview).font(Theme.Typo.body())
                         .foregroundStyle(Theme.Palette.textSecondary).lineSpacing(3)
                 }
+                TrailerButton(tmdbID: flow.tmdbID, kind: flow.mediaKind)
                 if let add = flow.add { AddActionsView(flow: flow, add: add, onPlay: onPlay) }
             }
             .frame(maxWidth: 720, alignment: .leading)
@@ -123,6 +124,7 @@ private struct ShowAddBody: View {
                     Text(overview).font(Theme.Typo.body())
                         .foregroundStyle(Theme.Palette.textSecondary).lineLimit(3)
                 }
+                TrailerButton(tmdbID: flow.tmdbID, kind: flow.mediaKind)
                 seasonPicker
                 episodeList
                 if flow.selectedEpisode != nil, let add = flow.add {

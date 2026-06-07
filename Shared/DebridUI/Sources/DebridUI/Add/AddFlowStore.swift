@@ -38,6 +38,10 @@ public final class AddFlowStore {
     private var imdbID: String?
     private var originalLanguage: String?
 
+    /// The chosen title's TMDB id + kind (for trailers / lookups).
+    public var tmdbID: Int { hit.result.id }
+    public var mediaKind: MediaKind { hit.kind }
+
     public init(hit: SearchHit, details: MediaDetailsProviding,
                 streamSource: StreamSource, add: AddProviding) {
         self.hit = hit; self.details = details

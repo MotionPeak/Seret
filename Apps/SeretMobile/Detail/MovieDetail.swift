@@ -42,8 +42,8 @@ struct MovieDetail: View {
     }
 
     @ViewBuilder private var actions: some View {
-        if let best = store.bestSource {
-            HStack(spacing: Theme.Space.md) {
+        HStack(spacing: Theme.Space.md) {
+            if let best = store.bestSource {
                 if let resume = resumeSeconds {
                     Button { onPlay(store.playRequest(source: best, episode: nil, label: item.title)) } label: {
                         Label("Resume · \(Timecode.format(resume))", systemImage: "play.fill")
@@ -57,6 +57,7 @@ struct MovieDetail: View {
                     }.buttonStyle(GoldButtonStyle())
                 }
             }
+            TrailerButton(tmdbID: item.tmdbID, kind: .movie)
         }
     }
 

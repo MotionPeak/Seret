@@ -1,8 +1,10 @@
+import DebridCore
 import DebridUI
 import SwiftUI
 
 /// The signed-in shell. Adapts to the horizontal size class: a tab bar on iPhone
 /// (compact) and a custom Gold Glass sidebar (`NavigationSplitView`) on iPad (regular).
+/// Movies / TV are **browse** surfaces; My Library holds the user's Real-Debrid content.
 struct MainShell: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var sidebarSelection: Section = .home
@@ -20,16 +22,10 @@ struct MainShell: View {
 
     private var tabBar: some View {
         TabView {
-            HomeScreen()
-                .tabItem { Label(Section.home.title, systemImage: Section.home.icon) }
-            sectionStack(.movies)
-                .tabItem { Label(Section.movies.title, systemImage: Section.movies.icon) }
-            sectionStack(.shows)
-                .tabItem { Label(Section.shows.title, systemImage: Section.shows.icon) }
-            NavigationStack { SearchScreen() }
-                .tabItem { Label(Section.search.title, systemImage: Section.search.icon) }
-            NavigationStack { SettingsView() }
-                .tabItem { Label(Section.settings.title, systemImage: Section.settings.icon) }
+            ForEach(Section.allCases) { section in
+                screen(for: section)
+                    .tabItem { Label(section.title, systemImage: section.icon) }
+            }
         }
         .tint(Theme.Palette.gold)
     }
@@ -42,16 +38,20 @@ struct MainShell: View {
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar(removing: .sidebarToggle)
         } detail: {
-            switch sidebarSelection {
-            case .home: HomeScreen()
-            case .movies: sectionStack(.movies)
-            case .shows: sectionStack(.shows)
-            case .search: NavigationStack { SearchScreen() }
-            case .settings: NavigationStack { SettingsView() }
-            }
+            screen(for: sidebarSelection)
         }
         .navigationSplitViewStyle(.balanced)
         .tint(Theme.Palette.gold)
+    }
+
+    @ViewBuilder private func screen(for section: Section) -> some View {
+        switch section {
+        case .home:    HomeScreen()
+        case .movies:  NavigationStack { BrowseScreen(kind: .movie) }
+        case .tv:      NavigationStack { BrowseScreen(kind: .show) }
+        case .library: NavigationStack { MyLibraryScreen() }
+        case .settings: NavigationStack { SettingsView() }
+        }
     }
 
     private var sidebar: some View {
@@ -91,22 +91,15 @@ struct MainShell: View {
         .scrollContentBackground(.hidden)
     }
 
-    private func sectionStack(_ section: Section) -> some View {
-        NavigationStack {
-            LibrarySection(section: section)
-                .navigationTitle(section.title)
-        }
-    }
-
     enum Section: Hashable, CaseIterable, Identifiable {
-        case home, movies, shows, search, settings
+        case home, movies, tv, library, settings
         var id: Self { self }
         var title: String {
             switch self {
             case .home: "Home"
             case .movies: "Movies"
-            case .shows: "Shows"
-            case .search: "Search"
+            case .tv: "TV Shows"
+            case .library: "My Library"
             case .settings: "Settings"
             }
         }
@@ -114,8 +107,8 @@ struct MainShell: View {
             switch self {
             case .home: "house"
             case .movies: "film"
-            case .shows: "tv"
-            case .search: "magnifyingglass"
+            case .tv: "tv"
+            case .library: "rectangle.stack"
             case .settings: "gearshape"
             }
         }
@@ -123,8 +116,8 @@ struct MainShell: View {
             switch self {
             case .home: "house.fill"
             case .movies: "film.fill"
-            case .shows: "tv.fill"
-            case .search: "magnifyingglass"
+            case .tv: "tv.fill"
+            case .library: "rectangle.stack.fill"
             case .settings: "gearshape.fill"
             }
         }
