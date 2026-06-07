@@ -46,6 +46,9 @@ public final class AppSession {
     /// Global subtitle appearance (size · font · color), persisted and applied to every playback.
     /// Survives sign-out (it's a device preference, not session state).
     public let subtitleSettings = SubtitleSettingsModel()
+
+    /// Trailer auto-play preference, persisted; survives sign-out (a device setting).
+    public let trailerSettings = TrailerSettingsModel()
     private var watchProgressStore: WatchProgressStore?   // concrete ref for PlaybackCoordinator
     private var torrents: TorrentsClient?
 
@@ -53,6 +56,9 @@ public final class AppSession {
     /// the `makeAddStore(...)` factory vends (nil while signed out).
     private var streamSource: StreamSource?
     private var addService: AddProviding?
+
+    /// Resolves a YouTube key → direct stream URL (YouTubeKit), composed at sign-in.
+    private var trailerResolver: TrailerStreamResolving?
 
     /// Request-Download (uncached titles) seams, composed at sign-in (nil while signed out).
     private var downloadService: DownloadRequesting?
@@ -120,6 +126,7 @@ public final class AppSession {
         home = nil
         watchProgressStore = nil
         torrents = nil
+        trailerResolver = nil
         streamSource = nil
         addService = nil
         downloadService = nil
@@ -153,6 +160,7 @@ public final class AppSession {
         moviesBrowse = DiscoverStore(kind: .movie, discover: discover)
         showsBrowse = DiscoverStore(kind: .show, discover: discover)
         trailers = TMDBTrailerService(client: tmdb)
+        trailerResolver = YouTubeKitStreamResolver()
         // Comet = accurate instant-cache flags; Torrentio = broad index incl. brand-new CAMs.
         streamSource = AggregateStreamSource([CometStreamSource(tokens: realDebrid),
                                               TorrentioStreamSource()])
@@ -220,6 +228,14 @@ public final class AppSession {
                                          position: position, duration: duration)
             },
             subtitles: subtitlesProvider)
+    }
+
+    /// Vend a `TrailerModel` for a title (nil while signed out). Chains the TMDB key provider with
+    /// the YouTubeKit resolver and reads the persisted autoplay setting.
+    public func makeTrailerModel() -> TrailerModel? {
+        guard let trailers, let trailerResolver else { return nil }
+        return TrailerModel(trailers: trailers, resolver: trailerResolver,
+                            autoplayEnabled: { [trailerSettings] in trailerSettings.autoplayTrailers })
     }
 
     /// Vend a per-title `AddStore` for the chosen TMDB title, or nil if not signed in.
