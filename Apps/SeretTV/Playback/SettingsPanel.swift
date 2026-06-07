@@ -210,14 +210,20 @@ private struct TechnicalColumn: View {
 private struct SettingsColumn<Content: View>: View {
     let header: String
     @ViewBuilder var content: Content
+    /// Cap each column's height so a long track list (e.g. a REMUX with many subtitle streams)
+    /// scrolls INSIDE the column instead of growing the whole panel off-screen (which pushed the
+    /// tab bar out of view). tvOS auto-scrolls a `ScrollView` to keep the focused row visible.
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text(header).font(.caption.weight(.bold))
                 .foregroundStyle(Theme.Palette.gold)
                 .tracking(1.2)
-            content
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 14) { content }
+                    .padding(.vertical, 2)   // a little room so the focus pill isn't clipped
+            }
         }
-        .frame(minWidth: 220, alignment: .leading)
+        .frame(minWidth: 220, maxHeight: 640, alignment: .leading)
     }
 }
 
