@@ -27,10 +27,17 @@ private final class FakeReq: DownloadRequesting, @unchecked Sendable {
 
 private final class FakeRecords: DownloadRecording, @unchecked Sendable {
     private(set) var upserts: [DownloadRequestData] = []
+    private(set) var deleted: [String] = []
     var seeded: [DownloadRequestData]
     init(seeded: [DownloadRequestData] = []) { self.seeded = seeded }
     func upsert(_ data: DownloadRequestData) async throws { upserts.append(data) }
     func all() async throws -> [DownloadRequestData] { seeded }
+    func delete(torrentID: String) async throws { deleted.append(torrentID) }
+}
+
+private final class FakeDeleter: DownloadDeleting, @unchecked Sendable {
+    private(set) var deleted: [String] = []
+    func deleteTorrent(id: String) async throws { deleted.append(id) }
 }
 
 private final class FakePoller: DownloadPolling, @unchecked Sendable {
@@ -44,8 +51,22 @@ private final class FakePoller: DownloadPolling, @unchecked Sendable {
     private func make(req: FakeReq = FakeReq(.success(tv("queued"))),
                       records: FakeRecords = FakeRecords(),
                       poller: FakePoller = FakePoller([]),
+                      deleter: FakeDeleter = FakeDeleter(),
                       onReady: @escaping (Int) -> Void = { _ in }) -> DownloadStore {
-        DownloadStore(service: req, records: records, poller: poller, onReady: { onReady($0) })
+        DownloadStore(service: req, records: records, poller: poller, deleter: deleter,
+                      onReady: { onReady($0) })
+    }
+
+    @Test func cancelDeletesTorrentClearsRecordAndBadge() async {
+        let records = FakeRecords()
+        let deleter = FakeDeleter()
+        let s = make(req: FakeReq(.success(tv("downloading", id: "TID"))), records: records, deleter: deleter)
+        await s.request(tmdbID: 5, title: "X", kind: .movie, candidates: [stream("h")])
+        #expect(s.status(forTMDB: 5) != nil)
+        await s.cancel(tmdbID: 5)
+        #expect(s.status(forTMDB: 5) == nil)          // badge gone
+        #expect(deleter.deleted == ["TID"])           // RD torrent removed
+        #expect(records.deleted == ["TID"])           // persisted record removed
     }
 
     @Test func requestStartsDownloadAndRecordsIt() async {

@@ -454,6 +454,10 @@ private struct DownloadSection: View {
                 ProgressView(value: status?.fraction ?? 0).tint(Theme.Palette.gold)
                 Text("It'll appear in your library when it's ready.")
                     .font(Theme.Typo.caption()).foregroundStyle(Theme.Palette.textTertiary)
+                Button(role: .destructive) {
+                    Task { await session.downloadStore?.cancel(tmdbID: flow.tmdbID) }
+                } label: { Label("Cancel download", systemImage: "xmark.circle") }
+                    .buttonStyle(GhostButtonStyle())
             } else if case .failed(let reason) = status?.phase {
                 Label(reason, systemImage: "exclamationmark.triangle")
                     .font(Theme.Typo.body()).foregroundStyle(.orange)

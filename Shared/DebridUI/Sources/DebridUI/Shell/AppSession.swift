@@ -165,6 +165,7 @@ public final class AppSession {
             // A finished download flips into the normal library — refresh so it appears + Play lights
             // up — and fires a "ready" notification (the title is still in DownloadStore's meta here).
             let store = DownloadStore(service: dlService, records: dStore, poller: dMonitor,
+                                      deleter: torrents,
                                       onReady: { [weak self] tmdbID in
                                           guard let self else { return }
                                           let name = self.downloadStore?.title(forTMDB: tmdbID) ?? "Your download"

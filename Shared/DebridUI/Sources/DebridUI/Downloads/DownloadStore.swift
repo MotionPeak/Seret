@@ -6,6 +6,7 @@ import Observation
 public protocol DownloadRecording: Sendable {
     func upsert(_ data: DownloadRequestData) async throws
     func all() async throws -> [DownloadRequestData]
+    func delete(torrentID: String) async throws
 }
 
 /// Polling seam over RD download progress (DebridCore's `DownloadMonitor` conforms).
@@ -13,8 +14,14 @@ public protocol DownloadPolling: Sendable {
     func poll() async throws -> [DownloadStatus]
 }
 
+/// Deletes an RD torrent — used to cancel a download (DebridCore's `TorrentsClient` conforms).
+public protocol DownloadDeleting: Sendable {
+    func deleteTorrent(id: String) async throws
+}
+
 extension DownloadsStore: DownloadRecording {}
 extension DownloadMonitor: DownloadPolling {}
+extension TorrentsClient: DownloadDeleting {}
 
 /// App-wide view-model for the "request download" feature: starts uncached downloads on the RD
 /// seam, persists a record, and surfaces live per-title progress (keyed by TMDB id) that drives
@@ -33,6 +40,7 @@ public final class DownloadStore {
     private let service: DownloadRequesting
     private let records: DownloadRecording
     private let poller: DownloadPolling
+    private let deleter: DownloadDeleting
     private let onReady: (Int) async -> Void
     private let now: () -> Date
     private let maxAttempts: Int
@@ -42,12 +50,25 @@ public final class DownloadStore {
     public init(service: DownloadRequesting,
                 records: DownloadRecording,
                 poller: DownloadPolling,
+                deleter: DownloadDeleting,
                 onReady: @escaping (Int) async -> Void = { _ in },
                 pollInterval: Duration = .seconds(5),
                 now: @escaping () -> Date = Date.init,
                 maxAttempts: Int = 6) {
-        self.service = service; self.records = records; self.poller = poller
+        self.service = service; self.records = records; self.poller = poller; self.deleter = deleter
         self.onReady = onReady; self.pollInterval = pollInterval; self.now = now; self.maxAttempts = maxAttempts
+    }
+
+    /// Cancel an in-flight (or stalled) download: delete the RD torrent, drop the persisted record,
+    /// and clear the badge. Safe to call for a request that never started (no torrent yet).
+    public func cancel(tmdbID: Int) async {
+        let torrentID = statuses[tmdbID]?.torrentID
+        statuses[tmdbID] = nil
+        meta[tmdbID] = nil
+        if let torrentID, !torrentID.isEmpty {
+            try? await deleter.deleteTorrent(id: torrentID)
+            try? await records.delete(torrentID: torrentID)
+        }
     }
 
     public func status(forTMDB id: Int) -> DownloadStatus? { statuses[id] }
