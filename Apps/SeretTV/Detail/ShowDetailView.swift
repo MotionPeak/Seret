@@ -24,17 +24,19 @@ struct ShowDetailView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 32) {
-                // Bottom-anchored hero over the backdrop; the season picker + episodes follow below.
-                hero.frame(maxWidth: .infinity, minHeight: 400, alignment: .bottomLeading)
-                seasonPicker
-                SeasonDownloadButton(store: seasonStore, onAdded: onSeasonAdded)
-                episodeList
+            VStack(spacing: 0) {
+                TrailerHero(tmdbID: item.tmdbID, kind: .show,
+                            backdropPath: store.backdropPath, posterFallback: item.posterPath)
+                VStack(alignment: .leading, spacing: 32) {
+                    hero.frame(maxWidth: .infinity, alignment: .leading)
+                    seasonPicker
+                    SeasonDownloadButton(store: seasonStore, onAdded: onSeasonAdded)
+                    episodeList
+                }
+                .padding(60)
             }
-            .padding(60)
         }
-        .background(AutoplayBackdrop(tmdbID: item.tmdbID, kind: .show,
-                                     backdropPath: store.backdropPath, posterFallback: item.posterPath))
+        .background(CanvasBackground())
         .task(id: seasonDownloadKey) {
             guard let imdb = store.imdbID else { return }
             let s = makeSeasonDownload(imdb, store.selectedSeason, store.originalLanguage)

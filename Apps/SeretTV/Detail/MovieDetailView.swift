@@ -13,16 +13,17 @@ struct MovieDetailView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 36) {
-                // Anchor the hero low so the backdrop breathes above it, but not so low that the
-                // action buttons fall into a real TV's bottom overscan (kept well inside safe area).
-                hero.frame(maxWidth: .infinity, minHeight: 520, alignment: .bottomLeading)
-                if store.versions.count > 1 { versionsSection }   // single source → no disclosure (spec §6)
+            VStack(spacing: 0) {
+                TrailerHero(tmdbID: item.tmdbID, kind: .movie,
+                            backdropPath: store.backdropPath, posterFallback: item.posterPath)
+                VStack(alignment: .leading, spacing: 36) {
+                    hero.frame(maxWidth: .infinity, alignment: .leading)
+                    if store.versions.count > 1 { versionsSection }   // single source → no disclosure (spec §6)
+                }
+                .padding(60)
             }
-            .padding(60)
         }
-        .background(AutoplayBackdrop(tmdbID: item.tmdbID, kind: .movie,
-                                     backdropPath: store.backdropPath, posterFallback: item.posterPath))
+        .background(CanvasBackground())
     }
 
     private var hero: some View {
