@@ -10,6 +10,8 @@ struct BrowseScreen: View {
 
     @Environment(AppSession.self) private var session
     @State private var query = ""
+    /// The title under remote focus — drives the full-bleed hero. Tiles publish it via FocusedHitKey.
+    @State private var featuredHit: SearchHit?
 
     private var browse: DiscoverStore? { kind == .movie ? session.moviesBrowse : session.showsBrowse }
 
@@ -63,15 +65,20 @@ struct BrowseScreen: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             case .loaded:
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 40) {
-                        segmentPicker(browse).padding(.leading, 60)
-                        ForEach(browse.rows) { row in
-                            rail(title: row.title, hits: row.hits, cam: false)
+                VStack(spacing: 0) {
+                    HeroBanner(hit: featuredHit)   // pinned above the rails; crossfades on focus
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 40) {
+                            segmentPicker(browse).padding(.leading, 60)
+                            ForEach(browse.rows) { row in
+                                rail(title: row.title, hits: row.hits, cam: false)
+                            }
                         }
+                        .padding(.vertical, 20)
                     }
-                    .padding(.vertical, 20)
                 }
+                .onPreferenceChange(FocusedHitKey.self) { featuredHit = $0 ?? featuredHit }
+                .onAppear { if featuredHit == nil { featuredHit = browse.rows.first?.hits.first } }
             }
         }
     }
@@ -126,6 +133,7 @@ private struct BrowseTile: View {
     let hit: SearchHit
     var cam: Bool = false
     @Environment(AppSession.self) private var session
+    @FocusState private var focused: Bool
     private let width: CGFloat = 220
     private let height: CGFloat = 330
 
@@ -133,14 +141,16 @@ private struct BrowseTile: View {
         let owned = session.libraryStore?.ownedItem(tmdbID: hit.result.id)
         return VStack(alignment: .leading, spacing: 12) {
             if let owned {
-                NavigationLink(value: owned) { poster(owned: true) }.buttonStyle(.card)
+                NavigationLink(value: owned) { poster(owned: true) }.buttonStyle(.card).focused($focused)
             } else {
-                NavigationLink(value: hit) { poster(owned: false) }.buttonStyle(.card)
+                NavigationLink(value: hit) { poster(owned: false) }.buttonStyle(.card).focused($focused)
             }
             Text(hit.result.displayTitle)
                 .font(.callout.weight(.semibold)).lineLimit(1)
                 .frame(width: width, alignment: .leading)
         }
+        // Publish this title to the hero while focused (the screen keeps the last non-nil).
+        .preference(key: FocusedHitKey.self, value: focused ? hit : nil)
     }
 
     @ViewBuilder private func poster(owned: Bool) -> some View {
