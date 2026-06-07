@@ -53,16 +53,16 @@ struct LibraryShell: View {
     /// A focusable pill row. Moving focus across the pills switches the page live (onChange),
     /// so you never have to click a tab — exactly what the SettingsPanel tab bar does.
     private var tabBar: some View {
-        HStack(spacing: 8) {
+        // Free pills using the exact same SeretPillStyle as the Browse segment pills — switch on
+        // focus (no press), with the same subtle gold fill + scale animation.
+        HStack(spacing: 12) {
             ForEach(ShellTab.allCases) { t in
-                ShellTabChip(tab: t, selected: tab == t)
-                    .focusable()
+                Button { tab = t } label: { Label(t.title, systemImage: t.icon) }
+                    .buttonStyle(SeretPillStyle(selected: tab == t))
                     .focused($focusedTab, equals: t)
             }
         }
-        .padding(8)
-        .background(.ultraThinMaterial, in: Capsule())
-        .padding(.top, 24).padding(.bottom, 12)
+        .padding(.top, 28).padding(.bottom, 12)
         .frame(maxWidth: .infinity)
         .onChange(of: focusedTab) { _, new in
             // Quick crossfade — snappy but still animated (0.28 felt laggy on-device).
@@ -116,31 +116,6 @@ private enum ShellTab: String, CaseIterable, Identifiable {
         case .library: return "rectangle.stack"
         case .settings: return "gearshape"
         }
-    }
-}
-
-/// One tab pill: focused → solid gold + black; selected (current page) → faint gold + gold text;
-/// otherwise transparent + secondary text. Reads `\.isFocused` so the highlight is uniform.
-private struct ShellTabChip: View {
-    let tab: ShellTab
-    let selected: Bool
-    @Environment(\.isFocused) private var focused: Bool
-    var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: tab.icon)
-            Text(tab.title)
-        }
-        .font(.headline)
-        .foregroundStyle(focused ? .black : (selected ? Theme.Palette.gold : Theme.Palette.textSecondary))
-        .padding(.horizontal, 22).padding(.vertical, 12)
-        .background(fill, in: Capsule())
-        .scaleEffect(focused ? 1.05 : 1)
-        .animation(.easeOut(duration: 0.15), value: focused)
-    }
-    private var fill: AnyShapeStyle {
-        if focused { return AnyShapeStyle(Theme.Palette.goldGradient) }
-        if selected { return AnyShapeStyle(Theme.Palette.gold.opacity(0.16)) }
-        return AnyShapeStyle(Color.clear)
     }
 }
 
