@@ -37,14 +37,17 @@ struct PlayerView: View {
                 // play/pause. While the settings panel is open it goes inert so swipes navigate the
                 // panel instead of starting a scrub.
                 ScrubPad(model: model, isInteractive: !showSettings && !showEpisodes,
-                         onShowSettings: { showSettings = true },
-                         onPullUp: {
-                             model.revealScrubBar()           // swipe up always reveals the scrub bar
-                             if model.isEpisode {             // …and the episode strip for a show
+                         onShowSettings: {
+                             // Swipe DOWN: when the scrub bar is up on a show → the episodes popup
+                             // (sits under the bar); otherwise → the audio/subtitle settings panel.
+                             if model.scrubBarVisible && model.isEpisode {
                                  showEpisodes = true
                                  Task { await model.loadSeasonEpisodes() }
+                             } else {
+                                 showSettings = true
                              }
-                         })
+                         },
+                         onPullUp: { model.revealScrubBar() })   // pull up lands on the scrub bar first
                 // Thin scrub bar: appears on click + during scrub, sticky 5s, fades in/out.
                 // Forced visible while buffering (a seek/rebuffer), so the user gets the loading hint.
                 MinimalScrubBar(model: model, buffering: model.isBuffering)
@@ -149,8 +152,11 @@ private struct EpisodesPanel: View {
                         ScrollView(.horizontal, showsIndicators: false) {
                             LazyHStack(spacing: 28) {
                                 ForEach(model.seasonEpisodes) { ep in
-                                    Button { model.play(ep.episode); onClose() } label: { card(ep) }
+                                    Button {
+                                        if let owned = ep.owned { model.play(owned); onClose() }
+                                    } label: { card(ep) }
                                         .buttonStyle(.card)
+                                        .disabled(!ep.isPlayable)        // not downloaded → not selectable
                                         .id(ep.id)
                                         .focused($focused, equals: ep.id)
                                 }
@@ -173,8 +179,7 @@ private struct EpisodesPanel: View {
     }
 
     private func card(_ ep: PlayerModel.PlayerEpisode) -> some View {
-        let isCurrent = ep.episode.season == model.currentEpisode?.season
-            && ep.episode.number == model.currentEpisode?.number
+        let isCurrent = ep.season == model.currentEpisode?.season && ep.number == model.currentEpisode?.number
         return VStack(alignment: .leading, spacing: 8) {
             AsyncImage(url: TMDBClient.imageURL(path: ep.stillPath, size: "w300")) {
                 $0.resizable().aspectRatio(contentMode: .fill)
@@ -183,11 +188,19 @@ private struct EpisodesPanel: View {
                 .overlay {
                     if isCurrent {
                         RoundedRectangle(cornerRadius: 6).stroke(Theme.Palette.gold, lineWidth: 4)
+                    } else if !ep.isPlayable {
+                        // Not downloaded → dim + a small marker so it reads as "not in your library".
+                        ZStack {
+                            Color.black.opacity(0.45)
+                            Image(systemName: "arrow.down.circle").font(.title2).foregroundStyle(.white.opacity(0.85))
+                        }
                     }
                 }
-            Text("\(ep.episode.number) · \(ep.name ?? "Episode \(ep.episode.number)")")
+            Text("\(ep.number) · \(ep.name ?? "Episode \(ep.number)")")
                 .font(.callout.weight(.semibold)).lineLimit(1).frame(width: 300, alignment: .leading)
+                .foregroundStyle(ep.isPlayable ? .primary : .secondary)
         }
+        .opacity(ep.isPlayable ? 1 : 0.7)
     }
 }
 

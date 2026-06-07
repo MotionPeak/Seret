@@ -171,30 +171,38 @@ public final class PlayerModel {
 
     /// One row in the in-player season strip: a playable episode + its TMDB name/still.
     public struct PlayerEpisode: Identifiable, Equatable, Sendable {
-        public let episode: Episode
+        public let season: Int
+        public let number: Int
         public let name: String?
         public let stillPath: String?
-        public var id: String { "\(episode.season)x\(episode.number)" }
+        /// The downloaded episode (playable) — nil when this episode isn't in the library yet.
+        public let owned: Episode?
+        public var id: String { "\(season)x\(number)" }
+        public var isPlayable: Bool { owned != nil }
     }
     /// The current season's episodes for the strip (empty until `loadSeasonEpisodes()` runs).
     public private(set) var seasonEpisodes: [PlayerEpisode] = []
 
-    /// Build the strip once: the current season's playable episodes (from the library item) merged
-    /// with TMDB names/stills. Shows only; no-op for a movie or if already loaded for this season.
+    /// Build the strip: the WHOLE current season from TMDB (so every episode shows, not just the
+    /// downloaded ones), each tagged with its owned/playable episode when in the library. Falls
+    /// back to owned-only if TMDB is unavailable. Shows only; no-op once loaded for this season.
     public func loadSeasonEpisodes() async {
         guard let episode else { return }
-        if let first = seasonEpisodes.first?.episode, first.season == episode.season { return }
-        let playable = item.seasons.first(where: { $0.number == episode.season })?
-            .episodes.sorted { $0.number < $1.number } ?? []
-        guard !playable.isEmpty else { return }
-        var metaByNumber: [Int: TMDBEpisodeDetails] = [:]
+        if let first = seasonEpisodes.first, first.season == episode.season { return }
+        let owned = item.seasons.first(where: { $0.number == episode.season })?.episodes ?? []
+        let ownedByNumber = Dictionary(owned.map { ($0.number, $0) }, uniquingKeysWith: { a, _ in a })
+
         if let details, let tmdbID = item.tmdbID,
-           let eps = try? await details.seasonEpisodes(tvID: tmdbID, season: episode.season) {
-            metaByNumber = Dictionary(eps.map { ($0.episodeNumber, $0) }, uniquingKeysWith: { a, _ in a })
-        }
-        seasonEpisodes = playable.map { ep in
-            PlayerEpisode(episode: ep, name: metaByNumber[ep.number]?.name,
-                          stillPath: metaByNumber[ep.number]?.stillPath)
+           let eps = try? await details.seasonEpisodes(tvID: tmdbID, season: episode.season), !eps.isEmpty {
+            seasonEpisodes = eps.sorted { $0.episodeNumber < $1.episodeNumber }.map { e in
+                PlayerEpisode(season: episode.season, number: e.episodeNumber,
+                              name: e.name, stillPath: e.stillPath, owned: ownedByNumber[e.episodeNumber])
+            }
+        } else {
+            // No TMDB → show the downloaded episodes only.
+            seasonEpisodes = owned.sorted { $0.number < $1.number }.map {
+                PlayerEpisode(season: $0.season, number: $0.number, name: nil, stillPath: nil, owned: $0)
+            }
         }
     }
 
