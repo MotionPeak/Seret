@@ -64,9 +64,22 @@ private struct YouTubeEmbed: UIViewRepresentable {
         let web = WKWebView(frame: .zero, configuration: config)
         web.isOpaque = false
         web.backgroundColor = .black
-        if let url = URL(string: "https://www.youtube.com/embed/\(key)?autoplay=1&playsinline=1&rel=0") {
-            web.load(URLRequest(url: url))
-        }
+        web.scrollView.isScrollEnabled = false
+        // Embed via an <iframe> inside an HTML page served from a youtube.com baseURL — NOT by
+        // loading the /embed/ URL as the top-level document. YouTube's player rejects a top-level
+        // /embed/ load with "Error 153: player configuration error" because it has no valid
+        // embedding origin; an iframe with a youtube.com baseURL gives it one.
+        let html = """
+        <!DOCTYPE html><html><head>
+        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+        <style>html,body{margin:0;padding:0;height:100%;background:#000;overflow:hidden}
+        .wrap{position:absolute;inset:0}iframe{width:100%;height:100%;border:0}</style>
+        </head><body><div class="wrap">
+        <iframe src="https://www.youtube.com/embed/\(key)?playsinline=1&autoplay=1&rel=0&modestbranding=1"
+          allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
+        </div></body></html>
+        """
+        web.loadHTMLString(html, baseURL: URL(string: "https://www.youtube.com"))
         return web
     }
     func updateUIView(_ web: WKWebView, context: Context) {}
