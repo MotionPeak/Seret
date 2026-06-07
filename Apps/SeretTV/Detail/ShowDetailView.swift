@@ -41,18 +41,21 @@ struct ShowDetailView: View {
     }
 
     @ViewBuilder private var heroActions: some View {
-        if let next = store.nextEpisode() {
-            let resume = store.watchState(forKey: WatchKey.content(forShow: item, episode: next))
-                .flatMap { (!$0.finished && $0.positionSeconds > 0) ? $0.positionSeconds : nil }
-            NavigationLink(value: store.playRequest(
-                source: next.source, episode: next,
-                label: "\(item.title) — S\(next.season)·E\(next.number)")) {
-                Label(resume != nil ? "Resume S\(next.season)·E\(next.number)"
-                                    : "Play S\(next.season)·E\(next.number)",
-                      systemImage: "play.fill")
+        HStack(spacing: 20) {
+            if let next = store.nextEpisode() {
+                let resume = store.watchState(forKey: WatchKey.content(forShow: item, episode: next))
+                    .flatMap { (!$0.finished && $0.positionSeconds > 0) ? $0.positionSeconds : nil }
+                NavigationLink(value: store.playRequest(
+                    source: next.source, episode: next,
+                    label: "\(item.title) — S\(next.season)·E\(next.number)")) {
+                    Label(resume != nil ? "Resume S\(next.season)·E\(next.number)"
+                                        : "Play S\(next.season)·E\(next.number)",
+                          systemImage: "play.fill")
+                }
             }
-            .font(.title3)
+            TrailerButton(tmdbID: item.tmdbID, kind: .show)
         }
+        .font(.title3)
     }
 
     private var seasonPicker: some View {

@@ -2,21 +2,18 @@ import DebridCore
 import DebridUI
 import SwiftUI
 
-/// The signed-in root: a tvOS top tab bar (Movies · Shows · Settings) over the library store.
-/// The tab bar is the native Apple-TV navigation chrome — it labels the section and collapses
-/// out of the way when focus moves into the grid, so there's no persistent side panel.
+/// The signed-in root: a tvOS top tab bar (Movies · TV · My Library · Settings). Movies/TV are
+/// browse surfaces (popular + search → add); My Library holds the user's RD content. One root
+/// NavigationStack OUTSIDE the TabView so Detail / the player cover the tab bar cleanly.
 struct LibraryShell: View {
     @Environment(AppSession.self) private var session
 
     var body: some View {
-        // One root NavigationStack OUTSIDE the TabView: drilling into Detail / the player pushes a
-        // full-screen view that covers the tab bar (no menu-bar bleed at the top), and Menu pops
-        // straight back to the grid instead of snagging on the tab bar.
         NavigationStack {
             TabView {
-                Tab("Movies", systemImage: "film") { grid("Movies", \.movies) }
-                Tab("Shows", systemImage: "tv") { grid("Shows", \.shows) }
-                Tab("Search", systemImage: "magnifyingglass") { SearchScreen() }
+                Tab("Movies", systemImage: "film") { BrowseScreen(kind: .movie) }
+                Tab("TV", systemImage: "tv") { BrowseScreen(kind: .show) }
+                Tab("My Library", systemImage: "rectangle.stack") { MyLibraryScreen() }
                 Tab("Settings", systemImage: "gearshape") { SettingsView() }
             }
             .navigationDestination(for: SearchHit.self) { hit in
@@ -37,17 +34,10 @@ struct LibraryShell: View {
                 }
             }
         }
-        // Loads once on appear; re-runs when the store's `retry()` bumps `attempt`.
+        // Load the library once on appear (re-runs when `retry()` bumps `attempt`). This also
+        // populates ownership so Browse can badge titles already in the library.
         .task(id: session.libraryStore?.attempt ?? -1) {
             await session.libraryStore?.load()
-        }
-    }
-
-    @ViewBuilder
-    private func grid(_ title: String, _ items: KeyPath<LibraryStore, [MediaItem]>) -> some View {
-        if let store = session.libraryStore {
-            LibraryScreen(title: title, items: store[keyPath: items], state: store.state,
-                          onRetry: { store.retry() })
         }
     }
 }

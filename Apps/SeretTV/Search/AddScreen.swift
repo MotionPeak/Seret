@@ -83,6 +83,7 @@ private struct MovieAdd: View {
                 if let overview = flow.overview {
                     Text(overview).font(.body).frame(maxWidth: 1100, alignment: .leading).lineLimit(3)
                 }
+                TrailerButton(tmdbID: flow.tmdbID, kind: flow.mediaKind).font(.title3)
                 if let add = flow.add {
                     AddActions(flow: flow, add: add, onPlay: onPlay)
                 }
@@ -107,6 +108,7 @@ private struct ShowAdd: View {
                 if let overview = flow.overview {
                     Text(overview).font(.body).frame(maxWidth: 1100, alignment: .leading).lineLimit(2)
                 }
+                TrailerButton(tmdbID: flow.tmdbID, kind: flow.mediaKind).font(.title3)
                 seasonPicker
                 episodeList
                 if flow.selectedEpisode != nil, let add = flow.add {

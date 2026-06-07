@@ -70,6 +70,7 @@ struct MovieDetailView: View {
                       systemImage: isWatched ? "checkmark.circle.fill" : "checkmark.circle")
             }
             .disabled(item.sources.isEmpty)
+            TrailerButton(tmdbID: item.tmdbID, kind: .movie)
         }
         .font(.title3)
     }

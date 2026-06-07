@@ -37,6 +37,7 @@ targets:
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         TMDBAPIKey: "$(TMDB_API_KEY)"
         OpenSubtitlesAPIKey: "$(OPENSUBTITLES_API_KEY)"
+        LSApplicationQueriesSchemes: [youtube, vnd.youtube]
     settings:
       base:
         PRODUCT_NAME: Seret
