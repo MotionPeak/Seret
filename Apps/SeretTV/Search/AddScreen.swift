@@ -99,6 +99,7 @@ private struct MovieAdd: View {
 private struct ShowAdd: View {
     let flow: AddFlowStore
     let onPlay: (PlaybackRequest) -> Void
+    @Environment(AppSession.self) private var session
 
     var body: some View {
         ScrollView {
@@ -110,6 +111,7 @@ private struct ShowAdd: View {
                 }
                 TrailerButton(tmdbID: flow.tmdbID, kind: flow.mediaKind).font(.title3)
                 seasonPicker
+                SeasonDownloadButton(store: flow.seasonAdd) { session.libraryStore?.retry() }
                 episodeList
                 if flow.selectedEpisode != nil, let add = flow.add {
                     AddActions(flow: flow, add: add, onPlay: onPlay)

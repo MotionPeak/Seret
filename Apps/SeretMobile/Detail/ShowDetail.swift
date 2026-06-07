@@ -7,7 +7,15 @@ import SwiftUI
 struct ShowDetail: View {
     let store: DetailStore
     let onPlay: (PlaybackRequest) -> Void
+    /// Builds a whole-season download engine for (imdbID, season, originalLanguage); injected so the
+    /// view stays buildable without an AppSession. Returns nil when Stage 2 is unavailable.
+    var makeSeasonDownload: (String, Int, String?) -> AddStore? = { _, _, _ in nil }
+    var onSeasonAdded: () -> Void = {}
+    @State private var seasonStore: AddStore?
     private var item: MediaItem { store.item }
+
+    /// Re-keys the season-pack lookup whenever the resolved imdbID or selected season changes.
+    private var seasonDownloadKey: String { "\(store.imdbID ?? "")#\(store.selectedSeason)" }
 
     var body: some View {
         ScrollView {
@@ -20,6 +28,7 @@ struct ShowDetail: View {
                 }
                 heroAction
                 seasonPicker
+                SeasonDownloadButton(store: seasonStore, onAdded: onSeasonAdded)
                 episodeList
             }
             .frame(maxWidth: 700, alignment: .leading)
@@ -31,6 +40,12 @@ struct ShowDetail: View {
         .background(DetailBackdrop(path: store.backdropPath, posterFallback: item.posterPath))
         .navigationTitle(item.title)
         .navigationBarTitleDisplayMode(.inline)
+        .task(id: seasonDownloadKey) {
+            guard let imdb = store.imdbID else { return }
+            let s = makeSeasonDownload(imdb, store.selectedSeason, store.originalLanguage)
+            seasonStore = s
+            await s?.loadStreams()
+        }
     }
 
     private var metaLine: String {

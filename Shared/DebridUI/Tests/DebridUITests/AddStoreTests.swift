@@ -100,4 +100,35 @@ private func cachedStream(_ hash: String, res: String, langs: [String], size: In
         await s.addBest()
         if case .addFailed = s.state {} else { Issue.record("expected addFailed") }
     }
+
+    // MARK: - Season-pack mode
+
+    private func seStream(_ hash: String, season: Int, episode: Int?, res: String) -> CachedStream {
+        CachedStream(infoHash: hash, fileIdx: nil, rawTitle: "t",
+                     parsed: ParsedRelease(title: "t", season: season, episode: episode, resolution: res),
+                     languages: ["en"], sizeBytes: 1, sourceName: nil)
+    }
+
+    @Test func seasonPackModeRanksOnlyFullSeasonReleases() async {
+        // The episode query returns single episodes AND a season pack; pack mode keeps only the pack.
+        let streams = [seStream("ep", season: 1, episode: 1, res: "2160p"),
+                       seStream("pack", season: 1, episode: nil, res: "1080p")]
+        let s = AddStore(imdbID: "tt1", kind: .series(season: 1, episode: 1), originalLanguage: "en",
+                         streamSource: FakeStreamSource(.success(streams)),
+                         add: FakeAdd(.failure(.boom)), seasonPack: 1)
+        await s.loadStreams()
+        #expect(s.state == .streams)
+        #expect(s.ranked.map(\.infoHash) == ["pack"])
+        #expect(s.best?.infoHash == "pack")
+    }
+
+    @Test func seasonPackModeNoStreamsWhenNoPack() async {
+        let streams = [seStream("ep", season: 1, episode: 1, res: "2160p")]   // only a single episode
+        let s = AddStore(imdbID: "tt1", kind: .series(season: 1, episode: 1), originalLanguage: "en",
+                         streamSource: FakeStreamSource(.success(streams)),
+                         add: FakeAdd(.failure(.boom)), seasonPack: 1)
+        await s.loadStreams()
+        #expect(s.state == .noStreams)
+        #expect(s.best == nil)
+    }
 }

@@ -21,11 +21,15 @@ public final class AddStore {
     private let originalLanguage: String?
     private let streamSource: StreamSource
     private let addService: AddProviding
+    /// When set, this store grabs the whole-season pack for that season: it queries an episode
+    /// (packs come back alongside single episodes) but ranks only full-season releases. Adding one
+    /// caches every episode at once — RD selects all the pack's files and the library expands it.
+    private let seasonPack: Int?
 
     public init(imdbID: String, kind: StreamQuery.Kind, originalLanguage: String?,
-                streamSource: StreamSource, add: AddProviding) {
+                streamSource: StreamSource, add: AddProviding, seasonPack: Int? = nil) {
         self.imdbID = imdbID; self.kind = kind; self.originalLanguage = originalLanguage
-        self.streamSource = streamSource; self.addService = add
+        self.streamSource = streamSource; self.addService = add; self.seasonPack = seasonPack
     }
 
     public func loadStreams() async {
@@ -33,8 +37,11 @@ public final class AddStore {
         do {
             let query = StreamQuery(imdbID: imdbID, kind: kind, originalLanguage: originalLanguage)
             let found = try await streamSource.streams(for: query)
-            ranked = found.rankedFor(originalLanguage: originalLanguage)
-            if let match = found.bestMatch(originalLanguage: originalLanguage) {
+            // Season-pack mode narrows the results to full-season releases before ranking; the
+            // normal episode/movie path ranks everything.
+            let candidates = seasonPack.map { found.seasonPacks(forSeason: $0) } ?? found
+            ranked = candidates.rankedFor(originalLanguage: originalLanguage)
+            if let match = candidates.bestMatch(originalLanguage: originalLanguage) {
                 best = match.stream; isFallback = match.isFallback; state = .streams
             } else {
                 best = nil; isFallback = false; state = .noStreams

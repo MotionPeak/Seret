@@ -146,4 +146,21 @@ private func showHit() -> SearchHit {
         #expect(request?.source.restrictedLink == "https://rd/d/X")
         #expect(request?.item.tmdbID == 11)
     }
+
+    @Test func selectingASeasonPreparesAndDownloadsTheSeasonPack() async {
+        let pack = CachedStream(infoHash: "pack", fileIdx: nil, rawTitle: "Show.S01.2160p",
+                                parsed: ParsedRelease(title: "Show", season: 1, episode: nil, resolution: "2160p"),
+                                languages: ["en"], sizeBytes: 1, sourceName: nil)
+        let loneEpisode = cachedStream("ep", res: "1080p", langs: ["en"], size: 1)  // no season → not a pack
+        let f = flow(hit: showHit(),
+                     details: FakeDetails(tv: .success(tvDetails(imdb: "tt9", seasons: 1)),
+                                          episodes: [1: .success([episode(1)])]),
+                     streams: .success([pack, loneEpisode]),
+                     add: .success(downloadedInfo()))
+        await f.resolve()                              // resolveShow auto-selects season 1
+        #expect(f.seasonAdd?.state == .streams)
+        #expect(f.seasonAdd?.best?.infoHash == "pack") // only the full-season pack, not the single episode
+        await f.addSeason()
+        if case .added = f.seasonAdd?.state {} else { Issue.record("expected the season pack to be added") }
+    }
 }

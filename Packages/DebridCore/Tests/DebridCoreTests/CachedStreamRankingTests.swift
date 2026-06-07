@@ -90,4 +90,42 @@ import Testing
     @Test func bestMatchNilWhenEmpty() {
         #expect([CachedStream]().bestMatch(originalLanguage: "en") == nil)
     }
+
+    // MARK: - Season packs
+
+    func packStream(_ hash: String, season: Int, res: String, langs: [String] = ["en"]) -> CachedStream {
+        CachedStream(infoHash: hash, fileIdx: nil, rawTitle: "t",
+                     parsed: ParsedRelease(title: "t", season: season, episode: nil, resolution: res),
+                     languages: langs, sizeBytes: 1, sourceName: nil)
+    }
+    func epStream(_ hash: String, season: Int, episode: Int, res: String, langs: [String] = ["en"]) -> CachedStream {
+        CachedStream(infoHash: hash, fileIdx: nil, rawTitle: "t",
+                     parsed: ParsedRelease(title: "t", season: season, episode: episode, resolution: res),
+                     languages: langs, sizeBytes: 1, sourceName: nil)
+    }
+
+    @Test func seasonPacksKeepsOnlyWholeSeasonReleasesForThatSeason() {
+        let pack1 = packStream("p1", season: 1, res: "2160p")            // S01 pack ✓
+        let ep    = epStream("e1", season: 1, episode: 1, res: "2160p")  // single episode ✗
+        let pack2 = packStream("p2", season: 2, res: "1080p")            // wrong season ✗
+        // Complete-series pack: no parsed season → excluded (would pull every season).
+        let complete = CachedStream(infoHash: "c", fileIdx: nil, rawTitle: "t",
+                                    parsed: ParsedRelease(title: "t", resolution: "2160p"),
+                                    languages: ["en"], sizeBytes: 1, sourceName: nil)
+        let packs = [pack1, ep, pack2, complete].seasonPacks(forSeason: 1)
+        #expect(packs.map(\.infoHash) == ["p1"])
+    }
+
+    @Test func bestSeasonPackRanksByLanguageThenQuality() {
+        let dub4k = packStream("a", season: 1, res: "2160p", langs: ["en"])
+        let orig1080 = packStream("b", season: 1, res: "1080p", langs: ["fr"])
+        let match = [dub4k, orig1080].bestSeasonPack(forSeason: 1, originalLanguage: "fr")
+        #expect(match?.stream.infoHash == "b")          // original language wins over higher quality
+        #expect(match?.isFallback == false)
+    }
+
+    @Test func bestSeasonPackNilWhenNoPackForSeason() {
+        let ep = epStream("e", season: 1, episode: 1, res: "2160p")
+        #expect([ep].bestSeasonPack(forSeason: 1, originalLanguage: "en") == nil)
+    }
 }

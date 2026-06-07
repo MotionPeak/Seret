@@ -116,6 +116,7 @@ private struct MovieAddBody: View {
 private struct ShowAddBody: View {
     let flow: AddFlowStore
     let onPlay: (PlaybackRequest) -> Void
+    @Environment(AppSession.self) private var session
 
     var body: some View {
         ScrollView {
@@ -127,6 +128,7 @@ private struct ShowAddBody: View {
                 }
                 TrailerButton(tmdbID: flow.tmdbID, kind: flow.mediaKind)
                 seasonPicker
+                SeasonDownloadButton(store: flow.seasonAdd) { session.libraryStore?.retry() }
                 // Picked-episode actions surface right here (like a movie) so they're visible
                 // without scrolling past the whole episode list.
                 if let ep = selectedEpisodeMeta, let add = flow.add {

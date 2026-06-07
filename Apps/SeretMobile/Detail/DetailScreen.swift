@@ -30,7 +30,12 @@ struct DetailScreen: View {
                                         onRemoveVersion: { src in
                                             Task { await session.libraryStore?.removeVersion(store.item, source: src) }
                                         })
-                case .show:  ShowDetail(store: store, onPlay: present)
+                case .show:  ShowDetail(
+                                store: store, onPlay: present,
+                                makeSeasonDownload: { imdb, season, lang in
+                                    session.makeSeasonDownload(imdbID: imdb, season: season, originalLanguage: lang)
+                                },
+                                onSeasonAdded: { session.libraryStore?.retry() })
                 }
             }
             .task { await store.load() }

@@ -21,6 +21,9 @@ public final class DetailStore {
     public private(set) var selectedSeason: Int
     public private(set) var episodeMeta: [Int: [Int: TMDBEpisodeDetails]] = [:]   // season → epNo → meta
     public private(set) var watchByKey: [String: WatchState] = [:]                // contentKey → state
+    /// Set once TMDB details resolve — needed to grab a whole-season pack from the library page.
+    public private(set) var imdbID: String?
+    public private(set) var originalLanguage: String?
 
     public init(item: MediaItem, details: MediaDetailsProviding, watch: WatchProgressProviding?) {
         self.item = item
@@ -49,11 +52,15 @@ public final class DetailStore {
                 runtime = d.runtime
                 genres = d.genres.map(\.name)
                 overview = d.overview ?? overview
+                imdbID = d.imdbID
+                originalLanguage = d.originalLanguage
             case .show:
                 let d = try await details.tvDetails(tmdbID: tmdbID)
                 backdropPath = d.backdropPath ?? backdropPath
                 genres = d.genres.map(\.name)
                 overview = d.overview ?? overview
+                imdbID = d.imdbID
+                originalLanguage = d.originalLanguage
                 await loadSeason(selectedSeason, tvID: tmdbID)
             }
             richState = .loaded

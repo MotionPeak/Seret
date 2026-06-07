@@ -54,4 +54,18 @@ public extension Array where Element == CachedStream {
         guard let best = rankedFor(originalLanguage: originalLanguage).first else { return nil }
         return (best, best.audioTier(relativeTo: originalLanguage) == 2)
     }
+
+    /// The full-season packs in this list for `season`: releases that name the season but no
+    /// single episode (`episode == nil`) and whose parsed season matches. Complete-series packs
+    /// (no parsed season) are excluded — adding one would pull every season, not just this one.
+    func seasonPacks(forSeason season: Int) -> [CachedStream] {
+        filter { $0.parsed.episode == nil && $0.parsed.season == season }
+    }
+
+    /// The best cached full-season pack for `season` (audio tier + quality, same ranking as
+    /// `bestMatch`), plus whether it's a language fallback. nil when no full-season pack is cached
+    /// — the whole season can't be grabbed in a single torrent then.
+    func bestSeasonPack(forSeason season: Int, originalLanguage: String?) -> (stream: CachedStream, isFallback: Bool)? {
+        seasonPacks(forSeason: season).bestMatch(originalLanguage: originalLanguage)
+    }
 }

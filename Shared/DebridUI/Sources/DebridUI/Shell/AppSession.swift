@@ -188,6 +188,15 @@ public final class AppSession {
                         streamSource: streamSource, add: addService)
     }
 
+    /// Vend a whole-season download engine (nil while signed out / Stage 2 unavailable). Used by the
+    /// library show page to grab the best full-season pack for `season`, caching every episode at once.
+    public func makeSeasonDownload(imdbID: String, season: Int, originalLanguage: String?) -> AddStore? {
+        guard let streamSource, let addService else { return nil }
+        return AddStore(imdbID: imdbID, kind: .series(season: season, episode: 1),
+                        originalLanguage: originalLanguage, streamSource: streamSource,
+                        add: addService, seasonPack: season)
+    }
+
     /// Vend the Add-flow orchestrator for a picked search hit (nil while signed out). It
     /// resolves the title's TMDB details, then drives the per-target `AddStore` itself.
     public func makeAddFlow(for hit: SearchHit) -> AddFlowStore? {

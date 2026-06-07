@@ -30,6 +30,10 @@ public final class AddFlowStore {
     /// The stream/add engine for the current target (the movie, or the selected episode).
     public private(set) var add: AddStore?
 
+    /// The whole-season download engine for the selected season (shows only) — grabs the best
+    /// full-season pack so every episode is cached at once. nil until a season is selected.
+    public private(set) var seasonAdd: AddStore?
+
     private let hit: SearchHit
     private let details: MediaDetailsProviding
     private let streamSource: StreamSource
@@ -98,13 +102,21 @@ public final class AddFlowStore {
         if let first = seasons.first { await selectSeason(first) }
     }
 
-    /// Load a season's episodes; clears any in-flight episode selection.
+    /// Load a season's episodes; clears any in-flight episode selection. Also spins up the
+    /// whole-season download engine and starts finding the best full-season pack in the background.
     public func selectSeason(_ season: Int) async {
         selectedSeason = season
         selectedEpisode = nil
         add = nil
+        let pack = makeAddStore(kind: .series(season: season, episode: 1), seasonPack: season)
+        seasonAdd = pack
         episodes = (try? await details.seasonEpisodes(tvID: hit.result.id, season: season)) ?? []
+        await pack.loadStreams()
     }
+
+    /// Download the whole selected season (the best cached full-season pack). After it lands the
+    /// caller refreshes the library so every episode appears.
+    public func addSeason() async { await seasonAdd?.addBest() }
 
     /// Pick an episode → build its `AddStore` and load cached streams.
     public func selectEpisode(_ episode: Int) async {
@@ -144,9 +156,9 @@ public final class AddFlowStore {
 
     /// Only called after `resolve()` has set `imdbID` (it guards on a non-nil imdb_id before
     /// reaching `.movie`/`.show`), so the `?? ""` is just totality insurance.
-    private func makeAddStore(kind: StreamQuery.Kind) -> AddStore {
+    private func makeAddStore(kind: StreamQuery.Kind, seasonPack: Int? = nil) -> AddStore {
         AddStore(imdbID: imdbID ?? "", kind: kind, originalLanguage: originalLanguage,
-                 streamSource: streamSource, add: addService)
+                 streamSource: streamSource, add: addService, seasonPack: seasonPack)
     }
 
     private func yearFrom(_ date: String?) -> Int? {

@@ -17,7 +17,12 @@ struct DetailView: View {
         Group {
             switch store.item.kind {
             case .movie: MovieDetailView(store: store, onRemove: { confirmingRemove = true })
-            case .show:  ShowDetailView(store: store, onRemove: { confirmingRemove = true })
+            case .show:  ShowDetailView(
+                store: store, onRemove: { confirmingRemove = true },
+                makeSeasonDownload: { imdb, season, lang in
+                    session.makeSeasonDownload(imdbID: imdb, season: season, originalLanguage: lang)
+                },
+                onSeasonAdded: { session.libraryStore?.retry() })
             }
         }
         .task { await store.load() }
