@@ -9,16 +9,21 @@ struct MyLibraryScreen: View {
     @State private var kind: MediaKind = .movie
     @State private var pendingRemoval: MediaItem?
     @State private var removeErrorMessage: String?
+    /// Which filter pill has focus — moving between them switches the list live (no press).
+    @FocusState private var focusedKind: MediaKind?
 
     var body: some View {
         VStack(spacing: 24) {
             HStack(spacing: 24) {
                 Button("Movies") { kind = .movie }
                     .buttonStyle(SeretPillStyle(selected: kind == .movie))
+                    .focused($focusedKind, equals: .movie)
                 Button("TV Shows") { kind = .show }
                     .buttonStyle(SeretPillStyle(selected: kind == .show))
+                    .focused($focusedKind, equals: .show)
             }
             .padding(.top, 30)
+            .onChange(of: focusedKind) { _, new in if let new { kind = new } }
 
             if let tiles = session.downloadStore?.activeTiles, !tiles.isEmpty {
                 DownloadingStrip(tiles: tiles)

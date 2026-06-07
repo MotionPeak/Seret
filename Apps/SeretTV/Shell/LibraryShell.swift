@@ -9,35 +9,42 @@ import SwiftUI
 struct LibraryShell: View {
     @Environment(AppSession.self) private var session
     @State private var tab: ShellTab = .home
+    @State private var path = NavigationPath()
     @FocusState private var focusedTab: ShellTab?
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                tabBar
+        VStack(spacing: 0) {
+            // The bar lives ABOVE the NavigationStack, so `.searchable`'s field renders below it
+            // (no overlap) — and it hides while a Detail/Player is pushed so those stay full-screen.
+            if path.isEmpty {
+                tabBar.transition(.move(edge: .top).combined(with: .opacity))
+            }
+            NavigationStack(path: $path) {
                 content
+                    .id(tab)
+                    .transition(.opacity)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(CanvasBackground())
-            .navigationDestination(for: SearchHit.self) { hit in
-                AddScreen(hit: hit)
-            }
-            .navigationDestination(for: MediaItem.self) { item in
-                if let details = session.detailsProvider {
-                    DetailView(item: item, details: details, watch: session.watchStore)
-                }
-            }
-            .navigationDestination(for: PlaybackRequest.self) { request in
-                let engine = VLCKitVideoPlayerEngine(preferences: session.subtitleSettings.preferences)
-                if let model = session.makePlayer(for: request, engine: engine) {
-                    PlayerView(model: model, engine: engine,
-                               backdropURL: TMDBClient.imageURL(path: request.item.backdropPath, size: "original"))
-                } else {
-                    PlaybackUnavailableView()
-                }
+                    .navigationDestination(for: SearchHit.self) { hit in
+                        AddScreen(hit: hit)
+                    }
+                    .navigationDestination(for: MediaItem.self) { item in
+                        if let details = session.detailsProvider {
+                            DetailView(item: item, details: details, watch: session.watchStore)
+                        }
+                    }
+                    .navigationDestination(for: PlaybackRequest.self) { request in
+                        let engine = VLCKitVideoPlayerEngine(preferences: session.subtitleSettings.preferences)
+                        if let model = session.makePlayer(for: request, engine: engine) {
+                            PlayerView(model: model, engine: engine,
+                                       backdropURL: TMDBClient.imageURL(path: request.item.backdropPath, size: "original"))
+                        } else {
+                            PlaybackUnavailableView()
+                        }
+                    }
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(CanvasBackground())
         // Load the library once on appear (re-runs when `retry()` bumps `attempt`). This also
         // populates ownership so Browse can badge titles already in the library.
         .task(id: session.libraryStore?.attempt ?? -1) {
@@ -59,7 +66,9 @@ struct LibraryShell: View {
         .background(.ultraThinMaterial, in: Capsule())
         .padding(.top, 24).padding(.bottom, 12)
         .frame(maxWidth: .infinity)
-        .onChange(of: focusedTab) { _, new in if let new { tab = new } }
+        .onChange(of: focusedTab) { _, new in
+            if let new { withAnimation(.easeInOut(duration: 0.28)) { tab = new } }
+        }
     }
 
     @ViewBuilder private var content: some View {
