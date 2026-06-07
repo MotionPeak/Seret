@@ -6,6 +6,7 @@ struct PlayerView: View {
     @State private var model: PlayerModel
     @State private var engine: VLCKitVideoPlayerEngine
     @State private var showSettings = false
+    @State private var showEpisodes = false
     @Environment(\.dismiss) private var dismiss
     let backdropURL: URL?
 
@@ -35,8 +36,15 @@ struct PlayerView: View {
                 // remote gestures: horizontal swipe → scrub, swipe down → show settings, click →
                 // play/pause. While the settings panel is open it goes inert so swipes navigate the
                 // panel instead of starting a scrub.
-                ScrubPad(model: model, isInteractive: !showSettings,
-                         onShowSettings: { showSettings = true })
+                ScrubPad(model: model, isInteractive: !showSettings && !showEpisodes,
+                         onShowSettings: { showSettings = true },
+                         onPullUp: {
+                             model.revealScrubBar()           // swipe up always reveals the scrub bar
+                             if model.isEpisode {             // …and the episode strip for a show
+                                 showEpisodes = true
+                                 Task { await model.loadSeasonEpisodes() }
+                             }
+                         })
                 // Thin scrub bar: appears on click + during scrub, sticky 5s, fades in/out.
                 // Forced visible while buffering (a seek/rebuffer), so the user gets the loading hint.
                 MinimalScrubBar(model: model, buffering: model.isBuffering)
@@ -51,12 +59,18 @@ struct PlayerView: View {
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
 
+            if showEpisodes {
+                EpisodesPanel(model: model, onClose: { showEpisodes = false })
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+
             if model.upNextVisible, let next = model.nextEpisode {
                 UpNextBar(model: model, next: next)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
         .animation(.easeInOut(duration: 0.25), value: showSettings)
+        .animation(.easeInOut(duration: 0.25), value: showEpisodes)
         .animation(.easeInOut(duration: 0.25), value: model.upNextVisible)
         .onPlayPauseCommand {
             if model.isScrubbing { model.commitScrub() } else { model.togglePlayPause() }
@@ -64,6 +78,7 @@ struct PlayerView: View {
         .onExitCommand {
             if model.upNextVisible { model.dismissUpNext() }   // Menu keeps watching (credits)
             else if showSettings { showSettings = false }
+            else if showEpisodes { showEpisodes = false }
             else if model.isScrubbing { model.cancelScrub() }
             else { dismiss() }
         }
@@ -106,6 +121,73 @@ private struct UpNextBar: View {
             .padding(.bottom, 60)
         }
         .onAppear { playNowFocused = true }
+    }
+}
+
+/// Swipe-up episode strip (shows): the current season's episodes as focusable still cards.
+/// Selecting one switches playback to it in-place. Seeds focus to the playing episode and sits
+/// just above the thin scrub bar so both are visible.
+private struct EpisodesPanel: View {
+    @Bindable var model: PlayerModel
+    let onClose: () -> Void
+    @FocusState private var focused: String?
+
+    var body: some View {
+        VStack {
+            Spacer()
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Episodes").font(.title3.weight(.semibold)).foregroundStyle(Theme.Palette.gold)
+                    .padding(.horizontal, 60)
+                if model.seasonEpisodes.isEmpty {
+                    HStack(spacing: 12) {
+                        ProgressView().tint(Theme.Palette.gold)
+                        Text("Loading episodes…").foregroundStyle(.secondary)
+                    }
+                    .frame(height: 200).padding(.horizontal, 60)
+                } else {
+                    ScrollViewReader { proxy in
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            LazyHStack(spacing: 28) {
+                                ForEach(model.seasonEpisodes) { ep in
+                                    Button { model.play(ep.episode); onClose() } label: { card(ep) }
+                                        .buttonStyle(.card)
+                                        .id(ep.id)
+                                        .focused($focused, equals: ep.id)
+                                }
+                            }
+                            .padding(.horizontal, 60).padding(.vertical, 12)
+                        }
+                        .onAppear {
+                            guard let cur = model.currentEpisode else { return }
+                            let id = "\(cur.season)x\(cur.number)"
+                            focused = id
+                            proxy.scrollTo(id, anchor: .center)
+                        }
+                    }
+                }
+            }
+            .padding(.vertical, 22)
+            .background(.black.opacity(0.85))
+            .padding(.bottom, 96)        // clear the thin scrub bar below
+        }
+    }
+
+    private func card(_ ep: PlayerModel.PlayerEpisode) -> some View {
+        let isCurrent = ep.episode.season == model.currentEpisode?.season
+            && ep.episode.number == model.currentEpisode?.number
+        return VStack(alignment: .leading, spacing: 8) {
+            AsyncImage(url: TMDBClient.imageURL(path: ep.stillPath, size: "w300")) {
+                $0.resizable().aspectRatio(contentMode: .fill)
+            } placeholder: { Rectangle().fill(.gray.opacity(0.25)) }
+                .frame(width: 300, height: 300 * 9 / 16).clipped()
+                .overlay {
+                    if isCurrent {
+                        RoundedRectangle(cornerRadius: 6).stroke(Theme.Palette.gold, lineWidth: 4)
+                    }
+                }
+            Text("\(ep.episode.number) · \(ep.name ?? "Episode \(ep.episode.number)")")
+                .font(.callout.weight(.semibold)).lineLimit(1).frame(width: 300, alignment: .leading)
+        }
     }
 }
 

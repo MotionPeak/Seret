@@ -9,13 +9,15 @@ import UIKit
 ///   • center click (.select) → play / pause
 struct ScrubPad: UIViewRepresentable {
     let model: PlayerModel
-    let isInteractive: Bool      // false while SettingsPanel is open → ScrubPad ignores all input
+    let isInteractive: Bool      // false while a panel is open → ScrubPad ignores all input
     let onShowSettings: () -> Void
+    let onPullUp: () -> Void     // swipe up → reveal scrub bar (+ episode strip for shows)
 
     func makeUIView(context: Context) -> ScrubInteractionView {
         let view = ScrubInteractionView()
         view.model = model
         view.onShowSettings = onShowSettings
+        view.onPullUp = onPullUp
         view.isInteractive = isInteractive
         return view
     }
@@ -23,6 +25,7 @@ struct ScrubPad: UIViewRepresentable {
     func updateUIView(_ uiView: ScrubInteractionView, context: Context) {
         uiView.model = model
         uiView.onShowSettings = onShowSettings
+        uiView.onPullUp = onPullUp
         uiView.isInteractive = isInteractive
     }
 }
@@ -31,6 +34,7 @@ struct ScrubPad: UIViewRepresentable {
 final class ScrubInteractionView: UIView {
     weak var model: PlayerModel?
     var onShowSettings: (() -> Void)?
+    var onPullUp: (() -> Void)?
     var isInteractive: Bool = true {
         didSet {
             guard oldValue != isInteractive else { return }
@@ -50,11 +54,12 @@ final class ScrubInteractionView: UIView {
     /// Fraction of the whole timeline a full-width trackpad swipe traverses. Lower = slower,
     /// easier to swipe precisely.
     private let sensitivity: Double = 0.15
-    /// Vertical distance (points) before a down swipe is treated as "show settings".
+    /// Vertical distance (points) before a vertical swipe is treated as a pull (settings / scrub).
     private let pullThreshold: CGFloat = 60
     /// Direction the current pan committed to, if any.
-    private enum Gesture { case horizontal, verticalDown }
+    private enum Gesture { case horizontal, verticalDown, verticalUp }
     private var current: Gesture?
+    private var pulledUp = false
     private var pulledSettings = false
     private let pan = UIPanGestureRecognizer()
 
@@ -128,6 +133,7 @@ final class ScrubInteractionView: UIView {
         case .began:
             current = nil
             pulledSettings = false
+            pulledUp = false
         case .changed:
             let t = pan.translation(in: self)
             // Commit to a direction on first meaningful movement.
@@ -137,6 +143,8 @@ final class ScrubInteractionView: UIView {
                     model.beginScrub()
                 } else if t.y > 8, abs(t.y) > abs(t.x) {
                     current = .verticalDown
+                } else if t.y < -8, abs(t.y) > abs(t.x) {
+                    current = .verticalUp
                 }
             }
             switch current {
@@ -148,6 +156,11 @@ final class ScrubInteractionView: UIView {
                 if !pulledSettings, t.y > pullThreshold {
                     pulledSettings = true
                     onShowSettings?()        // fires once per gesture
+                }
+            case .verticalUp:
+                if !pulledUp, -t.y > pullThreshold {
+                    pulledUp = true
+                    onPullUp?()              // fires once per gesture
                 }
             case nil:
                 break

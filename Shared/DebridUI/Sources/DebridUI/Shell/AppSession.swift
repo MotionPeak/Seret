@@ -227,7 +227,8 @@ public final class AppSession {
                 await coordinator.record(contentKey: contentKey, sourceKey: sourceKey,
                                          position: position, duration: duration)
             },
-            subtitles: subtitlesProvider)
+            subtitles: subtitlesProvider,
+            details: detailsProvider)
     }
 
     /// Vend a `TrailerModel` for a title (nil while signed out). Chains the TMDB key provider with

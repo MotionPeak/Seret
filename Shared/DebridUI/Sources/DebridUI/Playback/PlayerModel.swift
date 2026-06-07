@@ -109,6 +109,9 @@ public final class PlayerModel {
     /// contentKey + sourceKey so next-episode advances record under the right keys.
     private let recordProgress: (_ contentKey: String, _ sourceKey: String, _ position: Double, _ duration: Double) async -> Void
     private let subtitles: SubtitleProvider?
+    /// On-demand TMDB episode metadata (names + stills) for the in-player episode strip. Optional —
+    /// when nil (or for a movie) the strip simply carries no names/thumbnails.
+    private let details: MediaDetailsProviding?
 
     private var eventTask: Task<Void, Never>?
     private var loadTask: Task<Void, Never>?
@@ -161,6 +164,48 @@ public final class PlayerModel {
     }
     public var hasNextEpisode: Bool { nextEpisode != nil }
 
+    /// True for a show episode (vs a movie) — gates the in-player episode strip.
+    public var isEpisode: Bool { episode != nil }
+    /// The episode currently playing (drives the strip's highlight). nil for a movie.
+    public var currentEpisode: Episode? { episode }
+
+    /// One row in the in-player season strip: a playable episode + its TMDB name/still.
+    public struct PlayerEpisode: Identifiable, Equatable, Sendable {
+        public let episode: Episode
+        public let name: String?
+        public let stillPath: String?
+        public var id: String { "\(episode.season)x\(episode.number)" }
+    }
+    /// The current season's episodes for the strip (empty until `loadSeasonEpisodes()` runs).
+    public private(set) var seasonEpisodes: [PlayerEpisode] = []
+
+    /// Build the strip once: the current season's playable episodes (from the library item) merged
+    /// with TMDB names/stills. Shows only; no-op for a movie or if already loaded for this season.
+    public func loadSeasonEpisodes() async {
+        guard let episode else { return }
+        if let first = seasonEpisodes.first?.episode, first.season == episode.season { return }
+        let playable = item.seasons.first(where: { $0.number == episode.season })?
+            .episodes.sorted { $0.number < $1.number } ?? []
+        guard !playable.isEmpty else { return }
+        var metaByNumber: [Int: TMDBEpisodeDetails] = [:]
+        if let details, let tmdbID = item.tmdbID,
+           let eps = try? await details.seasonEpisodes(tvID: tmdbID, season: episode.season) {
+            metaByNumber = Dictionary(eps.map { ($0.episodeNumber, $0) }, uniquingKeysWith: { a, _ in a })
+        }
+        seasonEpisodes = playable.map { ep in
+            PlayerEpisode(episode: ep, name: metaByNumber[ep.number]?.name,
+                          stillPath: metaByNumber[ep.number]?.stillPath)
+        }
+    }
+
+    /// Switch playback to a chosen episode of the season, in-place (records the current episode's
+    /// progress first). No-op if it's already the one playing. Starts from the beginning.
+    public func play(_ ep: Episode) {
+        guard ep.season != episode?.season || ep.number != episode?.number else { return }
+        Task { await self.recordCurrentProgress() }
+        switchTo(ep, resumeAt: nil)
+    }
+
     // MARK: - Init
 
     public init(request: PlaybackRequest,
@@ -168,8 +213,10 @@ public final class PlayerModel {
          unrestrict: @escaping (String) async throws -> URL,
          recordProgress: @escaping (_ contentKey: String, _ sourceKey: String, _ position: Double, _ duration: Double) async -> Void,
          subtitles: SubtitleProvider?,
+         details: MediaDetailsProviding? = nil,
          autoHideDelay: Double = 4) {
         self.autoHideDelay = autoHideDelay
+        self.details = details
         self.item = request.item
         // Preferred source first, then remaining sources in quality order (deduped).
         self.sources = [request.source] + request.item.sources.bestFirst().filter { $0 != request.source }
@@ -387,13 +434,20 @@ public final class PlayerModel {
     /// per-episode. Caller is responsible for recording the outgoing episode's progress.
     private func advanceToNextEpisode() {
         guard let next = nextEpisode else { return }
+        switchTo(next, resumeAt: nil)
+    }
+
+    /// Swap the playing episode in-place (no teardown/re-present, same engine + event loop) and
+    /// reload. Subtitle/track selection resets — externals are per-episode. Caller records the
+    /// outgoing episode's progress.
+    private func switchTo(_ ep: Episode, resumeAt newResume: Double?) {
         resetUpNext()                        // clear the bar/countdown + the old episode's content-end
-        episode = next
-        sources = [next.source]
+        episode = ep
+        sources = [ep.source]
         sourceIndex = 0
-        contentKey = WatchKey.content(forShow: item, episode: next)
-        label = "\(item.title) — S\(next.season)·E\(next.number)"
-        resumeAt = nil                       // a fresh episode starts from the beginning
+        contentKey = WatchKey.content(forShow: item, episode: ep)
+        label = "\(item.title) — S\(ep.season)·E\(ep.number)"
+        resumeAt = newResume
         selectedAudioID = nil
         selectedSubtitleID = nil
         let initial: SubtitleRowState = subtitles == nil ? .noAccount : .idle
