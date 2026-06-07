@@ -192,17 +192,7 @@ private struct AddActions: View {
                     .font(.callout).foregroundStyle(.secondary)
             }
             HStack(spacing: 20) {
-                Button { Task { await flow.addBest() } } label: {
-                    Label("Get best", systemImage: "plus.circle.fill")
-                }
-                Button {
-                    Task {
-                        await flow.addBest()
-                        if case let .added(info) = add.state, let req = flow.playbackRequest(from: info) {
-                            onPlay(req)
-                        }
-                    }
-                } label: { Label("Add & Play", systemImage: "play.fill") }
+                Button { playBest() } label: { Label("Play", systemImage: "play.fill") }
                 if add.ranked.count > 1 {
                     Button { showVersions.toggle() } label: {
                         Label("More versions", systemImage: "square.stack.3d.up")
@@ -233,18 +223,34 @@ private struct AddActions: View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Versions").font(.title2.bold())
             ForEach(add.ranked) { stream in
-                Button { Task { await flow.add(stream: stream) } } label: {
+                Button { play(stream) } label: {       // tap a version → it plays
                     HStack(spacing: 16) {
                         QualityChips(parsed: stream.parsed)
                         LanguageBadges(codes: stream.languages)
                         Spacer()
-                        Image(systemName: "plus.circle")
+                        Image(systemName: "play.circle")
                     }
                     .padding(.vertical, 6)
                 }
             }
         }
         .frame(maxWidth: 1100, alignment: .leading)
+    }
+
+    /// Add the best instantly-available version (auto-falling-back) and play it.
+    private func playBest() {
+        Task {
+            await flow.addBest()
+            if case let .added(info) = add.state, let req = flow.playbackRequest(from: info) { onPlay(req) }
+        }
+    }
+
+    /// Add a specific chosen version and play it.
+    private func play(_ stream: CachedStream) {
+        Task {
+            await flow.add(stream: stream)
+            if case let .added(info) = add.state, let req = flow.playbackRequest(from: info) { onPlay(req) }
+        }
     }
 }
 

@@ -259,22 +259,12 @@ private struct AddActionsView: View {
                     .font(Theme.Typo.caption()).foregroundStyle(Theme.Palette.textSecondary)
             }
             HStack(spacing: Theme.Space.md) {
-                Button { Task { await flow.addBest() } } label: {
-                    Label("Get best", systemImage: "plus.circle.fill")
-                }.buttonStyle(GhostButtonStyle())
-                Button {
-                    Task {
-                        await flow.addBest()
-                        if case let .added(info) = add.state, let req = flow.playbackRequest(from: info) {
-                            onPlay(req)
-                        }
-                    }
-                } label: { Label("Add & Play", systemImage: "play.fill") }
+                Button { playBest() } label: { Label("Play", systemImage: "play.fill") }
                     .buttonStyle(GoldButtonStyle())
-            }
-            if add.ranked.count > 1 {
-                Button(showVersions ? "Hide versions" : "More versions") { showVersions.toggle() }
-                    .buttonStyle(GhostButtonStyle())
+                if add.ranked.count > 1 {
+                    Button(showVersions ? "Hide versions" : "More versions") { showVersions.toggle() }
+                        .buttonStyle(GhostButtonStyle())
+                }
             }
             addStatus
             if showVersions { versionsList }
@@ -300,12 +290,12 @@ private struct AddActionsView: View {
         VStack(alignment: .leading, spacing: Theme.Space.sm) {
             Text("VERSIONS").font(Theme.Typo.label()).tracking(1.5).foregroundStyle(Theme.Palette.gold)
             ForEach(add.ranked) { stream in
-                Button { Task { await flow.add(stream: stream) } } label: {
+                Button { play(stream) } label: {       // tap a version → it plays
                     HStack(spacing: Theme.Space.sm) {
                         QualityChipRow(parsed: stream.parsed)
                         ForEach(stream.languages.prefix(2), id: \.self) { QualityChip(text: $0.uppercased()) }
                         Spacer()
-                        Image(systemName: "plus.circle.fill").foregroundStyle(Theme.Palette.gold)
+                        Image(systemName: "play.circle.fill").foregroundStyle(Theme.Palette.gold)
                     }
                     .padding(Theme.Space.md)
                     .background(Theme.Palette.surface2, in: RoundedRectangle(cornerRadius: Theme.Radius.chip))
@@ -313,6 +303,22 @@ private struct AddActionsView: View {
                 }
                 .buttonStyle(.plain)
             }
+        }
+    }
+
+    /// Add the best instantly-available version (auto-falling-back) and play it.
+    private func playBest() {
+        Task {
+            await flow.addBest()
+            if case let .added(info) = add.state, let req = flow.playbackRequest(from: info) { onPlay(req) }
+        }
+    }
+
+    /// Add a specific chosen version and play it.
+    private func play(_ stream: CachedStream) {
+        Task {
+            await flow.add(stream: stream)
+            if case let .added(info) = add.state, let req = flow.playbackRequest(from: info) { onPlay(req) }
         }
     }
 }

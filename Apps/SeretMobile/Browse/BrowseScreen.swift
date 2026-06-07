@@ -25,7 +25,10 @@ struct BrowseScreen: View {
     var body: some View {
         ZStack {
             CanvasBackground()
-            VStack(spacing: Theme.Space.md) {
+            VStack(alignment: .leading, spacing: Theme.Space.md) {
+                Text(title).font(.system(size: 34, weight: .bold))
+                    .foregroundStyle(Theme.Palette.textPrimary)
+                    .padding(.horizontal, Theme.Space.lg)
                 searchField
                 if let search = session.searchStore {
                     content(search)
@@ -43,7 +46,8 @@ struct BrowseScreen: View {
             // breathing room from the rail. (No-op in the compact tab bar.)
             .padding(.leading, hSize == .regular ? Theme.Space.xl : 0)
         }
-        .navigationTitle(title)
+        .navigationTitle("")                       // we render our own inset title above
+        .navigationBarTitleDisplayMode(.inline)
     }
 
     private var searchField: some View {
