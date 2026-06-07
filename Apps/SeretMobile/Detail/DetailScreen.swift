@@ -35,6 +35,10 @@ struct DetailScreen: View {
                                 makeSeasonDownload: { imdb, season, lang in
                                     session.makeSeasonDownload(imdbID: imdb, season: season, originalLanguage: lang)
                                 },
+                                makeEpisodeDownload: { imdb, season, episode, lang in
+                                    session.makeAddStore(imdbID: imdb, kind: .series(season: season, episode: episode),
+                                                         originalLanguage: lang)
+                                },
                                 onSeasonAdded: { session.libraryStore?.retry() })
                 }
             }

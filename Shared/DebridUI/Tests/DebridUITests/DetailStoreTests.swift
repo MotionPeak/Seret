@@ -155,4 +155,58 @@ private actor FakeWatch: WatchProgressProviding {
         await store.load()
         #expect(store.playRequest(source: m.sources[0], episode: nil, label: m.title).resumeAt == nil)
     }
+
+    // MARK: - All seasons / not-downloaded episodes
+
+    private func tv(seasons: Int) -> TMDBTVDetails {
+        TMDBTVDetails(id: 200, name: "Show", firstAirDate: "2020-01-01", overview: "o",
+                      posterPath: "/p.jpg", backdropPath: "/b.jpg", numberOfSeasons: seasons,
+                      genres: [], voteAverage: 8.0)
+    }
+    private func tmdbEp(_ n: Int) -> TMDBEpisodeDetails {
+        TMDBEpisodeDetails(episodeNumber: n, name: "E\(n)", overview: "o", stillPath: nil,
+                           runtime: 30, airDate: nil)
+    }
+
+    @Test func allSeasonsCoversTMDBCountNotJustOwned() async {
+        // Owns only season 2; TMDB says there are 3 seasons → picker should offer 1, 2, 3.
+        let sh = show("9", seasons: [Season(number: 2, episodes: [episode(2, 1, "t1")])])
+        let store = DetailStore(item: sh,
+                                details: FakeDetails(tv: .success(tv(seasons: 3)),
+                                                     seasons: [2: .success([tmdbEp(1), tmdbEp(2)])]),
+                                watch: nil)
+        #expect(store.allSeasons == [2])          // before load: only the owned season
+        await store.load()
+        #expect(store.allSeasons == [1, 2, 3])    // after load: every TMDB season
+    }
+
+    @Test func episodesForSeasonMergesTMDBWithOwnedAndFlagsNotDownloaded() async {
+        // Owns S2E1 only; TMDB season 2 has E1, E2, E3 → E1 downloaded, E2/E3 not.
+        let sh = show("9", seasons: [Season(number: 2, episodes: [episode(2, 1, "t1")])])
+        let store = DetailStore(item: sh,
+                                details: FakeDetails(tv: .success(tv(seasons: 3)),
+                                                     seasons: [2: .success([tmdbEp(1), tmdbEp(2), tmdbEp(3)])]),
+                                watch: nil)
+        await store.load()
+        let rows = store.episodes(forSeason: 2)
+        #expect(rows.map(\.number) == [1, 2, 3])
+        #expect(rows[0].isDownloaded == true)
+        #expect(rows[0].ownedEpisode?.source.torrentID == "t1")
+        #expect(rows[1].isDownloaded == false)
+        #expect(rows[2].isDownloaded == false)
+        #expect(rows[1].meta?.name == "E2")       // not-downloaded rows still carry TMDB metadata
+    }
+
+    @Test func episodesForUnownedSeasonAreAllNotDownloaded() async {
+        let sh = show("9", seasons: [Season(number: 2, episodes: [episode(2, 1, "t1")])])
+        let store = DetailStore(item: sh,
+                                details: FakeDetails(tv: .success(tv(seasons: 3)),
+                                                     seasons: [1: .success([tmdbEp(1), tmdbEp(2)])]),
+                                watch: nil)
+        await store.load()
+        await store.selectSeason(1)               // a season the user owns nothing in
+        let rows = store.episodes(forSeason: 1)
+        #expect(rows.map(\.number) == [1, 2])
+        #expect(rows.allSatisfy { !$0.isDownloaded })
+    }
 }

@@ -11,6 +11,9 @@ struct ShowDetailView: View {
     /// Preview (which has no AppSession) stays buildable. Returns nil when Stage 2 is unavailable.
     var makeSeasonDownload: (String, Int, String?) -> AddStore? = { _, _, _ in nil }
     var onSeasonAdded: () -> Void = {}
+    /// A not-downloaded episode was selected → download-then-play (handled by DetailView).
+    var onDownloadEpisode: (DetailStore.EpisodeRowInfo) -> Void = { _ in }
+    var downloadingEpisodeID: String? = nil
     @State private var seasonStore: AddStore?
     private var item: MediaItem { store.item }
 
@@ -52,7 +55,8 @@ struct ShowDetailView: View {
         var parts: [String] = []
         if let y = item.year { parts.append(String(y)) }
         if !store.genres.isEmpty { parts.append(store.genres.prefix(3).joined(separator: " · ")) }
-        parts.append("\(item.seasons.count) Season\(item.seasons.count == 1 ? "" : "s")")
+        let n = store.allSeasons.count
+        parts.append("\(n) Season\(n == 1 ? "" : "s")")
         return parts.joined(separator: "  ·  ")
     }
 
@@ -78,34 +82,34 @@ struct ShowDetailView: View {
     }
 
     @ViewBuilder private var seasonPicker: some View {
-        if item.seasons.count > 1 {   // a single-season show needs no picker (and avoids a lone chip)
+        if store.allSeasons.count > 1 {   // a single-season show needs no picker (and avoids a lone chip)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 14) {
-                    ForEach(item.seasons) { season in
-                        Button { Task { await store.selectSeason(season.number) } } label: {
-                            Text("Season \(season.number)").font(.headline)
+                    ForEach(store.allSeasons, id: \.self) { number in
+                        Button { Task { await store.selectSeason(number) } } label: {
+                            Text("Season \(number)").font(.headline)
                                 .padding(.horizontal, 18).padding(.vertical, 9)
                         }
                         // Gold tint for the selected season — never white, which would render the
                         // label white-on-white (a blank focused capsule) on tvOS.
                         .buttonStyle(.bordered)
-                        .tint(season.number == store.selectedSeason ? .yellow : .gray)
+                        .tint(number == store.selectedSeason ? .yellow : .gray)
                     }
                 }
             }
         }
     }
 
-    @ViewBuilder private var episodeList: some View {
-        if let season = item.seasons.first(where: { $0.number == store.selectedSeason }) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(alignment: .top, spacing: 30) {
-                    ForEach(season.episodes) { ep in
-                        EpisodeRow(store: store, episode: ep, meta: store.episodeMeta[season.number]?[ep.number])
-                    }
+    private var episodeList: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            LazyHStack(alignment: .top, spacing: 30) {
+                ForEach(store.episodes(forSeason: store.selectedSeason)) { row in
+                    EpisodeRow(store: store, row: row,
+                               isDownloading: downloadingEpisodeID == row.id,
+                               onDownload: onDownloadEpisode)
                 }
-                .padding(.vertical, 16)   // room for the focus lift
             }
+            .padding(.vertical, 16)   // room for the focus lift
         }
     }
 }

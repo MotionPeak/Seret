@@ -24,6 +24,9 @@ public final class DetailStore {
     /// Set once TMDB details resolve — needed to grab a whole-season pack from the library page.
     public private(set) var imdbID: String?
     public private(set) var originalLanguage: String?
+    /// TMDB's total season count (set once details resolve) — drives the all-seasons picker so the
+    /// library page shows every season, not just the downloaded ones.
+    public private(set) var numberOfSeasons: Int?
 
     public init(item: MediaItem, details: MediaDetailsProviding, watch: WatchProgressProviding?) {
         self.item = item
@@ -37,6 +40,42 @@ public final class DetailStore {
     // Movies: ranked sources.
     public var versions: [MediaSource] { item.sources.bestFirst() }
     public var bestSource: MediaSource? { item.sources.best }
+
+    /// Every season to show (TMDB's full count ∪ any owned seasons), sorted. Falls back to the owned
+    /// seasons (or the selected one) until TMDB details resolve — so the picker lists ALL seasons,
+    /// not just the downloaded ones.
+    public var allSeasons: [Int] {
+        var set = Set(item.seasons.map(\.number))
+        if let n = numberOfSeasons, n > 0 { set.formUnion(1...n) }
+        if set.isEmpty { set.insert(selectedSeason) }
+        return set.sorted()
+    }
+
+    /// One row in a show's episode list: TMDB metadata plus the owned source when downloaded.
+    public struct EpisodeRowInfo: Identifiable, Sendable {
+        public let season: Int
+        public let number: Int
+        public let meta: TMDBEpisodeDetails?
+        public let ownedSource: MediaSource?     // nil = not downloaded yet
+        public var id: String { "s\(season)e\(number)" }
+        public var isDownloaded: Bool { ownedSource != nil }
+        /// The owned `Episode` (play / watch-key) when downloaded.
+        public var ownedEpisode: Episode? {
+            ownedSource.map { Episode(season: season, number: number, source: $0) }
+        }
+    }
+
+    /// The full episode list for a season — every TMDB episode, merged with whatever is downloaded.
+    /// Not-downloaded episodes still appear (`ownedSource == nil`) so the whole show is browsable.
+    public func episodes(forSeason season: Int) -> [EpisodeRowInfo] {
+        let owned = item.seasons.first { $0.number == season }?.episodes ?? []
+        let ownedByNumber = Dictionary(owned.map { ($0.number, $0.source) }, uniquingKeysWith: { a, _ in a })
+        let metas = episodeMeta[season] ?? [:]
+        let numbers = Set(metas.keys).union(owned.map(\.number)).sorted()
+        return numbers.map { n in
+            EpisodeRowInfo(season: season, number: n, meta: metas[n], ownedSource: ownedByNumber[n])
+        }
+    }
 
     public func load() async {
         // Re-entrancy guard: one load per store (a retry after failure is still allowed).
@@ -61,6 +100,7 @@ public final class DetailStore {
                 overview = d.overview ?? overview
                 imdbID = d.imdbID
                 originalLanguage = d.originalLanguage
+                numberOfSeasons = d.numberOfSeasons
                 await loadSeason(selectedSeason, tvID: tmdbID)
             }
             richState = .loaded
@@ -98,6 +138,17 @@ public final class DetailStore {
         }
         return PlaybackRequest(item: item, source: source, resumeAt: resume, label: label,
                                contentKey: key, episode: episode)
+    }
+
+    /// Build a play request for an episode just downloaded from this page (its fresh `TorrentInfo`),
+    /// keyed like the library's so progress lines up after the next refresh. nil if no video file.
+    public func playRequest(forAdded info: TorrentInfo, season: Int, number: Int) -> PlaybackRequest? {
+        guard let (file, link) = info.primaryVideoFile() else { return nil }
+        let parsed = FilenameParser().parse(info.filename)
+        let source = MediaSource(torrentID: info.id, fileID: file.id, restrictedLink: link, parsed: parsed)
+        let episode = Episode(season: season, number: number, source: source)
+        return playRequest(source: source, episode: episode,
+                           label: "\(item.title) — S\(season)·E\(number)", fromStart: true)
     }
 
     /// Best-effort "what to play next" for a show's hero: first in-progress episode (series
