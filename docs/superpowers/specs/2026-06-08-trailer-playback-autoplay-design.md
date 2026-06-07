@@ -30,44 +30,59 @@ trailer on the movie/show detail backdrop — by **not embedding YouTube's playe
 - **Both apps.**
 - **Fallback:** extraction fails → no auto-play + deep-link to YouTube.
 
+## Spike result (2026-06-08)
+
+The make-or-break question — can we resolve a YouTube key to a playable stream URL? — was tested.
+
+- **Hand-rolled InnerTube player API: FAILED.** Every easy client is now closed: ANDROID/IOS →
+  `Precondition check failed` (they require a **proof-of-origin / BotGuard token** now);
+  `TVHTML5_SIMPLY_EMBEDDED_PLAYER` → `"YouTube is no longer supported in this application or
+  device."`. A no-dependency, by-hand extractor is **not viable**.
+- **YouTubeKit (SPM, alexeichhorn) v0.4.8: PASSED.** It parses the player JS and solves the
+  cipher locally (bundling the JS), clearing the po-token wall. Resolved playable streams for two
+  test videos, returning a **direct `googlevideo.com/videoplayback` URL** for **itag 18 (360p
+  progressive MP4, muxed audio+video)** — which AVPlayer plays natively.
+
+**Consequences:**
+1. Extraction is done by **YouTubeKit**, a maintained third-party SPM dependency. It will break
+   when YouTube changes; the fix is a **version bump** (a maintenance treadmill, accepted). It
+   **cannot live in `DebridCore`** (no-deps rule) — it lives in **`DebridUI`**.
+2. YouTube serves only **one muxed progressive format now: 360p (itag 18)**. Trailers play at
+   **360p** (fine for a muted backdrop; acceptable for a trailer). Higher-res would require
+   stitching separate adaptive video+audio streams — out of scope (YAGNI for trailers).
+
 ## How playback works
 
-> Resolve **YouTube key → direct stream URL** via YouTube's **InnerTube player API**
-> (`POST https://youtubei.googleapis.com/youtubei/v1/player`) using a **mobile client context**.
-> Mobile clients return a ready-to-play **HLS manifest** (`streamingData.hlsManifestUrl`) and/or
-> progressive MP4 `formats` whose URLs need **no signature deciphering** — so a ~100-line
-> `URLSession` + JSON resolver suffices. **No third-party dependency** (keeps `DebridCore`'s
-> no-deps rule), and no YouTube SPM library to rot.
+Resolve **YouTube key → direct stream URL** with **YouTubeKit** (`YouTube(videoID:).streams` →
+the progressive itag-18 muxed MP4 URL), then play that URL with **`AVPlayer`** (not VLCKit).
+Trailers are standard H.264/AAC — the one place AVPlayer is correct (VLCKit exists precisely
+because AVPlayer *can't* play RD's MKV/x265). AVPlayer gives mute, loop, and an inline
+`AVPlayerLayer` for the backdrop for free. **VLCKit remains the engine for actual RD playback** —
+unchanged.
 
-Then play the resolved URL with **`AVPlayer`** (not VLCKit). Trailers are standard H.264/AAC —
-the one place AVPlayer is correct (VLCKit exists precisely because AVPlayer *can't* play RD's
-MKV/x265). AVPlayer gives mute, loop, native HLS, and an inline `AVPlayerLayer` for the backdrop
-for free. **VLCKit remains the engine for actual RD playback** — unchanged.
+### Remaining UI-slice gate
 
-### ⚠️ Make-or-break spike (gates the UI slices)
-
-Confirm InnerTube returns a playable stream URL for trailers, **before** building UI. Two checks:
-1. **`curl`** the InnerTube player API with a mobile client context for a known trailer id;
-   confirm a `hlsManifestUrl` or progressive URL comes back.
-2. **AVPlayer on the simulator** can play an HLS/MP4 URL (unlike the YouTube embed) — so a real
-   trailer can be **verified playing on the sim**.
-If InnerTube doesn't pan out (blocked / no URL), fall back to deep-link-only and rethink.
+The extraction is proven; before/while building UI, confirm **AVPlayer plays the extracted URL on
+the iPhone simulator** (it can play an MP4 URL, unlike the YouTube embed) — so a real trailer is
+**verified playing on the sim**, not just on device.
 
 ## Architecture
 
-### DebridCore (brain; pure, no deps, TDD)
+### DebridCore (brain) — unchanged
 
-- **`TrailerStream`** model: the resolved playable stream (`url: URL`, `isHLS: Bool`).
-- **`TrailerStreamResolving`** seam: `func streamURL(youTubeKey: String) async throws -> TrailerStream?`.
-- **`YouTubeStreamResolver`** (conforms): POSTs to InnerTube with a mobile client context +
-  `videoId`, parses `streamingData` — **prefers `hlsManifestUrl`**, else best progressive
-  `formats` entry (highest resolution with a direct `url`). Returns nil on no playable stream.
-  Pure networking; unit-tested against mocked InnerTube JSON.
-- The existing **`TrailerProviding`** (TMDB `/videos` → YouTube key) is unchanged; this is the
-  second hop (key → stream URL).
+The existing **`TrailerProviding`** (TMDB `/videos` → YouTube key) stays. **No trailer-stream
+code lands in `DebridCore`** — it keeps its no-deps rule. (The key→URL hop needs YouTubeKit, which
+lives in DebridUI.)
 
-### DebridUI (shared view-model)
+### DebridUI (shared) — extraction + view-model
 
+- **YouTubeKit dependency** added to the `DebridUI` SwiftPM package (the presentation layer, which
+  may take deps — unlike the pure brain).
+- **`TrailerStreamResolving`** seam: `func streamURL(youTubeKey: String) async -> URL?` (nil on
+  failure → caller falls back to deep-link). Keeps `TrailerModel` testable without YouTubeKit.
+- **`YouTubeKitStreamResolver`** (conforms): `YouTube(videoID:).streams` → the best **progressive**
+  (muxed) stream's `url` (itag 18 today). Returns nil if extraction throws / no progressive stream.
+  Thin wrapper; the parsing/cipher work is YouTubeKit's.
 - **`TrailerModel`** (`@MainActor @Observable`): one model both apps reuse. State machine:
   `idle → resolving → ready(TrailerStream) → failed`. Owns: the YouTube-key resolve + stream
   resolve, the **autoplay-enabled** setting read, mute state, and the **~4s auto-play delay**.
@@ -107,20 +122,21 @@ If InnerTube doesn't pan out (blocked / no URL), fall back to deep-link-only and
 
 ## Testing
 
-- **DebridCore:** `YouTubeStreamResolver` parse tests (mocked InnerTube JSON: HLS-present,
-  progressive-only, none → nil) under `MockTests`. Plus the **live spike** (curl).
-- **DebridUI:** `TrailerModel` state tests with fakes (resolve→ready, mute/unmute,
-  fail→fallback, autoplay-off suppresses auto-play, the delay gates auto-play).
-- **Apps:** build clean (0 warnings). **Verify a real trailer plays on the iPhone sim**
-  (AVPlayer can play the extracted URL). On-device confirm of the muted-backdrop cross-fade feel
+- **DebridUI:** `YouTubeKitStreamResolver` is a thin wrapper — covered by the **live spike**
+  (proven) + a build/integration check that it returns a URL for a known id. `TrailerModel` state
+  tests with a **fake `TrailerStreamResolving`** (resolve→ready, mute/unmute, fail→fallback,
+  autoplay-off suppresses auto-play, the delay gates auto-play) — no YouTubeKit in unit tests.
+- **DebridCore:** unchanged (no new code).
+- **Apps:** build clean (0 warnings). **Verify a real trailer plays on the iPhone sim** (AVPlayer
+  plays the extracted MP4 URL). On-device confirm of the muted-backdrop cross-fade feel
   (owner-pending, like other UX DoD).
 
 ## Delivery slices
 
-1. **Brain + spike** — `TrailerStream`, `TrailerStreamResolving`, `YouTubeStreamResolver` (TDD),
-   and the InnerTube spike proving a playable URL.
+1. **DebridUI extraction** — add YouTubeKit to the `DebridUI` package; `TrailerStreamResolving`
+   seam + `YouTubeKitStreamResolver`; wire it into `AppSession`. Verify it resolves a URL.
 2. **iOS** — AVPlayer trailer: full-screen tap-to-play + muted auto-play backdrop + unmute +
-   Settings toggle + YouTube fallback. Verify on the sim.
+   Settings toggle + YouTube fallback; `TrailerModel`. Verify a trailer plays on the sim.
 3. **tvOS** — same, focus-aware; Trailer button plays in-app, deep-link kept as fallback.
 
 ## Out of scope (YAGNI)
