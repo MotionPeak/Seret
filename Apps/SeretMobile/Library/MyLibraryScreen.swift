@@ -23,6 +23,10 @@ struct MyLibraryScreen: View {
                 .padding(.horizontal, Theme.Space.lg)
                 .padding(.top, Theme.Space.sm)
 
+                if let tiles = session.downloadStore?.activeTiles, !tiles.isEmpty {
+                    DownloadingStrip(tiles: tiles)
+                }
+
                 if let store = session.libraryStore {
                     LibraryGrid(
                         title: kind == .movie ? "Movies" : "Shows",
@@ -61,5 +65,68 @@ struct MyLibraryScreen: View {
             }
         }
         .navigationTitle("My Library")
+    }
+}
+
+/// A horizontal strip of in-progress downloads shown above the library grid, so a requested title
+/// is visible (with live progress) before it finishes and becomes a normal library item.
+private struct DownloadingStrip: View {
+    let tiles: [DownloadTile]
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.xs) {
+            Text("DOWNLOADING").font(Theme.Typo.label()).tracking(1.5)
+                .foregroundStyle(Theme.Palette.gold).padding(.horizontal, Theme.Space.lg)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: Theme.Space.md) {
+                    ForEach(tiles) { DownloadingTile(tile: $0) }
+                }
+                .padding(.horizontal, Theme.Space.lg)
+            }
+        }
+        .padding(.top, Theme.Space.sm)
+    }
+}
+
+private struct DownloadingTile: View {
+    let tile: DownloadTile
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ZStack(alignment: .bottom) {
+                poster
+                progressOverlay
+            }
+            .frame(width: 100, height: 150)
+            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.chip))
+            Text(tile.title).font(Theme.Typo.caption()).lineLimit(1)
+                .frame(width: 100, alignment: .leading).foregroundStyle(Theme.Palette.textSecondary)
+        }
+    }
+
+    @ViewBuilder private var poster: some View {
+        if let url = TMDBClient.imageURL(path: tile.posterPath, size: "w300") {
+            AsyncImage(url: url) { $0.resizable().aspectRatio(contentMode: .fill) }
+                placeholder: { Rectangle().fill(.gray.opacity(0.25)) }
+        } else {
+            Rectangle().fill(.gray.opacity(0.25))
+        }
+    }
+
+    private var progressOverlay: some View {
+        VStack(spacing: 3) {
+            HStack(spacing: 4) {
+                Image(systemName: "arrow.down.circle.fill")
+                Text(label)
+                Spacer()
+            }
+            .font(.caption2.weight(.semibold)).foregroundStyle(.white)
+            ProgressView(value: tile.status.fraction).tint(Theme.Palette.gold)
+        }
+        .padding(6)
+        .background(.black.opacity(0.55))
+    }
+
+    private var label: String {
+        if case .downloading = tile.status.phase { return "\(Int(tile.status.fraction * 100))%" }
+        return "Queued"
     }
 }

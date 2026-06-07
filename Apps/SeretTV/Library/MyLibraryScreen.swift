@@ -20,6 +20,10 @@ struct MyLibraryScreen: View {
             }
             .padding(.top, 30)
 
+            if let tiles = session.downloadStore?.activeTiles, !tiles.isEmpty {
+                DownloadingStrip(tiles: tiles)
+            }
+
             if let store = session.libraryStore {
                 LibraryScreen(
                     title: kind == .movie ? "Movies" : "Shows",
@@ -52,5 +56,66 @@ struct MyLibraryScreen: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// A horizontal strip of in-progress downloads above the library grid, so a requested title is
+/// visible (with live progress) before it finishes and becomes a normal library item.
+private struct DownloadingStrip: View {
+    let tiles: [DownloadTile]
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Downloading").font(.title3.bold())
+                .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 60)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 30) {
+                    ForEach(tiles) { DownloadingTile(tile: $0) }
+                }
+                .padding(.horizontal, 60)
+            }
+        }
+    }
+}
+
+private struct DownloadingTile: View {
+    let tile: DownloadTile
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ZStack(alignment: .bottom) {
+                poster
+                progressOverlay
+            }
+            .frame(width: 180, height: 270)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            Text(tile.title).font(.callout).lineLimit(1)
+                .frame(width: 180, alignment: .leading).foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder private var poster: some View {
+        if let url = TMDBClient.imageURL(path: tile.posterPath, size: "w500") {
+            AsyncImage(url: url) { $0.resizable().aspectRatio(contentMode: .fill) }
+                placeholder: { Rectangle().fill(.gray.opacity(0.25)) }
+        } else {
+            Rectangle().fill(.gray.opacity(0.25))
+        }
+    }
+
+    private var progressOverlay: some View {
+        VStack(spacing: 4) {
+            HStack(spacing: 6) {
+                Image(systemName: "arrow.down.circle.fill")
+                Text(label)
+                Spacer()
+            }
+            .font(.caption.weight(.semibold)).foregroundStyle(.white)
+            ProgressView(value: tile.status.fraction)
+        }
+        .padding(8).background(.black.opacity(0.6))
+    }
+
+    private var label: String {
+        if case .downloading = tile.status.phase { return "\(Int(tile.status.fraction * 100))%" }
+        return "Queued"
     }
 }
