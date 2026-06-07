@@ -13,6 +13,8 @@ struct PlaybackPresentation: Identifiable {
 struct DetailScreen: View {
     @State private var store: DetailStore
     @State private var playback: PlaybackPresentation?
+    @State private var confirmingRemove = false
+    @State private var removeError: String?
     @Environment(AppSession.self) private var session
     @Environment(\.dismiss) private var dismiss
 
@@ -34,8 +36,31 @@ struct DetailScreen: View {
                     Button { dismiss() } label: { Image(systemName: "chevron.down").font(.headline) }
                         .tint(Theme.Palette.gold)
                 }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Button("Remove from Library", systemImage: "trash", role: .destructive) {
+                            confirmingRemove = true
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle").font(.headline)
+                    }
+                    .tint(Theme.Palette.gold)
+                }
             }
             .toolbarBackground(.hidden, for: .navigationBar)
+            .confirmationDialog("Remove \u{201C}\(store.item.title)\u{201D} from your library?",
+                                isPresented: $confirmingRemove, titleVisibility: .visible) {
+                Button("Remove", role: .destructive) { performRemove() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This deletes it from your Real\u{2011}Debrid account. You can re\u{2011}add it later by searching.")
+            }
+            .alert("Couldn\u{2019}t Remove", isPresented: Binding(
+                get: { removeError != nil }, set: { if !$0 { removeError = nil } })) {
+                Button("OK", role: .cancel) { removeError = nil }
+            } message: {
+                Text(removeError ?? "")
+            }
         }
         .fullScreenCover(item: $playback) { presented in
             let engine = VLCKitVideoPlayerEngine()
@@ -51,6 +76,19 @@ struct DetailScreen: View {
 
     private func present(_ request: PlaybackRequest) {
         playback = PlaybackPresentation(request: request)
+    }
+
+    private func performRemove() {
+        guard let library = session.libraryStore else { return }
+        Task {
+            await library.remove(store.item)
+            if case .failed(let message) = library.removal {
+                removeError = message
+                library.clearRemovalError()
+            } else {
+                dismiss()
+            }
+        }
     }
 }
 

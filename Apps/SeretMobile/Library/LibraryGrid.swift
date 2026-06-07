@@ -11,6 +11,7 @@ struct LibraryGrid: View {
     let state: LibraryStore.State
     let onRetry: () -> Void
     let onSelect: (MediaItem) -> Void
+    let onRemove: (MediaItem) -> Void
     @Environment(\.horizontalSizeClass) private var hSize
 
     private var columns: [GridItem] {
@@ -48,6 +49,11 @@ struct LibraryGrid: View {
                                            width: nil)
                             }
                             .pressable()
+                            .contextMenu {
+                                Button("Remove from Library", systemImage: "trash", role: .destructive) {
+                                    onRemove(item)
+                                }
+                            }
                         }
                     }
                     .padding(Theme.Space.lg)

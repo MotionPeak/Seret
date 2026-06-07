@@ -8,6 +8,7 @@ struct MyLibraryScreen: View {
     @Environment(AppSession.self) private var session
     @Environment(AppRouter.self) private var router
     @State private var kind: MediaKind = .movie
+    @State private var pendingRemoval: MediaItem?
 
     var body: some View {
         ZStack {
@@ -27,8 +28,29 @@ struct MyLibraryScreen: View {
                         items: kind == .movie ? store.movies : store.shows,
                         state: store.state,
                         onRetry: { store.retry() },
-                        onSelect: { router.detail = $0 })
+                        onSelect: { router.detail = $0 },
+                        onRemove: { pendingRemoval = $0 })
                         .task(id: store.attempt) { await store.load() }
+                        .confirmationDialog(
+                            "Remove \u{201C}\(pendingRemoval?.title ?? "")\u{201D} from your library?",
+                            isPresented: Binding(get: { pendingRemoval != nil },
+                                                 set: { if !$0 { pendingRemoval = nil } }),
+                            titleVisibility: .visible,
+                            presenting: pendingRemoval) { item in
+                            Button("Remove", role: .destructive) {
+                                Task { await store.remove(item) }
+                            }
+                            Button("Cancel", role: .cancel) {}
+                        } message: { _ in
+                            Text("This deletes it from your Real\u{2011}Debrid account.")
+                        }
+                        .alert("Couldn\u{2019}t Remove", isPresented: Binding(
+                            get: { if case .failed = store.removal { return true } else { return false } },
+                            set: { if !$0 { store.clearRemovalError() } })) {
+                            Button("OK", role: .cancel) { store.clearRemovalError() }
+                        } message: {
+                            if case .failed(let msg) = store.removal { Text(msg) }
+                        }
                 } else {
                     Spacer(); ProgressView().tint(Theme.Palette.gold); Spacer()
                 }
