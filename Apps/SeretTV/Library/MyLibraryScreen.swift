@@ -56,6 +56,8 @@ struct MyLibraryScreen: View {
                     } message: {
                         Text(removeErrorMessage ?? "")
                     }
+                    .focusSection()      // let DOWN from the Movies/TV pills enter the grid and scroll it
+                                          // (same fix as SettingsView / the player SettingsPanel)
             } else {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
             }
