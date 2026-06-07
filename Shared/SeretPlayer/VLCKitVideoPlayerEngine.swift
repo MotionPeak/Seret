@@ -31,6 +31,10 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
         continuation = cont
         super.init()
         videoView.backgroundColor = .black   // base stays black (no grey flash before VLCKit renders)
+        // Track the host bounds so VLCKit's Metal layer always matches the on-screen frame.
+        // Without this the drawable can keep an initial (e.g. iPad split-column) size and the
+        // video appears to fill/crop instead of letterboxing to the real screen.
+        videoView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         player.drawable = videoView
         player.delegate = self
     }
