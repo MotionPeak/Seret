@@ -138,6 +138,21 @@ private func cachedStream(_ hash: String, res: String, langs: [String], size: In
         #expect(s.allVersions.isEmpty)
     }
 
+    // MARK: - Try-instant (play a version now if RD already has it cached)
+
+    @Test func tryInstantAddReturnsInfoWhenCached() async {
+        let s = store(streams: .success([cachedStream("h", res: "1080p", langs: ["en"], size: 1)]),
+                      add: .success(tv()))
+        let info = await s.tryInstantAdd(cachedStream("h", res: "1080p", langs: ["en"], size: 1))
+        #expect(info?.id == "T")
+    }
+
+    @Test func tryInstantAddReturnsNilWhenNotInstant() async {
+        let s = store(streams: .success([]), add: .failure(.boom))
+        let info = await s.tryInstantAdd(cachedStream("h", res: "1080p", langs: ["en"], size: 1))
+        #expect(info == nil)
+    }
+
     // MARK: - Season-pack mode
 
     private func seStream(_ hash: String, season: Int, episode: Int?, res: String) -> CachedStream {

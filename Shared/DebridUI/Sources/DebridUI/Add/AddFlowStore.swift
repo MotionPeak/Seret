@@ -133,6 +133,13 @@ public final class AddFlowStore {
     /// Ranked uncached candidates for the current movie/episode target (input to a request-download).
     public func uncachedCandidates() async -> [CachedStream] { await add?.uncachedCandidates() ?? [] }
 
+    /// Try to play a picked version instantly: returns a `PlaybackRequest` if RD already has it
+    /// cached, else nil (the caller then starts a download). No-op without a loaded `AddStore`.
+    public func instantPlay(_ stream: CachedStream) async -> PlaybackRequest? {
+        guard let info = await add?.tryInstantAdd(stream) else { return nil }
+        return playbackRequest(from: info)
+    }
+
     /// Build a `PlaybackRequest` from a freshly-added torrent for the Add & Play path.
     /// Returns nil if the torrent has no playable video file.
     public func playbackRequest(from info: TorrentInfo) -> PlaybackRequest? {

@@ -99,6 +99,14 @@ public final class AddStore {
         allVersions = await uncachedCandidates()
     }
 
+    /// Try to add a specific version as an INSTANT (already-cached) torrent and return its info if
+    /// RD has it ready — otherwise nil (the instant add self-cleans the non-instant torrent). Used
+    /// to play a picked version immediately when possible, falling back to a download when not.
+    /// Does not touch `state` (it's a side query, not the main add flow).
+    public func tryInstantAdd(_ stream: CachedStream) async -> TorrentInfo? {
+        try? await addService.add(infoHash: stream.infoHash)
+    }
+
     public func add(stream: CachedStream) async {
         state = .adding
         do {

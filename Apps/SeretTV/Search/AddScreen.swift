@@ -167,6 +167,7 @@ private struct AddActions: View {
     @Environment(AppSession.self) private var session
     @State private var showAll = false
     @State private var loadingAll = false
+    @State private var picking: String?   // infohash being added (instant-check in progress)
     /// Queued add awaiting a replace-existing confirmation (set when the title is owned).
     @State private var pendingReplace: PendingAdd?
 
@@ -271,7 +272,11 @@ private struct AddActions: View {
                             if let size = stream.sizeBytes {
                                 Text(Self.sizeGB(size)).font(.callout).foregroundStyle(.secondary)
                             }
-                            Image(systemName: stream.isCached ? "play.circle" : "arrow.down.circle")
+                            if picking == stream.infoHash {
+                                ProgressView()
+                            } else {
+                                Image(systemName: stream.isCached ? "play.circle" : "arrow.down.circle")
+                            }
                         }
                         Text(stream.rawTitle).font(.callout).foregroundStyle(.secondary)
                             .lineLimit(1).truncationMode(.middle)
@@ -284,15 +289,20 @@ private struct AddActions: View {
     }
 
     /// Cached version → add + play now; uncached → start that version's download.
+    /// Tap any version → if RD already has it cached, play immediately; otherwise start its
+    /// download. (Cache flags lag/are missing, so we try-instant rather than trust the badge.)
     private func pick(_ stream: CachedStream) {
-        if stream.isCached {
-            play(stream)
-        } else {
-            Task {
+        guard picking == nil else { return }
+        Task {
+            picking = stream.infoHash
+            if let request = await flow.instantPlay(stream) {
+                onPlay(request)
+            } else {
                 await session.downloadStore?.request(tmdbID: flow.tmdbID, title: flow.title,
                                                      kind: flow.mediaKind, candidates: [stream],
                                                      posterPath: flow.posterPath)
             }
+            picking = nil
         }
     }
 
