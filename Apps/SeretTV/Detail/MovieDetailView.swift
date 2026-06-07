@@ -14,9 +14,9 @@ struct MovieDetailView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 36) {
-                // Anchor the hero to the bottom of the first screenful so the backdrop breathes
-                // above it and the title/actions sit on a consistent baseline (Apple-TV style).
-                hero.frame(maxWidth: .infinity, minHeight: 840, alignment: .bottomLeading)
+                // Anchor the hero low so the backdrop breathes above it, but not so low that the
+                // action buttons fall into a real TV's bottom overscan (kept well inside safe area).
+                hero.frame(maxWidth: .infinity, minHeight: 520, alignment: .bottomLeading)
                 if store.versions.count > 1 { versionsSection }   // single source → no disclosure (spec §6)
             }
             .padding(60)

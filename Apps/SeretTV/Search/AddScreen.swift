@@ -76,9 +76,11 @@ private struct MovieAdd: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 28) {
-                Spacer(minLength: 560)
-                Text(flow.title).font(.system(size: 48, weight: .bold))
+            VStack(alignment: .leading, spacing: 20) {
+                // Keep the title low over the backdrop, but high enough that the Play/version
+                // actions stay inside a real TV's bottom safe area (no overscan clipping).
+                Spacer(minLength: 260)
+                Text(flow.title).font(.system(size: 44, weight: .bold))
                 if let year = flow.year { Text(String(year)).font(.body).foregroundStyle(.secondary) }
                 if let overview = flow.overview {
                     Text(overview).font(.body).frame(maxWidth: 1100, alignment: .leading).lineLimit(3)
@@ -88,7 +90,7 @@ private struct MovieAdd: View {
                     AddActions(flow: flow, add: add, onPlay: onPlay)
                 }
             }
-            .padding(60)
+            .padding(.horizontal, 60).padding(.vertical, 40)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
