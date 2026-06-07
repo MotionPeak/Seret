@@ -62,11 +62,13 @@ private actor RecordingWatch: WatchProgressProviding {
     }
 
     @Test func failureSetsErrorAndKeepsItem() async {
+        let watch = RecordingWatch()
         let store = LibraryStore(
-            library: RemoveFakeLibrary(cached: [movie("1")], removeError: .boom), watch: RecordingWatch())
+            library: RemoveFakeLibrary(cached: [movie("1")], removeError: .boom), watch: watch)
         await store.load()
         await store.remove(store.movies[0])
         #expect(store.movies.count == 1)
+        #expect(await watch.deletedKeys.isEmpty)   // watch purge must NOT run when RD delete fails
         guard case .failed = store.removal else {
             #expect(Bool(false), "expected .failed, got \(store.removal)"); return
         }
