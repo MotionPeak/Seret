@@ -12,7 +12,7 @@ extension SwiftDataSuite {
         }
         private func req(_ torrentID: String, tmdb: Int) -> DownloadRequestData {
             DownloadRequestData(torrentID: torrentID, tmdbID: tmdb, infoHash: "h\(torrentID)",
-                                kind: .movie, title: "T\(torrentID)",
+                                kind: .movie, title: "T\(torrentID)", posterPath: "/p\(torrentID).jpg",
                                 requestedAt: Date(timeIntervalSince1970: 0))
         }
 
@@ -37,6 +37,7 @@ extension SwiftDataSuite {
             let s = try store()
             try await s.upsert(req("A", tmdb: 7))
             #expect(try await s.find(tmdbID: 7)?.torrentID == "A")
+            #expect(try await s.find(tmdbID: 7)?.posterPath == "/pA.jpg")   // poster survives persistence
             #expect(try await s.find(tmdbID: 99) == nil)
         }
     }

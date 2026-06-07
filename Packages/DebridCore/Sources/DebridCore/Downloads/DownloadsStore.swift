@@ -16,6 +16,7 @@ public actor DownloadsStore {
         row.infoHash = data.infoHash
         row.kindRaw = data.kind.rawValue
         row.title = data.title
+        row.posterPath = data.posterPath
         row.requestedAt = data.requestedAt
         try modelContext.save()
     }

@@ -10,13 +10,15 @@ public final class DownloadRequest {
     public var infoHash: String = ""
     public var kindRaw: String = "movie"   // MediaKind.rawValue
     public var title: String = ""
+    public var posterPath: String?         // TMDB poster path — renders the library "downloading" tile
     public var requestedAt: Date = Date(timeIntervalSince1970: 0)
 
     public init(torrentID: String = "", tmdbID: Int = 0, infoHash: String = "",
-                kindRaw: String = "movie", title: String = "",
+                kindRaw: String = "movie", title: String = "", posterPath: String? = nil,
                 requestedAt: Date = Date(timeIntervalSince1970: 0)) {
         self.torrentID = torrentID; self.tmdbID = tmdbID; self.infoHash = infoHash
-        self.kindRaw = kindRaw; self.title = title; self.requestedAt = requestedAt
+        self.kindRaw = kindRaw; self.title = title; self.posterPath = posterPath
+        self.requestedAt = requestedAt
     }
 }
 
@@ -27,19 +29,21 @@ public struct DownloadRequestData: Sendable, Equatable, Identifiable {
     public let infoHash: String
     public let kind: MediaKind
     public let title: String
+    public let posterPath: String?
     public let requestedAt: Date
 
     public var id: String { torrentID }
 
     public init(torrentID: String, tmdbID: Int, infoHash: String, kind: MediaKind,
-                title: String, requestedAt: Date) {
+                title: String, posterPath: String? = nil, requestedAt: Date) {
         self.torrentID = torrentID; self.tmdbID = tmdbID; self.infoHash = infoHash
-        self.kind = kind; self.title = title; self.requestedAt = requestedAt
+        self.kind = kind; self.title = title; self.posterPath = posterPath
+        self.requestedAt = requestedAt
     }
 
     init(_ m: DownloadRequest) {
         self.init(torrentID: m.torrentID, tmdbID: m.tmdbID, infoHash: m.infoHash,
                   kind: MediaKind(rawValue: m.kindRaw) ?? .movie, title: m.title,
-                  requestedAt: m.requestedAt)
+                  posterPath: m.posterPath, requestedAt: m.requestedAt)
     }
 }
