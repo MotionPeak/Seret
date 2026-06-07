@@ -54,6 +54,7 @@ public struct FilenameParser: Sendable {
     /// tokens so a name like `Some.Film.FLAC.1080p…` stops the title at `FLAC`.
     private static let metadataTokenRegexes: [NSRegularExpression] = [
         #"^(19|20)\d{2}$"#,
+        #"^[(\[](19|20)\d{2}[)\]]$"#,   // a parenthesised/bracketed year: "(2016)" / "[2016]"
         #"(?i)^s\d{1,2}e\d{1,3}$"#,
         #"(?i)^s\d{1,2}$"#,
         #"(?i)^\d{1,2}x\d{1,3}$"#,

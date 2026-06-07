@@ -69,6 +69,15 @@ struct FilenameParserTests {
         #expect(r.resolution == "1080p")
     }
 
+    @Test func stripsParenthesisedYearFromTitle() {
+        // RD/scene names like "Split.(2016)..." must not leave "(2016)" in the title — that
+        // breaks the TMDB enrichment query (and the added item shows no poster).
+        let r = parser.parse("Split.(2016).UHD.BluRay.HDR.2160p.ITA.DTS.ENG.AC3.Subs.x265.[TbZ].mkv")
+        #expect(r.title == "Split")
+        #expect(r.year == 2016)
+        #expect(r.resolution == "2160p")
+    }
+
     @Test func keepsLeadingNumberThatIsNotAYearInTitle() {
         let r = parser.parse("21.Jump.Street.2012.1080p.BluRay.x264-SPARKS.mkv")
         #expect(r.title == "21 Jump Street")
