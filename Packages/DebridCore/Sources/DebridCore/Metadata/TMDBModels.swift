@@ -1,7 +1,7 @@
 import Foundation
 
 /// A row from a TMDB `/search/movie` or `/search/tv` response.
-public struct TMDBSearchResult: Decodable, Sendable, Equatable, Identifiable {
+public struct TMDBSearchResult: Decodable, Sendable, Equatable, Hashable, Identifiable {
     public let id: Int
     public let title: String?          // movies
     public let name: String?           // tv

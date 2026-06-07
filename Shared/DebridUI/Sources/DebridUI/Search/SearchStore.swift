@@ -4,7 +4,7 @@ import Observation
 /// One title from a search, tagged with its `MediaKind`. TMDB movie and TV ids live in
 /// separate namespaces (the same integer can be a movie *and* a show), so kind must travel
 /// with the result rather than be inferred downstream.
-public struct SearchHit: Identifiable, Equatable, Sendable {
+public struct SearchHit: Identifiable, Equatable, Hashable, Sendable {
     public let result: TMDBSearchResult
     public let kind: MediaKind
     public init(result: TMDBSearchResult, kind: MediaKind) {
