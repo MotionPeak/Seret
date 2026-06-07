@@ -10,7 +10,6 @@ struct SettingsPanel: View {
     let onClose: () -> Void
     @State private var tab: Tab = .playback
     @FocusState private var focusedTab: Tab?
-    @Namespace private var scope
 
     enum Tab: String, CaseIterable {
         case info = "Info", playback = "Playback Settings", technical = "Technical Details"
@@ -18,11 +17,12 @@ struct SettingsPanel: View {
 
     var body: some View {
         VStack(spacing: 24) {
-            // Tab bar — switches on FOCUS (no click needed), like the native tvOS player overlay.
+            // Tab bar — switches on FOCUS (no click needed), like the native tvOS player overlay,
+            // and uses the exact same gold-pill style as the Browse Trending/Popular selector.
             HStack(spacing: 14) {
                 ForEach(Tab.allCases, id: \.self) { t in
-                    TabChip(title: t.rawValue, selected: tab == t)
-                        .focusable()
+                    Button(t.rawValue) { tab = t }
+                        .buttonStyle(SeretPillStyle(selected: tab == t))
                         .focused($focusedTab, equals: t)
                 }
             }
@@ -52,7 +52,6 @@ struct SettingsPanel: View {
         .padding(.horizontal, 60)
         .padding(.top, 40)                // sits at the top of the screen
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .focusScope(scope)
     }
 }
 
@@ -62,8 +61,10 @@ private struct PlaybackColumns: View {
     @Bindable var model: PlayerModel
     let onPick: () -> Void
     /// Seeds focus to the "Subtitles → Off" row when the panel opens, so the arrows navigate the
-    /// options immediately — no extra click to "enter" the menu. `.defaultFocus` is declarative, so
-    /// it lands without the flaky async + prefersDefaultFocus combo it replaces.
+    /// options immediately — no extra click to "enter" the menu. Uses the same `@FocusState` +
+    /// `.onAppear` seed as the sibling overlays (`UpNextBar`, `EpisodesPanel`) — reliable across the
+    /// UIKit `ScrubPad` → SwiftUI focus handoff, unlike the `.defaultFocus`/`.focusScope` combo it
+    /// replaces (which stranded focus and left the panel uncontrollable).
     @FocusState private var landingFocused: Bool
 
     var body: some View {
@@ -73,7 +74,7 @@ private struct PlaybackColumns: View {
             subtitlesColumn
             speedColumn
         }
-        .defaultFocus($landingFocused, true)
+        .onAppear { landingFocused = true }
     }
 
     /// Shows for a show episode that has another after it — selecting it advances the running player
@@ -241,29 +242,6 @@ private struct CheckRow: View {
     }
 }
 
-/// A top tab styled for focus: a bright white pill when focused, a faint pill for the selected
-/// (current) tab, plain otherwise. Reads `\.isFocused` directly so the highlight is uniform rather
-/// than the inconsistent default-button glow.
-private struct TabChip: View {
-    let title: String
-    let selected: Bool
-    @Environment(\.isFocused) private var focused: Bool
-    var body: some View {
-        Text(title)
-            .font(.headline)
-            .foregroundStyle(focused ? .black : .white)
-            .padding(.horizontal, 22).padding(.vertical, 10)
-            .background(fill, in: Capsule())
-            .scaleEffect(focused ? 1.06 : 1)
-            .animation(.easeOut(duration: 0.15), value: focused)
-    }
-    private var fill: Color {
-        if focused { return Theme.Palette.gold }
-        if selected { return Theme.Palette.gold.opacity(0.22) }
-        return .white.opacity(0.08)
-    }
-}
-
 /// A settings row's focus look: a clean white pill + dark text + a subtle lift, replacing the
 /// inconsistent default `.plain` highlight (the "buggy glow").
 private struct SettingsRowButtonStyle: ButtonStyle {
@@ -276,7 +254,7 @@ private struct SettingsRowButtonStyle: ButtonStyle {
                 .padding(.horizontal, 16).padding(.vertical, 8)
                 .foregroundStyle(focused ? .black : .white)
                 .background(focused ? Color.white : .clear, in: RoundedRectangle(cornerRadius: 10))
-                .scaleEffect(focused ? 1.03 : 1)
+                .scaleEffect(focused ? 1.06 : 1)
                 .opacity(configuration.isPressed ? 0.7 : 1)
                 .animation(.easeOut(duration: 0.15), value: focused)
         }
