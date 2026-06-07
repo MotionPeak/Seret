@@ -90,19 +90,27 @@ private struct PlaybackColumns: View {
 
     private var subtitlesColumn: some View {
         SettingsColumn(header: "SUBTITLES") {
-            CheckRow(title: "Off", checked: false) { model.selectSubtitleOff(); onPick() }
+            CheckRow(title: "Off", checked: model.selectedSubtitleID == nil) { model.selectSubtitleOff(); onPick() }
                 .focused($landingFocused)         // first focused when the panel opens
-            ForEach(labeled(model.subtitleTracks), id: \.track.id) { entry in
-                CheckRow(title: entry.label, checked: false) {
+            ForEach(labeled(model.embeddedSubtitleTracks), id: \.track.id) { entry in
+                CheckRow(title: entry.label, checked: model.selectedSubtitleID == entry.track.id) {
                     model.selectSubtitle(id: entry.track.id); onPick()
                 }
             }
             ForEach(model.subtitleRows) { row in
-                let title = row.language == "he" ? "Hebrew (download)" : "English (download)"
-                CheckRow(title: title, checked: false) {
-                    Task { await model.requestSubtitle(language: row.language) }
+                if let attachedID = model.attachedTrackID(row) {
+                    // Downloaded → the language row IS the track (selectable, no duplicate "Track N").
+                    CheckRow(title: row.language == "he" ? "Hebrew" : "English",
+                             checked: model.selectedSubtitleID == attachedID) {
+                        model.selectSubtitle(id: attachedID); onPick()
+                    }
+                } else {
+                    let title = row.language == "he" ? "Hebrew (download)" : "English (download)"
+                    CheckRow(title: title, checked: false) {
+                        Task { await model.requestSubtitle(language: row.language) }
+                    }
+                    .disabled(isDisabled(row))
                 }
-                .disabled(isDisabled(row))
             }
         }
     }

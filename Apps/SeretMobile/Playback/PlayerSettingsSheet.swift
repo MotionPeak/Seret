@@ -30,7 +30,7 @@ struct PlayerSettingsSheet: View {
                     section("Subtitles", "captions.bubble.fill") {
                         FlowLayout {
                             chip("Off", selected: model.selectedSubtitleID == nil) { model.selectSubtitleOff() }
-                            ForEach(labeled(model.subtitleTracks), id: \.track.id) { e in
+                            ForEach(labeled(model.embeddedSubtitleTracks), id: \.track.id) { e in
                                 chip(e.label, selected: model.selectedSubtitleID == e.track.id) {
                                     model.selectSubtitle(id: e.track.id)
                                 }
@@ -92,18 +92,25 @@ struct PlayerSettingsSheet: View {
 
     @ViewBuilder private func downloadChip(_ row: PlayerModel.SubtitleRow) -> some View {
         let lang = row.language == "he" ? "Hebrew" : "English"
+        let attachedID = model.attachedTrackID(row)            // non-nil once downloaded
+        let selected = attachedID != nil && model.selectedSubtitleID == attachedID
         Button {
-            Task { await model.requestSubtitle(language: row.language) }
+            // Once downloaded, the language pill IS the track — tapping selects it (no re-download,
+            // and no separate generic "Track N" pill). Before download, it downloads.
+            if let attachedID { model.selectSubtitle(id: attachedID) }
+            else { Task { await model.requestSubtitle(language: row.language) } }
         } label: {
             HStack(spacing: 6) {
                 downloadGlyph(row.state)
                 Text(lang).font(.system(size: 14, weight: .semibold))
             }
-            .foregroundStyle(Theme.Palette.textPrimary)
+            .foregroundStyle(selected ? Color(hex: 0x1A1400) : Theme.Palette.textPrimary)
             .padding(.vertical, 9).padding(.horizontal, 15)
-            .background(Theme.Palette.surface2, in: Capsule())
+            .background(selected ? AnyShapeStyle(Theme.Palette.goldGradient)
+                                 : AnyShapeStyle(Theme.Palette.surface2), in: Capsule())
+            // Dashed while it's still a "download" affordance; solid once it's a real track.
             .overlay(Capsule().stroke(Theme.Palette.gold.opacity(0.45),
-                                      style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
+                                      style: StrokeStyle(lineWidth: 1, dash: attachedID == nil ? [4, 3] : [])))
         }
         .buttonStyle(.plain)
         .disabled(isDisabled(row))

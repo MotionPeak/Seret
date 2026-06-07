@@ -34,7 +34,12 @@ final class FakeVideoPlayerEngine: VideoPlayerEngine {
     func setRate(_ rate: Double) { rateSet = rate }
     func selectAudioTrack(id: String?) {}
     func selectSubtitleTrack(id: String?) { selectedSubtitleID = id }
-    func addExternalSubtitle(url: URL) { addedSubtitles.append(url) }
+    func addExternalSubtitle(url: URL) {
+        addedSubtitles.append(url)
+        // Simulate VLCKit surfacing the external sub as a new, generically-named track.
+        subtitleTracks.append(MediaTrack(id: "ext/\(addedSubtitles.count)", kind: .subtitle,
+                                         name: "Track \(subtitleTracks.count + 1)", language: nil))
+    }
 }
 
 // MARK: - FakeSubtitleProvider

@@ -129,6 +129,13 @@ import DebridCore
         if case .attached = model.subtitleRows.first(where: { $0.language == "he" })?.state {} else {
             Issue.record("expected he row .attached, got \(String(describing: model.subtitleRows))")
         }
+        // The downloaded track is the selected one, and it is NOT also listed as a generic
+        // embedded pill (no duplicate "Track N" alongside the Hebrew row).
+        let attached = model.attachedTrackID(model.subtitleRows.first { $0.language == "he" }!)
+        #expect(attached != nil)
+        #expect(model.selectedSubtitleID == attached)
+        #expect(model.subtitleTracks.contains { $0.id == attached })
+        #expect(!model.embeddedSubtitleTracks.contains { $0.id == attached })
     }
 
     @Test func dailyCapMapsToCapReachedRow() async {

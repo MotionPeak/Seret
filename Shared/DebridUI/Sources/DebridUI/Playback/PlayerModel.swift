@@ -52,6 +52,24 @@ public final class PlayerModel {
     public private(set) var selectedAudioID: String?
     public private(set) var selectedSubtitleID: String?   // nil = Off
 
+    /// Subtitle tracks to show as plain pills — EXCLUDES on-demand downloads, which are
+    /// represented by their language row instead. Without this, a downloaded "Hebrew" sub also
+    /// shows up as a generic "Track N" pill (the duplicate the user reported).
+    public var embeddedSubtitleTracks: [MediaTrack] {
+        let downloaded = downloadedTrackIDs
+        return subtitleTracks.filter { !downloaded.contains($0.id) }
+    }
+
+    /// Track ids that came from an on-demand subtitle download (one per `.attached` row).
+    private var downloadedTrackIDs: Set<String> {
+        Set(subtitleRows.compactMap { attachedTrackID($0) })
+    }
+
+    /// The downloaded track id backing a language row, if it has been downloaded.
+    public func attachedTrackID(_ row: SubtitleRow) -> String? {
+        if case .attached(let id) = row.state { return id } else { return nil }
+    }
+
     /// Continuous swipe-scrub (Step 2). While `isScrubbing`, the transport shows a preview marker at
     /// `scrubTarget` instead of the live playhead; the seek only happens on `commitScrub()`.
     public private(set) var isScrubbing: Bool = false
