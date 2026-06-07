@@ -16,17 +16,19 @@ struct AddScreen: View {
 
     var body: some View {
         NavigationStack {
-            ZStack {
-                DetailBackdrop(path: flow?.backdropPath, posterFallback: flow?.posterPath)
-                content
-            }
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button { dismiss() } label: { Image(systemName: "chevron.down").font(.headline) }
-                        .tint(Theme.Palette.gold)
+            // Backdrop as the ScrollView's `.background` (mirrors DetailScreen) — a parent ZStack
+            // here swallowed the top inset, pinning content under the toolbar.
+            content
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(DetailBackdrop(path: flow?.backdropPath, posterFallback: flow?.posterPath))
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button { dismiss() } label: { Image(systemName: "chevron.down").font(.headline) }
+                            .tint(Theme.Palette.gold)
+                    }
                 }
-            }
-            .toolbarBackground(.hidden, for: .navigationBar)
+                .toolbarBackground(.hidden, for: .navigationBar)
         }
         .task {
             guard flow == nil else { return }
