@@ -16,6 +16,8 @@ struct ShowDetail: View {
     var onSeasonAdded: () -> Void = {}
     @State private var seasonStore: AddStore?
     @State private var downloadingEpisodeID: String?
+    @State private var trailerURL: URL?
+    @State private var expandTrailer = false
     private var item: MediaItem { store.item }
 
     /// Re-keys the season-pack lookup whenever the resolved imdbID or selected season changes.
@@ -23,7 +25,12 @@ struct ShowDetail: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: Theme.Space.lg) {
+            VStack(spacing: 0) {
+                // Tap the hero (over the backdrop/auto-play trailer) to watch the trailer full-screen.
+                Color.clear.frame(height: 200)
+                    .contentShape(Rectangle())
+                    .onTapGesture { if trailerURL != nil { expandTrailer = true } }
+                VStack(alignment: .leading, spacing: Theme.Space.lg) {
                 Text(item.title).font(Theme.Typo.titleXL()).foregroundStyle(Theme.Palette.textPrimary)
                 Text(metaLine).font(Theme.Typo.body()).foregroundStyle(Theme.Palette.textSecondary)
                 if let overview = store.overview {
@@ -38,13 +45,17 @@ struct ShowDetail: View {
             .frame(maxWidth: 700, alignment: .leading)
             .frame(maxWidth: .infinity)            // center the readable column (no left-edge cropping on iPad)
             .padding(.horizontal, Theme.Space.lg)
-            .padding(.top, 200)
             .padding(.bottom, Theme.Space.xxl)
+            }
         }
         .background(AutoplayBackdrop(tmdbID: item.tmdbID, kind: .show,
-                                     backdropPath: store.backdropPath, posterFallback: item.posterPath))
+                                     backdropPath: store.backdropPath, posterFallback: item.posterPath,
+                                     resolvedURL: $trailerURL))
         .navigationTitle(item.title)
         .navigationBarTitleDisplayMode(.inline)
+        .fullScreenCover(isPresented: $expandTrailer) {
+            if let u = trailerURL { FullScreenTrailer(url: u) }
+        }
         .task(id: seasonDownloadKey) {
             guard let imdb = store.imdbID else { return }
             let s = makeSeasonDownload(imdb, store.selectedSeason, store.originalLanguage)
@@ -73,7 +84,6 @@ struct ShowDetail: View {
                 }
                 .buttonStyle(GoldButtonStyle())
             }
-            TrailerButton(tmdbID: item.tmdbID, kind: .show)
         }
     }
 
