@@ -58,16 +58,20 @@ struct ShowDetailView: View {
         .font(.title3)
     }
 
-    private var seasonPicker: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 14) {
-                ForEach(item.seasons) { season in
-                    Button { Task { await store.selectSeason(season.number) } } label: {
-                        Text("Season \(season.number)").font(.headline)
-                            .padding(.horizontal, 18).padding(.vertical, 9)
+    @ViewBuilder private var seasonPicker: some View {
+        if item.seasons.count > 1 {   // a single-season show needs no picker (and avoids a lone chip)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 14) {
+                    ForEach(item.seasons) { season in
+                        Button { Task { await store.selectSeason(season.number) } } label: {
+                            Text("Season \(season.number)").font(.headline)
+                                .padding(.horizontal, 18).padding(.vertical, 9)
+                        }
+                        // Gold tint for the selected season — never white, which would render the
+                        // label white-on-white (a blank focused capsule) on tvOS.
+                        .buttonStyle(.bordered)
+                        .tint(season.number == store.selectedSeason ? .yellow : .gray)
                     }
-                    .buttonStyle(.bordered)
-                    .tint(season.number == store.selectedSeason ? .white : .gray)
                 }
             }
         }

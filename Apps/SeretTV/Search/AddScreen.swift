@@ -127,7 +127,8 @@ private struct ShowAdd: View {
                     ForEach(flow.seasons, id: \.self) { s in
                         Button("Season \(s)") { Task { await flow.selectSeason(s) } }
                             .font(.headline)
-                            .tint(s == flow.selectedSeason ? .white : .secondary)
+                            .buttonStyle(.bordered)
+                            .tint(s == flow.selectedSeason ? .yellow : .gray)
                     }
                 }
             }
