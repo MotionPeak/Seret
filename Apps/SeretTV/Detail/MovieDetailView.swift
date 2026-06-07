@@ -33,6 +33,10 @@ struct MovieDetailView: View {
                 Text(overview).font(.body).frame(maxWidth: 1100, alignment: .leading).lineLimit(3)
             }
             actions
+            if store.bestSource == nil, let tmdb = item.tmdbID {
+                MovieDownloadSection(tmdbID: tmdb, title: item.title,
+                                     imdbID: store.imdbID, originalLanguage: store.originalLanguage)
+            }
         }
     }
 
@@ -120,4 +124,58 @@ private struct PreviewDetails: MediaDetailsProviding {
     func movieDetails(tmdbID: Int) async throws -> TMDBMovieDetails { throw CancellationError() }
     func tvDetails(tmdbID: Int) async throws -> TMDBTVDetails { throw CancellationError() }
     func seasonEpisodes(tvID: Int, season: Int) async throws -> [TMDBEpisodeDetails] { [] }
+}
+
+/// Request Download for a movie with no cached/playable version (tvOS). Mirrors the iOS Detail
+/// section: fetch the best uncached release via the shared Add seam, start an RD download, and show
+/// live progress from the app-wide `DownloadStore`. When it finishes the title flips into the
+/// library and Play lights up.
+private struct MovieDownloadSection: View {
+    let tmdbID: Int
+    let title: String
+    let imdbID: String?
+    let originalLanguage: String?
+    @Environment(AppSession.self) private var session
+    @State private var requesting = false
+
+    var body: some View {
+        let status = session.downloadStore?.status(forTMDB: tmdbID)
+        VStack(alignment: .leading, spacing: 16) {
+            if requesting && status == nil {
+                ProgressView("Starting download…")
+            } else if case .queued = status?.phase {
+                ProgressView("Starting download…")
+            } else if case .downloading = status?.phase {
+                let pct = Int((status?.fraction ?? 0) * 100)
+                Label("Downloading \(pct)% to Real-Debrid…", systemImage: "arrow.down.circle.fill")
+                ProgressView(value: status?.fraction ?? 0).frame(maxWidth: 600)
+                Text("It'll appear here when it's ready.").font(.callout).foregroundStyle(.secondary)
+            } else if case .failed(let reason) = status?.phase {
+                Label(reason, systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
+                requestButton("Try Another Version")
+            } else {
+                Text("No cached version exists. Start a download and it'll appear here when it's ready.")
+                    .font(.callout).foregroundStyle(.secondary).frame(maxWidth: 1000, alignment: .leading)
+                requestButton("Request Download")
+            }
+        }
+        .font(.title3)
+    }
+
+    private func requestButton(_ label: String) -> some View {
+        Button {
+            Task {
+                requesting = true
+                var candidates: [CachedStream] = []
+                if let imdbID, let add = session.makeAddStore(imdbID: imdbID, kind: .movie,
+                                                              originalLanguage: originalLanguage) {
+                    candidates = await add.uncachedCandidates()
+                }
+                await session.downloadStore?.request(tmdbID: tmdbID, title: title, kind: .movie,
+                                                     candidates: candidates)
+                requesting = false
+            }
+        } label: { Label(label, systemImage: "arrow.down.circle") }
+            .disabled(requesting || imdbID == nil)
+    }
 }
