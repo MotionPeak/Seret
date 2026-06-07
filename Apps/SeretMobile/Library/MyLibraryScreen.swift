@@ -9,6 +9,7 @@ struct MyLibraryScreen: View {
     @Environment(AppRouter.self) private var router
     @State private var kind: MediaKind = .movie
     @State private var pendingRemoval: MediaItem?
+    @State private var removeErrorMessage: String?
 
     var body: some View {
         ZStack {
@@ -44,12 +45,15 @@ struct MyLibraryScreen: View {
                         } message: { _ in
                             Text("This deletes it from your Real\u{2011}Debrid account.")
                         }
+                        .onChange(of: store.removal) { _, newValue in
+                            if case .failed(let msg) = newValue { removeErrorMessage = msg }
+                        }
                         .alert("Couldn\u{2019}t Remove", isPresented: Binding(
-                            get: { if case .failed = store.removal { return true } else { return false } },
-                            set: { if !$0 { store.clearRemovalError() } })) {
-                            Button("OK", role: .cancel) { store.clearRemovalError() }
+                            get: { removeErrorMessage != nil },
+                            set: { if !$0 { removeErrorMessage = nil; store.clearRemovalError() } })) {
+                            Button("OK", role: .cancel) { removeErrorMessage = nil; store.clearRemovalError() }
                         } message: {
-                            if case .failed(let msg) = store.removal { Text(msg) }
+                            Text(removeErrorMessage ?? "")
                         }
                 } else {
                     Spacer(); ProgressView().tint(Theme.Palette.gold); Spacer()
