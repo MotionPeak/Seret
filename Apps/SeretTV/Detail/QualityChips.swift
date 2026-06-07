@@ -8,7 +8,15 @@ struct QualityChips: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            ForEach(chips, id: \.self) { chip($0) }
+            if chips.isEmpty {
+                // No parseable quality metadata — show the release name so the row is never blank.
+                Text(parsed.title)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            } else {
+                ForEach(chips, id: \.self) { chip($0) }
+            }
         }
     }
 

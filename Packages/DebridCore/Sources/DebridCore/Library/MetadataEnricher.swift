@@ -38,7 +38,12 @@ public struct MetadataEnricher: Sendable {
         case .show:
             results = try await tmdb.searchTV(query: item.title, firstAirYear: item.year)
         }
-        guard let match = results.first else { return item }
+        // TMDB returns most-popular-first, so for a generic title `results.first` can be a wholly
+        // different film. Take the first result whose title actually matches the parsed name;
+        // if none do, leave the item unenriched rather than stamp the wrong poster/plot on it.
+        let matcher = ReleaseMatcher()
+        guard let match = results.first(where: { matcher.titleMatches(item.title, $0.displayTitle) })
+        else { return item }
         return item.withMetadata(
             tmdbID: match.id,
             title: match.displayTitle.isEmpty ? nil : match.displayTitle,

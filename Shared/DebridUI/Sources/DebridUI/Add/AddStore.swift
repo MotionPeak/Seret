@@ -19,6 +19,8 @@ public final class AddStore {
     private let imdbID: String
     private let kind: StreamQuery.Kind
     private let originalLanguage: String?
+    private let title: String
+    private let year: Int?
     private let streamSource: StreamSource
     private let addService: AddProviding
     /// When set, this store grabs the whole-season pack for that season: it queries an episode
@@ -27,15 +29,18 @@ public final class AddStore {
     private let seasonPack: Int?
 
     public init(imdbID: String, kind: StreamQuery.Kind, originalLanguage: String?,
-                streamSource: StreamSource, add: AddProviding, seasonPack: Int? = nil) {
+                streamSource: StreamSource, add: AddProviding, seasonPack: Int? = nil,
+                title: String = "", year: Int? = nil) {
         self.imdbID = imdbID; self.kind = kind; self.originalLanguage = originalLanguage
         self.streamSource = streamSource; self.addService = add; self.seasonPack = seasonPack
+        self.title = title; self.year = year
     }
 
     public func loadStreams() async {
         state = .loadingStreams
         do {
-            let query = StreamQuery(imdbID: imdbID, kind: kind, originalLanguage: originalLanguage)
+            let query = StreamQuery(imdbID: imdbID, kind: kind, originalLanguage: originalLanguage,
+                                    title: title, year: year)
             let found = try await streamSource.streams(for: query)
             // Season-pack mode narrows the results to full-season releases before ranking; the
             // normal episode/movie path ranks everything.

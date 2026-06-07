@@ -158,7 +158,8 @@ public final class AddFlowStore {
     /// reaching `.movie`/`.show`), so the `?? ""` is just totality insurance.
     private func makeAddStore(kind: StreamQuery.Kind, seasonPack: Int? = nil) -> AddStore {
         AddStore(imdbID: imdbID ?? "", kind: kind, originalLanguage: originalLanguage,
-                 streamSource: streamSource, add: addService, seasonPack: seasonPack)
+                 streamSource: streamSource, add: addService, seasonPack: seasonPack,
+                 title: title, year: year)
     }
 
     private func yearFrom(_ date: String?) -> Int? {

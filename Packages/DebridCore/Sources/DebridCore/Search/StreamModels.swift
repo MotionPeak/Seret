@@ -9,9 +9,13 @@ public struct StreamQuery: Sendable, Equatable {
     public let imdbID: String          // e.g. "tt0133093"
     public let kind: Kind
     public let originalLanguage: String? // ISO 639-1, from TMDB; drives ranking
+    public let title: String?          // requested title — gates out mis-attributed releases
+    public let year: Int?              // requested release year — gates out same-named wrong-year films
 
-    public init(imdbID: String, kind: Kind, originalLanguage: String?) {
+    public init(imdbID: String, kind: Kind, originalLanguage: String?,
+                title: String? = nil, year: Int? = nil) {
         self.imdbID = imdbID; self.kind = kind; self.originalLanguage = originalLanguage
+        self.title = title; self.year = year
     }
 }
 

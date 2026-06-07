@@ -38,7 +38,22 @@ public struct CometStreamSource: StreamSource {
 
         let url = baseURL.appending(path: "\(b64)/stream/\(type)/\(id).json")
         let response: CometStreamResponse = try await http.get(url)
-        return response.streams.compactMap { map($0) }
+        let mapped = response.streams.compactMap { map($0) }
+        return Self.validate(mapped, against: query)
+    }
+
+    /// Drops releases that don't correspond to the requested title — the indexer keys on IMDB id
+    /// and its scrapers mis-attribute same-named junk (old films, porn) to a new/generic title.
+    /// A query with no title (back-compat) is left unfiltered.
+    static func validate(_ streams: [CachedStream], against query: StreamQuery) -> [CachedStream] {
+        guard let title = query.title, !title.isEmpty else { return streams }
+        let matcher = ReleaseMatcher()
+        switch query.kind {
+        case .movie:
+            return streams.filter { matcher.matchesMovie($0.parsed, title: title, year: query.year) }
+        case .series:
+            return streams.filter { matcher.matchesSeries($0.parsed, title: title) }
+        }
     }
 
     private func map(_ dto: CometStreamDTO) -> CachedStream? {

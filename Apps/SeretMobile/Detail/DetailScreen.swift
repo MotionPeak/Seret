@@ -132,7 +132,16 @@ struct QualityChipRow: View {
     }
     var body: some View {
         HStack(spacing: 6) {
-            ForEach(chips, id: \.self) { QualityChip(text: $0) }
+            if chips.isEmpty {
+                // No parseable quality metadata — show the release name so the row is never blank
+                // and an odd version stays identifiable.
+                Text(parsed.title)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Theme.Palette.textSecondary)
+                    .lineLimit(1)
+            } else {
+                ForEach(chips, id: \.self) { QualityChip(text: $0) }
+            }
         }
     }
 }

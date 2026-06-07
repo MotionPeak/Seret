@@ -38,6 +38,19 @@ extension MockTests {
             #expect(result.tmdbID == nil)
         }
 
+        @Test func leavesItemUnchangedWhenTopResultIsADifferentTitle() async throws {
+            // A junk torrent's parsed title is unrelated to TMDB's most-popular hit. Stamping that
+            // hit's poster/plot would mislabel the file (the "looks-right-plays-wrong" symptom);
+            // leave it unenriched instead of blindly taking results.first.
+            MockURLProtocol.stub(status: 200, json: #"""
+            {"results":[{"id":999,"title":"Obsession","release_date":"2026-01-01","poster_path":"/o.jpg","overview":"Horror."}]}
+            """#)
+            let original = movie("Totally Unrelated Junk", year: nil)
+            let result = try await enricher().enrich(original)
+            #expect(result == original)     // untouched
+            #expect(result.tmdbID == nil)
+        }
+
         @Test func enrichesAllItemsAndPreservesOrder() async {
             MockURLProtocol.handler = { request in
                 let url = request.url!.absoluteString

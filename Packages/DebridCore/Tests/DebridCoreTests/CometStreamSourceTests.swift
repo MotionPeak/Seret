@@ -73,6 +73,27 @@ extension MockTests {
             #expect(CometStreamSource.infoHash(fromBingeGroup: nil) == nil)
         }
 
+        @Test func filtersOutReleasesThatDontMatchTheRequestedMovie() async throws {
+            // Comet keys on IMDB id; its upstream scrapers mis-attribute same-named junk to a
+            // brand-new film. Given the requested title+year, only the real release survives.
+            func hash(_ c: Character) -> String { String(repeating: c, count: 40) }
+            let json = #"""
+            {"streams":[
+              {"name":"[RD⚡] Comet 1080p","behaviorHints":{"filename":"Obsession.2026.1080p.WEB-DL.x264-GRP.mkv","bingeGroup":"comet|realdebrid|\#(hash("a"))"}},
+              {"name":"[RD⚡] Comet","behaviorHints":{"filename":"Obsession.1991.DVDRip.XViD-OLD.avi","bingeGroup":"comet|realdebrid|\#(hash("b"))"}},
+              {"name":"[RD⚡] Comet","behaviorHints":{"filename":"Obsession.avi","bingeGroup":"comet|realdebrid|\#(hash("c"))"}}
+            ]}
+            """#
+            MockURLProtocol.stub(status: 200, json: json)
+            let source = CometStreamSource(http: HTTPClient(session: .mock), tokens: StubTokens())
+            let streams = try await source.streams(for: StreamQuery(
+                imdbID: "tt9999999", kind: .movie, originalLanguage: "en",
+                title: "Obsession", year: 2026))
+
+            #expect(streams.count == 1)
+            #expect(streams.first?.infoHash == hash("a"))     // only the real 2026 release
+        }
+
         @Test func parsesFileIndexFromPlaybackURLWhenNumeric() async throws {
             let json = #"""
             {"streams":[{"name":"[RD⚡] Comet 1080p",
