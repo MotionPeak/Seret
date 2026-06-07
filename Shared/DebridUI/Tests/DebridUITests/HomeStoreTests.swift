@@ -9,6 +9,7 @@ private struct FakeWatch: WatchProgressProviding {
     func progress(forContentKey key: String) async throws -> WatchState? { nil }
     func record(contentKey: String, sourceKey: String, positionSeconds: Double,
                 durationSeconds: Double, finished: Bool) async throws {}
+    func deleteProgress(forContentKeys keys: [String]) async throws {}
 }
 
 @Suite struct HomeStoreTests {

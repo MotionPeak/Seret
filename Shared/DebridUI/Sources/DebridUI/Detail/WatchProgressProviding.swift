@@ -9,6 +9,8 @@ public protocol WatchProgressProviding: Sendable {
                 positionSeconds: Double, durationSeconds: Double, finished: Bool) async throws
     /// Continue-Watching feed: unfinished rows with progress, newest first.
     func recentlyWatched(limit: Int) async throws -> [WatchState]
+    /// Delete progress rows for the given content keys (item removed from library).
+    func deleteProgress(forContentKeys keys: [String]) async throws
 }
 
 extension WatchProgressStore: WatchProgressProviding {

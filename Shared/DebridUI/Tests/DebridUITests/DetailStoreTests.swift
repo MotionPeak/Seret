@@ -60,6 +60,9 @@ private actor FakeWatch: WatchProgressProviding {
     func recentlyWatched(limit: Int) async throws -> [WatchState] {
         Array(rows.values.filter { !$0.finished && $0.positionSeconds > 0 }.prefix(limit))
     }
+    func deleteProgress(forContentKeys keys: [String]) async throws {
+        for k in keys { rows[k] = nil }
+    }
 }
 
 // MARK: - Tests
