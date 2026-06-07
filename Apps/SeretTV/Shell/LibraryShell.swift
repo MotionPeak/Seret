@@ -65,8 +65,10 @@ struct LibraryShell: View {
         .padding(.top, 28).padding(.bottom, 12)
         .frame(maxWidth: .infinity)
         .onChange(of: focusedTab) { _, new in
-            // Quick crossfade — snappy but still animated (0.28 felt laggy on-device).
-            if let new { withAnimation(.easeOut(duration: 0.14)) { tab = new } }
+            // Instant swap — no crossfade. Animating a tab change cross-dissolved the whole page
+            // (heavy poster grids included), which read as a sluggish "in-between" transition.
+            // The native tvOS feel is an immediate switch; the pages are kept alive so it's free.
+            if let new { tab = new }
         }
     }
 
@@ -81,7 +83,6 @@ struct LibraryShell: View {
             keptAlive(tab == .settings) { SettingsView() }
             if tab == .movies || tab == .tv {
                 BrowseScreen(kind: tab == .tv ? .show : .movie)
-                    .transition(.opacity)
             }
         }
     }
