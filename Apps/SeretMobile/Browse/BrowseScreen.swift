@@ -90,11 +90,18 @@ struct BrowseScreen: View {
                 case .failed:
                     message("Couldn't load \(title.lowercased())", systemImage: "exclamationmark.triangle")
                 case .loaded:
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: Theme.Space.xl) {
-                            ForEach(browse.sections) { section in sectionView(section) }
+                    VStack(spacing: Theme.Space.md) {
+                        segmentPicker(browse)
+                        ScrollView {
+                            LazyVStack(alignment: .leading, spacing: Theme.Space.lg) {
+                                ForEach(browse.rows) { row in
+                                    Rail(title: row.title) {
+                                        ForEach(row.hits) { tile($0, width: 120, cam: isCAM($0)) }
+                                    }
+                                }
+                            }
+                            .padding(.vertical, Theme.Space.md)
                         }
-                        .padding(.vertical, Theme.Space.md)
                     }
                 }
             }
@@ -102,25 +109,14 @@ struct BrowseScreen: View {
         .task { await browse?.load() }
     }
 
-    /// A single In-Theatres rail, or a titled section ("New Releases"/"Most Popular") with a
-    /// rail per genre. CAM-flagged sections badge their posters.
-    @ViewBuilder private func sectionView(_ section: DiscoverStore.Section) -> some View {
-        if section.rows.count == 1, section.rows[0].title.isEmpty {
-            Rail(title: section.title) {
-                ForEach(section.rows[0].hits) { tile($0, width: 120, cam: section.isCAM || isCAM($0)) }
-            }
-        } else {
-            VStack(alignment: .leading, spacing: Theme.Space.md) {
-                Text(section.title).font(Theme.Typo.title())
-                    .foregroundStyle(Theme.Palette.textPrimary)
-                    .padding(.horizontal, Theme.Space.lg)
-                ForEach(section.rows) { row in
-                    Rail(title: row.title) {
-                        ForEach(row.hits) { tile($0, width: 120, cam: section.isCAM || isCAM($0)) }
-                    }
-                }
-            }
+    /// Trending / New Releases / Popular selector — switching is instant (all loaded up front).
+    private func segmentPicker(_ browse: DiscoverStore) -> some View {
+        Picker("Section", selection: Binding(get: { browse.selectedSegment },
+                                             set: { browse.select($0) })) {
+            ForEach(DiscoverStore.Segment.allCases) { Text($0.title).tag($0) }
         }
+        .pickerStyle(.segmented)
+        .padding(.horizontal, Theme.Space.lg)
     }
 
     /// CAM-likely (theatrical-window) — tagged in every row it appears in, not just In Theatres.

@@ -58,6 +58,26 @@ public struct TMDBClient: Sendable {
         return response.results
     }
 
+    /// Highest-rated movies in a genre, all-time (≥300 votes) — the per-genre "Popular" (top-rated) rows.
+    public func topRatedMovies(genreID: Int) async throws -> [TMDBSearchResult] {
+        let response: TMDBSearchResponse = try await get("discover/movie", [
+            URLQueryItem(name: "with_genres", value: String(genreID)),
+            URLQueryItem(name: "sort_by", value: "vote_average.desc"),
+            URLQueryItem(name: "vote_count.gte", value: "300"),
+        ])
+        return response.results
+    }
+
+    /// Highest-rated shows in a TV genre, all-time (≥200 votes).
+    public func topRatedTV(genreID: Int) async throws -> [TMDBSearchResult] {
+        let response: TMDBSearchResponse = try await get("discover/tv", [
+            URLQueryItem(name: "with_genres", value: String(genreID)),
+            URLQueryItem(name: "sort_by", value: "vote_average.desc"),
+            URLQueryItem(name: "vote_count.gte", value: "200"),
+        ])
+        return response.results
+    }
+
     /// Newly-aired shows in a TV genre within a first-air-date window — per-genre TV "New Releases".
     public func discoverTV(genreID: Int, firstAirFrom: String, firstAirTo: String) async throws -> [TMDBSearchResult] {
         let response: TMDBSearchResponse = try await get("discover/tv", [

@@ -57,8 +57,11 @@ struct BrowseScreen: View {
                 message("Couldn't load.", systemImage: "exclamationmark.triangle")
             case .loaded:
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 48) {
-                        ForEach(browse.sections) { section in sectionView(section) }
+                    LazyVStack(alignment: .leading, spacing: 40) {
+                        segmentPicker(browse).padding(.leading, 60)
+                        ForEach(browse.rows) { row in
+                            rail(title: row.title, hits: row.hits, cam: false)
+                        }
                     }
                     .padding(.vertical, 20)
                 }
@@ -66,17 +69,14 @@ struct BrowseScreen: View {
         }
     }
 
-    /// A single In-Theatres rail, or a titled section with a rail per genre. CAM-flagged
-    /// sections badge their posters.
-    @ViewBuilder private func sectionView(_ section: DiscoverStore.Section) -> some View {
-        if section.rows.count == 1, section.rows[0].title.isEmpty {
-            rail(title: section.title, hits: section.rows[0].hits, cam: section.isCAM)
-        } else {
-            VStack(alignment: .leading, spacing: 24) {
-                Text(section.title).font(.largeTitle.bold()).padding(.leading, 60)
-                ForEach(section.rows) { row in
-                    rail(title: row.title, hits: row.hits, cam: section.isCAM)
-                }
+    /// Trending / New Releases / Popular selector — a focusable pill row (segmented Pickers don't
+    /// take focus well on tvOS). Switching is instant (all segments loaded up front).
+    private func segmentPicker(_ browse: DiscoverStore) -> some View {
+        HStack(spacing: 16) {
+            ForEach(DiscoverStore.Segment.allCases) { seg in
+                Button(seg.title) { browse.select(seg) }
+                    .buttonStyle(.bordered)
+                    .tint(seg == browse.selectedSegment ? .yellow : .gray)
             }
         }
     }

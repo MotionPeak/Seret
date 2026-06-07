@@ -7,19 +7,23 @@ private enum FakeError: Error { case boom }
 
 private final class FakeDiscover: DiscoverProviding, @unchecked Sendable {
     var nowPlayingResult: Result<[TMDBSearchResult], FakeError> = .success([])
-    var popularMovie: Result<[TMDBSearchResult], FakeError> = .success([])
+    var trendingMovie: Result<[TMDBSearchResult], FakeError> = .success([])
     var newMovie: Result<[TMDBSearchResult], FakeError> = .success([])
-    var popularTV: Result<[TMDBSearchResult], FakeError> = .success([])
+    var topRatedMovie: Result<[TMDBSearchResult], FakeError> = .success([])
+    var trendingTV: Result<[TMDBSearchResult], FakeError> = .success([])
     var newTV: Result<[TMDBSearchResult], FakeError> = .success([])
+    var topRatedTV: Result<[TMDBSearchResult], FakeError> = .success([])
     private(set) var newMovieWindow: (from: String, to: String)?
 
     func nowPlaying() async throws -> [TMDBSearchResult] { try nowPlayingResult.get() }
-    func popularMoviesByGenre(_ id: Int) async throws -> [TMDBSearchResult] { try popularMovie.get() }
+    func trendingMoviesByGenre(_ id: Int) async throws -> [TMDBSearchResult] { try trendingMovie.get() }
     func newMoviesByGenre(_ id: Int, from: String, to: String) async throws -> [TMDBSearchResult] {
         newMovieWindow = (from, to); return try newMovie.get()
     }
-    func popularTVByGenre(_ id: Int) async throws -> [TMDBSearchResult] { try popularTV.get() }
+    func topRatedMoviesByGenre(_ id: Int) async throws -> [TMDBSearchResult] { try topRatedMovie.get() }
+    func trendingTVByGenre(_ id: Int) async throws -> [TMDBSearchResult] { try trendingTV.get() }
     func newTVByGenre(_ id: Int, from: String, to: String) async throws -> [TMDBSearchResult] { try newTV.get() }
+    func topRatedTVByGenre(_ id: Int) async throws -> [TMDBSearchResult] { try topRatedTV.get() }
 }
 
 private func movie(_ id: Int) -> TMDBSearchResult {
@@ -29,56 +33,45 @@ private func movie(_ id: Int) -> TMDBSearchResult {
 
 @MainActor
 @Suite struct DiscoverStoreTests {
-    @Test func movieSectionsInOrderWithCAMOnInTheatres() async {
+    @Test func movieLoadsAllThreeSegmentsAsGenreRows() async {
         let fake = FakeDiscover()
-        fake.nowPlayingResult = .success([movie(1)])
+        fake.trendingMovie = .success([movie(1)])
         fake.newMovie = .success([movie(2)])
-        fake.popularMovie = .success([movie(3)])
+        fake.topRatedMovie = .success([movie(3)])
         let store = DiscoverStore(kind: .movie, discover: fake)
         await store.load()
         #expect(store.state == .loaded)
-        #expect(store.sections.map(\.title) == ["In Theatres", "New Releases", "Most Popular"])
-        #expect(store.sections.first?.isCAM == true)
-        #expect(store.sections.first?.rows.first?.hits.first?.kind == .movie)
-        // New Releases / Most Popular have one row per movie genre (8).
-        #expect(store.sections[1].rows.count == 8)
-        #expect(store.sections[2].rows.count == 8)
-        #expect(store.sections[1].rows.first?.title == "Action")
+        #expect(store.rowsBySegment[.trending]?.count == 8)   // one row per movie genre
+        #expect(store.rowsBySegment[.newReleases]?.count == 8)
+        #expect(store.rowsBySegment[.popular]?.count == 8)
+        // Default segment is Trending; `rows` follows the selection.
+        #expect(store.selectedSegment == .trending)
+        #expect(store.rows.first?.hits.first?.result.id == 1)
+        store.select(.popular)
+        #expect(store.rows.first?.hits.first?.result.id == 3)
     }
 
-    @Test func camIDsCoverInTheatresTitlesEverywhere() async {
+    @Test func camIDsFromNowPlaying() async {
         let fake = FakeDiscover()
-        fake.nowPlayingResult = .success([movie(42)])   // In Theatres → CAM
-        fake.newMovie = .success([movie(42), movie(7)])  // 42 also appears under a genre
-        fake.popularMovie = .success([movie(9)])
+        fake.trendingMovie = .success([movie(1)])
+        fake.nowPlayingResult = .success([movie(1), movie(9)])
         let store = DiscoverStore(kind: .movie, discover: fake)
         await store.load()
-        #expect(store.camIDs.contains(42))
-        #expect(!store.camIDs.contains(7))
-        #expect(store.isCAM(movie(42)))     // tagged in New Releases too, not just In Theatres
-        #expect(!store.isCAM(movie(9)))
+        #expect(store.camIDs == [1, 9])
+        #expect(store.isCAM(movie(1)))
+        #expect(!store.isCAM(movie(2)))
     }
 
-    @Test func emptyInTheatresSectionDropped() async {
+    @Test func showHasNoNowPlayingButStillSegments() async {
         let fake = FakeDiscover()
-        fake.nowPlayingResult = .success([])     // no In Theatres
-        fake.newMovie = .success([movie(2)])
-        fake.popularMovie = .success([movie(3)])
-        let store = DiscoverStore(kind: .movie, discover: fake)
-        await store.load()
-        #expect(!store.sections.contains { $0.title == "In Theatres" })
-        #expect(store.sections.map(\.title) == ["New Releases", "Most Popular"])
-    }
-
-    @Test func showHasNoInTheatres() async {
-        let fake = FakeDiscover()
-        fake.newTV = .success([movie(1)])
-        fake.popularTV = .success([movie(2)])
+        fake.trendingTV = .success([movie(1)])
+        fake.topRatedTV = .success([movie(2)])
         let store = DiscoverStore(kind: .show, discover: fake)
         await store.load()
-        #expect(store.sections.map(\.title) == ["New Releases", "Most Popular"])
-        #expect(store.sections.allSatisfy { !$0.isCAM })
-        #expect(store.sections.first?.rows.first?.hits.first?.kind == .show)
+        #expect(store.state == .loaded)
+        #expect(store.camIDs.isEmpty)
+        #expect(store.rowsBySegment[.trending]?.first?.hits.first?.kind == .show)
+        #expect(store.rowsBySegment[.popular]?.count == 7)   // tv genres
     }
 
     @Test func newReleasesWindowIs45To300DaysBack() async {
@@ -98,6 +91,5 @@ private func movie(_ id: Int) -> TMDBSearchResult {
         let store = DiscoverStore(kind: .movie, discover: FakeDiscover())
         await store.load()
         #expect(store.state == .failed)
-        #expect(store.sections.isEmpty)
     }
 }
