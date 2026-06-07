@@ -14,8 +14,6 @@ struct BrowseScreen: View {
     @State private var featuredHit: SearchHit?
     /// Which segment pill has focus — moving across them switches the section live (no press).
     @FocusState private var focusedSegment: DiscoverStore.Segment?
-    /// Scroll anchor for the segment pill row (used to reveal the rails on pill focus).
-    private let segmentsAnchor = "segments"
 
     private var browse: DiscoverStore? { kind == .movie ? session.moviesBrowse : session.showsBrowse }
 
@@ -69,26 +67,20 @@ struct BrowseScreen: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             case .loaded:
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 40) {
-                            HeroBanner(hit: featuredHit)   // scrolls with content; crossfades on focus
-                            segmentPicker(browse).padding(.leading, 60).id(segmentsAnchor)
-                            ForEach(browse.rows) { row in
-                                rail(title: row.title, hits: row.hits, cam: false)
-                            }
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 40) {
+                        // Shorter hero so the segment pills + first rail share the screen —
+                        // switching segments shows the rails change without any forced scroll.
+                        HeroBanner(hit: featuredHit, height: 360)
+                        segmentPicker(browse).padding(.leading, 60)
+                        ForEach(browse.rows) { row in
+                            rail(title: row.title, hits: row.hits, cam: false)
                         }
-                        .padding(.bottom, 20)
                     }
-                    .onPreferenceChange(FocusedHitKey.self) { featuredHit = $0 ?? featuredHit }
-                    .onAppear { if featuredHit == nil { featuredHit = browse.rows.first?.hits.first } }
-                    // Focusing a segment pill scrolls it to the top, revealing the rails below so
-                    // you can see the section's titles change as you move across the pills.
-                    .onChange(of: focusedSegment) { _, new in
-                        guard new != nil else { return }
-                        withAnimation(.easeInOut(duration: 0.3)) { proxy.scrollTo(segmentsAnchor, anchor: .top) }
-                    }
+                    .padding(.bottom, 20)
                 }
+                .onPreferenceChange(FocusedHitKey.self) { featuredHit = $0 ?? featuredHit }
+                .onAppear { if featuredHit == nil { featuredHit = browse.rows.first?.hits.first } }
             }
         }
     }
@@ -103,7 +95,9 @@ struct BrowseScreen: View {
                     .focused($focusedSegment, equals: seg)
             }
         }
-        .onChange(of: focusedSegment) { _, new in if let new { browse.select(new) } }
+        .onChange(of: focusedSegment) { _, new in
+            if let new, new != browse.selectedSegment { browse.select(new) }
+        }
     }
 
     private func rail(title: String, hits: [SearchHit], cam: Bool) -> some View {
