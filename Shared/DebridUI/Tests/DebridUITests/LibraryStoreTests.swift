@@ -64,6 +64,16 @@ private final class FakeLibrary: LibraryProviding {
         #expect(store.movies.count == 1)
     }
 
+    @Test func ownedTMDBIDsAndOwnedItemReflectLibrary() async {
+        let m = MediaItem(id: "1", kind: .movie, title: "M", year: 2024, sources: [], seasons: [], tmdbID: 693134)
+        let s = MediaItem(id: "2", kind: .show, title: "S", year: 2023, sources: [], seasons: [], tmdbID: 1399)
+        let store = LibraryStore(library: FakeLibrary(cached: nil, refresh: .success([m, s])))
+        await store.load()
+        #expect(store.ownedTMDBIDs == [693134, 1399])
+        #expect(store.ownedItem(tmdbID: 693134)?.id == "1")
+        #expect(store.ownedItem(tmdbID: 9999) == nil)
+    }
+
     @Test func retryIncrementsAttempt() {
         let store = LibraryStore(library: FakeLibrary(cached: nil, refresh: .success([])))
         store.retry()

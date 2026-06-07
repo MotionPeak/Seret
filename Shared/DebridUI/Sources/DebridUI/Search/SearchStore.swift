@@ -26,17 +26,28 @@ public final class SearchStore {
 
     public init(search: SearchProviding) { self.search = search }
 
-    /// Runs a search. Empty/whitespace query resets to idle. Cancellation-aware:
-    /// a superseding call leaves state for the newer task.
-    public func search(query: String) async {
+    /// Runs a search. Empty/whitespace query resets to idle. Cancellation-aware: a superseding
+    /// call leaves state for the newer task. `kind` scopes the search to one media type (the
+    /// Movies tab passes `.movie`, the TV tab `.show`); nil searches both, merged best-first.
+    public func search(query: String, kind: MediaKind? = nil) async {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { state = .idle; results = []; return }
         state = .searching
         do {
-            async let movies = search.searchMovie(query: trimmed, year: nil)
-            async let tv = search.searchTV(query: trimmed, firstAirYear: nil)
-            let hits = try await movies.map { SearchHit(result: $0, kind: .movie) }
-                + tv.map { SearchHit(result: $0, kind: .show) }
+            let hits: [SearchHit]
+            switch kind {
+            case .movie:
+                hits = try await search.searchMovie(query: trimmed, year: nil)
+                    .map { SearchHit(result: $0, kind: .movie) }
+            case .show:
+                hits = try await search.searchTV(query: trimmed, firstAirYear: nil)
+                    .map { SearchHit(result: $0, kind: .show) }
+            case nil:
+                async let movies = search.searchMovie(query: trimmed, year: nil)
+                async let tv = search.searchTV(query: trimmed, firstAirYear: nil)
+                hits = try await movies.map { SearchHit(result: $0, kind: .movie) }
+                    + tv.map { SearchHit(result: $0, kind: .show) }
+            }
             let merged = hits.sorted { ($0.result.voteAverage ?? 0) > ($1.result.voteAverage ?? 0) }
             try Task.checkCancellation()
             results = merged

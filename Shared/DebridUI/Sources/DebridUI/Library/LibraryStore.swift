@@ -34,6 +34,14 @@ public final class LibraryStore {
 
     public func retry() { attempt += 1 }
 
+    /// TMDB ids of every title currently in the library — for the "In Library" badge in Browse.
+    public var ownedTMDBIDs: Set<Int> { Set((movies + shows).compactMap { $0.tmdbID }) }
+
+    /// The library item for a TMDB id, if owned — so a Browse poster can open its Detail.
+    public func ownedItem(tmdbID: Int) -> MediaItem? {
+        (movies + shows).first { $0.tmdbID == tmdbID }
+    }
+
     private func apply(_ items: [MediaItem]) {
         movies = items.filter { $0.kind == .movie }
         shows = items.filter { $0.kind == .show }

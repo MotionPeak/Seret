@@ -42,6 +42,25 @@ private final class FakeSearch: SearchProviding {
         #expect(store.results.last?.kind == .movie)
     }
 
+    @Test func movieKindReturnsOnlyMovieHits() async {
+        let store = SearchStore(search: FakeSearch(
+            movies: .success([result(1, "Mov", vote: 5)]),
+            tv: .success([result(2, "Show", vote: 9)])))
+        await store.search(query: "x", kind: .movie)
+        #expect(store.results.count == 1)
+        #expect(store.results.first?.kind == .movie)
+        #expect(store.results.first?.result.id == 1)
+    }
+
+    @Test func showKindReturnsOnlyShowHits() async {
+        let store = SearchStore(search: FakeSearch(
+            movies: .success([result(1, "Mov", vote: 9)]),
+            tv: .success([result(2, "Show", vote: 5)])))
+        await store.search(query: "x", kind: .show)
+        #expect(store.results.count == 1)
+        #expect(store.results.first?.kind == .show)
+    }
+
     @Test func noHitsIsEmpty() async {
         let store = SearchStore(search: FakeSearch())
         await store.search(query: "zzz")
