@@ -81,7 +81,15 @@ public struct CometStreamSource: StreamSource {
             parsed: parser.parse(rawTitle),
             languages: languages.detect(in: text),
             sizeBytes: dto.behaviorHints?.videoSize,
-            sourceName: dto.name)
+            sourceName: dto.name,
+            isCached: Self.isCachedName(dto.name))
+    }
+
+    /// Comet flags cache state in the stream `name`: "⚡" = cached/instant, "⬇" = will-download.
+    /// No marker (or nil) → treat as not cached.
+    static func isCachedName(_ name: String?) -> Bool {
+        guard let name else { return false }
+        return name.contains("⚡")
     }
 
     /// Pulls the 40-hex infohash out of a Comet `behaviorHints.bingeGroup`

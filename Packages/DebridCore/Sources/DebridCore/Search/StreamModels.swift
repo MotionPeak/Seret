@@ -31,6 +31,7 @@ public struct CachedStream: Sendable, Equatable, Identifiable {
     public let languages: [String]     // detected audio languages (ISO 639-1)
     public let sizeBytes: Int?
     public let sourceName: String?     // e.g. "RD" / addon label
+    public let isCached: Bool          // true = instant (already on RD); false = will download
 
     public var id: String { infoHash }
 
@@ -38,9 +39,9 @@ public struct CachedStream: Sendable, Equatable, Identifiable {
     public var qualityRank: Int { releaseQualityRank(for: parsed) }
 
     public init(infoHash: String, fileIdx: Int?, rawTitle: String, parsed: ParsedRelease,
-                languages: [String], sizeBytes: Int?, sourceName: String?) {
+                languages: [String], sizeBytes: Int?, sourceName: String?, isCached: Bool = false) {
         self.infoHash = infoHash; self.fileIdx = fileIdx; self.rawTitle = rawTitle
         self.parsed = parsed; self.languages = languages; self.sizeBytes = sizeBytes
-        self.sourceName = sourceName
+        self.sourceName = sourceName; self.isCached = isCached
     }
 }
