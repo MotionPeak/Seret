@@ -21,6 +21,10 @@ struct MovieDetail: View {
                 Text(metaLine).font(Theme.Typo.body()).foregroundStyle(Theme.Palette.textSecondary)
                 if let best = store.bestSource { QualityChipRow(parsed: best.parsed) }
                 actions
+                if store.bestSource == nil, let tmdb = item.tmdbID {
+                    MovieDownloadSection(tmdbID: tmdb, title: item.title,
+                                         imdbID: store.imdbID, originalLanguage: store.originalLanguage)
+                }
                 if let overview = store.overview {
                     Text(overview).font(Theme.Typo.body())
                         .foregroundStyle(Theme.Palette.textSecondary).lineSpacing(3)
@@ -119,5 +123,65 @@ struct MovieDetail: View {
     private var resumeSeconds: Double? {
         guard let w = watch, !w.finished, w.positionSeconds > 0 else { return nil }
         return w.positionSeconds
+    }
+}
+
+/// Request Download for a movie with no cached/playable version — the Detail-screen sibling of the
+/// Add flow's section. Fetches the best uncached release via the shared Add seam and starts an RD
+/// download, then shows live progress from the app-wide `DownloadStore`. When it finishes, the
+/// title flips into the library and Play lights up.
+private struct MovieDownloadSection: View {
+    let tmdbID: Int
+    let title: String
+    let imdbID: String?
+    let originalLanguage: String?
+    @Environment(AppSession.self) private var session
+    @State private var requesting = false
+
+    var body: some View {
+        let status = session.downloadStore?.status(forTMDB: tmdbID)
+        VStack(alignment: .leading, spacing: Theme.Space.md) {
+            if requesting && status == nil {
+                ProgressView("Starting download…").tint(Theme.Palette.gold)
+            } else if case .queued = status?.phase {
+                ProgressView("Starting download…").tint(Theme.Palette.gold)
+            } else if case .downloading = status?.phase {
+                let pct = Int((status?.fraction ?? 0) * 100)
+                Label("Downloading \(pct)% to Real‑Debrid…", systemImage: "arrow.down.circle.fill")
+                    .font(Theme.Typo.body()).foregroundStyle(Theme.Palette.gold)
+                ProgressView(value: status?.fraction ?? 0).tint(Theme.Palette.gold)
+                Text("It'll appear here when it's ready.")
+                    .font(Theme.Typo.caption()).foregroundStyle(Theme.Palette.textTertiary)
+            } else if case .failed(let reason) = status?.phase {
+                Label(reason, systemImage: "exclamationmark.triangle")
+                    .font(Theme.Typo.body()).foregroundStyle(.orange)
+                requestButton("Try Another Version")
+            } else {
+                Label("Not in your library yet", systemImage: "arrow.down.circle")
+                    .font(Theme.Typo.body()).foregroundStyle(Theme.Palette.textSecondary)
+                Text("No cached version exists. Start a download and it'll appear here when it's ready.")
+                    .font(Theme.Typo.caption()).foregroundStyle(Theme.Palette.textTertiary)
+                requestButton("Request Download")
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func requestButton(_ label: String) -> some View {
+        Button {
+            Task {
+                requesting = true
+                var candidates: [CachedStream] = []
+                if let imdbID, let add = session.makeAddStore(imdbID: imdbID, kind: .movie,
+                                                              originalLanguage: originalLanguage) {
+                    candidates = await add.uncachedCandidates()
+                }
+                await session.downloadStore?.request(tmdbID: tmdbID, title: title, kind: .movie,
+                                                     candidates: candidates)
+                requesting = false
+            }
+        } label: { Label(label, systemImage: "arrow.down.circle") }
+            .buttonStyle(GoldButtonStyle())
+            .disabled(requesting || imdbID == nil)
     }
 }
