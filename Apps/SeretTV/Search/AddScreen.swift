@@ -100,6 +100,8 @@ private struct ShowAdd: View {
     let flow: AddFlowStore
     let onPlay: (PlaybackRequest) -> Void
     @Environment(AppSession.self) private var session
+    /// Which season pill has focus — moving across them switches the season live (no press).
+    @FocusState private var focusedSeason: Int?
 
     var body: some View {
         ScrollView {
@@ -124,36 +126,73 @@ private struct ShowAdd: View {
 
     @ViewBuilder private var seasonPicker: some View {
         if flow.seasons.count > 1 {
-            ScrollView(.horizontal) {
+            ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 16) {
                     ForEach(flow.seasons, id: \.self) { s in
                         Button("Season \(s)") { Task { await flow.selectSeason(s) } }
-                            .font(.headline)
-                            .buttonStyle(.bordered)
-                            .tint(s == flow.selectedSeason ? .yellow : .gray)
+                            .buttonStyle(SeretPillStyle(selected: s == flow.selectedSeason))
+                            .focused($focusedSeason, equals: s)
                     }
                 }
+            }
+            .onChange(of: focusedSeason) { _, new in
+                if let new, new != flow.selectedSeason { Task { await flow.selectSeason(new) } }
             }
         }
     }
 
+    /// Side-scrolling episode cards with stills — mirrors the library show Detail's row.
     private var episodeList: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            ForEach(flow.episodes) { ep in
-                Button { Task { await flow.selectEpisode(ep.episodeNumber) } } label: {
-                    HStack(spacing: 16) {
-                        Text("\(ep.episodeNumber)").font(.title3.bold()).frame(width: 44)
-                        Text(ep.name ?? "Episode \(ep.episodeNumber)").font(.body)
-                        Spacer()
-                        if ep.episodeNumber == flow.selectedEpisode {
-                            Image(systemName: "checkmark.circle.fill")
-                        }
+        ScrollView(.horizontal, showsIndicators: false) {
+            LazyHStack(alignment: .top, spacing: 30) {
+                ForEach(flow.episodes) { ep in
+                    EpisodeAddCard(ep: ep, selected: ep.episodeNumber == flow.selectedEpisode) {
+                        Task { await flow.selectEpisode(ep.episodeNumber) }
                     }
-                    .padding(.vertical, 6)
                 }
             }
+            .padding(.vertical, 16)   // room for the focus lift
         }
-        .frame(maxWidth: 1100, alignment: .leading)
+    }
+}
+
+/// One episode as a focusable 16:9 still card (Add flow). Selecting it picks the episode
+/// (revealing the version actions below); the selected one carries a gold check.
+private struct EpisodeAddCard: View {
+    let ep: TMDBEpisodeDetails
+    let selected: Bool
+    let onSelect: () -> Void
+    private let width: CGFloat = 320
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button(action: onSelect) { still }
+                .buttonStyle(.card)
+            HStack(spacing: 8) {
+                Text("\(ep.episodeNumber) · \(ep.name ?? "Episode \(ep.episodeNumber)")")
+                    .font(.headline).lineLimit(1)
+                if selected {
+                    Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.Palette.gold)
+                }
+            }
+            if let runtime = ep.runtime {
+                Text("\(runtime) min").font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .frame(width: width, alignment: .leading)
+    }
+
+    @ViewBuilder private var still: some View {
+        Group {
+            if let url = TMDBClient.imageURL(path: ep.stillPath, size: "w300") {
+                AsyncImage(url: url) { $0.resizable().aspectRatio(contentMode: .fill) }
+                    placeholder: { ZStack { Color.gray.opacity(0.25); ProgressView() } }
+            } else {
+                Color.gray.opacity(0.3)
+            }
+        }
+        .frame(width: width, height: width * 9 / 16)
+        .clipped()
     }
 }
 

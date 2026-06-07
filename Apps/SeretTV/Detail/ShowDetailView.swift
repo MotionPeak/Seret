@@ -15,6 +15,8 @@ struct ShowDetailView: View {
     var onDownloadEpisode: (DetailStore.EpisodeRowInfo) -> Void = { _ in }
     var downloadingEpisodeID: String? = nil
     @State private var seasonStore: AddStore?
+    /// Which season pill has focus — moving across them switches the season live (no press).
+    @FocusState private var focusedSeason: Int?
     private var item: MediaItem { store.item }
 
     /// Re-keys the season-pack lookup whenever the resolved imdbID or the selected season changes.
@@ -86,16 +88,14 @@ struct ShowDetailView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 14) {
                     ForEach(store.allSeasons, id: \.self) { number in
-                        Button { Task { await store.selectSeason(number) } } label: {
-                            Text("Season \(number)").font(.headline)
-                                .padding(.horizontal, 18).padding(.vertical, 9)
-                        }
-                        // Gold tint for the selected season — never white, which would render the
-                        // label white-on-white (a blank focused capsule) on tvOS.
-                        .buttonStyle(.bordered)
-                        .tint(number == store.selectedSeason ? Theme.Palette.gold : Theme.Palette.textSecondary)
+                        Button("Season \(number)") { Task { await store.selectSeason(number) } }
+                            .buttonStyle(SeretPillStyle(selected: number == store.selectedSeason))
+                            .focused($focusedSeason, equals: number)
                     }
                 }
+            }
+            .onChange(of: focusedSeason) { _, new in
+                if let new, new != store.selectedSeason { Task { await store.selectSeason(new) } }
             }
         }
     }
