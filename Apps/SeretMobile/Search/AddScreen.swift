@@ -126,16 +126,52 @@ private struct ShowAddBody: View {
                 }
                 TrailerButton(tmdbID: flow.tmdbID, kind: flow.mediaKind)
                 seasonPicker
-                episodeList
-                if flow.selectedEpisode != nil, let add = flow.add {
-                    AddActionsView(flow: flow, add: add, onPlay: onPlay)
+                // Picked-episode actions surface right here (like a movie) so they're visible
+                // without scrolling past the whole episode list.
+                if let ep = selectedEpisodeMeta, let add = flow.add {
+                    selectedEpisodeCard(ep: ep, add: add)
                 }
+                episodeList
             }
             .frame(maxWidth: 720, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(Theme.Space.lg)
             .padding(.top, 200)
         }
+    }
+
+    private var selectedEpisodeMeta: TMDBEpisodeDetails? {
+        flow.episodes.first { $0.episodeNumber == flow.selectedEpisode }
+    }
+
+    private func selectedEpisodeCard(ep: TMDBEpisodeDetails, add: AddStore) -> some View {
+        VStack(alignment: .leading, spacing: Theme.Space.md) {
+            HStack(spacing: Theme.Space.md) {
+                episodeStill(ep)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("S\(flow.selectedSeason ?? 0)·E\(ep.episodeNumber)")
+                        .font(Theme.Typo.label()).foregroundStyle(Theme.Palette.gold)
+                    Text(ep.name ?? "Episode \(ep.episodeNumber)")
+                        .font(Theme.Typo.headline()).foregroundStyle(Theme.Palette.textPrimary).lineLimit(2)
+                }
+                Spacer()
+            }
+            AddActionsView(flow: flow, add: add, onPlay: onPlay)
+        }
+        .padding(Theme.Space.md)
+        .background(Theme.Palette.surface1, in: RoundedRectangle(cornerRadius: Theme.Radius.card))
+        .overlay(RoundedRectangle(cornerRadius: Theme.Radius.card).stroke(Theme.Palette.gold.opacity(0.4), lineWidth: 1))
+    }
+
+    private func episodeStill(_ ep: TMDBEpisodeDetails) -> some View {
+        Color.clear.frame(width: 124, height: 70)
+            .overlay {
+                AsyncImage(url: TMDBClient.imageURL(path: ep.stillPath, size: "w300")) { phase in
+                    if case .success(let img) = phase { img.resizable().scaledToFill() }
+                    else { ZStack { Theme.Palette.surface2; Image(systemName: "film").foregroundStyle(Theme.Palette.textTertiary) } }
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.chip))
     }
 
     @ViewBuilder private var seasonPicker: some View {
@@ -159,13 +195,20 @@ private struct ShowAddBody: View {
     private var episodeList: some View {
         VStack(spacing: 0) {
             ForEach(flow.episodes) { ep in
+                let selected = ep.episodeNumber == flow.selectedEpisode
                 Button { Task { await flow.selectEpisode(ep.episodeNumber) } } label: {
                     HStack(alignment: .top, spacing: Theme.Space.md) {
-                        Text("\(ep.episodeNumber). \(ep.name ?? "Episode \(ep.episodeNumber)")")
-                            .font(Theme.Typo.headline()).foregroundStyle(Theme.Palette.textPrimary)
+                        episodeStill(ep)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("\(ep.episodeNumber). \(ep.name ?? "Episode \(ep.episodeNumber)")")
+                                .font(Theme.Typo.headline()).foregroundStyle(Theme.Palette.textPrimary).lineLimit(1)
+                            if let o = ep.overview, !o.isEmpty {
+                                Text(o).font(Theme.Typo.caption())
+                                    .foregroundStyle(Theme.Palette.textSecondary).lineLimit(2)
+                            }
+                        }
                         Spacer(minLength: 8)
-                        Image(systemName: ep.episodeNumber == flow.selectedEpisode
-                              ? "checkmark.circle.fill" : "chevron.right")
+                        Image(systemName: selected ? "checkmark.circle.fill" : "plus.circle")
                             .foregroundStyle(Theme.Palette.gold)
                     }
                     .padding(.vertical, Theme.Space.md)

@@ -99,10 +99,11 @@ struct EpisodeRowView: View {
             onPlay(store.playRequest(source: episode.source, episode: episode, label: label))
         } label: {
             HStack(alignment: .top, spacing: Theme.Space.md) {
+                still
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
                         Text("\(episode.number). \(meta?.name ?? "Episode \(episode.number)")")
-                            .font(Theme.Typo.headline()).foregroundStyle(Theme.Palette.textPrimary)
+                            .font(Theme.Typo.headline()).foregroundStyle(Theme.Palette.textPrimary).lineLimit(1)
                         if watch?.finished == true {
                             Image(systemName: "checkmark.circle.fill")
                                 .foregroundStyle(Theme.Palette.gold).font(.caption)
@@ -120,6 +121,17 @@ struct EpisodeRowView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+
+    private var still: some View {
+        Color.clear.frame(width: 124, height: 70)
+            .overlay {
+                AsyncImage(url: TMDBClient.imageURL(path: meta?.stillPath, size: "w300")) { phase in
+                    if case .success(let img) = phase { img.resizable().scaledToFill() }
+                    else { ZStack { Theme.Palette.surface2; Image(systemName: "film").foregroundStyle(Theme.Palette.textTertiary) } }
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.chip))
     }
 
     private var label: String {
