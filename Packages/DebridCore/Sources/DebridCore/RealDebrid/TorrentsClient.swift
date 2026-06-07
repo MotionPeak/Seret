@@ -93,6 +93,32 @@ public struct TorrentsClient: Sendable {
         }
     }
 
+    /// Add a magnet and select its video files for download, then return immediately — does NOT
+    /// wait for `downloaded` and does NOT delete on non-instant (that's the whole point: we want
+    /// RD to download an uncached torrent in the background). Throws `RDAddError.failed` on a
+    /// terminal status seen while waiting for the file listing. The caller monitors progress.
+    public func addForDownload(magnetHash: String,
+                               maxListAttempts: Int = 10,
+                               pollInterval: Duration = .seconds(1),
+                               sleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
+    ) async throws -> TorrentInfo {
+        let added = try await addMagnet(magnet: "magnet:?xt=urn:btih:\(magnetHash)")
+        let id = added.id
+        var info = try await self.info(id: id)
+        var attempts = 0
+        while info.files.isEmpty && info.status != "waiting_files_selection" && attempts < maxListAttempts {
+            if Self.errorStatuses.contains(info.status) { throw RDAddError.failed(status: info.status, torrentID: id) }
+            try await sleep(pollInterval)
+            info = try await self.info(id: id)
+            attempts += 1
+        }
+        if Self.errorStatuses.contains(info.status) { throw RDAddError.failed(status: info.status, torrentID: id) }
+        let videoIDs = info.videoFileIDs()
+        let filesParam = videoIDs.isEmpty ? "all" : videoIDs.map(String.init).joined(separator: ",")
+        try await selectFiles(torrentID: id, files: filesParam)
+        return try await self.info(id: id)
+    }
+
     private func selectAndAwaitDownloaded(id: String, maxPollAttempts: Int, pollInterval: Duration,
                                           sleep: @Sendable (Duration) async throws -> Void) async throws -> TorrentInfo {
         // 1) Wait until RD has listed files / is ready for selection.
