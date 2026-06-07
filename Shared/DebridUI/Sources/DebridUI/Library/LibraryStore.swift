@@ -63,6 +63,35 @@ public final class LibraryStore {
         }
     }
 
+    /// Remove ONE version (a `MediaSource`) from a movie. If it was the last source the whole
+    /// item is dropped; otherwise the item stays with that one source removed. On failure the
+    /// library is untouched and `removal` becomes `.failed`.
+    public func removeVersion(_ item: MediaItem, source: MediaSource) async {
+        removal = .removing(item)
+        do {
+            try await library.removeVersion(item, source: source)
+            let remaining = item.sources.filter { $0 != source }
+            if remaining.isEmpty {
+                movies.removeAll { $0.id == item.id }
+                shows.removeAll { $0.id == item.id }
+                try? await watch?.deleteProgress(forContentKeys: Self.contentKeys(for: item))
+                if movies.isEmpty && shows.isEmpty { state = .empty }
+            } else {
+                // Replace in-memory item with one that has the version dropped (optimistic).
+                let updated = MediaItem(id: item.id, kind: item.kind, title: item.title, year: item.year,
+                                        sources: remaining, seasons: item.seasons,
+                                        tmdbID: item.tmdbID, posterPath: item.posterPath,
+                                        backdropPath: item.backdropPath, overview: item.overview,
+                                        addedAt: item.addedAt)
+                movies = movies.map { $0.id == item.id ? updated : $0 }
+            }
+            removal = .idle
+            await onContentChanged?()
+        } catch {
+            removal = .failed("Couldn\u{2019}t remove that version. Please try again.")
+        }
+    }
+
     /// Dismiss a surfaced removal error (call from the alert's OK button).
     public func clearRemovalError() { removal = .idle }
 

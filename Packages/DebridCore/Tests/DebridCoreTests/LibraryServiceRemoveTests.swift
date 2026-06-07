@@ -135,6 +135,32 @@ extension MockTests {
             #expect(svc.loadCached()?.isEmpty == true)
         }
 
+        @Test func removeVersionDropsOneSourceAndDeletesOnlyThatTorrent() async throws {
+            let dir = tempDir()
+            let svc = service(directory: dir)
+            try LibrarySnapshotStore(directory: dir).save(
+                LibrarySnapshot(items: [movie("dune", torrents: ["A", "B", "C"])]))
+            let box = RecordedDeletes()
+            MockURLProtocol.handler = { req in
+                if req.httpMethod == "DELETE" { box.append(req.url!.lastPathComponent) }
+                return Self.resp(req, 204)
+            }
+            try await svc.removeVersion(movie("dune", torrents: ["A", "B", "C"]), source: src("B"))
+            #expect(box.values == ["B"])
+            #expect(svc.loadCached()?.first?.sources.map(\.torrentID) == ["A", "C"])
+        }
+
+        @Test func removeVersionLastSourceRemovesWholeItem() async throws {
+            let dir = tempDir()
+            let svc = service(directory: dir)
+            try LibrarySnapshotStore(directory: dir).save(
+                LibrarySnapshot(items: [movie("dune", torrents: ["A"]),
+                                        movie("keep", torrents: ["K"])]))
+            MockURLProtocol.handler = { req in Self.resp(req, 204) }
+            try await svc.removeVersion(movie("dune", torrents: ["A"]), source: src("A"))
+            #expect(svc.loadCached()?.map(\.id) == ["keep"])
+        }
+
         private static func resp(_ req: URLRequest, _ status: Int) -> (HTTPURLResponse, Data) {
             (HTTPURLResponse(url: req.url!, statusCode: status, httpVersion: nil, headerFields: nil)!, Data())
         }

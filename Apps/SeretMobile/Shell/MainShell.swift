@@ -80,28 +80,29 @@ struct MainShell: View {
         .background(Theme.Palette.canvas)
     }
 
-    /// Logo + collapse toggle. When collapsed only the toggle shows, centered.
+    /// Header IS the toggle: tapping the Seret play-mark expands/collapses the rail; the
+    /// "Seret" wordmark slides + fades in/out as part of the animation. No separate chevron.
     private var header: some View {
-        HStack(spacing: Theme.Space.sm) {
-            if sidebarExpanded {
-                SeretMark().frame(width: 26)
-                Text("Seret").font(.system(size: 22, weight: .heavy))
-                    .foregroundStyle(Theme.Palette.textPrimary)
-                Spacer(minLength: 0)
+        Button {
+            withAnimation(.spring(response: 0.45, dampingFraction: 0.78)) { sidebarExpanded.toggle() }
+        } label: {
+            HStack(spacing: Theme.Space.sm) {
+                SeretMark().frame(width: 30, height: 30)
+                if sidebarExpanded {
+                    Text("Seret").font(.system(size: 22, weight: .heavy))
+                        .foregroundStyle(Theme.Palette.textPrimary)
+                        .fixedSize()                     // never compress while the rail collapses
+                        .transition(.asymmetric(
+                            insertion: .move(edge: .leading).combined(with: .opacity),
+                            removal:   .move(edge: .leading).combined(with: .opacity)))
+                    Spacer(minLength: 0)
+                }
             }
-            Button {
-                withAnimation(Theme.Motion.standard) { sidebarExpanded.toggle() }
-            } label: {
-                Image(systemName: sidebarExpanded ? "sidebar.leading" : "sidebar.trailing")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(Theme.Palette.textSecondary)
-                    .frame(width: 30, height: 30)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .frame(maxWidth: sidebarExpanded ? nil : .infinity)
-            .accessibilityLabel(sidebarExpanded ? "Collapse sidebar" : "Expand sidebar")
+            .frame(maxWidth: .infinity, alignment: sidebarExpanded ? .leading : .center)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel(sidebarExpanded ? "Collapse sidebar" : "Expand sidebar")
     }
 
     private func sidebarRow(_ section: Section) -> some View {

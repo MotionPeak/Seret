@@ -25,6 +25,9 @@ private final class RemoveFakeLibrary: LibraryProviding {
     func loadCached() -> [MediaItem]? { cached }
     func refresh() async throws -> [MediaItem] { cached }
     func remove(_ item: MediaItem) async throws { if let e = removeError { throw e } }
+    func removeVersion(_ item: MediaItem, source: MediaSource) async throws {
+        if let e = removeError { throw e }
+    }
 }
 
 private actor RecordingWatch: WatchProgressProviding {

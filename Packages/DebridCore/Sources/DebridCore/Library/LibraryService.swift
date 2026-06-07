@@ -81,6 +81,29 @@ public struct LibraryService: Sendable {
         try store.save(LibrarySnapshot(items: remaining))
     }
 
+    /// Remove ONE version (a single `MediaSource`) from a movie: deletes its backing torrent on
+    /// RD, then rewrites the persisted snapshot with that source dropped. If it's the LAST source
+    /// the whole item is removed (delegates to `remove`). Idempotent (404 → success). Throws on
+    /// any other RD failure WITHOUT rewriting the snapshot. Show-kind items are not supported
+    /// (versioning is per-episode-pack, not addressable here).
+    public func removeVersion(_ item: MediaItem, source: MediaSource) async throws {
+        guard item.kind == .movie else { return }
+        let remainingSources = item.sources.filter { $0 != source }
+        if remainingSources.isEmpty { try await remove(item); return }
+        do {
+            try await torrents.deleteTorrent(id: source.torrentID)
+        } catch HTTPError.status(let code, _) where code == 404 {
+            // already gone — fall through to snapshot rewrite
+        }
+        let updatedItem = MediaItem(id: item.id, kind: item.kind, title: item.title, year: item.year,
+                                    sources: remainingSources, seasons: item.seasons,
+                                    tmdbID: item.tmdbID, posterPath: item.posterPath,
+                                    backdropPath: item.backdropPath, overview: item.overview,
+                                    addedAt: item.addedAt)
+        let updated = (store.load()?.items ?? []).map { $0.id == item.id ? updatedItem : $0 }
+        try store.save(LibrarySnapshot(items: updated))
+    }
+
     /// The unique set of RD torrent ids backing an item: a movie's source torrents, or every
     /// episode's source torrent for a show (season packs collapse to one id).
     static func torrentIDs(for item: MediaItem) -> [String] {

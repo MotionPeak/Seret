@@ -26,7 +26,10 @@ struct DetailScreen: View {
         NavigationStack {
             Group {
                 switch store.item.kind {
-                case .movie: MovieDetail(store: store, onPlay: present)
+                case .movie: MovieDetail(store: store, onPlay: present,
+                                        onRemoveVersion: { src in
+                                            Task { await session.libraryStore?.removeVersion(store.item, source: src) }
+                                        })
                 case .show:  ShowDetail(store: store, onPlay: present)
                 }
             }
