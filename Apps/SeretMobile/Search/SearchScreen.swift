@@ -62,8 +62,7 @@ struct SearchScreen: View {
     @ViewBuilder private func content(_ store: SearchStore) -> some View {
         switch store.state {
         case .idle:
-            message("Find something to add", systemImage: "magnifyingglass",
-                    detail: "Search any movie or show and add the best cached version to Real‑Debrid.")
+            DiscoverRails()
         case .searching:
             Spacer(); ProgressView().tint(Theme.Palette.gold); Spacer()
         case .empty:
@@ -97,5 +96,51 @@ struct SearchScreen: View {
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// The idle Search page: Gold-Glass browse rails (Recently Released + genres) from
+/// `DiscoverStore`. Tapping a poster opens the Add flow. Falls back to a prompt on failure.
+private struct DiscoverRails: View {
+    @Environment(AppSession.self) private var session
+    @Environment(AppRouter.self) private var router
+
+    var body: some View {
+        Group {
+            if let store = session.discoverStore {
+                switch store.state {
+                case .idle, .loading:
+                    Spacer(); ProgressView().tint(Theme.Palette.gold); Spacer()
+                case .failed:
+                    VStack(spacing: Theme.Space.md) {
+                        Spacer()
+                        Image(systemName: "magnifyingglass").font(.system(size: 42)).foregroundStyle(Theme.Palette.gold)
+                        Text("Search any movie or show").font(Theme.Typo.headline())
+                            .foregroundStyle(Theme.Palette.textPrimary)
+                        Spacer()
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                case .loaded:
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: Theme.Space.xl) {
+                            ForEach(store.rows) { row in
+                                Rail(title: row.title) {
+                                    ForEach(row.hits) { hit in
+                                        Button { router.addHit = hit } label: {
+                                            PosterCard(title: hit.result.displayTitle,
+                                                       posterURL: TMDBClient.imageURL(path: hit.result.posterPath, size: "w342"),
+                                                       width: 120)
+                                        }
+                                        .pressable()
+                                    }
+                                }
+                            }
+                        }
+                        .padding(.vertical, Theme.Space.md)
+                    }
+                }
+            }
+        }
+        .task { await session.discoverStore?.load() }
     }
 }

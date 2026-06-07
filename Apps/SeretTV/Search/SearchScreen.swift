@@ -30,7 +30,7 @@ struct SearchScreen: View {
     @ViewBuilder private func content(_ store: SearchStore) -> some View {
         switch store.state {
         case .idle:
-            message("Search for a movie or show to add.", systemImage: "magnifyingglass")
+            DiscoverRowsView()
         case .searching:
             ProgressView("Searching…").font(.title3)
         case .empty:
@@ -48,6 +48,47 @@ struct SearchScreen: View {
             Text(text).font(.title3).multilineTextAlignment(.center).frame(maxWidth: 700)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// The idle Search page: browse rows (Recently Released + genres) from `DiscoverStore`.
+/// Falls back to a prompt if discovery fails (e.g. offline).
+private struct DiscoverRowsView: View {
+    @Environment(AppSession.self) private var session
+
+    var body: some View {
+        Group {
+            if let store = session.discoverStore {
+                switch store.state {
+                case .idle, .loading:
+                    ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+                case .failed:
+                    VStack(spacing: 28) {
+                        Image(systemName: "magnifyingglass").font(.system(size: 64)).foregroundStyle(.secondary)
+                        Text("Search for a movie or show to add.").font(.title3)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                case .loaded:
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 40) {
+                            ForEach(store.rows) { row in
+                                VStack(alignment: .leading, spacing: 16) {
+                                    Text(row.title).font(.title2.bold()).padding(.leading, 60)
+                                    ScrollView(.horizontal) {
+                                        LazyHStack(spacing: 40) {
+                                            ForEach(row.hits) { SearchPosterCard(hit: $0) }
+                                        }
+                                        .padding(.horizontal, 60)
+                                    }
+                                }
+                            }
+                        }
+                        .padding(.vertical, 40)
+                    }
+                }
+            }
+        }
+        .task { await session.discoverStore?.load() }
     }
 }
 
