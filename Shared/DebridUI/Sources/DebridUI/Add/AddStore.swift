@@ -44,9 +44,27 @@ public final class AddStore {
         }
     }
 
+    /// How many ranked candidates "Get best" will try before giving up. ElfCache "cached" isn't
+    /// a guarantee a torrent is instant for THIS account, so the top pick sometimes isn't
+    /// instantly available — fall through to the next best instead of failing outright.
+    private static let maxAddAttempts = 6
+
+    /// Adds the best available version, automatically falling back to the next-ranked one if a
+    /// pick turns out not to be instantly available (each failed attempt self-cleans in RD).
     public func addBest() async {
-        guard let best else { return }
-        await add(stream: best)
+        guard !ranked.isEmpty else { return }
+        state = .adding
+        for stream in ranked.prefix(Self.maxAddAttempts) {
+            do {
+                let info = try await addService.add(infoHash: stream.infoHash)
+                best = stream            // the version that actually landed
+                state = .added(info)
+                return
+            } catch {
+                continue                 // not instant for this account → try the next
+            }
+        }
+        state = .addFailed("None of the cached versions were instantly available. Try again later.")
     }
 
     public func add(stream: CachedStream) async {

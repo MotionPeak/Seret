@@ -11,10 +11,13 @@ private final class FakeStreamSource: StreamSource {
     func streams(for query: StreamQuery) async throws -> [CachedStream] { try result.get() }
 }
 
-private final class FakeAdd: AddProviding {
+private final class FakeAdd: AddProviding, @unchecked Sendable {
     let result: Result<TorrentInfo, FakeError>
-    init(_ result: Result<TorrentInfo, FakeError>) { self.result = result }
-    func add(infoHash: String) async throws -> TorrentInfo { try result.get() }
+    let perHash: [String: Result<TorrentInfo, FakeError>]
+    init(_ result: Result<TorrentInfo, FakeError>, perHash: [String: Result<TorrentInfo, FakeError>] = [:]) {
+        self.result = result; self.perHash = perHash
+    }
+    func add(infoHash: String) async throws -> TorrentInfo { try (perHash[infoHash] ?? result).get() }
 }
 
 private func cachedStream(_ hash: String, res: String, langs: [String], size: Int) -> CachedStream {
@@ -73,6 +76,21 @@ private func cachedStream(_ hash: String, res: String, langs: [String], size: In
         await s.loadStreams()
         await s.addBest()
         if case let .added(info) = s.state { #expect(info.id == "T") } else { Issue.record("expected added") }
+    }
+
+    @Test func addBestFallsBackToNextWhenTopNotInstant() async {
+        // best (b, original-language fr) isn't instant → should fall back to a (success).
+        let streams: [CachedStream] = [
+            cachedStream("a", res: "2160p", langs: ["en"], size: 100),
+            cachedStream("b", res: "1080p", langs: ["fr"], size: 50)]
+        let s = AddStore(imdbID: "tt1", kind: .movie, originalLanguage: "fr",
+                         streamSource: FakeStreamSource(.success(streams)),
+                         add: FakeAdd(.failure(.boom), perHash: ["a": .success(tv())]))
+        await s.loadStreams()
+        #expect(s.best?.infoHash == "b")
+        await s.addBest()
+        if case let .added(info) = s.state { #expect(info.id == "T") } else { Issue.record("expected added") }
+        #expect(s.best?.infoHash == "a")   // updated to the version that actually landed
     }
 
     @Test func addFailureSurfacesAddFailed() async {

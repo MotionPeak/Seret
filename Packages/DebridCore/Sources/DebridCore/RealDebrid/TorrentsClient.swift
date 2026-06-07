@@ -59,6 +59,13 @@ public struct TorrentsClient: Sendable {
                                 headers: try await authHeaders())
     }
 
+    /// Removes a torrent from the user's RD account. `DELETE /torrents/delete/{id}` (204).
+    /// Used to clean up a torrent that failed to instant-add so it doesn't pollute the library.
+    public func deleteTorrent(id: String) async throws {
+        try await http.delete(Self.base.appending(path: "torrents/delete/\(id)"),
+                              headers: try await authHeaders())
+    }
+
     /// Terminal RD failure statuses for the add flow.
     private static let errorStatuses: Set<String> = ["error", "magnet_error", "dead", "virus"]
 
@@ -68,13 +75,26 @@ public struct TorrentsClient: Sendable {
     /// not reach `downloaded` within `maxPollAttempts`, or `.failed` on a terminal status.
     /// `sleep` is injected for testability (pass a no-op in tests).
     public func add(magnetHash: String,
-                    maxPollAttempts: Int = 20,
+                    maxPollAttempts: Int = 10,
                     pollInterval: Duration = .seconds(1),
                     sleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
     ) async throws -> TorrentInfo {
         let added = try await addMagnet(magnet: "magnet:?xt=urn:btih:\(magnetHash)")
         let id = added.id
+        do {
+            return try await selectAndAwaitDownloaded(id: id, maxPollAttempts: maxPollAttempts,
+                                                      pollInterval: pollInterval, sleep: sleep)
+        } catch {
+            // ElfCache "cached" ≠ guaranteed instant for THIS account: a non-instant add leaves
+            // a stuck/`magnet_error` torrent. Remove it so it doesn't pollute the library, then
+            // rethrow so the caller (Get best) can fall back to the next version.
+            try? await deleteTorrent(id: id)
+            throw error
+        }
+    }
 
+    private func selectAndAwaitDownloaded(id: String, maxPollAttempts: Int, pollInterval: Duration,
+                                          sleep: @Sendable (Duration) async throws -> Void) async throws -> TorrentInfo {
         // 1) Wait until RD has listed files / is ready for selection.
         var info = try await self.info(id: id)
         var attempts = 0
@@ -85,8 +105,12 @@ public struct TorrentsClient: Sendable {
             attempts += 1
         }
 
-        // 2) Select all files (cached pack → all episodes available; movie → the film).
-        try await selectFiles(torrentID: id, files: "all")
+        // 2) Select ONLY the video files — selecting "all" pulls in thumbnails/.nfo/.sqlite
+        //    junk, and RD then returns links only for the real media, breaking the file↔link
+        //    pairing so the player can't find a playable file. Fall back to "all" if none parse.
+        let videoIDs = info.videoFileIDs()
+        let filesParam = videoIDs.isEmpty ? "all" : videoIDs.map(String.init).joined(separator: ",")
+        try await selectFiles(torrentID: id, files: filesParam)
 
         // 3) Wait for the cached torrent to flip to `downloaded`.
         info = try await self.info(id: id)

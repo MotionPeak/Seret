@@ -68,13 +68,27 @@ public extension TorrentInfo {
         return zip(selected, links).map { (file: $0, link: $1) }
     }
 
+    /// Recognised playable video container extensions (shared across selection + playback).
+    static let videoExtensions: Set<String> = ["mkv", "mp4", "avi", "m4v", "mov", "ts", "wmv"]
+
+    private static func isVideo(_ path: String) -> Bool {
+        videoExtensions.contains(URL(fileURLWithPath: path).pathExtension.lowercased())
+    }
+
     /// The largest *selected video* file paired with its restricted link — the thing
     /// you actually want to play. Returns nil if there's no selected video file.
     func primaryVideoFile() -> (file: TorrentFile, link: String)? {
-        let videoExtensions: Set<String> = ["mkv", "mp4", "avi", "m4v", "mov", "ts", "wmv"]
-        return selectedFilesWithLinks()
-            .filter { videoExtensions.contains(URL(fileURLWithPath: $0.file.path).pathExtension.lowercased()) }
+        selectedFilesWithLinks()
+            .filter { Self.isVideo($0.file.path) }
             .max { $0.file.bytes < $1.file.bytes }
+    }
+
+    /// File ids of the torrent's video files — what to pass to `selectFiles` so RD doesn't
+    /// also "select" junk (thumbnails, .nfo, .sqlite metadata). Selecting non-video files
+    /// breaks the file↔link pairing (RD only returns links for the real media). Empty → the
+    /// caller should fall back to "all".
+    func videoFileIDs() -> [Int] {
+        files.filter { Self.isVideo($0.path) }.map(\.id)
     }
 }
 

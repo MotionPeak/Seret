@@ -50,6 +50,24 @@ import Testing
         #expect([hi].bestMatch(originalLanguage: nil)?.isFallback == false)
     }
 
+    @Test func cleanUntaggedBeatsForeignDub() {
+        // The Split case: a clean (untagged) English REMUX must outrank a bigger German dual-audio
+        // dub for an English-original film — absence of a language tag ≠ a foreign dub.
+        let cleanUntagged = stream("clean", res: "2160p", langs: [], size: 53)
+        let germanDual = stream("ger", res: "2160p", langs: ["en", "de"], size: 58)  // bigger
+        let ranked = [germanDual, cleanUntagged].rankedFor(originalLanguage: "en")
+        #expect(ranked.first?.infoHash == "clean")
+        let match = [germanDual, cleanUntagged].bestMatch(originalLanguage: "en")
+        #expect(match?.stream.infoHash == "clean")
+        #expect(match?.isFallback == false)   // clean untagged isn't flagged as a dub
+    }
+
+    @Test func foreignOnlyDubIsFlaggedFallback() {
+        let italianOnly = stream("ita", res: "2160p", langs: ["it"], size: 50)
+        let match = [italianOnly].bestMatch(originalLanguage: "en")
+        #expect(match?.isFallback == true)   // no English at all → genuine fallback
+    }
+
     @Test func bestMatchNilWhenEmpty() {
         #expect([CachedStream]().bestMatch(originalLanguage: "en") == nil)
     }

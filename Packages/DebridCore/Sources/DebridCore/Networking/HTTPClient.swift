@@ -104,6 +104,26 @@ public struct HTTPClient: Sendable {
         }
     }
 
+    /// Sends a `DELETE` and discards the body. Succeeds on any 2xx (RD returns 204).
+    public func delete(_ url: URL, headers: [String: String] = [:]) async throws {
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        for (k, v) in headers { request.setValue(v, forHTTPHeaderField: k) }
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch {
+            throw HTTPError.transport(String(describing: error))
+        }
+        guard let http = response as? HTTPURLResponse else {
+            throw HTTPError.transport("Non-HTTP response")
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            throw HTTPError.status(code: http.statusCode, body: String(decoding: data, as: UTF8.self))
+        }
+    }
+
     /// `application/x-www-form-urlencoded` body builder. Percent-encodes keys and values.
     public static func encodeForm(_ form: [String: String]) -> String {
         form.map { key, value in
