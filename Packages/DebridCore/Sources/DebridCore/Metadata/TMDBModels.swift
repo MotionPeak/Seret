@@ -179,3 +179,26 @@ public struct TMDBSeasonDetails: Decodable, Sendable, Equatable {
         self.episodes = episodes
     }
 }
+
+/// A trailer/teaser entry from `/movie/{id}/videos` or `/tv/{id}/videos`.
+public struct TMDBVideo: Decodable, Sendable, Equatable {
+    public let key: String        // YouTube video id
+    public let site: String       // e.g. "YouTube"
+    public let type: String       // e.g. "Trailer" / "Teaser"
+    public let name: String?
+
+    public init(key: String, site: String, type: String, name: String? = nil) {
+        self.key = key; self.site = site; self.type = type; self.name = name
+    }
+}
+
+public extension Array where Element == TMDBVideo {
+    /// The first YouTube Trailer, else the first YouTube Teaser, else nil.
+    var firstYouTubeTrailer: TMDBVideo? {
+        let youTube = filter { $0.site == "YouTube" }
+        return youTube.first { $0.type == "Trailer" } ?? youTube.first { $0.type == "Teaser" }
+    }
+}
+
+/// Envelope for `/videos` responses.
+struct TMDBVideosResponse: Decodable { let results: [TMDBVideo] }

@@ -35,6 +35,53 @@ extension MockTests {
             #expect(results.first?.id == 1)
         }
 
+        @Test func fetchesPopularMoviesAndTV() async throws {
+            MockURLProtocol.handler = { request in
+                let p = request.url!.path
+                #expect(p.contains("/movie/popular") || p.contains("/tv/popular"))
+                let r = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (r, Data(#"{"results":[{"id":5,"title":"P","name":"P","vote_average":8}]}"#.utf8))
+            }
+            let client = TMDBClient(apiKey: "KEY", http: HTTPClient(session: .mock))
+            #expect(try await client.popularMovies().first?.id == 5)
+            #expect(try await client.popularTV().first?.id == 5)
+        }
+
+        @Test func discoversTVByGenre() async throws {
+            MockURLProtocol.handler = { request in
+                let url = request.url!.absoluteString
+                #expect(url.contains("/discover/tv"))
+                #expect(url.contains("with_genres=10765"))
+                let r = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (r, Data(#"{"results":[{"id":7,"name":"Show","vote_average":8}]}"#.utf8))
+            }
+            let client = TMDBClient(apiKey: "KEY", http: HTTPClient(session: .mock))
+            #expect(try await client.discoverTV(genreID: 10765).first?.id == 7)
+        }
+
+        @Test func discoversMoviesByReleaseWindow() async throws {
+            MockURLProtocol.handler = { request in
+                let url = request.url!.absoluteString
+                #expect(url.contains("/discover/movie"))
+                #expect(url.contains("primary_release_date.gte=2026-01-01"))
+                #expect(url.contains("primary_release_date.lte=2026-05-01"))
+                let r = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (r, Data(#"{"results":[{"id":3,"title":"New","release_date":"2026-04-01","vote_average":7}]}"#.utf8))
+            }
+            let client = TMDBClient(apiKey: "KEY", http: HTTPClient(session: .mock))
+            #expect(try await client.discoverMovies(releaseFrom: "2026-01-01", releaseTo: "2026-05-01").first?.id == 3)
+        }
+
+        @Test func fetchesMovieVideos() async throws {
+            MockURLProtocol.handler = { request in
+                #expect(request.url!.path.contains("/movie/1/videos"))
+                let r = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (r, Data(#"{"results":[{"key":"yt","site":"YouTube","type":"Trailer","name":"T"}]}"#.utf8))
+            }
+            let client = TMDBClient(apiKey: "KEY", http: HTTPClient(session: .mock))
+            #expect(try await client.movieVideos(id: 1).firstYouTubeTrailer?.key == "yt")
+        }
+
         @Test func fetchesNowPlaying() async throws {
             MockURLProtocol.handler = { request in
                 #expect(request.url!.absoluteString.contains("/movie/now_playing"))
