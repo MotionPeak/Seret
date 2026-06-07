@@ -121,7 +121,12 @@ public final class AppSession {
             builder: LibraryBuilder(),
             enricher: MetadataEnricher(tmdb: tmdb),
             store: LibrarySnapshotStore(directory: Self.cachesDirectory))
-        libraryStore = LibraryStore(library: service)
+        // Build the watch store first so LibraryStore can purge a removed item's progress.
+        let concreteStore = (try? ModelContainer(for: WatchProgress.self))
+            .map { WatchProgressStore(modelContainer: $0) }
+        watchProgressStore = concreteStore
+        watchStore = concreteStore.map { $0 as WatchProgressProviding }
+        libraryStore = LibraryStore(library: service, watch: watchStore)
         searchStore = SearchStore(search: TMDBSearchService(client: tmdb))
         let discover = TMDBDiscoverService(client: tmdb)
         moviesBrowse = DiscoverStore(kind: .movie, discover: discover)
@@ -130,10 +135,6 @@ public final class AppSession {
         streamSource = CometStreamSource(tokens: realDebrid)
         addService = RealDebridAddService(torrents: torrents)
         detailsProvider = TMDBDetailsService(client: tmdb)
-        let concreteStore = (try? ModelContainer(for: WatchProgress.self))
-            .map { WatchProgressStore(modelContainer: $0) }
-        watchProgressStore = concreteStore
-        watchStore = concreteStore.map { $0 as WatchProgressProviding }
         home = watchStore.map { HomeStore(watch: $0) }
         let osKey = Secrets.openSubtitlesAPIKey
         if !osKey.isEmpty,
