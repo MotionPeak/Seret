@@ -252,7 +252,7 @@ private struct AddActionsView: View {
             case .loadingStreams:
                 ProgressView("Finding cached versions…").tint(Theme.Palette.gold)
             case .noStreams:
-                DownloadSection(flow: flow)
+                DownloadSection(flow: flow, onPlay: onPlay)
             case .failed(let msg):
                 Label(msg, systemImage: "exclamationmark.triangle")
                     .font(Theme.Typo.body()).foregroundStyle(Theme.Palette.textSecondary)
@@ -456,6 +456,7 @@ private struct CacheBadge: View {
 /// `DownloadStore`. When the download finishes the title flips into the library (Play lights up).
 private struct DownloadSection: View {
     let flow: AddFlowStore
+    let onPlay: (PlaybackRequest) -> Void
     @Environment(AppSession.self) private var session
     @State private var requesting = false
 
@@ -463,7 +464,7 @@ private struct DownloadSection: View {
         let status = session.downloadStore?.status(forTMDB: flow.tmdbID)
         VStack(alignment: .leading, spacing: Theme.Space.md) {
             if requesting && status == nil {
-                ProgressView("Starting download…").tint(Theme.Palette.gold)
+                ProgressView("Checking Real‑Debrid…").tint(Theme.Palette.gold)
             } else if case .queued = status?.phase {
                 ProgressView("Starting download…").tint(Theme.Palette.gold)
             } else if case .downloading = status?.phase {
@@ -482,13 +483,34 @@ private struct DownloadSection: View {
                     .font(Theme.Typo.body()).foregroundStyle(.orange)
                 requestButton(title: "Try Another Version")
             } else {
-                Label("No cached version found.", systemImage: "magnifyingglass")
+                Label("Not in Real‑Debrid's cache", systemImage: "magnifyingglass")
                     .font(Theme.Typo.body()).foregroundStyle(Theme.Palette.textSecondary)
-                Text("It isn't in Real‑Debrid's cache yet. Start a download and it'll appear in your library when it's ready.")
+                Text("Play tries it instantly — if Real‑Debrid doesn't have it yet, it downloads and lands in your library when it's ready.")
                     .font(Theme.Typo.caption()).foregroundStyle(Theme.Palette.textTertiary)
-                requestButton(title: "Request Download")
+                playButton()
             }
         }
+    }
+
+    /// Play the best version: try an instant (cached) add first → play now if RD has it; otherwise
+    /// start its download. Same try-instant-then-download as a single version row, on the best pick.
+    private func playButton() -> some View {
+        Button {
+            Task {
+                requesting = true
+                let candidates = await flow.uncachedCandidates()
+                if let best = candidates.first, let request = await flow.instantPlay(best) {
+                    onPlay(request)
+                } else if !candidates.isEmpty {
+                    await session.downloadStore?.request(tmdbID: flow.tmdbID, title: flow.title,
+                                                         kind: flow.mediaKind, candidates: candidates,
+                                                         posterPath: flow.posterPath)
+                }
+                requesting = false
+            }
+        } label: { Label("Play", systemImage: "play.fill") }
+            .buttonStyle(GoldButtonStyle())
+            .disabled(requesting)
     }
 
     private func requestButton(title: String) -> some View {
@@ -497,7 +519,8 @@ private struct DownloadSection: View {
                 requesting = true
                 let candidates = await flow.uncachedCandidates()
                 await session.downloadStore?.request(tmdbID: flow.tmdbID, title: flow.title,
-                                                     kind: flow.mediaKind, candidates: candidates)
+                                                     kind: flow.mediaKind, candidates: candidates,
+                                                     posterPath: flow.posterPath)
                 requesting = false
             }
         } label: { Label(title, systemImage: "arrow.down.circle") }

@@ -182,7 +182,7 @@ private struct AddActions: View {
             case .loadingStreams:
                 ProgressView("Finding cached versions…").font(.title3)
             case .noStreams:
-                DownloadSection(flow: flow)
+                DownloadSection(flow: flow, onPlay: onPlay)
             case .failed(let msg):
                 Label(msg, systemImage: "exclamationmark.triangle").font(.title3)
                 Button("Try Again") { Task { await add.loadStreams() } }.font(.title3)
@@ -359,6 +359,7 @@ private struct AddActions: View {
 /// into the library when RD finishes.
 private struct DownloadSection: View {
     let flow: AddFlowStore
+    let onPlay: (PlaybackRequest) -> Void
     @Environment(AppSession.self) private var session
     @State private var requesting = false
 
@@ -366,7 +367,7 @@ private struct DownloadSection: View {
         let status = session.downloadStore?.status(forTMDB: flow.tmdbID)
         VStack(alignment: .leading, spacing: 16) {
             if requesting && status == nil {
-                ProgressView("Starting download…").font(.title3)
+                ProgressView("Checking Real‑Debrid…").font(.title3)
             } else if case .queued = status?.phase {
                 ProgressView("Starting download…").font(.title3)
             } else if case .downloading = status?.phase {
@@ -383,13 +384,33 @@ private struct DownloadSection: View {
                 Label(reason, systemImage: "exclamationmark.triangle").font(.title3).foregroundStyle(.orange)
                 requestButton(title: "Try Another Version")
             } else {
-                Label("No cached version found.", systemImage: "magnifyingglass")
+                Label("Not in Real‑Debrid's cache", systemImage: "magnifyingglass")
                     .font(.title3).foregroundStyle(.secondary)
-                Text("It isn't in Real‑Debrid's cache yet. Start a download and it'll appear in your library when it's ready.")
+                Text("Play tries it instantly — if Real‑Debrid doesn't have it yet, it downloads and lands in your library when it's ready.")
                     .font(.callout).foregroundStyle(.secondary).frame(maxWidth: 900, alignment: .leading)
-                requestButton(title: "Request Download")
+                playButton()
             }
         }
+    }
+
+    /// Play the best version: instant (cached) add first → play now if RD has it, else download.
+    private func playButton() -> some View {
+        Button {
+            Task {
+                requesting = true
+                let candidates = await flow.uncachedCandidates()
+                if let best = candidates.first, let request = await flow.instantPlay(best) {
+                    onPlay(request)
+                } else if !candidates.isEmpty {
+                    await session.downloadStore?.request(tmdbID: flow.tmdbID, title: flow.title,
+                                                         kind: flow.mediaKind, candidates: candidates,
+                                                         posterPath: flow.posterPath)
+                }
+                requesting = false
+            }
+        } label: { Label("Play", systemImage: "play.fill") }
+            .font(.title3)
+            .disabled(requesting)
     }
 
     private func requestButton(title: String) -> some View {
