@@ -21,22 +21,30 @@ struct SettingsView: View {
             .listRowBackground(Theme.Palette.surface1)
 
             Section {
-                Text(model.isConnected
-                     ? "Connected as \(model.username). Used to download Hebrew/English subtitles."
-                     : "Add your free OpenSubtitles account to download subtitles during playback.")
-                    .font(.footnote).foregroundStyle(Theme.Palette.textSecondary)
-                TextField("Username", text: $model.username)
-                    .textContentType(.username).autocorrectionDisabled().textInputAutocapitalization(.never)
-                SecureField("Password", text: $model.password).textContentType(.password)
-                HStack {
-                    Button("Save") { model.save() }
-                    Spacer()
-                    if model.isConnected {
-                        Button("Remove", role: .destructive) { model.remove() }
+                if model.isConnected {
+                    Label("Signed in to OpenSubtitles", systemImage: "checkmark.seal.fill")
+                        .foregroundStyle(Theme.Palette.textPrimary)
+                    Button(role: .destructive) { model.remove() } label: {
+                        Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
+                    }
+                } else {
+                    NavigationLink {
+                        OpenSubtitlesSignInView(model: model)
+                    } label: {
+                        Label("Sign in to OpenSubtitles", systemImage: "captions.bubble")
+                            .foregroundStyle(Theme.Palette.textPrimary)
                     }
                 }
             } header: {
                 Text("OpenSubtitles").foregroundStyle(Theme.Palette.gold)
+            } footer: {
+                if model.isConnected {
+                    Text("Connected as \(model.username). Used to download Hebrew/English subtitles.")
+                        .font(.footnote).foregroundStyle(Theme.Palette.textSecondary)
+                } else {
+                    Text("Add your free OpenSubtitles account to download subtitles during playback.")
+                        .font(.footnote).foregroundStyle(Theme.Palette.textSecondary)
+                }
             }
             .listRowBackground(Theme.Palette.surface1)
 

@@ -8,7 +8,11 @@ import SwiftUI
 struct MainShell: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var sidebarSelection: Section = .home
-    @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    /// Persisted across launches. Collapsed shows an icon-only rail; expanded shows labels.
+    @AppStorage("seret.ipad.sidebarExpanded") private var sidebarExpanded = true
+
+    private let railExpandedWidth: CGFloat = 248
+    private let railCollapsedWidth: CGFloat = 76
 
     var body: some View {
         if sizeClass == .compact {
@@ -30,17 +34,22 @@ struct MainShell: View {
         .tint(Theme.Palette.gold)
     }
 
-    // MARK: iPad — custom sidebar
+    // MARK: iPad — custom collapsible rail
 
+    /// A bespoke split: a collapsible Gold Glass rail beside the detail screen.
+    /// Collapsing animates the rail down to an icon-only strip — the icons stay
+    /// pressable — instead of hiding the sidebar entirely.
     private var splitView: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
+        HStack(spacing: 0) {
             sidebar
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar(removing: .sidebarToggle)
-        } detail: {
+                .frame(width: sidebarExpanded ? railExpandedWidth : railCollapsedWidth)
+            Rectangle()
+                .fill(Theme.Palette.hairline)
+                .frame(width: 1)
+                .ignoresSafeArea()
             screen(for: sidebarSelection)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .navigationSplitViewStyle(.balanced)
         .tint(Theme.Palette.gold)
     }
 
@@ -56,31 +65,12 @@ struct MainShell: View {
 
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: Theme.Space.xs) {
-            HStack(spacing: Theme.Space.sm) {
-                SeretMark().frame(width: 26)
-                Text("Seret").font(.system(size: 22, weight: .heavy))
-                    .foregroundStyle(Theme.Palette.textPrimary)
-            }
-            .padding(.horizontal, Theme.Space.md)
-            .padding(.top, Theme.Space.sm).padding(.bottom, Theme.Space.lg)
+            header
+                .padding(.horizontal, Theme.Space.sm)
+                .padding(.top, Theme.Space.sm).padding(.bottom, Theme.Space.lg)
 
             ForEach(Section.allCases) { section in
-                let selected = section == sidebarSelection
-                Button { sidebarSelection = section } label: {
-                    HStack(spacing: Theme.Space.md) {
-                        Image(systemName: selected ? section.filledIcon : section.icon)
-                            .font(.system(size: 17, weight: .semibold))
-                            .frame(width: 26)
-                        Text(section.title).font(.system(size: 17, weight: .semibold))
-                        Spacer()
-                    }
-                    .foregroundStyle(selected ? Theme.Palette.gold : Theme.Palette.textSecondary)
-                    .padding(.vertical, Theme.Space.md).padding(.horizontal, Theme.Space.md)
-                    .background(selected ? Theme.Palette.gold.opacity(0.14) : .clear,
-                                in: RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
+                sidebarRow(section)
             }
             Spacer()
         }
@@ -88,7 +78,56 @@ struct MainShell: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(Theme.Palette.surface1.opacity(0.6))
         .background(Theme.Palette.canvas)
-        .scrollContentBackground(.hidden)
+    }
+
+    /// Logo + collapse toggle. When collapsed only the toggle shows, centered.
+    private var header: some View {
+        HStack(spacing: Theme.Space.sm) {
+            if sidebarExpanded {
+                SeretMark().frame(width: 26)
+                Text("Seret").font(.system(size: 22, weight: .heavy))
+                    .foregroundStyle(Theme.Palette.textPrimary)
+                Spacer(minLength: 0)
+            }
+            Button {
+                withAnimation(Theme.Motion.standard) { sidebarExpanded.toggle() }
+            } label: {
+                Image(systemName: sidebarExpanded ? "sidebar.leading" : "sidebar.trailing")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(Theme.Palette.textSecondary)
+                    .frame(width: 30, height: 30)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .frame(maxWidth: sidebarExpanded ? nil : .infinity)
+            .accessibilityLabel(sidebarExpanded ? "Collapse sidebar" : "Expand sidebar")
+        }
+    }
+
+    private func sidebarRow(_ section: Section) -> some View {
+        let selected = section == sidebarSelection
+        return Button { sidebarSelection = section } label: {
+            HStack(spacing: Theme.Space.md) {
+                Image(systemName: selected ? section.filledIcon : section.icon)
+                    .font(.system(size: 17, weight: .semibold))
+                    .frame(width: 26)
+                if sidebarExpanded {
+                    Text(section.title).font(.system(size: 17, weight: .semibold))
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                }
+            }
+            .foregroundStyle(selected ? Theme.Palette.gold : Theme.Palette.textSecondary)
+            .padding(.vertical, Theme.Space.md)
+            .padding(.horizontal, sidebarExpanded ? Theme.Space.md : 0)
+            .frame(maxWidth: .infinity, alignment: sidebarExpanded ? .leading : .center)
+            .background(selected ? Theme.Palette.gold.opacity(0.14) : .clear,
+                        in: RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(section.title)
+        .help(section.title)
     }
 
     enum Section: Hashable, CaseIterable, Identifiable {

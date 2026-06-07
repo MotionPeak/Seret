@@ -35,7 +35,7 @@ struct BrowseScreen: View {
                             await search.search(query: query, kind: kind)
                         }
                 } else {
-                    Spacer(); ProgressView().tint(Theme.Palette.gold); Spacer()
+                    loadingView
                 }
             }
             .padding(.top, Theme.Space.sm)
@@ -67,7 +67,7 @@ struct BrowseScreen: View {
         } else {
             switch search.state {
             case .idle, .searching:
-                Spacer(); ProgressView().tint(Theme.Palette.gold); Spacer()
+                loadingView
             case .empty:
                 message("No results", systemImage: "magnifyingglass")
             case .failed(let msg):
@@ -83,7 +83,7 @@ struct BrowseScreen: View {
             if let browse {
                 switch browse.state {
                 case .idle, .loading:
-                    Spacer(); ProgressView().tint(Theme.Palette.gold); Spacer()
+                    loadingView
                 case .failed:
                     message("Couldn't load \(title.lowercased())", systemImage: "exclamationmark.triangle")
                 case .loaded:
@@ -163,6 +163,18 @@ struct BrowseScreen: View {
             .foregroundStyle(.white)
             .padding(.horizontal, 6).padding(.vertical, 3)
             .background(Color.red.opacity(0.85), in: Capsule())
+    }
+
+    /// Centered loading spinner. Extracted so the result-builder switch cases that use it stay
+    /// single-expression — multi-statement `Spacer(); ProgressView(); Spacer()` cases trip the
+    /// type-checker into bogus inference errors.
+    private var loadingView: some View {
+        VStack {
+            Spacer()
+            ProgressView().tint(Theme.Palette.gold)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func message(_ text: String, systemImage: String) -> some View {
