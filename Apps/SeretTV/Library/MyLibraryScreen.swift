@@ -14,9 +14,9 @@ struct MyLibraryScreen: View {
         VStack(spacing: 24) {
             HStack(spacing: 24) {
                 Button("Movies") { kind = .movie }
-                    .font(.headline).tint(kind == .movie ? .white : .secondary)
+                    .buttonStyle(SeretPillStyle(selected: kind == .movie))
                 Button("TV Shows") { kind = .show }
-                    .font(.headline).tint(kind == .show ? .white : .secondary)
+                    .buttonStyle(SeretPillStyle(selected: kind == .show))
             }
             .padding(.top, 30)
 

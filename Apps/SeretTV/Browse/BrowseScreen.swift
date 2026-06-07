@@ -65,17 +65,15 @@ struct BrowseScreen: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             case .loaded:
-                VStack(spacing: 0) {
-                    HeroBanner(hit: featuredHit)   // pinned above the rails; crossfades on focus
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 40) {
-                            segmentPicker(browse).padding(.leading, 60)
-                            ForEach(browse.rows) { row in
-                                rail(title: row.title, hits: row.hits, cam: false)
-                            }
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 40) {
+                        HeroBanner(hit: featuredHit)   // scrolls with content; crossfades on focus
+                        segmentPicker(browse).padding(.leading, 60)
+                        ForEach(browse.rows) { row in
+                            rail(title: row.title, hits: row.hits, cam: false)
                         }
-                        .padding(.vertical, 20)
                     }
+                    .padding(.bottom, 20)
                 }
                 .onPreferenceChange(FocusedHitKey.self) { featuredHit = $0 ?? featuredHit }
                 .onAppear { if featuredHit == nil { featuredHit = browse.rows.first?.hits.first } }
@@ -89,8 +87,7 @@ struct BrowseScreen: View {
         HStack(spacing: 16) {
             ForEach(DiscoverStore.Segment.allCases) { seg in
                 Button(seg.title) { browse.select(seg) }
-                    .buttonStyle(.bordered)
-                    .tint(seg == browse.selectedSegment ? Theme.Palette.gold : Theme.Palette.textSecondary)
+                    .buttonStyle(SeretPillStyle(selected: seg == browse.selectedSegment))
             }
         }
     }
