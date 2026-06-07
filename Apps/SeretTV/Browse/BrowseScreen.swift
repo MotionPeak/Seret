@@ -58,18 +58,7 @@ struct BrowseScreen: View {
             case .loaded:
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 48) {
-                        ForEach(browse.rows) { row in
-                            VStack(alignment: .leading, spacing: 16) {
-                                Text(row.title).font(.title2.bold()).padding(.leading, 60)
-                                ScrollView(.horizontal) {
-                                    LazyHStack(spacing: 40) {
-                                        ForEach(row.hits) { BrowseTile(hit: $0) }
-                                    }
-                                    .padding(.horizontal, 60).padding(.vertical, 40)
-                                }
-                                .scrollClipDisabled()
-                            }
-                        }
+                        ForEach(browse.sections) { section in sectionView(section) }
                     }
                     .padding(.vertical, 20)
                 }
@@ -77,11 +66,39 @@ struct BrowseScreen: View {
         }
     }
 
+    /// A single In-Theatres rail, or a titled section with a rail per genre. CAM-flagged
+    /// sections badge their posters.
+    @ViewBuilder private func sectionView(_ section: DiscoverStore.Section) -> some View {
+        if section.rows.count == 1, section.rows[0].title.isEmpty {
+            rail(title: section.title, hits: section.rows[0].hits, cam: section.isCAM)
+        } else {
+            VStack(alignment: .leading, spacing: 24) {
+                Text(section.title).font(.largeTitle.bold()).padding(.leading, 60)
+                ForEach(section.rows) { row in
+                    rail(title: row.title, hits: row.hits, cam: section.isCAM)
+                }
+            }
+        }
+    }
+
+    private func rail(title: String, hits: [SearchHit], cam: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            if !title.isEmpty { Text(title).font(.title2.bold()).padding(.leading, 60) }
+            ScrollView(.horizontal) {
+                LazyHStack(spacing: 40) {
+                    ForEach(hits) { BrowseTile(hit: $0, cam: cam) }
+                }
+                .padding(.horizontal, 60).padding(.vertical, 40)
+            }
+            .scrollClipDisabled()
+        }
+    }
+
     private func resultsGrid(_ hits: [SearchHit]) -> some View {
         let columns = [GridItem(.adaptive(minimum: 220, maximum: 260), spacing: 50)]
         return ScrollView {
             LazyVGrid(columns: columns, spacing: 50) {
-                ForEach(hits) { BrowseTile(hit: $0) }
+                ForEach(hits) { BrowseTile(hit: $0, cam: false) }
             }
             .padding(60)
         }
@@ -100,16 +117,18 @@ struct BrowseScreen: View {
 /// `SearchHit` (Add flow). Owned posters carry an "In Library" badge.
 private struct BrowseTile: View {
     let hit: SearchHit
+    var cam: Bool = false
     @Environment(AppSession.self) private var session
     private let width: CGFloat = 220
     private let height: CGFloat = 330
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            if let owned = session.libraryStore?.ownedItem(tmdbID: hit.result.id) {
-                NavigationLink(value: owned) { poster(badged: true) }.buttonStyle(.card)
+        let owned = session.libraryStore?.ownedItem(tmdbID: hit.result.id)
+        return VStack(alignment: .leading, spacing: 12) {
+            if let owned {
+                NavigationLink(value: owned) { poster(owned: true) }.buttonStyle(.card)
             } else {
-                NavigationLink(value: hit) { poster(badged: false) }.buttonStyle(.card)
+                NavigationLink(value: hit) { poster(owned: false) }.buttonStyle(.card)
             }
             Text(hit.result.displayTitle)
                 .font(.callout.weight(.semibold)).lineLimit(1)
@@ -117,7 +136,7 @@ private struct BrowseTile: View {
         }
     }
 
-    @ViewBuilder private func poster(badged: Bool) -> some View {
+    @ViewBuilder private func poster(owned: Bool) -> some View {
         ZStack(alignment: .topTrailing) {
             if let url = TMDBClient.imageURL(path: hit.result.posterPath, size: "w500") {
                 AsyncImage(url: url) { $0.resizable().aspectRatio(contentMode: .fill) }
@@ -128,11 +147,18 @@ private struct BrowseTile: View {
                     .overlay { Text(hit.result.displayTitle).font(.headline).multilineTextAlignment(.center).padding(12) }
                     .frame(width: width, height: height)
             }
-            if badged {
+            if owned {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 28, weight: .bold))
                     .foregroundStyle(.black, .yellow)
                     .padding(10)
+            } else if cam {
+                Text("CAM")
+                    .font(.system(size: 15, weight: .heavy)).foregroundStyle(.white)
+                    .padding(.horizontal, 10).padding(.vertical, 4)
+                    .background(Color.red.opacity(0.85), in: Capsule())
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)   // CAM tag top-leading
             }
         }
     }

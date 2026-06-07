@@ -34,12 +34,38 @@ public struct TMDBClient: Sendable {
         return response.results
     }
 
-    /// Popular movies in a TMDB genre (e.g. 27 = Horror), for the discovery rows.
+    /// Most-popular movies in a TMDB genre (e.g. 27 = Horror), ≥100 votes — for the per-genre
+    /// "Most Popular" rows.
     public func discoverMovies(genreID: Int) async throws -> [TMDBSearchResult] {
         let response: TMDBSearchResponse = try await get("discover/movie", [
             URLQueryItem(name: "with_genres", value: String(genreID)),
             URLQueryItem(name: "sort_by", value: "popularity.desc"),
-            URLQueryItem(name: "vote_count.gte", value: "200"),
+            URLQueryItem(name: "vote_count.gte", value: "100"),
+        ])
+        return response.results
+    }
+
+    /// Newly-released movies in a genre within a date window ("YYYY-MM-DD"), newest first —
+    /// for the per-genre "New Releases" rows. Low vote gate (new titles have few votes).
+    public func discoverMovies(genreID: Int, releaseFrom: String, releaseTo: String) async throws -> [TMDBSearchResult] {
+        let response: TMDBSearchResponse = try await get("discover/movie", [
+            URLQueryItem(name: "with_genres", value: String(genreID)),
+            URLQueryItem(name: "primary_release_date.gte", value: releaseFrom),
+            URLQueryItem(name: "primary_release_date.lte", value: releaseTo),
+            URLQueryItem(name: "sort_by", value: "primary_release_date.desc"),
+            URLQueryItem(name: "vote_count.gte", value: "10"),
+        ])
+        return response.results
+    }
+
+    /// Newly-aired shows in a TV genre within a first-air-date window — per-genre TV "New Releases".
+    public func discoverTV(genreID: Int, firstAirFrom: String, firstAirTo: String) async throws -> [TMDBSearchResult] {
+        let response: TMDBSearchResponse = try await get("discover/tv", [
+            URLQueryItem(name: "with_genres", value: String(genreID)),
+            URLQueryItem(name: "first_air_date.gte", value: firstAirFrom),
+            URLQueryItem(name: "first_air_date.lte", value: firstAirTo),
+            URLQueryItem(name: "sort_by", value: "first_air_date.desc"),
+            URLQueryItem(name: "vote_count.gte", value: "5"),
         ])
         return response.results
     }

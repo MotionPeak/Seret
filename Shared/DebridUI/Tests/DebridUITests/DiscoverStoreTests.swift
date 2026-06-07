@@ -6,22 +6,20 @@ import DebridCore
 private enum FakeError: Error { case boom }
 
 private final class FakeDiscover: DiscoverProviding, @unchecked Sendable {
-    var popularMoviesResult: Result<[TMDBSearchResult], FakeError> = .success([])
-    var popularTVResult: Result<[TMDBSearchResult], FakeError> = .success([])
     var nowPlayingResult: Result<[TMDBSearchResult], FakeError> = .success([])
-    var newReleasesResult: Result<[TMDBSearchResult], FakeError> = .success([])
-    var movieGenre: Result<[TMDBSearchResult], FakeError> = .success([])
-    var tvGenre: Result<[TMDBSearchResult], FakeError> = .success([])
-    private(set) var newReleasesWindow: (from: String, to: String)?
+    var popularMovie: Result<[TMDBSearchResult], FakeError> = .success([])
+    var newMovie: Result<[TMDBSearchResult], FakeError> = .success([])
+    var popularTV: Result<[TMDBSearchResult], FakeError> = .success([])
+    var newTV: Result<[TMDBSearchResult], FakeError> = .success([])
+    private(set) var newMovieWindow: (from: String, to: String)?
 
-    func popularMovies() async throws -> [TMDBSearchResult] { try popularMoviesResult.get() }
-    func popularTV() async throws -> [TMDBSearchResult] { try popularTVResult.get() }
     func nowPlaying() async throws -> [TMDBSearchResult] { try nowPlayingResult.get() }
-    func newReleases(from: String, to: String) async throws -> [TMDBSearchResult] {
-        newReleasesWindow = (from, to); return try newReleasesResult.get()
+    func popularMoviesByGenre(_ id: Int) async throws -> [TMDBSearchResult] { try popularMovie.get() }
+    func newMoviesByGenre(_ id: Int, from: String, to: String) async throws -> [TMDBSearchResult] {
+        newMovieWindow = (from, to); return try newMovie.get()
     }
-    func moviesByGenre(_ id: Int) async throws -> [TMDBSearchResult] { try movieGenre.get() }
-    func tvByGenre(_ id: Int) async throws -> [TMDBSearchResult] { try tvGenre.get() }
+    func popularTVByGenre(_ id: Int) async throws -> [TMDBSearchResult] { try popularTV.get() }
+    func newTVByGenre(_ id: Int, from: String, to: String) async throws -> [TMDBSearchResult] { try newTV.get() }
 }
 
 private func movie(_ id: Int) -> TMDBSearchResult {
@@ -31,52 +29,62 @@ private func movie(_ id: Int) -> TMDBSearchResult {
 
 @MainActor
 @Suite struct DiscoverStoreTests {
-    @Test func movieStoreBuildsRowsAndDropsEmpty() async {
+    @Test func movieSectionsInOrderWithCAMOnInTheatres() async {
         let fake = FakeDiscover()
-        fake.popularMoviesResult = .success([movie(1)])
-        fake.nowPlayingResult = .success([movie(2)])
-        fake.newReleasesResult = .success([movie(3)])
-        fake.movieGenre = .success([movie(4)])   // every genre returns one
+        fake.nowPlayingResult = .success([movie(1)])
+        fake.newMovie = .success([movie(2)])
+        fake.popularMovie = .success([movie(3)])
         let store = DiscoverStore(kind: .movie, discover: fake)
         await store.load()
         #expect(store.state == .loaded)
-        #expect(store.rows.first?.title == "Popular")
-        #expect(store.rows.contains { $0.title == "In Theatres" })
-        #expect(store.rows.contains { $0.title == "New Releases" })
-        #expect(store.rows.first?.hits.first?.kind == .movie)
+        #expect(store.sections.map(\.title) == ["In Theatres", "New Releases", "Most Popular"])
+        #expect(store.sections.first?.isCAM == true)
+        #expect(store.sections.first?.rows.first?.hits.first?.kind == .movie)
+        // New Releases / Most Popular have one row per movie genre (8).
+        #expect(store.sections[1].rows.count == 8)
+        #expect(store.sections[2].rows.count == 8)
+        #expect(store.sections[1].rows.first?.title == "Action")
     }
 
-    @Test func movieStorePassesReleaseWindowAround45And300Days() async {
+    @Test func emptyInTheatresSectionDropped() async {
         let fake = FakeDiscover()
-        fake.newReleasesResult = .success([movie(3)])
-        // Fixed "now" = 2026-06-07 00:00 UTC → from = -300d, to = -45d (formatter is UTC).
+        fake.nowPlayingResult = .success([])     // no In Theatres
+        fake.newMovie = .success([movie(2)])
+        fake.popularMovie = .success([movie(3)])
+        let store = DiscoverStore(kind: .movie, discover: fake)
+        await store.load()
+        #expect(!store.sections.contains { $0.title == "In Theatres" })
+        #expect(store.sections.map(\.title) == ["New Releases", "Most Popular"])
+    }
+
+    @Test func showHasNoInTheatres() async {
+        let fake = FakeDiscover()
+        fake.newTV = .success([movie(1)])
+        fake.popularTV = .success([movie(2)])
+        let store = DiscoverStore(kind: .show, discover: fake)
+        await store.load()
+        #expect(store.sections.map(\.title) == ["New Releases", "Most Popular"])
+        #expect(store.sections.allSatisfy { !$0.isCAM })
+        #expect(store.sections.first?.rows.first?.hits.first?.kind == .show)
+    }
+
+    @Test func newReleasesWindowIs45To300DaysBack() async {
+        let fake = FakeDiscover()
+        fake.newMovie = .success([movie(2)])
         var comps = DateComponents()
-        comps.year = 2026; comps.month = 6; comps.day = 7
-        comps.timeZone = TimeZone(identifier: "UTC")
+        comps.year = 2026; comps.month = 6; comps.day = 7; comps.timeZone = TimeZone(identifier: "UTC")
         var cal = Calendar(identifier: .gregorian); cal.timeZone = TimeZone(identifier: "UTC")!
         let fixed = cal.date(from: comps)!
         let store = DiscoverStore(kind: .movie, discover: fake, now: { fixed })
         await store.load()
-        #expect(fake.newReleasesWindow?.from == "2025-08-11")   // 2026-06-07 − 300d
-        #expect(fake.newReleasesWindow?.to == "2026-04-23")     // 2026-06-07 − 45d
-    }
-
-    @Test func showStoreBuildsPopularPlusGenresNoMovieRows() async {
-        let fake = FakeDiscover()
-        fake.popularTVResult = .success([movie(1)])
-        fake.tvGenre = .success([movie(2)])
-        let store = DiscoverStore(kind: .show, discover: fake)
-        await store.load()
-        #expect(store.state == .loaded)
-        #expect(store.rows.first?.title == "Popular")
-        #expect(!store.rows.contains { $0.title == "In Theatres" })   // movies-only
-        #expect(store.rows.first?.hits.first?.kind == .show)
+        #expect(fake.newMovieWindow?.from == "2025-08-11")
+        #expect(fake.newMovieWindow?.to == "2026-04-23")
     }
 
     @Test func failsWhenEverythingEmpty() async {
         let store = DiscoverStore(kind: .movie, discover: FakeDiscover())
         await store.load()
         #expect(store.state == .failed)
-        #expect(store.rows.isEmpty)
+        #expect(store.sections.isEmpty)
     }
 }

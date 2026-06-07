@@ -89,11 +89,7 @@ struct BrowseScreen: View {
                 case .loaded:
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: Theme.Space.xl) {
-                            ForEach(browse.rows) { row in
-                                Rail(title: row.title) {
-                                    ForEach(row.hits) { hit in tile(hit, width: 120) }
-                                }
-                            }
+                            ForEach(browse.sections) { section in sectionView(section) }
                         }
                         .padding(.vertical, Theme.Space.md)
                     }
@@ -103,18 +99,39 @@ struct BrowseScreen: View {
         .task { await browse?.load() }
     }
 
+    /// A single In-Theatres rail, or a titled section ("New Releases"/"Most Popular") with a
+    /// rail per genre. CAM-flagged sections badge their posters.
+    @ViewBuilder private func sectionView(_ section: DiscoverStore.Section) -> some View {
+        if section.rows.count == 1, section.rows[0].title.isEmpty {
+            Rail(title: section.title) {
+                ForEach(section.rows[0].hits) { tile($0, width: 120, cam: section.isCAM) }
+            }
+        } else {
+            VStack(alignment: .leading, spacing: Theme.Space.md) {
+                Text(section.title).font(Theme.Typo.title())
+                    .foregroundStyle(Theme.Palette.textPrimary)
+                    .padding(.horizontal, Theme.Space.lg)
+                ForEach(section.rows) { row in
+                    Rail(title: row.title) {
+                        ForEach(row.hits) { tile($0, width: 120, cam: section.isCAM) }
+                    }
+                }
+            }
+        }
+    }
+
     private func resultsGrid(_ hits: [SearchHit]) -> some View {
         ScrollView {
             LazyVGrid(columns: columns, spacing: Theme.Space.xl) {
-                ForEach(hits) { tile($0, width: nil) }
+                ForEach(hits) { tile($0, width: nil, cam: false) }
             }
             .padding(Theme.Space.lg)
         }
     }
 
     /// A poster that opens the Add flow, or — if already owned — shows an "In Library" badge and
-    /// opens the owned item's Detail instead.
-    private func tile(_ hit: SearchHit, width: CGFloat?) -> some View {
+    /// opens the owned item's Detail instead. `cam` posters get a CAM tag (In Theatres section).
+    private func tile(_ hit: SearchHit, width: CGFloat?, cam: Bool) -> some View {
         let owned = session.libraryStore?.ownedItem(tmdbID: hit.result.id)
         return Button {
             if let owned { router.detail = owned } else { router.addHit = hit }
@@ -125,6 +142,9 @@ struct BrowseScreen: View {
                 .overlay(alignment: .topTrailing) {
                     if owned != nil { inLibraryBadge.padding(6) }
                 }
+                .overlay(alignment: .topLeading) {
+                    if cam, owned == nil { camBadge.padding(6) }
+                }
         }
         .pressable()
     }
@@ -134,6 +154,15 @@ struct BrowseScreen: View {
             .font(.system(size: 18, weight: .bold))
             .foregroundStyle(Color(hex: 0x1A1400), Theme.Palette.gold)
             .background(Circle().fill(.black.opacity(0.35)))
+    }
+
+    /// Marks a theatrical-window title — likely only a cam/telesync is cached.
+    private var camBadge: some View {
+        Text("CAM")
+            .font(.system(size: 10, weight: .heavy))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 6).padding(.vertical, 3)
+            .background(Color.red.opacity(0.85), in: Capsule())
     }
 
     private func message(_ text: String, systemImage: String) -> some View {

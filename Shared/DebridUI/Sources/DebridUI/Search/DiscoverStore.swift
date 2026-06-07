@@ -2,45 +2,50 @@ import DebridCore
 import Foundation
 import Observation
 
-/// Supplies the browse rows for the Movies / TV tabs. Movies-only methods (now-playing,
-/// new-releases) are unused for the `.show` kind.
+/// Supplies browse rows for the Movies / TV tabs, organised into sections.
 public protocol DiscoverProviding: Sendable {
-    func popularMovies() async throws -> [TMDBSearchResult]
-    func popularTV() async throws -> [TMDBSearchResult]
-    func nowPlaying() async throws -> [TMDBSearchResult]
-    func newReleases(from: String, to: String) async throws -> [TMDBSearchResult]
-    func moviesByGenre(_ id: Int) async throws -> [TMDBSearchResult]
-    func tvByGenre(_ id: Int) async throws -> [TMDBSearchResult]
+    func nowPlaying() async throws -> [TMDBSearchResult]                                   // movies: In Theatres
+    func popularMoviesByGenre(_ id: Int) async throws -> [TMDBSearchResult]                // ≥100 votes
+    func newMoviesByGenre(_ id: Int, from: String, to: String) async throws -> [TMDBSearchResult]
+    func popularTVByGenre(_ id: Int) async throws -> [TMDBSearchResult]                    // ≥100 votes
+    func newTVByGenre(_ id: Int, from: String, to: String) async throws -> [TMDBSearchResult]
 }
 
 public struct TMDBDiscoverService: DiscoverProviding {
     let client: TMDBClient
     public init(client: TMDBClient) { self.client = client }
-    public func popularMovies() async throws -> [TMDBSearchResult] { try await client.popularMovies() }
-    public func popularTV() async throws -> [TMDBSearchResult] { try await client.popularTV() }
     public func nowPlaying() async throws -> [TMDBSearchResult] { try await client.nowPlayingMovies() }
-    public func newReleases(from: String, to: String) async throws -> [TMDBSearchResult] {
-        try await client.discoverMovies(releaseFrom: from, releaseTo: to)
+    public func popularMoviesByGenre(_ id: Int) async throws -> [TMDBSearchResult] { try await client.discoverMovies(genreID: id) }
+    public func newMoviesByGenre(_ id: Int, from: String, to: String) async throws -> [TMDBSearchResult] {
+        try await client.discoverMovies(genreID: id, releaseFrom: from, releaseTo: to)
     }
-    public func moviesByGenre(_ id: Int) async throws -> [TMDBSearchResult] { try await client.discoverMovies(genreID: id) }
-    public func tvByGenre(_ id: Int) async throws -> [TMDBSearchResult] { try await client.discoverTV(genreID: id) }
+    public func popularTVByGenre(_ id: Int) async throws -> [TMDBSearchResult] { try await client.discoverTV(genreID: id) }
+    public func newTVByGenre(_ id: Int, from: String, to: String) async throws -> [TMDBSearchResult] {
+        try await client.discoverTV(genreID: id, firstAirFrom: from, firstAirTo: to)
+    }
 }
 
-/// Kind-aware browse rows for a Movies or TV tab. Movies: Popular · In Theatres (CAM, by
-/// release date) · New Releases (home-release window) · genres. TV: Popular · genres.
+/// Kind-aware browse content organised into sections, each holding per-genre rows.
+/// Movies: **In Theatres** (CAM-likely, by release date) · **New Releases** (per genre, recent) ·
+/// **Most Popular** (per genre, ≥100 votes). TV drops In Theatres.
 @MainActor
 @Observable
 public final class DiscoverStore {
     public struct Row: Identifiable, Equatable, Sendable {
         public let id: String
-        public let title: String
+        public let title: String      // genre name (or "" for the single In-Theatres row)
         public let hits: [SearchHit]
     }
-
+    public struct Section: Identifiable, Equatable, Sendable {
+        public let id: String
+        public let title: String      // "In Theatres" / "New Releases" / "Most Popular"
+        public let isCAM: Bool        // true → tag its posters as CAM-likely
+        public let rows: [Row]
+    }
     public enum State: Equatable { case idle, loading, loaded, failed }
 
     public private(set) var state: State = .idle
-    public private(set) var rows: [Row] = []
+    public private(set) var sections: [Section] = []
 
     public let kind: MediaKind
     private let discover: DiscoverProviding
@@ -65,53 +70,82 @@ public final class DiscoverStore {
 
         let kind = self.kind
         let specs = rowSpecs()
-        let loaded: [Row?] = await withTaskGroup(of: (Int, Row?).self) { group in
+        // Fetch every (section,row) concurrently, then regroup preserving order, dropping empties.
+        let results: [(spec: RowSpec, hits: [SearchHit])] = await withTaskGroup(of: (Int, [SearchHit]).self) { group in
             for (index, spec) in specs.enumerated() {
                 group.addTask {
                     let hits = (try? await spec.fetch())?.map { SearchHit(result: $0, kind: kind) } ?? []
-                    return (index, hits.isEmpty ? nil : Row(id: spec.id, title: spec.title, hits: hits))
+                    return (index, hits)
                 }
             }
-            var slots = [(Int, Row?)]()
-            for await result in group { slots.append(result) }
-            return slots.sorted { $0.0 < $1.0 }.map { $0.1 }
+            var byIndex = [Int: [SearchHit]]()
+            for await (index, hits) in group { byIndex[index] = hits }
+            return specs.enumerated().map { ($0.element, byIndex[$0.offset] ?? []) }
         }
-        rows = loaded.compactMap { $0 }
-        state = rows.isEmpty ? .failed : .loaded
+
+        sections = assemble(results)
+        state = sections.isEmpty ? .failed : .loaded
     }
 
-    private struct RowSpec { let id: String; let title: String; let fetch: @Sendable () async throws -> [TMDBSearchResult] }
+    private struct RowSpec {
+        let sectionID: String; let sectionTitle: String; let isCAM: Bool
+        let rowID: String; let rowTitle: String
+        let fetch: @Sendable () async throws -> [TMDBSearchResult]
+    }
+
+    private func assemble(_ results: [(spec: RowSpec, hits: [SearchHit])]) -> [Section] {
+        var order: [String] = []
+        var bySection: [String: (title: String, isCAM: Bool, rows: [Row])] = [:]
+        for (spec, hits) in results where !hits.isEmpty {
+            if bySection[spec.sectionID] == nil {
+                order.append(spec.sectionID)
+                bySection[spec.sectionID] = (spec.sectionTitle, spec.isCAM, [])
+            }
+            bySection[spec.sectionID]?.rows.append(Row(id: spec.rowID, title: spec.rowTitle, hits: hits))
+        }
+        return order.compactMap { id in
+            guard let s = bySection[id], !s.rows.isEmpty else { return nil }
+            return Section(id: id, title: s.title, isCAM: s.isCAM, rows: s.rows)
+        }
+    }
 
     private func rowSpecs() -> [RowSpec] {
         let d = discover
+        let (from, to) = releaseWindow()
         switch kind {
         case .movie:
-            let (from, to) = releaseWindow()
-            var specs: [RowSpec] = [
-                RowSpec(id: "popular", title: "Popular", fetch: { try await d.popularMovies() }),
-                RowSpec(id: "in-theatres", title: "In Theatres", fetch: { try await d.nowPlaying() }),
-                RowSpec(id: "new-releases", title: "New Releases", fetch: { try await d.newReleases(from: from, to: to) }),
-            ]
+            var specs = [RowSpec(sectionID: "in-theatres", sectionTitle: "In Theatres", isCAM: true,
+                                 rowID: "it", rowTitle: "", fetch: { try await d.nowPlaying() })]
             specs += Self.movieGenres.map { g in
-                RowSpec(id: "g\(g.1)", title: g.0, fetch: { try await d.moviesByGenre(g.1) })
+                RowSpec(sectionID: "new", sectionTitle: "New Releases", isCAM: false,
+                        rowID: "new-\(g.1)", rowTitle: g.0,
+                        fetch: { try await d.newMoviesByGenre(g.1, from: from, to: to) })
+            }
+            specs += Self.movieGenres.map { g in
+                RowSpec(sectionID: "popular", sectionTitle: "Most Popular", isCAM: false,
+                        rowID: "pop-\(g.1)", rowTitle: g.0,
+                        fetch: { try await d.popularMoviesByGenre(g.1) })
             }
             return specs
         case .show:
-            var specs: [RowSpec] = [
-                RowSpec(id: "popular", title: "Popular", fetch: { try await d.popularTV() }),
-            ]
+            var specs = Self.tvGenres.map { g in
+                RowSpec(sectionID: "new", sectionTitle: "New Releases", isCAM: false,
+                        rowID: "new-\(g.1)", rowTitle: g.0,
+                        fetch: { try await d.newTVByGenre(g.1, from: from, to: to) })
+            }
             specs += Self.tvGenres.map { g in
-                RowSpec(id: "g\(g.1)", title: g.0, fetch: { try await d.tvByGenre(g.1) })
+                RowSpec(sectionID: "popular", sectionTitle: "Most Popular", isCAM: false,
+                        rowID: "pop-\(g.1)", rowTitle: g.0,
+                        fetch: { try await d.popularTVByGenre(g.1) })
             }
             return specs
         }
     }
 
-    /// Home-release window for "New Releases": released between ~10 months and ~1.5 months ago
-    /// (past the theatrical/CAM window, likely to have real cached files).
+    /// "New Releases" window: released between ~10 months and ~1.5 months ago.
     private func releaseWindow() -> (from: String, to: String) {
         var cal = Calendar(identifier: .gregorian)
-        cal.timeZone = TimeZone(identifier: "UTC")!   // match `iso` formatter so the window is stable
+        cal.timeZone = TimeZone(identifier: "UTC")!
         let today = now()
         let from = cal.date(byAdding: .day, value: -300, to: today) ?? today
         let to = cal.date(byAdding: .day, value: -45, to: today) ?? today
