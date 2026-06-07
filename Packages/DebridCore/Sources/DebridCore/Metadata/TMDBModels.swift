@@ -19,6 +19,14 @@ public struct TMDBSearchResult: Decodable, Sendable, Equatable, Identifiable {
         case voteAverage = "vote_average"
     }
 
+    public init(id: Int, title: String?, name: String?, releaseDate: String?,
+                firstAirDate: String?, posterPath: String?, overview: String?,
+                voteAverage: Double?) {
+        self.id = id; self.title = title; self.name = name
+        self.releaseDate = releaseDate; self.firstAirDate = firstAirDate
+        self.posterPath = posterPath; self.overview = overview; self.voteAverage = voteAverage
+    }
+
     /// Movie `title` or TV `name`.
     public var displayTitle: String { title ?? name ?? "" }
 
