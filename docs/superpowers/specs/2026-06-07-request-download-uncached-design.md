@@ -5,6 +5,27 @@
 **Apps:** SeretTV (tvOS) + SeretMobile (iOS/iPadOS)
 **Builds on:** Stage 2 (Search → Instant RD Add); extends the `StreamSource` + add path.
 
+## Spike result (2026-06-07) — PASS ✅
+
+Ran the make-or-break Comet probe with a real RD token (owner's), comparing `cachedOnly:true`
+vs `false` for *The Matrix* (`tt0133093`, a title with many releases):
+
+- `cachedOnly:true` → **71** streams · `cachedOnly:false` → **1102** streams.
+
+So Comet **does** surface uncached torrents (~15× more candidates). It also **labels cache
+status in the stream `name` prefix**: `[RD⚡]` = cached/instant (71), `[RD⬇️]` = uncached/will
+download (1031). Two consequences for Slice 2:
+
+1. **Viable** — the feature can proceed; the brain's `streams(for:includeUncached:true)` is the
+   right lever.
+2. **Cache-status is parseable** — Slice 2 can read the `⚡`/`⬇️` marker to (a) label "Instant"
+   vs "Will download" in the UI and (b) prefer an instant version if one exists, only truly
+   *downloading* when none is cached. Recommend adding an `isCached: Bool` to `CachedStream`
+   (parsed in `CometStreamSource.map`) so the picker/UI can use it.
+
+Note: a niche title with *no* torrents at all (e.g. *The Happy Film*, `tt5134870`) returns 0 in
+both modes — "request download" can't help when no torrent exists anywhere; the UI should say so.
+
 ## Problem
 
 When a title has **no cached Real-Debrid version**, the detail screen is a dead end — it
