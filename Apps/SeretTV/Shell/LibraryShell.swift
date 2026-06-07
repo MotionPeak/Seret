@@ -11,6 +11,7 @@ struct LibraryShell: View {
     var body: some View {
         NavigationStack {
             TabView {
+                Tab("Home", systemImage: "house") { HomeScreen() }
                 Tab("Movies", systemImage: "film") { BrowseScreen(kind: .movie) }
                 Tab("TV", systemImage: "tv") { BrowseScreen(kind: .show) }
                 Tab("My Library", systemImage: "rectangle.stack") { MyLibraryScreen() }
