@@ -19,10 +19,15 @@ private func stream(_ hash: String) -> CachedStream {
 private final class FakeReq: DownloadRequesting, @unchecked Sendable {
     let perHash: [String: Result<TorrentInfo, FakeError>]
     let fallback: Result<TorrentInfo, FakeError>
-    init(_ fallback: Result<TorrentInfo, FakeError>, perHash: [String: Result<TorrentInfo, FakeError>] = [:]) {
-        self.fallback = fallback; self.perHash = perHash
+    let throwsError: Error?
+    init(_ fallback: Result<TorrentInfo, FakeError>, perHash: [String: Result<TorrentInfo, FakeError>] = [:],
+         throwsError: Error? = nil) {
+        self.fallback = fallback; self.perHash = perHash; self.throwsError = throwsError
     }
-    func startDownload(infoHash: String) async throws -> TorrentInfo { try (perHash[infoHash] ?? fallback).get() }
+    func startDownload(infoHash: String) async throws -> TorrentInfo {
+        if let throwsError { throw throwsError }
+        return try (perHash[infoHash] ?? fallback).get()
+    }
 }
 
 private final class FakeRecords: DownloadRecording, @unchecked Sendable {
@@ -88,6 +93,14 @@ private final class FakePoller: DownloadPolling, @unchecked Sendable {
         await s.request(tmdbID: 7, title: "X", kind: .movie, candidates: [stream("h1"), stream("h2")])
         #expect(s.status(forTMDB: 7)?.phase == .downloading)
         #expect(records.upserts.first?.infoHash == "h2")
+    }
+
+    @Test func requestBlockedByRDShowsCopyrightMessage() async {
+        let s = make(req: FakeReq(.failure(.boom), throwsError: RDAddError.blocked))
+        await s.request(tmdbID: 9, title: "X", kind: .movie, candidates: [stream("h1"), stream("h2")])
+        if case .failed(let msg) = s.status(forTMDB: 9)?.phase {
+            #expect(msg.lowercased().contains("blocked") || msg.lowercased().contains("copyright"))
+        } else { Issue.record("expected failed-blocked") }
     }
 
     @Test func requestWithNoCandidatesFails() async {

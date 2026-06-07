@@ -43,11 +43,17 @@ public struct TorrentsClient: Sendable {
     }
 
     /// Adds a magnet to the user's RD account. Returns the new torrent's id.
-    /// `POST /torrents/addMagnet` (form `magnet`). RD returns 201.
+    /// `POST /torrents/addMagnet` (form `magnet`). RD returns 201. A copyright-flagged torrent is
+    /// refused with HTTP 451 `infringing_file` — mapped to `RDAddError.blocked` so the UI can say
+    /// so (retrying or trying another version of a blocked torrent never helps).
     public func addMagnet(magnet: String) async throws -> AddMagnetResponse {
-        try await http.post(Self.base.appending(path: "torrents/addMagnet"),
-                            form: ["magnet": magnet],
-                            headers: try await authHeaders())
+        do {
+            return try await http.post(Self.base.appending(path: "torrents/addMagnet"),
+                                       form: ["magnet": magnet],
+                                       headers: try await authHeaders())
+        } catch let HTTPError.status(_, body) where body.contains("infringing_file") {
+            throw RDAddError.blocked
+        }
     }
 
     /// Selects which files of a torrent to download. `files` is RD's raw param:

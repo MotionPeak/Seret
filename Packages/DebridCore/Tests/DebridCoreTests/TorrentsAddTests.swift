@@ -23,6 +23,19 @@ extension MockTests {
             #expect(result.id == "NEWID")
         }
 
+        @Test func addMagnetMapsInfringingFileToBlocked() async throws {
+            // RD refuses copyright-flagged torrents with HTTP 451 — surface a distinct .blocked.
+            MockURLProtocol.handler = { request in
+                let response = HTTPURLResponse(url: request.url!, statusCode: 451,
+                                               httpVersion: nil, headerFields: nil)!
+                return (response, Data(#"{"error":"infringing_file","error_code":35}"#.utf8))
+            }
+            let client = TorrentsClient(http: HTTPClient(session: .mock), tokens: StubTokens())
+            await #expect(throws: RDAddError.blocked) {
+                try await client.addMagnet(magnet: "magnet:?xt=urn:btih:abc")
+            }
+        }
+
         @Test func selectFilesPostsAllAndSucceedsOn204() async throws {
             MockURLProtocol.handler = { request in
                 #expect(request.url?.path.contains("/torrents/selectFiles/NEWID") == true)

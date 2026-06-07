@@ -113,6 +113,7 @@ public final class DownloadStore {
             return
         }
         statuses[tmdbID] = DownloadStatus(torrentID: "", tmdbID: tmdbID, phase: .queued, fraction: 0)
+        var sawBlocked = false
         for candidate in candidates.prefix(maxAttempts) {
             do {
                 let info = try await service.startDownload(infoHash: candidate.infoHash)
@@ -122,11 +123,16 @@ public final class DownloadStore {
                 statuses[tmdbID] = DownloadStatus(from: info, tmdbID: tmdbID)
                 startPolling()
                 return
+            } catch RDAddError.blocked {
+                sawBlocked = true   // RD refused it as copyright-flagged — other versions likely too
+                continue
             } catch {
-                continue   // dead/virus/magnet_error → try the next-best
+                continue            // dead/virus/magnet_error → try the next-best
             }
         }
-        statuses[tmdbID] = .failed(tmdbID, "Couldn't start a download. Try another version later.")
+        statuses[tmdbID] = .failed(tmdbID, sawBlocked
+            ? "Real‑Debrid blocked this title — its torrents are flagged for copyright, so none can be added."
+            : "Couldn't start a download. Try another version later.")
     }
 
     /// One poll pass: refresh progress for every active request. A `.ready` title flips into the
