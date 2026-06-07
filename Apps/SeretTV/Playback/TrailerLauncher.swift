@@ -18,6 +18,11 @@ struct TrailerButton: View {
                 Button { UIApplication.shared.open(url) } label: {
                     Label("Trailer", systemImage: "play.rectangle.fill")
                 }
+            } else {
+                // A real zero-size host so `.task` actually runs: SwiftUI distributes `.task` to a
+                // Group's children, and an empty Group has none — so without this the task never
+                // fires, the key never resolves, and the button never appears.
+                Color.clear.frame(width: 0, height: 0)
             }
         }
         .task(id: tmdbID) {
