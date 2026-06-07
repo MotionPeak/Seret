@@ -67,7 +67,8 @@ struct LibraryShell: View {
         .padding(.top, 24).padding(.bottom, 12)
         .frame(maxWidth: .infinity)
         .onChange(of: focusedTab) { _, new in
-            if let new { withAnimation(.easeInOut(duration: 0.28)) { tab = new } }
+            // Quick crossfade — snappy but still animated (0.28 felt laggy on-device).
+            if let new { withAnimation(.easeOut(duration: 0.14)) { tab = new } }
         }
     }
 
