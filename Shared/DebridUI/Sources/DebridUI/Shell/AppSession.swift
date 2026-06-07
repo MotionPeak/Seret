@@ -153,7 +153,9 @@ public final class AppSession {
         moviesBrowse = DiscoverStore(kind: .movie, discover: discover)
         showsBrowse = DiscoverStore(kind: .show, discover: discover)
         trailers = TMDBTrailerService(client: tmdb)
-        streamSource = CometStreamSource(tokens: realDebrid)
+        // Comet = accurate instant-cache flags; Torrentio = broad index incl. brand-new CAMs.
+        streamSource = AggregateStreamSource([CometStreamSource(tokens: realDebrid),
+                                              TorrentioStreamSource()])
         addService = RealDebridAddService(torrents: torrents)
         let dlService = RealDebridDownloadService(torrents: torrents)
         downloadService = dlService
