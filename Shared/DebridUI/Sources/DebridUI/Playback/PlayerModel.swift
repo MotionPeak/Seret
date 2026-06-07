@@ -56,6 +56,12 @@ public final class PlayerModel {
     public private(set) var selectedAudioID: String?
     public private(set) var selectedSubtitleID: String?   // nil = Off
 
+    /// A finished subtitle download waiting for VLCKit to actually attach the slave track — it
+    /// appears asynchronously via `.tracksChanged`, not synchronously after `addExternalSubtitle`.
+    /// `before` is the text-track id set captured just before the attach, so the freshly-appeared
+    /// id is the one not in it. Resolved in `refreshTracks()`.
+    private var pendingSubtitleAttach: (language: String, before: Set<String>)?
+
     /// Subtitle tracks to show as plain pills — EXCLUDES on-demand downloads, which are
     /// represented by their language row instead. Without this, a downloaded "Hebrew" sub also
     /// shows up as a generic "Track N" pill (the duplicate the user reported).
@@ -403,6 +409,7 @@ public final class PlayerModel {
     private func refreshTracks() {
         audioTracks = engine.audioTracks
         subtitleTracks = engine.subtitleTracks
+        attachPendingSubtitleIfReady()
     }
 
     /// First frames are on screen. Clears the loading state so the overlay/spinner hide.
@@ -458,6 +465,7 @@ public final class PlayerModel {
         resumeAt = newResume
         selectedAudioID = nil
         selectedSubtitleID = nil
+        pendingSubtitleAttach = nil
         let initial: SubtitleRowState = subtitles == nil ? .noAccount : .idle
         subtitleRows = ["he", "en"].map { SubtitleRow(language: $0, state: initial) }
         reload()
@@ -624,19 +632,46 @@ public final class PlayerModel {
                 ?? (try? String(contentsOf: url, encoding: .isoLatin1)) {
                 contentEndTime = SubtitleTiming.lastCueEndSeconds(in: text)
             }
+            // VLCKit attaches the slave asynchronously and signals via `.tracksChanged`; the new
+            // track is usually NOT in the list yet. Remember the pending attach and finish it in
+            // `refreshTracks()` once the track appears — that auto-selects it and turns the engine's
+            // generic "Track N" into the language pill. Try once now in case it landed synchronously.
             let before = Set(engine.subtitleTracks.map(\.id))
             engine.addExternalSubtitle(url: url)
-            subtitleTracks = engine.subtitleTracks
-            let newID = subtitleTracks.first(where: { !before.contains($0.id) })?.id
-            engine.selectSubtitleTrack(id: newID)
-            selectedSubtitleID = newID
-            setRow(language, .attached(newID ?? language))
+            pendingSubtitleAttach = (language, before)
+            refreshTracks()
+            scheduleSubtitleAttachTimeout(language: language)
         } catch let SubtitleError.dailyCapReached(reset) {
             setRow(language, .capReached(reset))
         } catch SubtitleError.notAuthenticated {
             setRow(language, .noAccount)
         } catch {
             setRow(language, .error)
+        }
+    }
+
+    /// If a downloaded subtitle's slave track has appeared in the engine, select it, mark its
+    /// language row `.attached`, and clear the pending attach. Idempotent — safe to call on every
+    /// `.tracksChanged`. Marking the row attached also drops the engine's generic "Track N" pill:
+    /// `embeddedSubtitleTracks` excludes any id a language row now owns.
+    private func attachPendingSubtitleIfReady() {
+        guard let pending = pendingSubtitleAttach,
+              let newID = engine.subtitleTracks.first(where: { !pending.before.contains($0.id) })?.id
+        else { return }
+        engine.selectSubtitleTrack(id: newID)
+        selectedSubtitleID = newID
+        setRow(pending.language, .attached(newID))
+        pendingSubtitleAttach = nil
+    }
+
+    /// Fallback if VLCKit never attaches the slave (e.g. an unreadable file): clear the pending
+    /// download after a grace period so its row stops spinning and shows the retry-able error.
+    private func scheduleSubtitleAttachTimeout(language: String) {
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(8))
+            guard let self, self.pendingSubtitleAttach?.language == language else { return }
+            self.pendingSubtitleAttach = nil
+            self.setRow(language, .error)
         }
     }
 
