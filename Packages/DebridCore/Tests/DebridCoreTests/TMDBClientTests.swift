@@ -21,6 +21,30 @@ extension MockTests {
             #expect(results[0].year == 2024)
         }
 
+        @Test func discoversMoviesByGenre() async throws {
+            MockURLProtocol.handler = { request in
+                let url = request.url!.absoluteString
+                #expect(url.contains("/discover/movie"))
+                #expect(url.contains("with_genres=27"))
+                #expect(url.contains("sort_by=popularity.desc"))
+                let r = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (r, Data(#"{"results":[{"id":1,"title":"Split","release_date":"2017-01-20","vote_average":7.3}]}"#.utf8))
+            }
+            let client = TMDBClient(apiKey: "KEY", http: HTTPClient(session: .mock))
+            let results = try await client.discoverMovies(genreID: 27)
+            #expect(results.first?.id == 1)
+        }
+
+        @Test func fetchesNowPlaying() async throws {
+            MockURLProtocol.handler = { request in
+                #expect(request.url!.absoluteString.contains("/movie/now_playing"))
+                let r = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (r, Data(#"{"results":[{"id":9,"title":"New","release_date":"2026-05-01","vote_average":6}]}"#.utf8))
+            }
+            let client = TMDBClient(apiKey: "KEY", http: HTTPClient(session: .mock))
+            #expect(try await client.nowPlayingMovies().first?.id == 9)
+        }
+
         @Test func searchesTV() async throws {
             MockURLProtocol.stub(status: 200, json: #"""
             {"page":1,"results":[

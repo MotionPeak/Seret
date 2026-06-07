@@ -28,6 +28,22 @@ public struct TMDBClient: Sendable {
         return response.results
     }
 
+    /// Movies currently in theatrical release ("Recently Released" discovery row).
+    public func nowPlayingMovies() async throws -> [TMDBSearchResult] {
+        let response: TMDBSearchResponse = try await get("movie/now_playing", [])
+        return response.results
+    }
+
+    /// Popular movies in a TMDB genre (e.g. 27 = Horror), for the discovery rows.
+    public func discoverMovies(genreID: Int) async throws -> [TMDBSearchResult] {
+        let response: TMDBSearchResponse = try await get("discover/movie", [
+            URLQueryItem(name: "with_genres", value: String(genreID)),
+            URLQueryItem(name: "sort_by", value: "popularity.desc"),
+            URLQueryItem(name: "vote_count.gte", value: "200"),
+        ])
+        return response.results
+    }
+
     public func movieDetails(id: Int) async throws -> TMDBMovieDetails {
         try await get("movie/\(id)", [])
     }

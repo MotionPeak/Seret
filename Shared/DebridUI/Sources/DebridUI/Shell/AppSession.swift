@@ -23,6 +23,9 @@ public final class AppSession {
     /// Title-search store for the Stage 2 Search tab (nil while signed out).
     public private(set) var searchStore: SearchStore?
 
+    /// Discovery rows (Recently Released + genres) for the idle Search page (nil while signed out).
+    public private(set) var discoverStore: DiscoverStore?
+
     /// On-demand TMDB detail provider for the Detail screen (nil while signed out).
     public private(set) var detailsProvider: MediaDetailsProviding?
 
@@ -88,6 +91,7 @@ public final class AppSession {
             onSignedIn: { [weak self] in self?.markSignedIn() })
         libraryStore = nil
         searchStore = nil
+        discoverStore = nil
         detailsProvider = nil
         watchStore = nil
         home = nil
@@ -113,6 +117,7 @@ public final class AppSession {
             store: LibrarySnapshotStore(directory: Self.cachesDirectory))
         libraryStore = LibraryStore(library: service)
         searchStore = SearchStore(search: TMDBSearchService(client: tmdb))
+        discoverStore = DiscoverStore(discover: TMDBDiscoverService(client: tmdb))
         streamSource = CometStreamSource(tokens: realDebrid)
         addService = RealDebridAddService(torrents: torrents)
         detailsProvider = TMDBDetailsService(client: tmdb)
