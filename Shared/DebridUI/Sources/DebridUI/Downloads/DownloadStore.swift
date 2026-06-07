@@ -26,6 +26,10 @@ public final class DownloadStore {
     /// Active download status per TMDB id. Absent = nothing in flight (or already in the library).
     public private(set) var statuses: [Int: DownloadStatus] = [:]
 
+    /// Title + poster per in-flight TMDB id — renders the library "downloading" tile and names the
+    /// "ready" notification. Kept alongside `statuses` so the brain `DownloadStatus` stays minimal.
+    private var meta: [Int: (title: String, posterPath: String?)] = [:]
+
     private let service: DownloadRequesting
     private let records: DownloadRecording
     private let poller: DownloadPolling
@@ -48,19 +52,41 @@ public final class DownloadStore {
 
     public func status(forTMDB id: Int) -> DownloadStatus? { statuses[id] }
 
+    /// The title of an in-flight download (for the "ready" notification).
+    public func title(forTMDB id: Int) -> String? { meta[id]?.title }
+
+    /// In-progress downloads (queued/downloading) as poster tiles for the library grid. Failed and
+    /// ready ones are excluded — failed surfaces on Detail, ready becomes a real library item.
+    public var activeTiles: [DownloadTile] {
+        statuses.compactMap { tmdbID, status in
+            switch status.phase {
+            case .queued, .downloading:
+                let m = meta[tmdbID]
+                return DownloadTile(tmdbID: tmdbID, title: m?.title ?? "Downloading…",
+                                    posterPath: m?.posterPath, status: status)
+            case .ready, .failed:
+                return nil
+            }
+        }
+        .sorted { $0.tmdbID < $1.tmdbID }
+    }
+
     /// Seed badges from persisted records (call at sign-in) so an in-flight download survives an
     /// app restart, then resume polling.
     public func loadActive() async {
         let active = (try? await records.all()) ?? []
         for r in active where statuses[r.tmdbID] == nil {
             statuses[r.tmdbID] = DownloadStatus(torrentID: r.torrentID, tmdbID: r.tmdbID, phase: .queued, fraction: 0)
+            meta[r.tmdbID] = (r.title, r.posterPath)
         }
         if !active.isEmpty { startPolling() }
     }
 
     /// Start a background download for `tmdbID`, trying the ranked candidates in order until one
     /// starts (each terminal failure self-skips, mirroring the instant add's fallback).
-    public func request(tmdbID: Int, title: String, kind: MediaKind, candidates: [CachedStream]) async {
+    public func request(tmdbID: Int, title: String, kind: MediaKind, candidates: [CachedStream],
+                        posterPath: String? = nil) async {
+        meta[tmdbID] = (title, posterPath)
         guard !candidates.isEmpty else {
             statuses[tmdbID] = .failed(tmdbID, "No version available to download.")
             return
@@ -71,7 +97,7 @@ public final class DownloadStore {
                 let info = try await service.startDownload(infoHash: candidate.infoHash)
                 try? await records.upsert(DownloadRequestData(
                     torrentID: info.id, tmdbID: tmdbID, infoHash: candidate.infoHash,
-                    kind: kind, title: title, requestedAt: now()))
+                    kind: kind, title: title, posterPath: posterPath, requestedAt: now()))
                 statuses[tmdbID] = DownloadStatus(from: info, tmdbID: tmdbID)
                 startPolling()
                 return
@@ -91,6 +117,7 @@ public final class DownloadStore {
             case .ready:
                 await onReady(status.tmdbID)
                 statuses[status.tmdbID] = nil
+                meta[status.tmdbID] = nil
             case .queued, .downloading, .failed:
                 statuses[status.tmdbID] = status
             }
@@ -118,4 +145,13 @@ private extension DownloadStatus {
     static func failed(_ tmdbID: Int, _ reason: String) -> DownloadStatus {
         DownloadStatus(torrentID: "", tmdbID: tmdbID, phase: .failed(reason), fraction: 0)
     }
+}
+
+/// A poster tile for an in-progress download, rendered in the library grid alongside owned items.
+public struct DownloadTile: Identifiable, Sendable, Equatable {
+    public let tmdbID: Int
+    public let title: String
+    public let posterPath: String?
+    public let status: DownloadStatus
+    public var id: Int { tmdbID }
 }

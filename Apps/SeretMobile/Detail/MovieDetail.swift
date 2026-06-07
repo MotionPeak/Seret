@@ -22,7 +22,7 @@ struct MovieDetail: View {
                 if let best = store.bestSource { QualityChipRow(parsed: best.parsed) }
                 actions
                 if store.bestSource == nil, let tmdb = item.tmdbID {
-                    MovieDownloadSection(tmdbID: tmdb, title: item.title,
+                    MovieDownloadSection(tmdbID: tmdb, title: item.title, posterPath: item.posterPath,
                                          imdbID: store.imdbID, originalLanguage: store.originalLanguage)
                 }
                 if let overview = store.overview {
@@ -133,6 +133,7 @@ struct MovieDetail: View {
 private struct MovieDownloadSection: View {
     let tmdbID: Int
     let title: String
+    let posterPath: String?
     let imdbID: String?
     let originalLanguage: String?
     @Environment(AppSession.self) private var session
@@ -177,7 +178,7 @@ private struct MovieDownloadSection: View {
                     candidates = await add.uncachedCandidates()
                 }
                 await session.downloadStore?.request(tmdbID: tmdbID, title: title, kind: .movie,
-                                                     candidates: candidates)
+                                                     candidates: candidates, posterPath: posterPath)
                 requesting = false
             }
         } label: { Label(label, systemImage: "arrow.down.circle") }

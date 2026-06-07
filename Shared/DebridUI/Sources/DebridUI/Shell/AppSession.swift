@@ -63,6 +63,10 @@ public final class AppSession {
     /// (nil while signed out, or if the SwiftData container fails to build).
     public private(set) var downloadStore: DownloadStore?
 
+    /// Posts a local notification when a requested download finishes. Survives sign-out (the
+    /// permission grant is a device setting, not session state).
+    public let downloadNotifier = DownloadNotifier()
+
     public let realDebrid: RealDebridSession
 
     public init(realDebrid: RealDebridSession) {
@@ -158,11 +162,18 @@ public final class AppSession {
             let dMonitor = DownloadMonitor(info: torrents, store: dStore)
             downloadsStore = dStore
             downloadMonitor = dMonitor
-            // A finished download flips into the normal library — refresh so it appears + Play lights up.
+            // A finished download flips into the normal library — refresh so it appears + Play lights
+            // up — and fires a "ready" notification (the title is still in DownloadStore's meta here).
             let store = DownloadStore(service: dlService, records: dStore, poller: dMonitor,
-                                      onReady: { [weak self] _ in self?.libraryStore?.retry() })
+                                      onReady: { [weak self] tmdbID in
+                                          guard let self else { return }
+                                          let name = self.downloadStore?.title(forTMDB: tmdbID) ?? "Your download"
+                                          self.libraryStore?.retry()
+                                          self.downloadNotifier.notifyReady(title: name)
+                                      })
             downloadStore = store
             Task { await store.loadActive() }
+            Task { await downloadNotifier.requestAuthorization() }
         }
         detailsProvider = TMDBDetailsService(client: tmdb)
         home = watchStore.map { HomeStore(watch: $0) }
