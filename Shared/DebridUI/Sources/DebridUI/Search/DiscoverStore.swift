@@ -46,6 +46,9 @@ public final class DiscoverStore {
 
     public private(set) var state: State = .idle
     public private(set) var sections: [Section] = []
+    /// TMDB ids of titles in a CAM-likely (In Theatres) section — so a poster can be tagged CAM
+    /// in EVERY row it appears in, not just the In Theatres rail.
+    public private(set) var camIDs: Set<Int> = []
 
     public let kind: MediaKind
     private let discover: DiscoverProviding
@@ -84,8 +87,12 @@ public final class DiscoverStore {
         }
 
         sections = assemble(results)
+        camIDs = Set(results.filter { $0.spec.isCAM }.flatMap { $0.hits.map(\.result.id) })
         state = sections.isEmpty ? .failed : .loaded
     }
+
+    /// Whether a title should carry a CAM tag wherever it appears (it's in the In-Theatres set).
+    public func isCAM(_ result: TMDBSearchResult) -> Bool { camIDs.contains(result.id) }
 
     private struct RowSpec {
         let sectionID: String; let sectionTitle: String; let isCAM: Bool

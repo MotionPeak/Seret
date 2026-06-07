@@ -46,6 +46,19 @@ private func movie(_ id: Int) -> TMDBSearchResult {
         #expect(store.sections[1].rows.first?.title == "Action")
     }
 
+    @Test func camIDsCoverInTheatresTitlesEverywhere() async {
+        let fake = FakeDiscover()
+        fake.nowPlayingResult = .success([movie(42)])   // In Theatres → CAM
+        fake.newMovie = .success([movie(42), movie(7)])  // 42 also appears under a genre
+        fake.popularMovie = .success([movie(9)])
+        let store = DiscoverStore(kind: .movie, discover: fake)
+        await store.load()
+        #expect(store.camIDs.contains(42))
+        #expect(!store.camIDs.contains(7))
+        #expect(store.isCAM(movie(42)))     // tagged in New Releases too, not just In Theatres
+        #expect(!store.isCAM(movie(9)))
+    }
+
     @Test func emptyInTheatresSectionDropped() async {
         let fake = FakeDiscover()
         fake.nowPlayingResult = .success([])     // no In Theatres
