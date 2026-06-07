@@ -39,6 +39,9 @@ struct BrowseScreen: View {
                 }
             }
             .padding(.top, Theme.Space.sm)
+            // On iPad the detail column butts right up against the sidebar — give the content
+            // breathing room from the rail. (No-op in the compact tab bar.)
+            .padding(.leading, hSize == .regular ? Theme.Space.xl : 0)
         }
         .navigationTitle(title)
     }
