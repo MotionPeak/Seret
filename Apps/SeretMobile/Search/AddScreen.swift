@@ -44,6 +44,11 @@ struct AddScreen: View {
                 PlayerPlaceholder(request: presented.request)
             }
         }
+        // A successful add lands a new torrent in RD → refresh the library so it appears
+        // without restarting the app.
+        .onChange(of: flow?.add?.state) { _, newState in
+            if case .added = newState { session.libraryStore?.retry() }
+        }
     }
 
     @ViewBuilder private var content: some View {

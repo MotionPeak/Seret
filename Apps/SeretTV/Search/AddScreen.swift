@@ -46,6 +46,11 @@ struct AddScreen: View {
                 Text("Unable to start playback.").font(.title2)
             }
         }
+        // A successful add lands a new torrent in RD → refresh the library so it appears
+        // without restarting the app.
+        .onChange(of: flow?.add?.state) { _, newState in
+            if case .added = newState { session.libraryStore?.retry() }
+        }
     }
 
     /// Wraps a `PlaybackRequest` so it can drive `.fullScreenCover(item:)`.

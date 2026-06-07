@@ -70,7 +70,7 @@ private struct DiscoverRowsView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 case .loaded:
                     ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 40) {
+                        LazyVStack(alignment: .leading, spacing: 48) {
                             ForEach(store.rows) { row in
                                 VStack(alignment: .leading, spacing: 16) {
                                     Text(row.title).font(.title2.bold()).padding(.leading, 60)
@@ -79,11 +79,14 @@ private struct DiscoverRowsView: View {
                                             ForEach(row.hits) { SearchPosterCard(hit: $0) }
                                         }
                                         .padding(.horizontal, 60)
+                                        // Headroom so the tvOS focus lift/zoom isn't clipped at the row edges.
+                                        .padding(.vertical, 40)
                                     }
+                                    .scrollClipDisabled()
                                 }
                             }
                         }
-                        .padding(.vertical, 40)
+                        .padding(.vertical, 20)
                     }
                 }
             }
