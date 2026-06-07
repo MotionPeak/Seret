@@ -54,6 +54,12 @@ public final class AppSession {
     private var streamSource: StreamSource?
     private var addService: AddProviding?
 
+    /// Request-Download (uncached titles) seams, composed at sign-in (nil while signed out).
+    /// Consumed by Slice 2's download view-models.
+    private var downloadService: DownloadRequesting?
+    private var downloadsStore: DownloadsStore?
+    private var downloadMonitor: DownloadMonitor?
+
     public let realDebrid: RealDebridSession
 
     public init(realDebrid: RealDebridSession) {
@@ -109,6 +115,9 @@ public final class AppSession {
         torrents = nil
         streamSource = nil
         addService = nil
+        downloadService = nil
+        downloadsStore = nil
+        downloadMonitor = nil
         subtitlesProvider = nil
         state = .signedOut
     }
@@ -138,6 +147,12 @@ public final class AppSession {
         trailers = TMDBTrailerService(client: tmdb)
         streamSource = CometStreamSource(tokens: realDebrid)
         addService = RealDebridAddService(torrents: torrents)
+        downloadService = RealDebridDownloadService(torrents: torrents)
+        if let container = try? ModelContainer(for: DownloadRequest.self) {
+            let dStore = DownloadsStore(modelContainer: container)
+            downloadsStore = dStore
+            downloadMonitor = DownloadMonitor(info: torrents, store: dStore)
+        }
         detailsProvider = TMDBDetailsService(client: tmdb)
         home = watchStore.map { HomeStore(watch: $0) }
         // Recompute the Home rails the moment a removal changes the library, so a deleted title
