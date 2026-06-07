@@ -48,10 +48,14 @@ struct PlayerView: View {
         // fullscreen players. Released past the threshold it dismisses (in pullToDismiss).
         .scaleEffect(1 - min(max(dragOffset, 0), 240) / 1600)
         .offset(y: max(0, dragOffset))
+        .overlay(alignment: .bottom) {
+            if model.upNextVisible, let next = model.nextEpisode { upNextBar(next) }
+        }
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
         .sheet(isPresented: $showSettings) { PlayerSettingsSheet(model: model) }
         .animation(.easeInOut(duration: 0.2), value: model.controlsVisible)
+        .animation(.easeInOut(duration: 0.25), value: model.upNextVisible)
         .onAppear { model.start() }
         .onChange(of: model.shouldDismiss) { _, done in if done { onExit() } }
         .onDisappear { Task { await model.teardown() } }
@@ -97,6 +101,34 @@ struct PlayerView: View {
         LinearGradient(colors: [.black.opacity(0.55), .clear, .black.opacity(0.65)],
                        startPoint: .top, endPoint: .bottom)
             .ignoresSafeArea()
+    }
+
+    /// Netflix-style "Up Next" bar near content-end: a countdown that auto-advances, Play Now to
+    /// skip the wait, and Dismiss to keep watching (e.g. the credits).
+    private func upNextBar(_ next: Episode) -> some View {
+        HStack(spacing: Theme.Space.md) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Up Next").font(.caption.weight(.semibold)).foregroundStyle(.white.opacity(0.7))
+                Text("S\(next.season)\u{00B7}E\(next.number)  \u{00B7}  Playing in \(model.upNextSecondsRemaining)s")
+                    .font(.subheadline.weight(.semibold)).foregroundStyle(.white).lineLimit(1)
+            }
+            Spacer(minLength: Theme.Space.md)
+            Button("Dismiss") { model.dismissUpNext() }
+                .font(.subheadline).foregroundStyle(.white.opacity(0.85))
+            Button { model.playNextNow() } label: {
+                Label("Play Now", systemImage: "play.fill")
+                    .font(.subheadline.weight(.bold))
+                    .padding(.horizontal, 16).padding(.vertical, 9)
+                    .background(Theme.Palette.gold, in: Capsule())
+                    .foregroundStyle(.black)
+                    .contentShape(Capsule())
+            }
+        }
+        .padding(.horizontal, 18).padding(.vertical, 12)
+        .background(.black.opacity(0.78), in: RoundedRectangle(cornerRadius: 16))
+        .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(.white.opacity(0.12)))
+        .padding(.horizontal, 24)
+        .padding(.bottom, 92)        // sit above the scrub bar when controls are up
     }
 
     private var transport: some View {

@@ -48,6 +48,10 @@ public final class PlayerModel {
     public private(set) var subtitleRows: [SubtitleRow]
     public private(set) var shouldDismiss: Bool = false
 
+    /// "Up Next" bar state (shows near content-end for a show with another episode).
+    public private(set) var upNextVisible: Bool = false
+    public private(set) var upNextSecondsRemaining: Int = 0
+
     /// Currently-selected track ids — drives the settings sheet's selection indicator.
     public private(set) var selectedAudioID: String?
     public private(set) var selectedSubtitleID: String?   // nil = Off
@@ -121,6 +125,23 @@ public final class PlayerModel {
     private let saveInterval: Double = 5
     private let autoHideDelay: Double
     private let scrubBarDwell: Double = 5      // bar stays visible for 5s after the last interaction
+
+    // MARK: - Up Next (binge)
+    /// End-of-content time (seconds): the last subtitle cue when a sub was downloaded, so the bar
+    /// appears when the dialogue ends rather than at the file end (long credits). nil → fall back.
+    private var contentEndTime: Double?
+    private var upNextDismissed = false
+    private var upNextTask: Task<Void, Never>?
+    private let upNextCountdownStart = 10
+    private let upNextFallbackTail: Double = 45   // when content-end is unknown, show this far from the file end
+
+    /// When the "Up Next" bar should appear (nil → never, e.g. no next episode or unknown timing).
+    private var upNextThreshold: Double? {
+        guard hasNextEpisode else { return nil }
+        if let contentEndTime { return contentEndTime }
+        guard duration > upNextFallbackTail + 1 else { return nil }
+        return duration - upNextFallbackTail
+    }
 
     // MARK: - Computed helpers
 
@@ -277,6 +298,48 @@ public final class PlayerModel {
             lastSavedPosition = position
             await recordProgress(contentKey, WatchKey.source(currentSource), position, duration)
         }
+        maybeShowUpNext()
+    }
+
+    /// Reveal the "Up Next" bar once playback passes the content-end threshold (last subtitle cue,
+    /// or a tail fallback) for a show with another episode — unless the viewer dismissed it.
+    private func maybeShowUpNext() {
+        guard hasNextEpisode, !upNextDismissed, !upNextVisible, phase == .playing,
+              duration > 0, let threshold = upNextThreshold,
+              position >= threshold, position < duration else { return }
+        upNextVisible = true
+        upNextSecondsRemaining = upNextCountdownStart
+        upNextTask?.cancel()
+        upNextTask = Task { @MainActor in
+            while upNextSecondsRemaining > 0 {
+                try? await Task.sleep(for: .seconds(1))
+                if Task.isCancelled { return }
+                upNextSecondsRemaining -= 1
+            }
+            playNext()                      // countdown elapsed → advance
+        }
+    }
+
+    /// "Play Now" on the Up Next bar — advance immediately, skipping the countdown.
+    public func playNextNow() {
+        upNextTask?.cancel()
+        playNext()
+    }
+
+    /// Dismiss the Up Next bar and stop it from re-appearing for this episode (the viewer wants to
+    /// watch the credits). The file's real end then exits rather than auto-advancing.
+    public func dismissUpNext() {
+        upNextTask?.cancel()
+        upNextVisible = false
+        upNextDismissed = true
+    }
+
+    private func resetUpNext() {
+        upNextTask?.cancel()
+        upNextVisible = false
+        upNextDismissed = false
+        upNextSecondsRemaining = 0
+        contentEndTime = nil
     }
 
     /// Pull the engine's current track lists into the published state. Called when playback starts
@@ -296,9 +359,10 @@ public final class PlayerModel {
     private func finish() async {
         guard phase != .ended else { return }   // VLCKit can emit .stopped + .ended; finish once
         // Binge: a finished episode records its tail, then auto-advances to the next one in-place
-        // (same player/engine). A movie or last episode records and dismisses.
+        // (same player/engine) — unless the viewer dismissed the Up Next bar to watch the credits,
+        // in which case the real file end exits. A movie or last episode records and dismisses.
         await recordCurrentProgress()
-        if nextEpisode != nil {
+        if nextEpisode != nil, !upNextDismissed {
             advanceToNextEpisode()
             return
         }
@@ -323,6 +387,7 @@ public final class PlayerModel {
     /// per-episode. Caller is responsible for recording the outgoing episode's progress.
     private func advanceToNextEpisode() {
         guard let next = nextEpisode else { return }
+        resetUpNext()                        // clear the bar/countdown + the old episode's content-end
         episode = next
         sources = [next.source]
         sourceIndex = 0
@@ -464,6 +529,7 @@ public final class PlayerModel {
         loadTask?.cancel()
         hideControlsTask?.cancel()
         scrubBarHideTask?.cancel()
+        upNextTask?.cancel()
         await recordCurrentProgress()
         engine.stop()
     }
@@ -489,6 +555,13 @@ public final class PlayerModel {
             let results = try await subtitles.search(query, languages: [language])
             guard let best = results.first else { setRow(language, .error); return }
             let url = try await subtitles.download(best)
+            // The downloaded cues tell us when the dialogue ends → drives "Up Next" at content-end
+            // rather than the file end. Timestamps are ASCII, so isoLatin1 is a safe fallback decode
+            // for non-UTF-8 (e.g. windows-1255 Hebrew) files.
+            if let text = (try? String(contentsOf: url, encoding: .utf8))
+                ?? (try? String(contentsOf: url, encoding: .isoLatin1)) {
+                contentEndTime = SubtitleTiming.lastCueEndSeconds(in: text)
+            }
             let before = Set(engine.subtitleTracks.map(\.id))
             engine.addExternalSubtitle(url: url)
             subtitleTracks = engine.subtitleTracks

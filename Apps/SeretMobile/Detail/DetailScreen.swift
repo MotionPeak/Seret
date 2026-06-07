@@ -71,7 +71,7 @@ struct DetailScreen: View {
             }
         }
         .fullScreenCover(item: $playback) { presented in
-            let engine = VLCKitVideoPlayerEngine()
+            let engine = VLCKitVideoPlayerEngine(preferences: session.subtitleSettings.preferences)
             if let model = session.makePlayer(for: presented.request, engine: engine) {
                 PlayerView(model: model, engine: engine,
                            backdropURL: TMDBClient.imageURL(path: presented.request.item.backdropPath, size: "w1280"),

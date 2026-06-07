@@ -49,6 +49,29 @@ struct SettingsView: View {
             .listRowBackground(Theme.Palette.surface1)
 
             Section {
+                Picker("Size", selection: subtitleSize) {
+                    ForEach(SubtitlePreferences.Size.allCases, id: \.self) { Text($0.label).tag($0) }
+                }
+                Picker("Font", selection: subtitleFont) {
+                    ForEach(SubtitlePreferences.Font.allCases, id: \.self) { Text($0.label).tag($0) }
+                }
+                Picker("Color", selection: subtitleColor) {
+                    ForEach(SubtitlePreferences.Color.allCases, id: \.self) { c in
+                        HStack(spacing: Theme.Space.sm) {
+                            Circle().fill(c.swatch).frame(width: 12, height: 12)
+                            Text(c.label)
+                        }.tag(c)
+                    }
+                }
+            } header: {
+                Text("Subtitles").foregroundStyle(Theme.Palette.gold)
+            } footer: {
+                Text("Applies to every movie and show. Takes effect the next time you start playback.")
+                    .font(.footnote).foregroundStyle(Theme.Palette.textSecondary)
+            }
+            .listRowBackground(Theme.Palette.surface1)
+
+            Section {
                 LabeledContent("Version", value: appVersion)
                     .foregroundStyle(Theme.Palette.textSecondary)
             } footer: {
@@ -66,7 +89,29 @@ struct SettingsView: View {
         .navigationTitle("Settings")
     }
 
+    // Bindings into the shared, persisted subtitle preferences.
+    private var subtitleSize: Binding<SubtitlePreferences.Size> {
+        Binding(get: { session.subtitleSettings.preferences.size },
+                set: { session.subtitleSettings.preferences.size = $0 })
+    }
+    private var subtitleFont: Binding<SubtitlePreferences.Font> {
+        Binding(get: { session.subtitleSettings.preferences.font },
+                set: { session.subtitleSettings.preferences.font = $0 })
+    }
+    private var subtitleColor: Binding<SubtitlePreferences.Color> {
+        Binding(get: { session.subtitleSettings.preferences.color },
+                set: { session.subtitleSettings.preferences.color = $0 })
+    }
+
     private var appVersion: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
+    }
+}
+
+private extension SubtitlePreferences.Color {
+    /// SwiftUI swatch from the stored 0xRRGGBB value (kept out of DebridUI to keep it SwiftUI-free).
+    var swatch: Color {
+        Color(red: Double((rgb >> 16) & 0xFF) / 255, green: Double((rgb >> 8) & 0xFF) / 255,
+              blue: Double(rgb & 0xFF) / 255)
     }
 }

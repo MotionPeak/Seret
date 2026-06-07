@@ -32,6 +32,22 @@ struct SettingsView: View {
             }
             .frame(maxWidth: 700)
 
+            VStack(alignment: .leading, spacing: 16) {
+                Label("Subtitles", systemImage: "textformat.size").font(.title3.bold())
+                Text("Applies to every movie and show. Takes effect on the next playback.")
+                    .font(.callout).foregroundStyle(.secondary)
+                Picker("Size", selection: subtitleSize) {
+                    ForEach(SubtitlePreferences.Size.allCases, id: \.self) { Text($0.label).tag($0) }
+                }.pickerStyle(.segmented)
+                Picker("Font", selection: subtitleFont) {
+                    ForEach(SubtitlePreferences.Font.allCases, id: \.self) { Text($0.label).tag($0) }
+                }.pickerStyle(.segmented)
+                Picker("Color", selection: subtitleColor) {
+                    ForEach(SubtitlePreferences.Color.allCases, id: \.self) { Text($0.label).tag($0) }
+                }.pickerStyle(.segmented)
+            }
+            .frame(maxWidth: 900)
+
             Button(role: .destructive) {
                 Task { await session.signOut() }
             } label: {
@@ -41,5 +57,19 @@ struct SettingsView: View {
         .padding(80)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle("Settings")
+    }
+
+    // Bindings into the shared, persisted subtitle preferences.
+    private var subtitleSize: Binding<SubtitlePreferences.Size> {
+        Binding(get: { session.subtitleSettings.preferences.size },
+                set: { session.subtitleSettings.preferences.size = $0 })
+    }
+    private var subtitleFont: Binding<SubtitlePreferences.Font> {
+        Binding(get: { session.subtitleSettings.preferences.font },
+                set: { session.subtitleSettings.preferences.font = $0 })
+    }
+    private var subtitleColor: Binding<SubtitlePreferences.Color> {
+        Binding(get: { session.subtitleSettings.preferences.color },
+                set: { session.subtitleSettings.preferences.color = $0 })
     }
 }

@@ -42,6 +42,10 @@ public final class AppSession {
 
     /// On-demand OpenSubtitles provider (nil while signed out or if no key+account configured).
     public private(set) var subtitlesProvider: SubtitleProvider?
+
+    /// Global subtitle appearance (size · font · color), persisted and applied to every playback.
+    /// Survives sign-out (it's a device preference, not session state).
+    public let subtitleSettings = SubtitleSettingsModel()
     private var watchProgressStore: WatchProgressStore?   // concrete ref for PlaybackCoordinator
     private var torrents: TorrentsClient?
 

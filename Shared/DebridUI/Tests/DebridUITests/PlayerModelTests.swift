@@ -411,4 +411,71 @@ import DebridCore
         #expect(model.phase == .ended)
         #expect(model.shouldDismiss == true)             // no next episode → dismiss
     }
+
+    // MARK: - Up Next bar
+
+    @Test func upNextBarAppearsNearTheEndForAShowWithANextEpisode() async {
+        let engine = FakeVideoPlayerEngine()
+        let model = makeModel(request: Fixture.showRequest(playingEpisode: 1), engine: engine)
+        model.start(); await model.waitForIdleForTesting()
+        engine.emit(.state(.playing)); await model.waitForIdleForTesting()
+        engine.emit(.time(.init(position: 1300, duration: 1400))); await model.waitForIdleForTesting()
+        #expect(model.upNextVisible == false)            // before the tail threshold (1400-45 = 1355)
+        engine.emit(.time(.init(position: 1360, duration: 1400))); await model.waitForIdleForTesting()
+        #expect(model.upNextVisible == true)
+        #expect(model.upNextSecondsRemaining == 10)
+    }
+
+    @Test func upNextBarNeverAppearsForAMovie() async {
+        let engine = FakeVideoPlayerEngine()
+        let model = makeModel(request: Fixture.request(), engine: engine)
+        model.start(); await model.waitForIdleForTesting()
+        engine.emit(.state(.playing)); await model.waitForIdleForTesting()
+        engine.emit(.time(.init(position: 1399, duration: 1400))); await model.waitForIdleForTesting()
+        #expect(model.upNextVisible == false)            // no next episode → no bar
+    }
+
+    @Test func dismissUpNextHidesItAndTheFileEndExitsInsteadOfAdvancing() async {
+        let engine = FakeVideoPlayerEngine()
+        let model = makeModel(request: Fixture.showRequest(playingEpisode: 1), engine: engine)
+        model.start(); await model.waitForIdleForTesting()
+        engine.emit(.state(.playing)); await model.waitForIdleForTesting()
+        engine.emit(.time(.init(position: 1360, duration: 1400))); await model.waitForIdleForTesting()
+        #expect(model.upNextVisible == true)
+        model.dismissUpNext()
+        #expect(model.upNextVisible == false)
+        engine.emit(.state(.ended)); await model.waitForIdleForTesting()
+        #expect(model.shouldDismiss == true)             // dismissed → exit at the real end
+        #expect(model.label == "The Show — S1·E1")       // did NOT advance
+    }
+
+    @Test func playNextNowAdvancesImmediatelyAndResetsTheBar() async {
+        let engine = FakeVideoPlayerEngine()
+        let model = makeModel(request: Fixture.showRequest(playingEpisode: 1), engine: engine)
+        model.start(); await model.waitForIdleForTesting()
+        engine.emit(.state(.playing)); await model.waitForIdleForTesting()
+        engine.emit(.time(.init(position: 1360, duration: 1400))); await model.waitForIdleForTesting()
+        #expect(model.upNextVisible == true)
+        model.playNextNow(); await model.waitForIdleForTesting()
+        #expect(model.label == "The Show — S1·E2")
+        #expect(model.upNextVisible == false)            // reset for the new episode
+    }
+
+    @Test func downloadedSubtitleMakesUpNextAppearAtContentEndNotFileEnd() async throws {
+        // Sub's last cue ends at 16:42 (1002s); the file is 2000s. The bar must appear at content
+        // end (~1002), far before the 2000-45 tail fallback — proving the subtitle drives it.
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID()).srt")
+        try "1\n00:16:40,000 --> 00:16:42,000\nThe end.\n".write(to: url, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let engine = FakeVideoPlayerEngine()
+        let subs = FakeSubtitleProvider()
+        subs.searchResults = [SubtitleResult(fileID: 1, language: "he")]
+        subs.downloadedURL = url
+        let model = makeModel(request: Fixture.showRequest(playingEpisode: 1), engine: engine, subtitles: subs)
+        model.start(); await model.waitForIdleForTesting()
+        await model.requestSubtitle(language: "he")
+        engine.emit(.state(.playing)); await model.waitForIdleForTesting()
+        engine.emit(.time(.init(position: 1003, duration: 2000))); await model.waitForIdleForTesting()
+        #expect(model.upNextVisible == true)
+    }
 }

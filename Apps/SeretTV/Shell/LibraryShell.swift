@@ -25,7 +25,7 @@ struct LibraryShell: View {
                 }
             }
             .navigationDestination(for: PlaybackRequest.self) { request in
-                let engine = VLCKitVideoPlayerEngine()
+                let engine = VLCKitVideoPlayerEngine(preferences: session.subtitleSettings.preferences)
                 if let model = session.makePlayer(for: request, engine: engine) {
                     PlayerView(model: model, engine: engine,
                                backdropURL: TMDBClient.imageURL(path: request.item.backdropPath, size: "original"))

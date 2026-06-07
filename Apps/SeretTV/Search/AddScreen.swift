@@ -38,7 +38,7 @@ struct AddScreen: View {
             await f?.resolve()
         }
         .fullScreenCover(item: $player) { presented in
-            let engine = VLCKitVideoPlayerEngine()
+            let engine = VLCKitVideoPlayerEngine(preferences: session.subtitleSettings.preferences)
             if let model = session.makePlayer(for: presented.request, engine: engine) {
                 PlayerView(model: model, engine: engine,
                            backdropURL: TMDBClient.imageURL(path: presented.request.item.backdropPath, size: "original"))

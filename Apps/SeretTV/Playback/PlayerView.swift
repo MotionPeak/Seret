@@ -1,5 +1,6 @@
 import SwiftUI
 import DebridUI
+import DebridCore
 
 struct PlayerView: View {
     @State private var model: PlayerModel
@@ -49,13 +50,20 @@ struct PlayerView: View {
                 SettingsPanel(model: model, onClose: { showSettings = false })
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
+
+            if model.upNextVisible, let next = model.nextEpisode {
+                UpNextBar(model: model, next: next)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
         }
         .animation(.easeInOut(duration: 0.25), value: showSettings)
+        .animation(.easeInOut(duration: 0.25), value: model.upNextVisible)
         .onPlayPauseCommand {
             if model.isScrubbing { model.commitScrub() } else { model.togglePlayPause() }
         }
         .onExitCommand {
-            if showSettings { showSettings = false }
+            if model.upNextVisible { model.dismissUpNext() }   // Menu keeps watching (credits)
+            else if showSettings { showSettings = false }
             else if model.isScrubbing { model.cancelScrub() }
             else { dismiss() }
         }
@@ -65,6 +73,39 @@ struct PlayerView: View {
         }
         .onChange(of: model.shouldDismiss) { _, dismissNow in if dismissNow { dismiss() } }
         .onDisappear { Task { await model.teardown() } }
+    }
+}
+
+/// Netflix-style "Up Next" bar near content-end. Seeds focus to "Play Now" so the remote acts on
+/// it; the countdown auto-advances, and Menu (handled by the player) or Dismiss keeps watching.
+private struct UpNextBar: View {
+    @Bindable var model: PlayerModel
+    let next: Episode
+    @FocusState private var playNowFocused: Bool
+
+    var body: some View {
+        VStack {
+            Spacer()
+            HStack(spacing: 28) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Up Next").font(.callout.weight(.semibold)).foregroundStyle(.secondary)
+                    Text("S\(next.season)\u{00B7}E\(next.number)  \u{00B7}  Playing in \(model.upNextSecondsRemaining)s")
+                        .font(.title3.weight(.semibold))
+                }
+                Spacer()
+                Button("Dismiss") { model.dismissUpNext() }
+                Button { model.playNextNow() } label: {
+                    Label("Play Now", systemImage: "play.fill")
+                }
+                .focused($playNowFocused)
+            }
+            .padding(36)
+            .background(RoundedRectangle(cornerRadius: 20).fill(.black.opacity(0.85))
+                .overlay(RoundedRectangle(cornerRadius: 20).stroke(.white.opacity(0.10))))
+            .padding(.horizontal, 80)
+            .padding(.bottom, 60)
+        }
+        .onAppear { playNowFocused = true }
     }
 }
 

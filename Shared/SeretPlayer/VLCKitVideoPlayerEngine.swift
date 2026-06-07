@@ -18,23 +18,57 @@ import DebridCore
 /// Track enumeration/selection uses the 4.x **object-based** track API (`VLCMediaPlayerTrack`
 /// with a stable `trackId`), not 3.x integer indexes. Tracks are discovered asynchronously, so
 /// the delegate's `mediaPlayerTrack…` callbacks emit `.tracksChanged` and the model re-pulls.
+/// The drawable handed to VLCKit. In VLCKit 4.x the player renders by **adding its own Metal render
+/// view as a subview** of the drawable and sizing it from the drawable's `bounds` (see the
+/// `VLCDrawable` protocol: `addSubview:` + `bounds`). We assign `player.drawable` in the engine's
+/// init — before SwiftUI lays this view out — so VLCKit's render subview is created against a `.zero`
+/// bounds and is NOT resized on later layout. The video then renders into a wrong-sized surface, and
+/// VLCKit's default aspect-fit (`scaleFactor == 0`, "adjust to the drawable") fits into that wrong
+/// size: a source smaller than the screen's pixel buffer (1080p) ends up mis-proportioned, a larger
+/// one (2160p) overflows and crops.
+///
+/// Forcing every subview to fill our bounds — on add and on every layout pass — keeps VLCKit's
+/// render surface matched to the on-screen size, so aspect-fit letterboxes correctly and self-
+/// corrects across first layout, rotation, and split-view resize.
+@MainActor
+final class VLCDrawableView: UIView {
+    override func didAddSubview(_ subview: UIView) {
+        super.didAddSubview(subview)
+        subview.frame = bounds
+        subview.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+    }
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        for sub in subviews { sub.frame = bounds }
+    }
+}
+
 @MainActor
 final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
-    let videoView = UIView()
-    private let player = VLCMediaPlayer()
+    let videoView: UIView = VLCDrawableView()
+    private let player: VLCMediaPlayer
+    private let subtitleScale: Float
     private let continuation: AsyncStream<PlaybackEvent>.Continuation
     let events: AsyncStream<PlaybackEvent>
 
-    override init() {
+    /// `preferences` set the global subtitle look. Font + color are libvlc/freetype options that
+    /// must be passed at player creation (`VLCMediaPlayer(options:)`); size is the dynamic
+    /// `currentSubTitleFontScale`, applied per load. The engine is built fresh per playback, so a
+    /// changed preference takes effect on the next play.
+    init(preferences: SubtitlePreferences = .default) {
+        var options = ["--freetype-color=\(preferences.color.rgb)"]
+        if let font = preferences.font.freetypeName { options.append("--freetype-font=\(font)") }
+        player = VLCMediaPlayer(options: options)
+        subtitleScale = Float(preferences.size.scale)
         var cont: AsyncStream<PlaybackEvent>.Continuation!
         events = AsyncStream(bufferingPolicy: .bufferingNewest(64)) { cont = $0 }
         continuation = cont
         super.init()
         videoView.backgroundColor = .black   // base stays black (no grey flash before VLCKit renders)
-        // Track the host bounds so VLCKit's Metal layer always matches the on-screen frame.
-        // Without this the drawable can keep an initial (e.g. iPad split-column) size and the
-        // video appears to fill/crop instead of letterboxing to the real screen.
-        videoView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        videoView.autoresizingMask = [.flexibleWidth, .flexibleHeight]   // track the SwiftUI host frame
+        // NOTE: the actual aspect/crop fix is VLCDrawableView (above) — it keeps VLCKit's render
+        // SUBVIEW matched to bounds. Assigning drawable here (pre-layout, .zero bounds) is why that
+        // subview would otherwise stay mis-sized.
         player.drawable = videoView
         player.delegate = self
     }
@@ -44,6 +78,7 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
         for (k, v) in headers { media?.addOption(":http-\(k.lowercased())=\(v)") } // unused for RD CDN
         media?.addOption(":network-caching=3000")   // buffer more for high-bitrate RD streams (fewer stalls)
         player.media = media
+        player.currentSubTitleFontScale = subtitleScale   // global size preference (1.0 = VLCKit default)
     }
 
     func play()  { player.play() }
