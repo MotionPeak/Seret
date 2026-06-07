@@ -248,8 +248,27 @@ private struct AddActionsView: View {
             case .loadingStreams:
                 ProgressView("Finding cached versions…").tint(Theme.Palette.gold)
             case .noStreams:
-                Label("No cached versions found.", systemImage: "magnifyingglass")
+                Label("No cached version found.", systemImage: "magnifyingglass")
                     .font(Theme.Typo.body()).foregroundStyle(Theme.Palette.textSecondary)
+                Text("It isn't in Real‑Debrid's cache yet. Start a download and it'll appear in your library when it's ready.")
+                    .font(Theme.Typo.caption()).foregroundStyle(Theme.Palette.textTertiary)
+                Button { Task { await flow.requestDownload() } } label: {
+                    Label("Request Download", systemImage: "arrow.down.circle")
+                }.buttonStyle(GoldButtonStyle())
+            case .requestingDownload:
+                ProgressView("Finding a version to download…").tint(Theme.Palette.gold)
+            case .downloading:
+                Label("Downloading to Real‑Debrid… it'll appear in your library when it's ready.",
+                      systemImage: "arrow.down.circle.fill")
+                    .font(Theme.Typo.body()).foregroundStyle(Theme.Palette.gold)
+            case .noDownload:
+                Label("No version available to download.", systemImage: "xmark.circle")
+                    .font(Theme.Typo.body()).foregroundStyle(Theme.Palette.textSecondary)
+            case .downloadFailed(let msg):
+                Label(msg, systemImage: "exclamationmark.triangle")
+                    .font(Theme.Typo.body()).foregroundStyle(.orange)
+                Button("Try Another Version") { Task { await flow.requestDownload() } }
+                    .buttonStyle(GhostButtonStyle())
             case .failed(let msg):
                 Label(msg, systemImage: "exclamationmark.triangle")
                     .font(Theme.Typo.body()).foregroundStyle(Theme.Palette.textSecondary)

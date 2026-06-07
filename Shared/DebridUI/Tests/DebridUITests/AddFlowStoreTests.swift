@@ -31,6 +31,7 @@ private final class FakeAdd: AddProviding {
     let result: Result<TorrentInfo, FakeError>
     init(_ result: Result<TorrentInfo, FakeError> = .failure(.boom)) { self.result = result }
     func add(infoHash: String) async throws -> TorrentInfo { try result.get() }
+    func addForDownload(infoHash: String) async throws -> TorrentInfo { try result.get() }
 }
 
 private func cachedStream(_ hash: String, res: String, langs: [String], size: Int) -> CachedStream {

@@ -38,6 +38,8 @@ struct SeasonDownloadButton: View {
                     Label("Download Whole Season", systemImage: "square.stack.3d.up.fill")
                 }
                 .font(.title3)
+            case .requestingDownload, .downloading, .noDownload, .downloadFailed:
+                EmptyView()   // request-download path is per-episode/movie, not season packs
             }
         }
     }

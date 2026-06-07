@@ -43,6 +43,8 @@ struct SeasonDownloadButton: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(GhostButtonStyle())
+            case .requestingDownload, .downloading, .noDownload, .downloadFailed:
+                EmptyView()   // request-download path is per-episode/movie, not season packs
             }
         }
     }

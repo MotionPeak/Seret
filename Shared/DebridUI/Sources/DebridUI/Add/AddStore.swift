@@ -9,6 +9,8 @@ public final class AddStore {
     public enum State: Equatable {
         case idle, loadingStreams, streams, noStreams, failed(String)
         case adding, added(TorrentInfo), addFailed(String)
+        // Request-download path (uncached fallback when nothing is instantly cached).
+        case requestingDownload, downloading(TorrentInfo), noDownload, downloadFailed(String)
     }
 
     public private(set) var state: State = .idle
@@ -77,6 +79,35 @@ public final class AddStore {
             }
         }
         state = .addFailed("None of the cached versions were instantly available. Try again later.")
+    }
+
+    /// Fallback for a title with no instantly-cached version: re-query INCLUDING uncached
+    /// torrents, pick the best (same ranking + title/year gate), and `addForDownload` it so RD
+    /// downloads it server-side. The title becomes playable in the library once RD finishes —
+    /// there's no mid-download playback (RD has no sequential streaming).
+    public func requestDownload() async {
+        state = .requestingDownload
+        do {
+            let query = StreamQuery(imdbID: imdbID, kind: kind, originalLanguage: originalLanguage,
+                                    title: title, year: year)
+            let found = try await streamSource.streams(for: query, includeUncached: true)
+            let candidates = seasonPack.map { found.seasonPacks(forSeason: $0) } ?? found
+            ranked = candidates.rankedFor(originalLanguage: originalLanguage)
+            guard !ranked.isEmpty else { state = .noDownload; return }
+            for stream in ranked.prefix(Self.maxAddAttempts) {
+                do {
+                    let info = try await addService.addForDownload(infoHash: stream.infoHash)
+                    best = stream                 // the version that actually started downloading
+                    state = .downloading(info)
+                    return
+                } catch {
+                    continue                       // dead/virus/magnet_error → try the next-best
+                }
+            }
+            state = .downloadFailed("Couldn't start a download. Try another version later.")
+        } catch {
+            state = .downloadFailed("Couldn't find a version to download. Check your connection and try again.")
+        }
     }
 
     public func add(stream: CachedStream) async {

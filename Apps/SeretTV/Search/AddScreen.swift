@@ -180,8 +180,25 @@ private struct AddActions: View {
             case .loadingStreams:
                 ProgressView("Finding cached versions…").font(.title3)
             case .noStreams:
-                Label("No cached versions found.", systemImage: "magnifyingglass")
+                Label("No cached version found.", systemImage: "magnifyingglass")
                     .font(.title3).foregroundStyle(.secondary)
+                Text("It isn't in Real‑Debrid's cache yet. Start a download and it'll appear in your library when it's ready.")
+                    .font(.callout).foregroundStyle(.secondary).frame(maxWidth: 900, alignment: .leading)
+                Button { Task { await flow.requestDownload() } } label: {
+                    Label("Request Download", systemImage: "arrow.down.circle")
+                }.font(.title3)
+            case .requestingDownload:
+                ProgressView("Finding a version to download…").font(.title3)
+            case .downloading:
+                Label("Downloading to Real‑Debrid… it'll appear in your library when it's ready.",
+                      systemImage: "arrow.down.circle.fill")
+                    .font(.title3).foregroundStyle(.yellow)
+            case .noDownload:
+                Label("No version available to download.", systemImage: "xmark.circle")
+                    .font(.title3).foregroundStyle(.secondary)
+            case .downloadFailed(let msg):
+                Label(msg, systemImage: "exclamationmark.triangle").font(.title3).foregroundStyle(.orange)
+                Button("Try Another Version") { Task { await flow.requestDownload() } }.font(.title3)
             case .failed(let msg):
                 Label(msg, systemImage: "exclamationmark.triangle").font(.title3)
                 Button("Try Again") { Task { await add.loadStreams() } }.font(.title3)
