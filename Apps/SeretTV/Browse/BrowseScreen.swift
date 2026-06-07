@@ -32,6 +32,7 @@ struct BrowseScreen: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(CanvasBackground())
+        .onChange(of: kind) { _, _ in query = "" }   // shared Movies/TV view: clear search on swap
     }
 
     @ViewBuilder private func content(_ search: SearchStore) -> some View {
@@ -136,15 +137,13 @@ private struct BrowseTile: View {
 
     var body: some View {
         let owned = session.libraryStore?.ownedItem(tmdbID: hit.result.id)
-        return VStack(alignment: .leading, spacing: 12) {
+        // No title label — posters already carry their title in the artwork.
+        return Group {
             if let owned {
                 NavigationLink(value: owned) { poster(owned: true) }.buttonStyle(.card)
             } else {
                 NavigationLink(value: hit) { poster(owned: false) }.buttonStyle(.card)
             }
-            Text(hit.result.displayTitle)
-                .font(.callout.weight(.semibold)).lineLimit(1)
-                .frame(width: width, alignment: .leading)
         }
     }
 

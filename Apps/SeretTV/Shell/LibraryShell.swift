@@ -20,9 +20,7 @@ struct LibraryShell: View {
                 tabBar.transition(.move(edge: .top).combined(with: .opacity))
             }
             NavigationStack(path: $path) {
-                content
-                    .id(tab)
-                    .transition(.opacity)
+                pages
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .navigationDestination(for: SearchHit.self) { hit in
                         AddScreen(hit: hit)
@@ -72,14 +70,28 @@ struct LibraryShell: View {
         }
     }
 
-    @ViewBuilder private var content: some View {
-        switch tab {
-        case .home: HomeScreen()
-        case .movies: BrowseScreen(kind: .movie)
-        case .tv: BrowseScreen(kind: .show)
-        case .library: MyLibraryScreen()
-        case .settings: SettingsView()
+    /// Pages stay alive across switches (instant, no rebuild → snappy). Home/Library/Settings are
+    /// kept in the tree (hidden + disabled when inactive). Movies/TV share ONE BrowseScreen whose
+    /// `kind` follows the tab (so Movies↔TV is an instant content swap, not a rebuild) — it only
+    /// exists while active so its `.searchable` bar never leaks onto the other tabs.
+    @ViewBuilder private var pages: some View {
+        ZStack {
+            keptAlive(tab == .home) { HomeScreen() }
+            keptAlive(tab == .library) { MyLibraryScreen() }
+            keptAlive(tab == .settings) { SettingsView() }
+            if tab == .movies || tab == .tv {
+                BrowseScreen(kind: tab == .tv ? .show : .movie)
+                    .transition(.opacity)
+            }
         }
+    }
+
+    @ViewBuilder private func keptAlive<V: View>(_ visible: Bool, @ViewBuilder _ make: () -> V) -> some View {
+        make()
+            .opacity(visible ? 1 : 0)
+            .allowsHitTesting(visible)
+            .disabled(!visible)
+            .accessibilityHidden(!visible)
     }
 }
 

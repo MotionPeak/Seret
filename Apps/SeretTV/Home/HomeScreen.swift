@@ -79,14 +79,11 @@ struct HomeScreen: View {
     }
 
     private func posterCard(_ item: MediaItem) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            AsyncImage(url: TMDBClient.imageURL(path: item.posterPath, size: "w500")) {
-                $0.resizable().aspectRatio(contentMode: .fill)
-            } placeholder: { Rectangle().fill(Theme.Palette.surface2) }
-                .frame(width: 220, height: 330).clipped()
-            Text(item.title).font(.callout.weight(.semibold)).lineLimit(1)
-                .frame(width: 220, alignment: .leading)
-        }
+        // No title label — posters already carry their title in the artwork.
+        AsyncImage(url: TMDBClient.imageURL(path: item.posterPath, size: "w500")) {
+            $0.resizable().aspectRatio(contentMode: .fill)
+        } placeholder: { Rectangle().fill(Theme.Palette.surface2) }
+            .frame(width: 220, height: 330).clipped()
     }
 
     private var empty: some View {

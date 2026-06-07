@@ -64,24 +64,28 @@ struct IconFront: View {
 }
 struct IconBack: View { var body: some View { canvasDark } }
 
-// Top-shelf: dark canvas + faint center glow + mark + סֶרֶט (gold) + SERET (tracked).
+// Top-shelf: dark canvas + faint glow. Big horizontal lockup — the play mark on the LEFT,
+// then SERET (large) above its Hebrew סֶרֶט, center-aligned. Sized large to fill the wide space.
 struct TopShelf: View {
     let h: CGFloat
     var body: some View {
         ZStack {
             canvasDark
             RadialGradient(colors: [Color(hex: 0xEBC11D, alpha: 0.10), .clear],
-                           center: .center, startRadius: 0, endRadius: h * 0.9)
-            VStack(spacing: h * 0.05) {
-                SeretMark().frame(width: h * 0.30)
-                Text("סֶרֶט")
-                    .font(.system(size: h * 0.24, weight: .bold)).foregroundStyle(gold)
-                    .environment(\.layoutDirection, .rightToLeft)
-                    .shadow(color: goldGlow, radius: h * 0.05)
-                Text("SERET")
-                    .font(.system(size: h * 0.065, weight: .semibold)).tracking(h * 0.05)
-                    .foregroundStyle(textSecondary)
+                           center: .center, startRadius: 0, endRadius: h * 0.95)
+            HStack(spacing: h * 0.08) {
+                SeretMark().frame(width: h * 0.55)
+                VStack(alignment: .center, spacing: h * 0.03) {
+                    Text("SERET")
+                        .font(.system(size: h * 0.32, weight: .heavy)).tracking(h * 0.02)
+                        .foregroundStyle(gold).shadow(color: goldGlow, radius: h * 0.05)
+                    Text("סֶרֶט")
+                        .font(.system(size: h * 0.26, weight: .bold))
+                        .foregroundStyle(gold).environment(\.layoutDirection, .rightToLeft)
+                        .shadow(color: goldGlow, radius: h * 0.04)
+                }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 }
