@@ -2,9 +2,10 @@ import DebridCore
 import DebridUI
 import SwiftUI
 
-/// The detail hero background: the TMDB backdrop, which after ~4s cross-fades to a muted, looping
-/// trailer (when autoplay is on and a stream resolves). An unmute button toggles sound. Everything
-/// tears down on disappear.
+/// The detail hero background: the TMDB backdrop, which ~4s after the page opens cross-fades to a
+/// muted, looping trailer (when autoplay is on and a stream resolves). Ambient only — controls
+/// can't live here (a `.background` view doesn't receive touches under the scroll view), so sound
+/// comes from the full-screen Trailer button. Tears down on disappear.
 struct AutoplayBackdrop: View {
     let tmdbID: Int?
     let kind: MediaKind
@@ -14,41 +15,27 @@ struct AutoplayBackdrop: View {
     @Environment(AppSession.self) private var session
     @State private var model: TrailerModel?
     @State private var showVideo = false
-    @State private var muted = true
 
     var body: some View {
         ZStack {
             DetailBackdrop(path: backdropPath, posterFallback: posterFallback)
             if showVideo, let url = model?.streamURL {
-                InlineMutedTrailer(url: url, muted: $muted)
+                InlineMutedTrailer(url: url, muted: .constant(true))
                     .ignoresSafeArea()
                     .transition(.opacity)
-                    .overlay(alignment: .topTrailing) { muteButton }
             }
         }
         .task(id: tmdbID) {
-            guard let tmdbID, model == nil else { return }
-            let m = session.makeTrailerModel()
+            guard let tmdbID, model == nil, let m = session.makeTrailerModel() else { return }
             model = m
-            await m?.prepare(tmdbID: tmdbID, kind: kind)
-            guard let m, m.autoplayAllowed else { return }
-            try? await Task.sleep(for: .seconds(4))
-            if !Task.isCancelled {
-                withAnimation(.easeInOut(duration: 0.6)) { showVideo = true }
-            }
+            // Run the minimum on-backdrop delay CONCURRENTLY with resolution so the trailer appears
+            // at ~4s — not 4s AFTER extraction finishes (which felt like ~15s).
+            async let delayDone: () = Task.sleep(for: .seconds(4))
+            await m.prepare(tmdbID: tmdbID, kind: kind)
+            try? await delayDone
+            guard m.autoplayAllowed, !Task.isCancelled else { return }
+            withAnimation(.easeInOut(duration: 0.6)) { showVideo = true }
         }
         .onDisappear { showVideo = false }
-    }
-
-    private var muteButton: some View {
-        Button { muted.toggle() } label: {
-            Image(systemName: muted ? "speaker.slash.fill" : "speaker.wave.2.fill")
-                .font(.headline)
-                .padding(10)
-                .background(.black.opacity(0.5), in: Circle())
-                .foregroundStyle(.white)
-        }
-        .padding(.top, 60)
-        .padding(.trailing, Theme.Space.lg)
     }
 }
