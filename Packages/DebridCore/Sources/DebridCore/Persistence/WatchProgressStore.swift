@@ -39,6 +39,17 @@ public actor WatchProgressStore {
         return try modelContext.fetch(descriptor).map(WatchState.init)
     }
 
+    /// Delete the rows for these content keys (used when an item is removed from the library).
+    /// No-op for an empty list.
+    public func deleteProgress(forContentKeys keys: [String]) throws {
+        guard !keys.isEmpty else { return }
+        let keySet = Set(keys)
+        let rows = try modelContext.fetch(FetchDescriptor<WatchProgress>())
+            .filter { keySet.contains($0.contentKey) }
+        for row in rows { modelContext.delete(row) }
+        try modelContext.save()
+    }
+
     /// Total row count — used by tests to assert upsert (not insert) behavior.
     func allCount() throws -> Int {
         try modelContext.fetchCount(FetchDescriptor<WatchProgress>())
