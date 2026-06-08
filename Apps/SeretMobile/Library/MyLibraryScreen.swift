@@ -10,6 +10,16 @@ struct MyLibraryScreen: View {
     @State private var kind: MediaKind = .movie
     @State private var pendingRemoval: MediaItem?
     @State private var removeErrorMessage: String?
+    @State private var mineOnly = false
+    @State private var myKeys: Set<String> = []
+
+    /// Show the All/Mine filter only when more than one profile exists.
+    private var hasProfiles: Bool { (session.activeProfiles?.roster.count ?? 0) > 1 }
+
+    private func items(_ store: LibraryStore) -> [MediaItem] {
+        let all = kind == .movie ? store.movies : store.shows
+        return (mineOnly && hasProfiles) ? all.filter { myKeys.contains($0.id) } : all
+    }
 
     var body: some View {
         ZStack {
@@ -23,6 +33,15 @@ struct MyLibraryScreen: View {
                 .padding(.horizontal, Theme.Space.lg)
                 .padding(.top, Theme.Space.sm)
 
+                if hasProfiles {
+                    Picker("Scope", selection: $mineOnly) {
+                        Text("All").tag(false)
+                        Text("Mine").tag(true)
+                    }
+                    .pickerStyle(.segmented)
+                    .padding(.horizontal, Theme.Space.lg)
+                }
+
                 if let tiles = session.downloadStore?.activeTiles, !tiles.isEmpty {
                     DownloadingStrip(tiles: tiles)
                 }
@@ -30,12 +49,17 @@ struct MyLibraryScreen: View {
                 if let store = session.libraryStore {
                     LibraryGrid(
                         title: kind == .movie ? "Movies" : "Shows",
-                        items: kind == .movie ? store.movies : store.shows,
+                        items: items(store),
                         state: store.state,
                         onRetry: { store.retry() },
                         onSelect: { router.detail = $0 },
                         onRemove: { pendingRemoval = $0 })
                         .task(id: store.attempt) { await store.load() }
+                        .task {
+                            mineOnly = hasProfiles
+                            myKeys = Set((try? await session.myListStore?.contentKeys(
+                                forProfile: session.activeProfileID ?? "")) ?? [])
+                        }
                         .confirmationDialog(
                             "Remove \u{201C}\(pendingRemoval?.title ?? "")\u{201D} from your library?",
                             isPresented: Binding(get: { pendingRemoval != nil },
