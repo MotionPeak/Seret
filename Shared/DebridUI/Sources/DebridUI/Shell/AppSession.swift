@@ -194,19 +194,39 @@ public final class AppSession {
         return wrap(container, mode: mode + "-reset")
     }
 
-    /// A DEDICATED store file for profile/watch/My-List data, kept separate from `default.store`
-    /// (which the downloads container uses). Two SwiftData containers sharing one file with
-    /// different schemas clobber each other's tables — that was the real "no such table: ZPROFILE".
-    private static var profileStoreURL: URL? {
+    /// A DEDICATED store file under Application Support. EVERY SwiftData container gets its own file
+    /// (profiles, downloads) so two containers can NEVER share one store — sharing `default.store`
+    /// with different schemas (and CloudKit) clobbered tables and double-registered CloudKit sync,
+    /// which broke profiles entirely ("no such table: ZPROFILE", "another instance … syncing").
+    static func dedicatedStoreURL(_ name: String) -> URL? {
         try? FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask,
                                      appropriateFor: nil, create: true)
-            .appendingPathComponent("SeretProfiles.store")
+            .appendingPathComponent(name)
+    }
+
+    private static var profileStoreURL: URL? { dedicatedStoreURL("SeretProfiles.store") }
+
+    /// Delete the orphaned legacy `default.store` (and sidecars) from every location it may have
+    /// been created in. Older builds put the profile + downloads containers there together — that
+    /// file carries broken tables + CloudKit metadata that crash the new dedicated stores. Nothing
+    /// uses `default.store` anymore, so wiping it is safe and stops the conflict for good.
+    static func purgeLegacyDefaultStore() {
+        let dirs: [FileManager.SearchPathDirectory] = [.applicationSupportDirectory, .cachesDirectory,
+                                                       .documentDirectory]
+        for dir in dirs {
+            guard let base = try? FileManager.default.url(for: dir, in: .userDomainMask,
+                                                          appropriateFor: nil, create: false) else { continue }
+            for suffix in ["", "-wal", "-shm"] {
+                try? FileManager.default.removeItem(at: base.appendingPathComponent("default.store" + suffix))
+            }
+        }
     }
 
     private static func makeContainer(schema: Schema, cloudKit: Bool) -> ModelContainer? {
         guard let url = profileStoreURL else {
-            // No dedicated URL available — last-resort default store.
-            return try? ModelContainer(for: schema, configurations: ModelConfiguration(schema: schema))
+            // No dedicated URL available — last-resort in-memory store so the app still runs.
+            return try? ModelContainer(for: schema,
+                                       configurations: ModelConfiguration(schema: schema, isStoredInMemoryOnly: true))
         }
         let local = ModelConfiguration(schema: schema, url: url)
         let config = cloudKit
@@ -260,8 +280,10 @@ public final class AppSession {
             builder: LibraryBuilder(),
             enricher: MetadataEnricher(tmdb: tmdb),
             store: LibrarySnapshotStore(directory: Self.cachesDirectory))
-        // Build the watch + profile + My-List stores from one shared container so cascade-delete,
-        // owner migration, and CloudKit sync all operate together.
+        // Remove the orphaned legacy `default.store` (old builds shared it across containers + had
+        // CloudKit metadata) BEFORE opening any store, so it can't double-register CloudKit sync.
+        Self.purgeLegacyDefaultStore()
+        // Build the watch + profile + My-List stores from one dedicated container.
         let stores = Self.makeProfileStores()
         watchProgressStore = stores?.watch
         watchStore = stores?.watch as WatchProgressProviding?
@@ -281,7 +303,19 @@ public final class AppSession {
         addService = RealDebridAddService(torrents: torrents)
         let dlService = RealDebridDownloadService(torrents: torrents)
         downloadService = dlService
-        if let container = try? ModelContainer(for: DownloadRequest.self) {
+        // Downloads get their OWN dedicated store file — never `default.store`, so they can't
+        // collide with the profile/watch store (the bug that kept dropping the profile tables).
+        let downloadsContainer: ModelContainer? = {
+            if let url = Self.dedicatedStoreURL("SeretDownloads.store"),
+               let c = try? ModelContainer(for: DownloadRequest.self,
+                                           configurations: ModelConfiguration(schema: Schema([DownloadRequest.self]), url: url)) {
+                return c
+            }
+            return try? ModelContainer(for: DownloadRequest.self,
+                                       configurations: ModelConfiguration(schema: Schema([DownloadRequest.self]),
+                                                                          isStoredInMemoryOnly: true))
+        }()
+        if let container = downloadsContainer {
             let dStore = DownloadsStore(modelContainer: container)
             let dMonitor = DownloadMonitor(info: torrents, store: dStore)
             downloadsStore = dStore
