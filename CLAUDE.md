@@ -140,8 +140,38 @@ Run the **full** suite (not just `--filter`) before merging. Any new suite that 
 - RD removed `instantAvailability`; cache-checking for the later Add flow needs research.
 - **`xcodebuild test` / SwiftUI previews fail at runner-launch with `Pseudo Terminal Setup Error, ErrorCode 7, Errno 6 ("Device not configured")`** on `appletvsimulator26.5` during long agent sessions — this is the known **Claude.app pty-pool exhaustion** (Claude leaks ptys; **fix = restart the Claude desktop app**, then retry). It persisted in-session here (disabling the Bash sandbox didn't help — only a Claude restart frees the pool), which is why a multi-subagent session can't run app tests until restarted. What works WITHOUT a restart: `swift test` (DebridCore — no sim) and `xcodebuild build`/`build-for-testing` (compile, no launch). So app-target unit tests (`⌘U`) + sim screenshots run either after a Claude restart or straight from the Xcode GUI.
 
+## CloudKit watch-progress sync — Phase 1 (built 2026-06-08, `feat/cloudkit-sync`)
+
+Cross-device **Resume + Continue Watching** sync. The Continue Watching rails and resume-seek
+already existed; this turned on **SwiftData-native CloudKit** for `WatchProgress`:
+- Shared private container **`iCloud.com.solomons.seret`** wired into *both* app targets
+  (`AppSession.makeWatchProgressStore` — CloudKit config with a **local-only fallback** when no
+  iCloud account); entitlements + `remote-notification` background mode added via `project.yml`.
+- `WatchProgressStore` now **reconciles cross-device duplicate rows** last-write-wins (CloudKit
+  can't enforce uniqueness) — unit-tested in `DebridCore` (`WatchProgressReconcileTests`).
+- Home rebuilds live on `NSPersistentStoreRemoteChange` (a title watched elsewhere appears in
+  Continue Watching without relaunch).
+- Forward-compat `WatchProgress.profileID` (optional, unused) seeds **Phase 2 profiles**.
+- Verified: DebridCore 256 + DebridUI 138 `swift test` green, zero warnings; SeretTV + SeretMobile
+  `xcodebuild build` succeed with the entitlements.
+
+⚠️ **Owner-pending — on-device DoD** (CloudKit can't be verified in the sim without iCloud):
+1. In Xcode, confirm **iCloud → CloudKit** is on for both targets with container
+   `iCloud.com.solomons.seret`, signed by a team that owns it (adding the capability once creates it).
+2. First dev run materializes the **development** CloudKit schema.
+3. **Deploy the schema to Production** in the CloudKit console before any TestFlight/release build.
+4. Sign all devices into one Apple ID → play+stop a title on the Apple TV → it resumes at the right
+   position and shows in Continue Watching on the iPhone/iPad (and vice-versa).
+
+**Phase 2 (not built):** multi-user *profiles* on the shared RD account (Netflix-style — each
+profile sees only what it added, with its own continuation). Spec/plan:
+`docs/superpowers/specs/2026-06-08-cloudkit-watch-sync-design.md`,
+`docs/superpowers/plans/2026-06-08-cloudkit-watch-sync.md`.
+
 ## Open follow-ups (non-blocking, from reviews)
 
+- **(owner-reported 2026-06-08) Player doesn't remember last-used subtitle/audio track** — movie & TV playback always starts with default tracks; persist the user's last subtitle + audio selection (per show/movie, e.g. alongside `WatchProgress`) and auto-apply on next play.
+- **(owner-reported 2026-06-08) OpenSubtitles downloads aren't cached** — each playback re-downloads the same subtitle, burning the daily quota. Persist downloaded subtitle files locally (keyed by file_id/content) and reuse them instead of re-downloading.
 - DRY the video-extension set — duplicated in `LibraryBuilder.isVideoPath`, `TorrentInfo.primaryVideoFile`, `FilenameParser.stripExtension` → one shared constant.
 - `RealDebridSession`: add a concurrent-refresh-coalescing test (behavior verified by inspection, not yet by a test).
 - `TMDBSearchResult.year`: guard against a sub-4-char date string.
