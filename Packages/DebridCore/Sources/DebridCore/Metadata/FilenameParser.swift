@@ -12,7 +12,7 @@ public struct FilenameParser: Sendable {
 
         let releaseGroup = Self.capture(stem, Self.reGroup)
         let resolution = Self.match(stem, Self.reResolution)?.lowercased()
-        let source = Self.normalizeSource(Self.match(stem, Self.reSource))
+        let source = Self.detectSource(stem)
         let videoCodec = Self.normalizeVideo(Self.match(stem, Self.reVideo))
         let audioCodec = Self.normalizeAudio(Self.match(stem, Self.reAudio))
         let year = Self.match(stem, Self.reYear).flatMap { Int($0) }
@@ -41,6 +41,7 @@ public struct FilenameParser: Sendable {
     private static let reGroup = make(#"-([A-Za-z0-9]{2,})$"#)
     private static let reResolution = make(#"(?i)\b(2160p|1080p|720p|480p)\b"#)
     private static let reSource = make(#"(?i)\b(blu-?ray|bd-?rip|web-?dl|web-?rip|hdtv|dvd-?rip|remux|hdrip|hd-?ts|hd-?cam|telesync|telecine|camrip|cam|screener)\b"#)
+    private static let reRemux = make(#"(?i)\bremux\b"#)
     private static let reVideo = make(#"(?i)\b(x265|x264|h\.?265|h\.?264|hevc|avc)\b"#)
     private static let reAudio = make(#"(?i)\b(dts-?hd|truehd|atmos|ddp?5\.1|ddp|dts|eac3|ac3|aac|flac)\b"#)
     private static let reYear = make(#"\b(19\d{2}|20\d{2})\b"#)
@@ -87,6 +88,14 @@ public struct FilenameParser: Sendable {
     }
 
     // MARK: - Normalization (canonical display forms)
+
+    /// The source tier. REMUX is checked first: it's the top tier and co-occurs with BluRay/UHD in
+    /// the name (e.g. "BluRay.REMUX"), but `reSource` matches left-to-right so "BluRay" would win and
+    /// a true remux would mis-rank below a plain BluRay.
+    private static func detectSource(_ stem: String) -> String? {
+        if match(stem, reRemux) != nil { return "REMUX" }
+        return normalizeSource(match(stem, reSource))
+    }
 
     private static func normalizeSource(_ s: String?) -> String? {
         guard let s = s?.lowercased() else { return nil }

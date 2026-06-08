@@ -17,6 +17,16 @@ struct FilenameParserTests {
         #expect(r.isTV == false)
     }
 
+    @Test func remuxOutranksBluRayInTheSameName() {
+        // A REMUX is the top source tier and always co-occurs with BluRay/UHD in the name. Because
+        // reSource matches left-to-right, "BluRay" appears first and would win — so a true UHD remux
+        // mis-ranks as BluRay (6) instead of REMUX (7) and the Add flow could pick a worse "best".
+        let r = parser.parse("Dune.Part.Two.2024.2160p.UHD.BluRay.REMUX.HDR.DTS-HD.MA.5.1-FraMeSToR.mkv")
+        #expect(r.source == "REMUX")
+        // A plain BluRay (no remux) must still classify as BluRay.
+        #expect(parser.parse("Movie.2024.1080p.BluRay.x264-GRP.mkv").source == "BluRay")
+    }
+
     @Test func parsesCamAndTelesyncSources() {
         // Brand-new theatrical releases — the source tag is how you tell a real cam from a fake.
         #expect(parser.parse("Obsession.2026.1080p.CAM.x264-DKS.mkv").source == "CAM")
