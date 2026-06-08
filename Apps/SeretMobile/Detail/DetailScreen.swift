@@ -19,9 +19,9 @@ struct DetailScreen: View {
     @Environment(\.dismiss) private var dismiss
 
     init(item: MediaItem, details: MediaDetailsProviding, watch: WatchProgressProviding?,
-         ratings: RatingsProviding? = nil) {
+         profileID: String? = nil, ratings: RatingsProviding? = nil) {
         _store = State(initialValue: DetailStore(item: item, details: details, watch: watch,
-                                                 ratings: ratings))
+                                                 profileID: profileID, ratings: ratings))
     }
 
     var body: some View {
