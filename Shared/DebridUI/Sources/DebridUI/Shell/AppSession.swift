@@ -141,6 +141,26 @@ public final class AppSession {
         state = .signedOut
     }
 
+    /// The shared CloudKit container both Seret apps sync through (one private DB per Apple ID).
+    private static let cloudKitContainerID = "iCloud.com.solomons.seret"
+
+    /// Builds the watch-progress store backed by CloudKit so progress syncs across the user's
+    /// devices; falls back to a local-only store if iCloud/CloudKit is unavailable (e.g. no iCloud
+    /// account) so the app still works offline and never loses local data.
+    private static func makeWatchProgressStore() -> WatchProgressStore? {
+        let schema = Schema([WatchProgress.self])
+        let cloud = ModelConfiguration(schema: schema,
+                                       cloudKitDatabase: .private(cloudKitContainerID))
+        if let container = try? ModelContainer(for: schema, configurations: cloud) {
+            return WatchProgressStore(modelContainer: container)
+        }
+        let local = ModelConfiguration(schema: schema)
+        if let container = try? ModelContainer(for: schema, configurations: local) {
+            return WatchProgressStore(modelContainer: container)
+        }
+        return nil
+    }
+
     /// Enter `.signedIn`, composing the DebridCore library pipeline once. Thin glue: the app
     /// assembles brain objects and reads a config value; no RD/TMDB logic lives here.
     private func enterSignedIn() {
@@ -154,8 +174,7 @@ public final class AppSession {
             enricher: MetadataEnricher(tmdb: tmdb),
             store: LibrarySnapshotStore(directory: Self.cachesDirectory))
         // Build the watch store first so LibraryStore can purge a removed item's progress.
-        let concreteStore = (try? ModelContainer(for: WatchProgress.self))
-            .map { WatchProgressStore(modelContainer: $0) }
+        let concreteStore = Self.makeWatchProgressStore()
         watchProgressStore = concreteStore
         watchStore = concreteStore.map { $0 as WatchProgressProviding }
         libraryStore = LibraryStore(library: service, watch: watchStore)
