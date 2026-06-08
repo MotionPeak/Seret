@@ -12,6 +12,7 @@ public final class DetailStore {
     public let item: MediaItem
     private let details: MediaDetailsProviding
     private let watch: WatchProgressProviding?
+    private let ratingsProvider: RatingsProviding?
 
     public private(set) var richState: RichState = .idle
     public private(set) var backdropPath: String?
@@ -28,10 +29,17 @@ public final class DetailStore {
     /// library page shows every season, not just the downloaded ones.
     public private(set) var numberOfSeasons: Int?
 
-    public init(item: MediaItem, details: MediaDetailsProviding, watch: WatchProgressProviding?) {
+    /// External ratings (IMDb / Rotten Tomatoes / Metacritic) from OMDb — supplemental, loaded
+    /// after TMDB details resolve. nil until loaded (or if unavailable).
+    public private(set) var ratings: OMDbRatings?
+    public private(set) var ratingsState: RichState = .idle
+
+    public init(item: MediaItem, details: MediaDetailsProviding, watch: WatchProgressProviding?,
+                ratings: RatingsProviding? = nil) {
         self.item = item
         self.details = details
         self.watch = watch
+        self.ratingsProvider = ratings
         self.overview = item.overview
         self.backdropPath = item.backdropPath
         self.selectedSeason = item.seasons.first?.number ?? 1
@@ -104,8 +112,22 @@ public final class DetailStore {
                 await loadSeason(selectedSeason, tvID: tmdbID)
             }
             richState = .loaded
+            await loadRatings()
         } catch {
             richState = .failed          // keep base info; no error wall
+        }
+    }
+
+    /// Supplemental, non-blocking: enrich with OMDb ratings once TMDB has given us the IMDb id.
+    /// Failure leaves `ratings == nil` and the rest of the screen intact.
+    private func loadRatings() async {
+        guard let provider = ratingsProvider, let imdb = imdbID else { return }
+        ratingsState = .loading
+        do {
+            ratings = try await provider.ratings(imdbID: imdb)
+            ratingsState = .loaded
+        } catch {
+            ratingsState = .failed
         }
     }
 
