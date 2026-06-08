@@ -5,25 +5,49 @@ import DebridCore
 
 private enum FakeError: Error { case boom }
 
+/// Records calls and returns canned, UNIQUE-id results per call (so the store's cross-rail dedup
+/// doesn't shrink rail counts in assertions).
 private final class FakeDiscover: DiscoverProviding, @unchecked Sendable {
-    var nowPlayingResult: Result<[TMDBSearchResult], FakeError> = .success([])
-    var trendingMovie: Result<[TMDBSearchResult], FakeError> = .success([])
-    var newMovie: Result<[TMDBSearchResult], FakeError> = .success([])
-    var topRatedMovie: Result<[TMDBSearchResult], FakeError> = .success([])
-    var trendingTV: Result<[TMDBSearchResult], FakeError> = .success([])
-    var newTV: Result<[TMDBSearchResult], FakeError> = .success([])
-    var topRatedTV: Result<[TMDBSearchResult], FakeError> = .success([])
-    private(set) var newMovieWindow: (from: String, to: String)?
+    var failGenres = false
+    private(set) var calledTrending = false
+    private(set) var calledTopRatedCurated = false
+    private let lock = NSLock()
+    private var _recommendedFor: [Int] = []
+    var recommendedFor: [Int] { lock.withLock { _recommendedFor } }
 
-    func nowPlaying() async throws -> [TMDBSearchResult] { try nowPlayingResult.get() }
-    func trendingMoviesByGenre(_ id: Int) async throws -> [TMDBSearchResult] { try trendingMovie.get() }
-    func newMoviesByGenre(_ id: Int, from: String, to: String) async throws -> [TMDBSearchResult] {
-        newMovieWindow = (from, to); return try newMovie.get()
+    // Unique ids are derived from the arguments (genre id / decade year), NOT a shared counter —
+    // the rails are fetched concurrently, so a mutating counter would race and collide.
+    func nowPlayingMovies() async throws -> [TMDBSearchResult] { [movie(7), movie(8)] }
+    func trending(_ kind: MediaKind, window: TMDBTrendingWindow) async throws -> [TMDBSearchResult] {
+        calledTrending = true
+        return window == .day ? [movie(9001)] : [movie(9002)]
     }
-    func topRatedMoviesByGenre(_ id: Int) async throws -> [TMDBSearchResult] { try topRatedMovie.get() }
-    func trendingTVByGenre(_ id: Int) async throws -> [TMDBSearchResult] { try trendingTV.get() }
-    func newTVByGenre(_ id: Int, from: String, to: String) async throws -> [TMDBSearchResult] { try newTV.get() }
-    func topRatedTVByGenre(_ id: Int) async throws -> [TMDBSearchResult] { try topRatedTV.get() }
+    func topRatedCurated(_ kind: MediaKind) async throws -> [TMDBSearchResult] {
+        calledTopRatedCurated = true; return [movie(9100)]
+    }
+    func newOverall(_ kind: MediaKind, from: String, to: String) async throws -> [TMDBSearchResult] { [movie(9200)] }
+    func decade(_ kind: MediaKind, from: String, to: String) async throws -> [TMDBSearchResult] {
+        [movie(40000 + (Int(from.prefix(4)) ?? 0))]
+    }
+    func recommended(_ kind: MediaKind, tmdbID: Int) async throws -> [TMDBSearchResult] {
+        lock.withLock { _recommendedFor.append(tmdbID) }
+        return [movie(70000 + tmdbID)]
+    }
+    func newByGenre(_ kind: MediaKind, _ genreID: Int, from: String, to: String) async throws -> [TMDBSearchResult] {
+        if failGenres { throw FakeError.boom }; return [movie(10000 + genreID)]
+    }
+    func popularByGenre(_ kind: MediaKind, _ genreID: Int) async throws -> [TMDBSearchResult] {
+        if failGenres { throw FakeError.boom }; return [movie(20000 + genreID)]
+    }
+    func topRatedByGenre(_ kind: MediaKind, _ genreID: Int) async throws -> [TMDBSearchResult] {
+        if failGenres { throw FakeError.boom }; return [movie(30000 + genreID)]
+    }
+}
+
+@MainActor
+private final class FakeSeeds: RecommendationSeedProviding {
+    var value: [RecommendationSeed] = []
+    func seeds(kind: MediaKind, limit: Int) async -> [RecommendationSeed] { value }
 }
 
 private func movie(_ id: Int) -> TMDBSearchResult {
@@ -33,81 +57,70 @@ private func movie(_ id: Int) -> TMDBSearchResult {
 
 @MainActor
 @Suite struct DiscoverStoreTests {
-    @Test func movieLoadsAllThreeSegmentsAsGenreRows() async {
+    @Test func lazyLoadsOnlyTheRequestedSegment() async {
         let fake = FakeDiscover()
-        fake.trendingMovie = .success([movie(1)])
-        fake.newMovie = .success([movie(2)])
-        fake.topRatedMovie = .success([movie(3)])
         let store = DiscoverStore(kind: .movie, discover: fake)
-        await store.load()
-        #expect(store.state == .loaded)
-        #expect(store.rowsBySegment[.trending]?.count == 8)   // one row per movie genre
-        #expect(store.rowsBySegment[.newReleases]?.count == 8)
-        #expect(store.rowsBySegment[.popular]?.count == 8)
-        // Default segment is Trending; `rows` follows the selection.
-        #expect(store.selectedSegment == .trending)
-        #expect(store.rows.first?.hits.first?.result.id == 1)
-        store.select(.popular)
-        #expect(store.rows.first?.hits.first?.result.id == 3)
+        await store.loadSegment(.popular)
+        #expect(store.segmentState(.popular) == .loaded)
+        #expect(store.segmentState(.trending) == .idle)
+        #expect(fake.calledTrending == false)
     }
 
-    @Test func camIDsFromNowPlaying() async {
-        let fake = FakeDiscover()
-        fake.trendingMovie = .success([movie(1)])
-        fake.nowPlayingResult = .success([movie(1), movie(9)])
-        let store = DiscoverStore(kind: .movie, discover: fake)
-        await store.load()
-        #expect(store.camIDs == [1, 9])
-        #expect(store.isCAM(movie(1)))
-        #expect(!store.isCAM(movie(2)))
-    }
-
-    @Test func showHasNoNowPlayingButStillSegments() async {
-        let fake = FakeDiscover()
-        fake.trendingTV = .success([movie(1)])
-        fake.topRatedTV = .success([movie(2)])
-        let store = DiscoverStore(kind: .show, discover: fake)
-        await store.load()
-        #expect(store.state == .loaded)
-        #expect(store.camIDs.isEmpty)
-        #expect(store.rowsBySegment[.trending]?.first?.hits.first?.kind == .show)
-        #expect(store.rowsBySegment[.popular]?.count == 7)   // tv genres
-    }
-
-    @Test func newReleasesWindowIs45To300DaysBack() async {
-        let fake = FakeDiscover()
-        fake.newMovie = .success([movie(2)])
-        var comps = DateComponents()
-        comps.year = 2026; comps.month = 6; comps.day = 7; comps.timeZone = TimeZone(identifier: "UTC")
-        var cal = Calendar(identifier: .gregorian); cal.timeZone = TimeZone(identifier: "UTC")!
-        let fixed = cal.date(from: comps)!
-        let store = DiscoverStore(kind: .movie, discover: fake, now: { fixed })
-        await store.load()
-        #expect(fake.newMovieWindow?.from == "2025-08-11")
-        #expect(fake.newMovieWindow?.to == "2026-04-23")
-    }
-
-    @Test func failsWhenEverythingEmpty() async {
+    @Test func popularHasOneRailPerMovieGenre() async {
         let store = DiscoverStore(kind: .movie, discover: FakeDiscover())
-        await store.load()
-        #expect(store.state == .failed)
+        await store.loadSegment(.popular)
+        #expect(store.rowsBySegment[.popular]?.count == DiscoverStore.movieGenreCount)
     }
 
-    /// The browse feed's retry path: after a failed load the store must re-run `load()`
-    /// when the source recovers. The Movies/TV browse UI depends on this contract to
-    /// drive its "Retry" button (and to load at all on appear).
-    @Test func retryAfterFailureReloads() async {
-        let fake = FakeDiscover()
-        fake.trendingMovie = .failure(.boom)
-        fake.newMovie = .failure(.boom)
-        fake.topRatedMovie = .failure(.boom)
-        let store = DiscoverStore(kind: .movie, discover: fake)
-        await store.load()
-        #expect(store.state == .failed)            // all rows empty → failed
+    @Test func topRatedHasCuratedPlusDecadesPlusGenres() async {
+        let store = DiscoverStore(kind: .movie, discover: FakeDiscover())
+        await store.loadSegment(.topRated)
+        let rows = store.rowsBySegment[.topRated] ?? []
+        #expect(rows.count == 1 + DiscoverStore.decadeCount + DiscoverStore.movieGenreCount)
+        #expect(rows.first?.title == "Top Rated of All Time")
+    }
 
-        fake.trendingMovie = .success([movie(1)])  // source recovers
-        await store.load()                         // load() re-runs from .failed
-        #expect(store.state == .loaded)
-        #expect(store.rows.first?.hits.first?.result.id == 1)
+    @Test func trendingHasTodayAndThisWeek() async {
+        let fake = FakeDiscover()
+        let store = DiscoverStore(kind: .movie, discover: fake)
+        await store.loadSegment(.trending)
+        let titles = (store.rowsBySegment[.trending] ?? []).map(\.title)
+        #expect(titles == ["Trending Today", "Trending This Week"])
+        #expect(fake.calledTrending)
+    }
+
+    @Test func failedGenreRailsAreDroppedNotFatal() async {
+        let fake = FakeDiscover(); fake.failGenres = true
+        let store = DiscoverStore(kind: .movie, discover: fake)
+        await store.loadSegment(.popular)
+        #expect(store.rowsBySegment[.popular]?.isEmpty == true)
+        #expect(store.segmentState(.popular) == .failed)
+    }
+
+    @Test func camIDsLoadedForMovies() async {
+        let store = DiscoverStore(kind: .movie, discover: FakeDiscover())
+        await store.loadSegment(.popular)
+        #expect(store.camIDs == [7, 8])
+    }
+
+    @Test func forYouBuildsBecauseYouWatchedAndMoreLike() async {
+        let fake = FakeDiscover()
+        let seeds = FakeSeeds()
+        seeds.value = [RecommendationSeed(tmdbID: 100, title: "Dune", watched: true),
+                       RecommendationSeed(tmdbID: 200, title: "Heat", watched: false)]
+        let store = DiscoverStore(kind: .movie, discover: fake, seeds: seeds)
+        await store.loadSegment(.forYou)
+        let titles = (store.rowsBySegment[.forYou] ?? []).map(\.title)
+        #expect(titles.contains("Because you watched Dune"))
+        #expect(titles.contains("More like Heat"))
+        #expect(Set(fake.recommendedFor) == [100, 200])
+    }
+
+    @Test func forYouFallsBackToTrendingWhenNoSeeds() async {
+        let fake = FakeDiscover()
+        let store = DiscoverStore(kind: .movie, discover: fake, seeds: FakeSeeds())
+        await store.loadSegment(.forYou)
+        let titles = (store.rowsBySegment[.forYou] ?? []).map(\.title)
+        #expect(titles == ["Trending Today", "Trending This Week"])
     }
 }

@@ -2,139 +2,259 @@ import DebridCore
 import Foundation
 import Observation
 
-/// Supplies browse rows for the Movies / TV tabs, across three segments × per-genre rows.
+/// Kind-parameterized browse data source. One conformance (`TMDBDiscoverService`) backs both the
+/// Movies and TV tabs; the store passes its `kind` to each call.
 public protocol DiscoverProviding: Sendable {
-    func nowPlaying() async throws -> [TMDBSearchResult]                                  // movies → CAM set
-    func trendingMoviesByGenre(_ id: Int) async throws -> [TMDBSearchResult]              // popularity.desc
-    func newMoviesByGenre(_ id: Int, from: String, to: String) async throws -> [TMDBSearchResult]
-    func topRatedMoviesByGenre(_ id: Int) async throws -> [TMDBSearchResult]              // all-time top-rated
-    func trendingTVByGenre(_ id: Int) async throws -> [TMDBSearchResult]
-    func newTVByGenre(_ id: Int, from: String, to: String) async throws -> [TMDBSearchResult]
-    func topRatedTVByGenre(_ id: Int) async throws -> [TMDBSearchResult]
+    func nowPlayingMovies() async throws -> [TMDBSearchResult]                                   // CAM set
+    func trending(_ kind: MediaKind, window: TMDBTrendingWindow) async throws -> [TMDBSearchResult]
+    func topRatedCurated(_ kind: MediaKind) async throws -> [TMDBSearchResult]
+    func newOverall(_ kind: MediaKind, from: String, to: String) async throws -> [TMDBSearchResult]
+    func decade(_ kind: MediaKind, from: String, to: String) async throws -> [TMDBSearchResult]
+    func recommended(_ kind: MediaKind, tmdbID: Int) async throws -> [TMDBSearchResult]
+    func newByGenre(_ kind: MediaKind, _ genreID: Int, from: String, to: String) async throws -> [TMDBSearchResult]
+    func popularByGenre(_ kind: MediaKind, _ genreID: Int) async throws -> [TMDBSearchResult]
+    func topRatedByGenre(_ kind: MediaKind, _ genreID: Int) async throws -> [TMDBSearchResult]
 }
 
+/// Production conformance. Fetches **2 pages per rail** (≈40 titles) and concatenates.
 public struct TMDBDiscoverService: DiscoverProviding {
     let client: TMDBClient
     public init(client: TMDBClient) { self.client = client }
-    public func nowPlaying() async throws -> [TMDBSearchResult] { try await client.nowPlayingMovies() }
-    public func trendingMoviesByGenre(_ id: Int) async throws -> [TMDBSearchResult] { try await client.discoverMovies(genreID: id) }
-    public func newMoviesByGenre(_ id: Int, from: String, to: String) async throws -> [TMDBSearchResult] {
-        try await client.discoverMovies(genreID: id, releaseFrom: from, releaseTo: to)
+    private static let pages = 2
+
+    private func paged(_ f: (Int) async throws -> [TMDBSearchResult]) async rethrows -> [TMDBSearchResult] {
+        var all: [TMDBSearchResult] = []
+        for p in 1...Self.pages { all += try await f(p) }
+        return all
     }
-    public func topRatedMoviesByGenre(_ id: Int) async throws -> [TMDBSearchResult] { try await client.topRatedMovies(genreID: id) }
-    public func trendingTVByGenre(_ id: Int) async throws -> [TMDBSearchResult] { try await client.discoverTV(genreID: id) }
-    public func newTVByGenre(_ id: Int, from: String, to: String) async throws -> [TMDBSearchResult] {
-        try await client.discoverTV(genreID: id, firstAirFrom: from, firstAirTo: to)
+
+    public func nowPlayingMovies() async throws -> [TMDBSearchResult] { try await client.nowPlayingMovies() }
+
+    public func trending(_ kind: MediaKind, window: TMDBTrendingWindow) async throws -> [TMDBSearchResult] {
+        try await paged { p in kind == .movie ? try await client.trendingMovies(window: window, page: p)
+                                              : try await client.trendingTV(window: window, page: p) }
     }
-    public func topRatedTVByGenre(_ id: Int) async throws -> [TMDBSearchResult] { try await client.topRatedTV(genreID: id) }
+    public func topRatedCurated(_ kind: MediaKind) async throws -> [TMDBSearchResult] {
+        try await paged { p in kind == .movie ? try await client.topRatedMoviesCurated(page: p)
+                                              : try await client.topRatedTVCurated(page: p) }
+    }
+    public func newOverall(_ kind: MediaKind, from: String, to: String) async throws -> [TMDBSearchResult] {
+        try await paged { p in kind == .movie ? try await client.discoverMovies(releaseFrom: from, releaseTo: to, page: p)
+                                              : try await client.discoverTVNew(firstAirFrom: from, firstAirTo: to, page: p) }
+    }
+    public func decade(_ kind: MediaKind, from: String, to: String) async throws -> [TMDBSearchResult] {
+        try await paged { p in kind == .movie ? try await client.decadeMovies(from: from, to: to, page: p)
+                                              : try await client.decadeTV(from: from, to: to, page: p) }
+    }
+    public func recommended(_ kind: MediaKind, tmdbID: Int) async throws -> [TMDBSearchResult] {
+        kind == .movie ? try await client.recommendedMovies(id: tmdbID) : try await client.recommendedTV(id: tmdbID)
+    }
+    public func newByGenre(_ kind: MediaKind, _ genreID: Int, from: String, to: String) async throws -> [TMDBSearchResult] {
+        try await paged { p in kind == .movie ? try await client.discoverMovies(genreID: genreID, releaseFrom: from, releaseTo: to, page: p)
+                                              : try await client.discoverTV(genreID: genreID, firstAirFrom: from, firstAirTo: to, page: p) }
+    }
+    public func popularByGenre(_ kind: MediaKind, _ genreID: Int) async throws -> [TMDBSearchResult] {
+        try await paged { p in kind == .movie ? try await client.discoverMovies(genreID: genreID, page: p)
+                                              : try await client.discoverTV(genreID: genreID, page: p) }
+    }
+    public func topRatedByGenre(_ kind: MediaKind, _ genreID: Int) async throws -> [TMDBSearchResult] {
+        try await paged { p in kind == .movie ? try await client.topRatedMovies(genreID: genreID, page: p)
+                                              : try await client.topRatedTV(genreID: genreID, page: p) }
+    }
 }
 
-/// Kind-aware browse content: a segment selector (Trending / New Releases / Popular) where each
-/// segment is a set of per-genre rows. Loaded once up front so switching segments is instant.
+/// Kind-aware browse content across 5 segments, each a stack of horizontal rails. Segments load
+/// **lazily** (the first time they're shown) and are cached for the session. Per-rail failures are
+/// dropped; a segment with zero successful rails is `.failed`.
 @MainActor
 @Observable
 public final class DiscoverStore {
     public enum Segment: String, CaseIterable, Identifiable, Sendable {
-        case trending = "Trending", newReleases = "New Releases", popular = "Popular"
+        case forYou = "For You", trending = "Trending", newReleases = "New",
+             popular = "Popular", topRated = "Top Rated"
         public var id: String { rawValue }
         public var title: String { rawValue }
     }
     public struct Row: Identifiable, Equatable, Sendable {
         public let id: String
-        public let title: String      // genre name
+        public let title: String
         public let hits: [SearchHit]
     }
     public enum State: Equatable { case idle, loading, loaded, failed }
 
-    public private(set) var state: State = .idle
-    public var selectedSegment: Segment = .trending
+    public var selectedSegment: Segment = .forYou
     public private(set) var rowsBySegment: [Segment: [Row]] = [:]
-    /// TMDB ids in the In-Theatres set — CAM-tag these wherever they appear.
+    private var statesBySegment: [Segment: State] = [:]
     public private(set) var camIDs: Set<Int> = []
 
     public let kind: MediaKind
     private let discover: DiscoverProviding
+    private let seeds: RecommendationSeedProviding?
     private let now: @Sendable () -> Date
 
+    /// Selected-segment state, so existing view code can read one `state`.
+    public var state: State { statesBySegment[selectedSegment] ?? .idle }
+    public func segmentState(_ s: Segment) -> State { statesBySegment[s] ?? .idle }
     public var rows: [Row] { rowsBySegment[selectedSegment] ?? [] }
     public func isCAM(_ result: TMDBSearchResult) -> Bool { camIDs.contains(result.id) }
     public func select(_ segment: Segment) { selectedSegment = segment }
 
-    private static let movieGenres: [(String, Int)] = [
-        ("Action", 28), ("Comedy", 35), ("Horror", 27), ("Drama", 18),
-        ("Thriller", 53), ("Sci-Fi", 878), ("Animation", 16), ("Crime", 80),
+    // Genre tables (display name, TMDB id). Movie and TV genre ids differ.
+    static let movieGenres: [(String, Int)] = [
+        ("Action", 28), ("Adventure", 12), ("Animation", 16), ("Comedy", 35), ("Crime", 80),
+        ("Documentary", 99), ("Drama", 18), ("Family", 10751), ("Fantasy", 14), ("History", 36),
+        ("Horror", 27), ("Music", 10402), ("Mystery", 9648), ("Romance", 10749),
+        ("Sci-Fi", 878), ("Thriller", 53), ("War", 10752), ("Western", 37),
     ]
-    private static let tvGenres: [(String, Int)] = [
-        ("Drama", 18), ("Comedy", 35), ("Crime", 80), ("Sci-Fi & Fantasy", 10765),
-        ("Animation", 16), ("Mystery", 9648), ("Reality", 10764),
+    static let tvGenres: [(String, Int)] = [
+        ("Action & Adventure", 10759), ("Animation", 16), ("Comedy", 35), ("Crime", 80),
+        ("Documentary", 99), ("Drama", 18), ("Family", 10751), ("Kids", 10762),
+        ("Mystery", 9648), ("Reality", 10764), ("Sci-Fi & Fantasy", 10765),
+        ("War & Politics", 10768), ("Western", 37),
     ]
+    /// Decade rails (label, fromYear, toYear).
+    static let decades: [(String, Int, Int)] = [
+        ("Best of the 2020s", 2020, 2029), ("Best of the 2010s", 2010, 2019),
+        ("Best of the 2000s", 2000, 2009), ("Best of the 90s", 1990, 1999),
+    ]
+    public static var movieGenreCount: Int { movieGenres.count }
+    public static var tvGenreCount: Int { tvGenres.count }
+    public static var decadeCount: Int { decades.count }
 
-    public init(kind: MediaKind, discover: DiscoverProviding, now: @escaping @Sendable () -> Date = { Date() }) {
-        self.kind = kind; self.discover = discover; self.now = now
+    private var genres: [(String, Int)] { kind == .movie ? Self.movieGenres : Self.tvGenres }
+
+    public init(kind: MediaKind, discover: DiscoverProviding,
+                seeds: RecommendationSeedProviding? = nil,
+                now: @escaping @Sendable () -> Date = { Date() }) {
+        self.kind = kind; self.discover = discover; self.seeds = seeds; self.now = now
     }
 
-    public func load() async {
-        guard state == .idle || state == .failed else { return }
-        state = .loading
+    /// Back-compat: load the currently-selected segment.
+    public func load() async { await loadSegment(selectedSegment) }
 
-        let kind = self.kind
-        let d = discover
-        let specs = allRowSpecs()
-        let byIndex: [Int: [SearchHit]] = await withTaskGroup(of: (Int, [SearchHit]).self) { group in
-            for (index, spec) in specs.enumerated() {
-                group.addTask {
-                    let hits = (try? await spec.fetch())?.map { SearchHit(result: $0, kind: kind) } ?? []
-                    return (index, hits)
-                }
-            }
-            // CAM set (movies only) loaded alongside, keyed -1.
-            if kind == .movie {
-                group.addTask {
-                    let np = (try? await d.nowPlaying()) ?? []
-                    return (-1, np.map { SearchHit(result: $0, kind: .movie) })
-                }
-            }
-            var collected = [Int: [SearchHit]]()
-            for await (index, hits) in group { collected[index] = hits }
-            return collected
+    /// Load one segment's rails if not already loaded/loading. Idempotent.
+    public func loadSegment(_ segment: Segment) async {
+        switch statesBySegment[segment] ?? .idle {
+        case .loading, .loaded: return
+        case .idle, .failed: break
         }
-        camIDs = Set((byIndex[-1] ?? []).map(\.result.id))
-        let results = specs.enumerated().map { ($0.element, byIndex[$0.offset] ?? []) }
-
-        var grouped: [Segment: [Row]] = [:]
-        for (spec, hits) in results where !hits.isEmpty {
-            grouped[spec.segment, default: []].append(Row(id: spec.rowID, title: spec.genre, hits: hits))
+        statesBySegment[segment] = .loading
+        if kind == .movie && camIDs.isEmpty {
+            camIDs = Set(((try? await discover.nowPlayingMovies()) ?? []).map(\.id))
         }
-        rowsBySegment = grouped
-        state = grouped.values.contains { !$0.isEmpty } ? .loaded : .failed
+        let specs = await rowSpecs(for: segment)
+        let built = await runCapped(specs)
+        rowsBySegment[segment] = built
+        statesBySegment[segment] = built.isEmpty ? .failed : .loaded
     }
+
+    // MARK: - Row specs per segment
 
     private struct RowSpec {
-        let segment: Segment; let rowID: String; let genre: String
-        let fetch: @Sendable () async throws -> [TMDBSearchResult]
+        let id: String
+        let title: String
+        let fetch: @Sendable () async -> [TMDBSearchResult]
     }
 
-    private func allRowSpecs() -> [RowSpec] {
-        let d = discover
+    private func rowSpecs(for segment: Segment) async -> [RowSpec] {
+        switch segment {
+        case .forYou:      return await forYouSpecs()
+        case .trending:    return trendingSpecs()
+        case .newReleases: return newSpecs()
+        case .popular:     return popularSpecs()
+        case .topRated:    return topRatedSpecs()
+        }
+    }
+
+    private func trendingSpecs() -> [RowSpec] {
+        let d = discover, k = kind
+        return [
+            RowSpec(id: "trend-day", title: "Trending Today",
+                    fetch: { (try? await d.trending(k, window: .day)) ?? [] }),
+            RowSpec(id: "trend-week", title: "Trending This Week",
+                    fetch: { (try? await d.trending(k, window: .week)) ?? [] }),
+        ]
+    }
+
+    private func newSpecs() -> [RowSpec] {
+        let d = discover, k = kind
         let (from, to) = releaseWindow()
-        let genres = kind == .movie ? Self.movieGenres : Self.tvGenres
-        var specs: [RowSpec] = []
+        var specs = [RowSpec(id: "new-all", title: "New This Month",
+                             fetch: { (try? await d.newOverall(k, from: from, to: to)) ?? [] })]
         for (name, gid) in genres {
-            switch kind {
-            case .movie:
-                specs.append(RowSpec(segment: .trending, rowID: "t-\(gid)", genre: name, fetch: { try await d.trendingMoviesByGenre(gid) }))
-                specs.append(RowSpec(segment: .newReleases, rowID: "n-\(gid)", genre: name, fetch: { try await d.newMoviesByGenre(gid, from: from, to: to) }))
-                specs.append(RowSpec(segment: .popular, rowID: "p-\(gid)", genre: name, fetch: { try await d.topRatedMoviesByGenre(gid) }))
-            case .show:
-                specs.append(RowSpec(segment: .trending, rowID: "t-\(gid)", genre: name, fetch: { try await d.trendingTVByGenre(gid) }))
-                specs.append(RowSpec(segment: .newReleases, rowID: "n-\(gid)", genre: name, fetch: { try await d.newTVByGenre(gid, from: from, to: to) }))
-                specs.append(RowSpec(segment: .popular, rowID: "p-\(gid)", genre: name, fetch: { try await d.topRatedTVByGenre(gid) }))
-            }
+            specs.append(RowSpec(id: "new-\(gid)", title: "New in \(name)",
+                                 fetch: { (try? await d.newByGenre(k, gid, from: from, to: to)) ?? [] }))
         }
         return specs
     }
 
-    /// "New Releases" window: released between ~10 months and ~1.5 months ago.
+    private func popularSpecs() -> [RowSpec] {
+        let d = discover, k = kind
+        return genres.map { (name, gid) in
+            RowSpec(id: "pop-\(gid)", title: "Popular in \(name)",
+                    fetch: { (try? await d.popularByGenre(k, gid)) ?? [] })
+        }
+    }
+
+    private func topRatedSpecs() -> [RowSpec] {
+        let d = discover, k = kind
+        var specs = [RowSpec(id: "top-curated", title: "Top Rated of All Time",
+                             fetch: { (try? await d.topRatedCurated(k)) ?? [] })]
+        for (label, from, to) in Self.decades {
+            let f = "\(from)-01-01", t = "\(to)-12-31"
+            specs.append(RowSpec(id: "decade-\(from)", title: label,
+                                 fetch: { (try? await d.decade(k, from: f, to: t)) ?? [] }))
+        }
+        for (name, gid) in genres {
+            specs.append(RowSpec(id: "topg-\(gid)", title: "Top \(name)",
+                                 fetch: { (try? await d.topRatedByGenre(k, gid)) ?? [] }))
+        }
+        return specs
+    }
+
+    private func forYouSpecs() async -> [RowSpec] {
+        let d = discover, k = kind
+        let seedList = await seeds?.seeds(kind: kind, limit: 10) ?? []
+        guard !seedList.isEmpty else { return trendingSpecs() }   // fallback: never blank
+        return seedList.map { seed in
+            let title = seed.watched ? "Because you watched \(seed.title)" : "More like \(seed.title)"
+            return RowSpec(id: "rec-\(seed.tmdbID)", title: title,
+                           fetch: { (try? await d.recommended(k, tmdbID: seed.tmdbID)) ?? [] })
+        }
+    }
+
+    // MARK: - Concurrency-capped fetch
+
+    /// Runs the row fetches with at most `cap` in flight, preserving spec order, dropping empties.
+    /// Dedups poster ids ACROSS rails in the segment so a title doesn't repeat in every rail.
+    private func runCapped(_ specs: [RowSpec], cap: Int = 8) async -> [Row] {
+        let kind = self.kind
+        let indexed: [(Int, [SearchHit])] = await withTaskGroup(of: (Int, [SearchHit]).self) { group in
+            var next = 0, running = 0
+            func addTask(_ i: Int) {
+                let spec = specs[i]
+                group.addTask { (i, (await spec.fetch()).map { SearchHit(result: $0, kind: kind) }) }
+            }
+            while next < specs.count && running < cap { addTask(next); next += 1; running += 1 }
+            var out: [(Int, [SearchHit])] = []
+            for await pair in group {
+                out.append(pair)
+                if next < specs.count { addTask(next); next += 1 } else { running -= 1 }
+            }
+            return out
+        }
+        let byIndex = Dictionary(uniqueKeysWithValues: indexed)
+        var seen = Set<Int>()
+        var rows: [Row] = []
+        for i in specs.indices {
+            let hits = (byIndex[i] ?? []).filter { seen.insert($0.result.id).inserted }
+            if hits.isEmpty { continue }
+            rows.append(Row(id: specs[i].id, title: specs[i].title, hits: hits))
+        }
+        return rows
+    }
+
+    /// "New" window: released between ~10 months and ~1.5 months ago.
     private func releaseWindow() -> (from: String, to: String) {
         var cal = Calendar(identifier: .gregorian)
         cal.timeZone = TimeZone(identifier: "UTC")!
