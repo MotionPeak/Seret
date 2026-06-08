@@ -42,6 +42,27 @@ public actor ProfileStore {
         try modelContext.save()
     }
 
+    /// Idempotent first-launch migration: if any profile exists, return the earliest (the owner)
+    /// untouched. Otherwise create an owner profile and re-key every `profileID == nil`
+    /// `WatchProgress` row to it, so Phase-1 progress is preserved under the new profile model.
+    @discardableResult
+    public func ensureOwnerProfileAndMigrate(ownerName: String, colorTag: String,
+                                             id: String = UUID().uuidString,
+                                             at: Date = Date()) throws -> ProfileDTO {
+        let existing = try modelContext.fetch(FetchDescriptor<Profile>(
+            sortBy: [SortDescriptor(\.createdAt, order: .forward)]))
+        if let owner = existing.first { return ProfileDTO(owner) }
+
+        let owner = Profile(id: id, name: ownerName, colorTag: colorTag, createdAt: at)
+        modelContext.insert(owner)
+        for row in try modelContext.fetch(FetchDescriptor<WatchProgress>(
+            predicate: #Predicate { $0.profileID == nil })) {
+            row.profileID = id
+        }
+        try modelContext.save()
+        return ProfileDTO(owner)
+    }
+
     private func fetchOne(id: String) throws -> Profile? {
         var d = FetchDescriptor<Profile>(predicate: #Predicate { $0.id == id })
         d.fetchLimit = 1

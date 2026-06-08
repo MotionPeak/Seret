@@ -61,5 +61,31 @@ extension SwiftDataSuite {
             let progress = try ctx2.fetch(FetchDescriptor<WatchProgress>())
             #expect(progress.map(\.profileID) == ["p2"])   // p1's progress gone, p2's kept
         }
+
+        @Test func ensureOwnerCreatesProfileAndMigratesNilProgress() async throws {
+            let c = try container()
+            let store = ProfileStore(modelContainer: c)
+            let ctx = ModelContext(c)
+            ctx.insert(WatchProgress(contentKey: "old", positionSeconds: 5))   // profileID nil
+            try ctx.save()
+
+            let owner = try await store.ensureOwnerProfileAndMigrate(
+                ownerName: "Me", colorTag: "gold", id: "owner", at: Date(timeIntervalSince1970: 1))
+
+            #expect(owner.id == "owner")
+            #expect(try await store.all().map(\.id) == ["owner"])
+            let migrated = try ModelContext(c).fetch(FetchDescriptor<WatchProgress>())
+            #expect(migrated.first?.profileID == "owner")   // nil row re-keyed to owner
+        }
+
+        @Test func ensureOwnerIsIdempotentWhenProfilesExist() async throws {
+            let store = ProfileStore(modelContainer: try container())
+            _ = try await store.create(name: "Existing", colorTag: "blue", id: "p1",
+                                       at: Date(timeIntervalSince1970: 1))
+            let owner = try await store.ensureOwnerProfileAndMigrate(
+                ownerName: "Me", colorTag: "gold", id: "owner", at: Date(timeIntervalSince1970: 2))
+            #expect(owner.id == "p1")                       // returns the existing earliest profile
+            #expect(try await store.all().map(\.id) == ["p1"])   // no second profile created
+        }
     }
 }
