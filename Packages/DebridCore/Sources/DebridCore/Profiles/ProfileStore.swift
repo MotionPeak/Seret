@@ -28,6 +28,20 @@ public actor ProfileStore {
         try modelContext.save()
     }
 
+    /// Delete a profile and cascade to its My-List entries and watch progress.
+    public func delete(id: String) throws {
+        if let p = try fetchOne(id: id) { modelContext.delete(p) }
+        for entry in try modelContext.fetch(FetchDescriptor<MyListEntry>(
+            predicate: #Predicate { $0.profileID == id })) {
+            modelContext.delete(entry)
+        }
+        for row in try modelContext.fetch(FetchDescriptor<WatchProgress>(
+            predicate: #Predicate { $0.profileID == id })) {
+            modelContext.delete(row)
+        }
+        try modelContext.save()
+    }
+
     private func fetchOne(id: String) throws -> Profile? {
         var d = FetchDescriptor<Profile>(predicate: #Predicate { $0.id == id })
         d.fetchLimit = 1
