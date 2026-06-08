@@ -2,7 +2,7 @@ import DebridCore
 import DebridUI
 import SwiftUI
 
-/// tvOS "Who's Watching?" — shown on every launch. Pick a profile (or add one).
+/// tvOS "Who's Watching?" — shown on every launch. Pick a profile (or add one). Centered box.
 struct WhoIsWatchingScreen: View {
     @Environment(AppSession.self) private var session
     @State private var showingAdd = false
@@ -15,24 +15,31 @@ struct WhoIsWatchingScreen: View {
     var body: some View {
         ZStack {
             CanvasBackground()
-            VStack(spacing: 64) {
+            VStack(spacing: 54) {
                 Text("Who's Watching?")
                     .font(.system(size: 56, weight: .heavy))
                     .foregroundStyle(Theme.Palette.textPrimary)
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 56) {
-                        ForEach(profiles) { p in
-                            Button { session.selectProfile(p.id); onPicked() } label: { ProfileAvatar(profile: p) }
-                                .buttonStyle(.card)
-                        }
-                        Button { showingAdd = true } label: { AddProfileTile() }
+
+                HStack(spacing: 56) {
+                    ForEach(profiles) { p in
+                        Button { session.selectProfile(p.id); onPicked() } label: { ProfileAvatar(profile: p) }
                             .buttonStyle(.card)
                     }
-                    .padding(.horizontal, 80)
-                    .frame(minWidth: 0, maxWidth: .infinity)   // center when few profiles
+                    Button { showingAdd = true } label: { AddProfileTile() }
+                        .buttonStyle(.card)
+                }
+                .frame(maxWidth: .infinity)   // centers the row of avatars
+
+                // Temporary status line while we stabilize the profile flow.
+                HStack(spacing: 24) {
+                    Text("\(profiles.count) profile\(profiles.count == 1 ? "" : "s") · store: \(session.profileStoreMode)")
+                        .font(.callout).foregroundStyle(Theme.Palette.textSecondary)
+                    Button("Reload") { Task { await session.reloadProfiles() } }
+                        .buttonStyle(.bordered)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(60)
         }
         .fullScreenCover(isPresented: $showingAdd) {
             AddProfileScreen().environment(session)

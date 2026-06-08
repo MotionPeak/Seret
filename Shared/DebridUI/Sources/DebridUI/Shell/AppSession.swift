@@ -167,7 +167,12 @@ public final class AppSession {
         let watch: WatchProgressStore
         let profiles: ProfileStore
         let myList: MyListStore
+        let mode: String
     }
+
+    /// Diagnostic: which backing store profiles use ("cloud", "local", or "none"). Shown on the
+    /// Who's-Watching screen while we stabilize the profile flow.
+    public private(set) var profileStoreMode: String = "none"
 
     private static func makeProfileStores() -> ProfileStores? {
         let schema = Schema([WatchProgress.self, Profile.self, MyListEntry.self])
@@ -177,15 +182,27 @@ public final class AppSession {
         // store so profiles always work; CloudKit (cross-device sync) engages on real iCloud devices.
         let useCloudKit = FileManager.default.ubiquityIdentityToken != nil
         let local = ModelConfiguration(schema: schema)
-        let primary = useCloudKit
-            ? ModelConfiguration(schema: schema, cloudKitDatabase: .private(cloudKitContainerID))
-            : local
-        let container = (try? ModelContainer(for: schema, configurations: primary))
-            ?? (try? ModelContainer(for: schema, configurations: local))
-        guard let container else { return nil }
+        if useCloudKit,
+           let container = try? ModelContainer(
+               for: schema,
+               configurations: ModelConfiguration(schema: schema,
+                                                  cloudKitDatabase: .private(cloudKitContainerID))) {
+            return ProfileStores(watch: WatchProgressStore(modelContainer: container),
+                                 profiles: ProfileStore(modelContainer: container),
+                                 myList: MyListStore(modelContainer: container), mode: "cloud")
+        }
+        guard let container = try? ModelContainer(for: schema, configurations: local) else { return nil }
         return ProfileStores(watch: WatchProgressStore(modelContainer: container),
                              profiles: ProfileStore(modelContainer: container),
-                             myList: MyListStore(modelContainer: container))
+                             myList: MyListStore(modelContainer: container), mode: "local")
+    }
+
+    /// Re-run the profile load (owner migration + roster) and re-scope Home. Exposed so the
+    /// Who's-Watching screen can offer a manual "Reload" while we diagnose.
+    public func reloadProfiles() async {
+        await activeProfiles?.loadAndResolve()
+        home?.activeProfileID = activeProfileID
+        await rebuildHome()
     }
 
     /// Enter `.signedIn`, composing the DebridCore library pipeline once. Thin glue: the app
@@ -207,6 +224,7 @@ public final class AppSession {
         watchStore = stores?.watch as WatchProgressProviding?
         profileStore = stores?.profiles
         myListStore = stores?.myList
+        profileStoreMode = stores?.mode ?? "none"
         libraryStore = LibraryStore(library: service, watch: watchStore)
         searchStore = SearchStore(search: TMDBSearchService(client: tmdb))
         let discover = TMDBDiscoverService(client: tmdb)
