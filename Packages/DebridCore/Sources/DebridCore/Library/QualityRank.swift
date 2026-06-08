@@ -1,10 +1,23 @@
-/// Quality score for a parsed release. Higher is better: resolution dominates,
-/// then source tier, then video codec. Shared by `MediaSource` (library) and
-/// `CachedStream` (search) so both rank identically.
+/// Quality score for a parsed release. Higher is better: resolution dominates, then source tier,
+/// then video codec. Releases whose audio can't be decoded on-device (TrueHD) are pushed below
+/// every playable release with a large penalty — so the default "Play" picks a version that will
+/// actually have sound. Shared by `MediaSource` (library) and `CachedStream` (search).
 public func releaseQualityRank(for parsed: ParsedRelease) -> Int {
     resolutionTier(parsed.resolution) * 10_000
         + sourceTier(parsed.source) * 100
         + codecTier(parsed.videoCodec)
+        - (isUnplayableAudio(parsed.audioCodec) ? unplayableAudioPenalty : 0)
+}
+
+/// Penalty (> the max possible positive rank) so ANY playable release outranks ANY unplayable one,
+/// regardless of resolution. Among unplayable-only releases, the video tiers still order them.
+let unplayableAudioPenalty = 1_000_000
+
+/// Audio codecs VLCKit can't decode on iOS/tvOS. Only TrueHD (Dolby TrueHD / TrueHD-Atmos, parsed
+/// as "TrueHD") is a confirmed hard-fail; everything else — including unknown audio — is treated as
+/// playable to avoid demoting good releases. Extend conservatively if more codecs prove unplayable.
+func isUnplayableAudio(_ codec: String?) -> Bool {
+    codec == "TrueHD"
 }
 
 func resolutionTier(_ r: String?) -> Int {
