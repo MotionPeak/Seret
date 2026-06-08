@@ -158,5 +158,72 @@ extension MockTests {
             #expect(season.episodes[0].airDate == "2011-04-17")
             #expect(season.episodes[1].episodeNumber == 2)
         }
+
+        @Test func trendingWeekURLAndDecode() async throws {
+            MockURLProtocol.handler = { req in
+                #expect(req.url!.absoluteString.contains("trending/movie/week"))
+                #expect(req.url!.absoluteString.contains("page=1"))
+                let r = HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (r, Data(#"{"results":[{"id":1,"title":"M","vote_average":7.0}]}"#.utf8))
+            }
+            let client = TMDBClient(apiKey: "KEY", http: HTTPClient(session: .mock))
+            let r = try await client.trendingMovies(window: .week)
+            #expect(r.first?.id == 1)
+        }
+
+        @Test func curatedTopRatedURL() async throws {
+            MockURLProtocol.handler = { req in
+                #expect(req.url!.absoluteString.contains("movie/top_rated"))
+                let r = HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (r, Data(#"{"results":[{"id":2,"title":"T"}]}"#.utf8))
+            }
+            let client = TMDBClient(apiKey: "KEY", http: HTTPClient(session: .mock))
+            #expect(try await client.topRatedMoviesCurated().first?.id == 2)
+        }
+
+        @Test func recommendationsURL() async throws {
+            MockURLProtocol.handler = { req in
+                #expect(req.url!.absoluteString.contains("movie/603/recommendations"))
+                let r = HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (r, Data(#"{"results":[{"id":5,"title":"R"}]}"#.utf8))
+            }
+            let client = TMDBClient(apiKey: "KEY", http: HTTPClient(session: .mock))
+            #expect(try await client.recommendedMovies(id: 603).first?.id == 5)
+        }
+
+        @Test func decadeMoviesCarriesWindowAndFloor() async throws {
+            MockURLProtocol.handler = { req in
+                let u = req.url!.absoluteString
+                #expect(u.contains("discover/movie"))
+                #expect(u.contains("primary_release_date.gte=2010-01-01"))
+                #expect(u.contains("primary_release_date.lte=2019-12-31"))
+                #expect(u.contains("vote_count.gte=1000"))
+                let r = HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (r, Data(#"{"results":[]}"#.utf8))
+            }
+            let client = TMDBClient(apiKey: "KEY", http: HTTPClient(session: .mock))
+            _ = try await client.decadeMovies(from: "2010-01-01", to: "2019-12-31")
+        }
+
+        @Test func topRatedGenreUsesHardVoteFloor() async throws {
+            MockURLProtocol.handler = { req in
+                #expect(req.url!.absoluteString.contains("vote_count.gte=1500"))
+                let r = HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (r, Data(#"{"results":[]}"#.utf8))
+            }
+            let client = TMDBClient(apiKey: "KEY", http: HTTPClient(session: .mock))
+            _ = try await client.topRatedMovies(genreID: 28)
+        }
+
+        @Test func tvNewOverallURL() async throws {
+            MockURLProtocol.handler = { req in
+                #expect(req.url!.absoluteString.contains("discover/tv"))
+                #expect(req.url!.absoluteString.contains("first_air_date.gte=2025-01-01"))
+                let r = HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (r, Data(#"{"results":[{"id":9,"name":"S"}]}"#.utf8))
+            }
+            let client = TMDBClient(apiKey: "KEY", http: HTTPClient(session: .mock))
+            #expect(try await client.discoverTVNew(firstAirFrom: "2025-01-01", firstAirTo: "2025-12-31").first?.id == 9)
+        }
     }
 }

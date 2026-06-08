@@ -1,5 +1,8 @@
 import Foundation
 
+/// TMDB trending window — `/trending/{kind}/{day|week}`.
+public enum TMDBTrendingWindow: String, Sendable { case day, week }
+
 /// Looks up movies/shows on TMDB (v3 API, `api_key` query param). The key is injected;
 /// tests mock the transport, so no real key is needed to test.
 public struct TMDBClient: Sendable {
@@ -36,56 +39,61 @@ public struct TMDBClient: Sendable {
 
     /// Most-popular movies in a TMDB genre (e.g. 27 = Horror), ≥100 votes — for the per-genre
     /// "Most Popular" rows.
-    public func discoverMovies(genreID: Int) async throws -> [TMDBSearchResult] {
+    public func discoverMovies(genreID: Int, page: Int = 1) async throws -> [TMDBSearchResult] {
         let response: TMDBSearchResponse = try await get("discover/movie", [
             URLQueryItem(name: "with_genres", value: String(genreID)),
             URLQueryItem(name: "sort_by", value: "popularity.desc"),
-            URLQueryItem(name: "vote_count.gte", value: "100"),
+            URLQueryItem(name: "vote_count.gte", value: "200"),
+            pageItem(page),
         ])
         return response.results
     }
 
     /// Newly-released movies in a genre within a date window ("YYYY-MM-DD"), newest first —
     /// for the per-genre "New Releases" rows. Low vote gate (new titles have few votes).
-    public func discoverMovies(genreID: Int, releaseFrom: String, releaseTo: String) async throws -> [TMDBSearchResult] {
+    public func discoverMovies(genreID: Int, releaseFrom: String, releaseTo: String, page: Int = 1) async throws -> [TMDBSearchResult] {
         let response: TMDBSearchResponse = try await get("discover/movie", [
             URLQueryItem(name: "with_genres", value: String(genreID)),
             URLQueryItem(name: "primary_release_date.gte", value: releaseFrom),
             URLQueryItem(name: "primary_release_date.lte", value: releaseTo),
             URLQueryItem(name: "sort_by", value: "primary_release_date.desc"),
-            URLQueryItem(name: "vote_count.gte", value: "10"),
+            URLQueryItem(name: "vote_count.gte", value: "30"),
+            pageItem(page),
         ])
         return response.results
     }
 
     /// Highest-rated movies in a genre, all-time (≥300 votes) — the per-genre "Popular" (top-rated) rows.
-    public func topRatedMovies(genreID: Int) async throws -> [TMDBSearchResult] {
+    public func topRatedMovies(genreID: Int, page: Int = 1) async throws -> [TMDBSearchResult] {
         let response: TMDBSearchResponse = try await get("discover/movie", [
             URLQueryItem(name: "with_genres", value: String(genreID)),
             URLQueryItem(name: "sort_by", value: "vote_average.desc"),
-            URLQueryItem(name: "vote_count.gte", value: "300"),
+            URLQueryItem(name: "vote_count.gte", value: "1500"),
+            pageItem(page),
         ])
         return response.results
     }
 
     /// Highest-rated shows in a TV genre, all-time (≥200 votes).
-    public func topRatedTV(genreID: Int) async throws -> [TMDBSearchResult] {
+    public func topRatedTV(genreID: Int, page: Int = 1) async throws -> [TMDBSearchResult] {
         let response: TMDBSearchResponse = try await get("discover/tv", [
             URLQueryItem(name: "with_genres", value: String(genreID)),
             URLQueryItem(name: "sort_by", value: "vote_average.desc"),
-            URLQueryItem(name: "vote_count.gte", value: "200"),
+            URLQueryItem(name: "vote_count.gte", value: "800"),
+            pageItem(page),
         ])
         return response.results
     }
 
     /// Newly-aired shows in a TV genre within a first-air-date window — per-genre TV "New Releases".
-    public func discoverTV(genreID: Int, firstAirFrom: String, firstAirTo: String) async throws -> [TMDBSearchResult] {
+    public func discoverTV(genreID: Int, firstAirFrom: String, firstAirTo: String, page: Int = 1) async throws -> [TMDBSearchResult] {
         let response: TMDBSearchResponse = try await get("discover/tv", [
             URLQueryItem(name: "with_genres", value: String(genreID)),
             URLQueryItem(name: "first_air_date.gte", value: firstAirFrom),
             URLQueryItem(name: "first_air_date.lte", value: firstAirTo),
             URLQueryItem(name: "sort_by", value: "first_air_date.desc"),
-            URLQueryItem(name: "vote_count.gte", value: "5"),
+            URLQueryItem(name: "vote_count.gte", value: "20"),
+            pageItem(page),
         ])
         return response.results
     }
@@ -101,23 +109,25 @@ public struct TMDBClient: Sendable {
     }
 
     /// Popular shows in a TMDB TV genre (TV genre ids differ from movie ids).
-    public func discoverTV(genreID: Int) async throws -> [TMDBSearchResult] {
+    public func discoverTV(genreID: Int, page: Int = 1) async throws -> [TMDBSearchResult] {
         let response: TMDBSearchResponse = try await get("discover/tv", [
             URLQueryItem(name: "with_genres", value: String(genreID)),
             URLQueryItem(name: "sort_by", value: "popularity.desc"),
-            URLQueryItem(name: "vote_count.gte", value: "100"),
+            URLQueryItem(name: "vote_count.gte", value: "150"),
+            pageItem(page),
         ])
         return response.results
     }
 
     /// Movies released within a date window ("YYYY-MM-DD"), newest first — the home-release
     /// window for the "New Releases" row (titles likely to have real cached files).
-    public func discoverMovies(releaseFrom: String, releaseTo: String) async throws -> [TMDBSearchResult] {
+    public func discoverMovies(releaseFrom: String, releaseTo: String, page: Int = 1) async throws -> [TMDBSearchResult] {
         let response: TMDBSearchResponse = try await get("discover/movie", [
             URLQueryItem(name: "primary_release_date.gte", value: releaseFrom),
             URLQueryItem(name: "primary_release_date.lte", value: releaseTo),
             URLQueryItem(name: "sort_by", value: "primary_release_date.desc"),
             URLQueryItem(name: "vote_count.gte", value: "50"),
+            pageItem(page),
         ])
         return response.results
     }
@@ -149,6 +159,74 @@ public struct TMDBClient: Sendable {
     public static func imageURL(path: String?, size: String = "w500") -> URL? {
         guard let path else { return nil }
         return URL(string: imageBase + size + path)
+    }
+
+    // MARK: - Curated discovery (browse)
+
+    private func pageItem(_ p: Int) -> URLQueryItem { URLQueryItem(name: "page", value: String(p)) }
+
+    /// Real "what's hot" lists (not a discover sort).
+    public func trendingMovies(window: TMDBTrendingWindow, page: Int = 1) async throws -> [TMDBSearchResult] {
+        let r: TMDBSearchResponse = try await get("trending/movie/\(window.rawValue)", [pageItem(page)])
+        return r.results
+    }
+    public func trendingTV(window: TMDBTrendingWindow, page: Int = 1) async throws -> [TMDBSearchResult] {
+        let r: TMDBSearchResponse = try await get("trending/tv/\(window.rawValue)", [pageItem(page)])
+        return r.results
+    }
+
+    /// TMDB's curated all-time top-rated lists.
+    public func topRatedMoviesCurated(page: Int = 1) async throws -> [TMDBSearchResult] {
+        let r: TMDBSearchResponse = try await get("movie/top_rated", [pageItem(page)])
+        return r.results
+    }
+    public func topRatedTVCurated(page: Int = 1) async throws -> [TMDBSearchResult] {
+        let r: TMDBSearchResponse = try await get("tv/top_rated", [pageItem(page)])
+        return r.results
+    }
+
+    /// "More like this" for a title.
+    public func recommendedMovies(id: Int, page: Int = 1) async throws -> [TMDBSearchResult] {
+        let r: TMDBSearchResponse = try await get("movie/\(id)/recommendations", [pageItem(page)])
+        return r.results
+    }
+    public func recommendedTV(id: Int, page: Int = 1) async throws -> [TMDBSearchResult] {
+        let r: TMDBSearchResponse = try await get("tv/\(id)/recommendations", [pageItem(page)])
+        return r.results
+    }
+
+    /// "Best of the decade" — date-windowed, highest-rated with a hard vote floor.
+    public func decadeMovies(from: String, to: String, page: Int = 1) async throws -> [TMDBSearchResult] {
+        let r: TMDBSearchResponse = try await get("discover/movie", [
+            .init(name: "primary_release_date.gte", value: from),
+            .init(name: "primary_release_date.lte", value: to),
+            .init(name: "sort_by", value: "vote_average.desc"),
+            .init(name: "vote_count.gte", value: "1000"),
+            pageItem(page),
+        ])
+        return r.results
+    }
+    public func decadeTV(from: String, to: String, page: Int = 1) async throws -> [TMDBSearchResult] {
+        let r: TMDBSearchResponse = try await get("discover/tv", [
+            .init(name: "first_air_date.gte", value: from),
+            .init(name: "first_air_date.lte", value: to),
+            .init(name: "sort_by", value: "vote_average.desc"),
+            .init(name: "vote_count.gte", value: "500"),
+            pageItem(page),
+        ])
+        return r.results
+    }
+
+    /// New shows overall within a first-air-date window (TV sibling of `discoverMovies(releaseFrom:releaseTo:)`).
+    public func discoverTVNew(firstAirFrom: String, firstAirTo: String, page: Int = 1) async throws -> [TMDBSearchResult] {
+        let r: TMDBSearchResponse = try await get("discover/tv", [
+            .init(name: "first_air_date.gte", value: firstAirFrom),
+            .init(name: "first_air_date.lte", value: firstAirTo),
+            .init(name: "sort_by", value: "first_air_date.desc"),
+            .init(name: "vote_count.gte", value: "30"),
+            pageItem(page),
+        ])
+        return r.results
     }
 
     private func get<T: Decodable>(_ path: String, _ items: [URLQueryItem]) async throws -> T {
