@@ -38,11 +38,13 @@ targets:
         TMDBAPIKey: "$(TMDB_API_KEY)"
         OpenSubtitlesAPIKey: "$(OPENSUBTITLES_API_KEY)"
         LSApplicationQueriesSchemes: [youtube, vnd.youtube]
+        UIBackgroundModes: [remote-notification]
     settings:
       base:
         PRODUCT_NAME: Seret
         PRODUCT_BUNDLE_IDENTIFIER: com.solomons.seret.tv
         CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_ENTITLEMENTS: Apps/SeretTV/SeretTV.entitlements
         DEVELOPMENT_TEAM: ML9HDN3QZS
         TARGETED_DEVICE_FAMILY: "3"
         ASSETCATALOG_COMPILER_APPICON_NAME: "App Icon & Top Shelf Image"
@@ -93,6 +95,7 @@ targets:
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         TMDBAPIKey: "$(TMDB_API_KEY)"
         OpenSubtitlesAPIKey: "$(OPENSUBTITLES_API_KEY)"
+        UIBackgroundModes: [remote-notification]
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
@@ -108,6 +111,7 @@ targets:
         PRODUCT_NAME: Seret
         PRODUCT_BUNDLE_IDENTIFIER: com.solomons.seret.mobile
         CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_ENTITLEMENTS: Apps/SeretMobile/SeretMobile.entitlements
         DEVELOPMENT_TEAM: ML9HDN3QZS
         TARGETED_DEVICE_FAMILY: "1,2"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
