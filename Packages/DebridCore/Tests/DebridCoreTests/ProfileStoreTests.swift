@@ -6,7 +6,7 @@ import SwiftData
 extension SwiftDataSuite {
     @Suite struct ProfileStoreTests {
         private func container() throws -> ModelContainer {
-            try ModelContainer(for: Profile.self, WatchProgress.self,
+            try ModelContainer(for: Profile.self, MyListEntry.self, WatchProgress.self,
                                configurations: ModelConfiguration(isStoredInMemoryOnly: true))
         }
 
@@ -37,6 +37,29 @@ extension SwiftDataSuite {
                                        at: Date(timeIntervalSince1970: 1))
             try await store.rename(id: "p1", to: "New")
             #expect(try await store.all().first?.name == "New")
+        }
+
+        @Test func deleteCascadesMyListAndProgress() async throws {
+            let c = try container()
+            let store = ProfileStore(modelContainer: c)
+            _ = try await store.create(name: "P1", colorTag: "gold", id: "p1",
+                                       at: Date(timeIntervalSince1970: 1))
+            _ = try await store.create(name: "P2", colorTag: "blue", id: "p2",
+                                       at: Date(timeIntervalSince1970: 2))
+            // Seed p1-owned My List + progress, and one p2 row that must survive.
+            let ctx = ModelContext(c)
+            ctx.insert(MyListEntry(id: "p1|m", profileID: "p1", contentKey: "m"))
+            ctx.insert(WatchProgress(contentKey: "m", profileID: "p1"))
+            ctx.insert(WatchProgress(contentKey: "n", profileID: "p2"))
+            try ctx.save()
+
+            try await store.delete(id: "p1")
+
+            #expect(try await store.all().map(\.id) == ["p2"])
+            let ctx2 = ModelContext(c)
+            #expect(try ctx2.fetch(FetchDescriptor<MyListEntry>()).isEmpty)
+            let progress = try ctx2.fetch(FetchDescriptor<WatchProgress>())
+            #expect(progress.map(\.profileID) == ["p2"])   // p1's progress gone, p2's kept
         }
     }
 }
