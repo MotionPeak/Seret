@@ -12,16 +12,21 @@ public final class WatchProgress {
     public var durationSeconds: Double = 0
     public var finished: Bool = false
     public var updatedAt: Date = Date(timeIntervalSince1970: 0)
+    /// Phase-2 forward-compat: which profile owns this progress. `nil` = the owner/default
+    /// profile. Unused in Phase 1 (the store neither reads nor writes it yet).
+    public var profileID: String? = nil
 
     public init(contentKey: String = "", sourceKey: String = "",
                 positionSeconds: Double = 0, durationSeconds: Double = 0,
-                finished: Bool = false, updatedAt: Date = Date(timeIntervalSince1970: 0)) {
+                finished: Bool = false, updatedAt: Date = Date(timeIntervalSince1970: 0),
+                profileID: String? = nil) {
         self.contentKey = contentKey
         self.sourceKey = sourceKey
         self.positionSeconds = positionSeconds
         self.durationSeconds = durationSeconds
         self.finished = finished
         self.updatedAt = updatedAt
+        self.profileID = profileID
     }
 }
 
