@@ -376,7 +376,12 @@ public final class AppSession {
         guard remoteChangeObserver == nil else { return }
         remoteChangeObserver = NotificationCenter.default.addObserver(
             forName: .NSPersistentStoreRemoteChange, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in await self?.rebuildHome() }
+            Task { @MainActor in
+                // A CloudKit import can bring in a profile created on another device — refresh the
+                // roster (without changing this device's selection) so it appears, then Home.
+                await self?.activeProfiles?.reloadRoster()
+                await self?.rebuildHome()
+            }
         }
     }
 

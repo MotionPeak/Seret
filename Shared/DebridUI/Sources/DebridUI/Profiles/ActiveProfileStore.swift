@@ -31,6 +31,12 @@ public final class ActiveProfileStore {
         activeProfileID = nil
     }
 
+    /// Refresh the roster (e.g. after a CloudKit import) WITHOUT changing the active selection,
+    /// so a profile created on another device appears here too.
+    public func reloadRoster() async {
+        roster = (try? await provider.all()) ?? roster
+    }
+
     public func select(_ id: String) {
         guard roster.contains(where: { $0.id == id }) else { return }
         activeProfileID = id
