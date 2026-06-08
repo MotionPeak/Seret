@@ -23,6 +23,7 @@ struct MovieDetail: View {
                 Text(item.title).font(Theme.Typo.titleXL()).foregroundStyle(Theme.Palette.textPrimary)
                 Text(metaLine).font(Theme.Typo.body()).foregroundStyle(Theme.Palette.textSecondary)
                 if let best = store.bestSource { QualityChipRow(parsed: best.parsed) }
+                RatingsRow(ratings: store.ratings)
                 actions
                 if store.bestSource == nil, let tmdb = item.tmdbID {
                     MovieDownloadSection(tmdbID: tmdb, title: item.title, posterPath: item.posterPath,
