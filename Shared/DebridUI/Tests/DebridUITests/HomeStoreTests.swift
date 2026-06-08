@@ -5,10 +5,12 @@ import DebridCore
 
 private struct FakeWatch: WatchProgressProviding {
     var states: [WatchState]
-    func recentlyWatched(limit: Int) async throws -> [WatchState] { Array(states.prefix(limit)) }
-    func progress(forContentKey key: String) async throws -> WatchState? { nil }
+    func recentlyWatched(limit: Int, profileID: String) async throws -> [WatchState] {
+        Array(states.prefix(limit))
+    }
+    func progress(forContentKey key: String, profileID: String) async throws -> WatchState? { nil }
     func record(contentKey: String, sourceKey: String, positionSeconds: Double,
-                durationSeconds: Double, finished: Bool) async throws {}
+                durationSeconds: Double, finished: Bool, profileID: String) async throws {}
     func deleteProgress(forContentKeys keys: [String]) async throws {}
 }
 
@@ -21,6 +23,7 @@ private struct FakeWatch: WatchProgressProviding {
             WatchState(contentKey: "show:bb:s3e4", sourceKey: "t#f", positionSeconds: 600, durationSeconds: 1200, finished: false, updatedAt: Date()),
         ]
         let store = HomeStore(watch: FakeWatch(states: states))
+        store.activeProfileID = "p1"
         await store.rebuild(movies: [movie], shows: [show])
         #expect(store.continueWatching.count == 2)
         #expect(store.continueWatching[0].item.id == "movie:dune:2021")
@@ -34,6 +37,7 @@ private struct FakeWatch: WatchProgressProviding {
         let newer = MediaItem(id: "b", kind: .movie, title: "B", year: nil, sources: [], seasons: [], addedAt: Date(timeIntervalSince1970: 2000))
         let undated = MediaItem(id: "c", kind: .movie, title: "C", year: nil, sources: [], seasons: [])
         let store = HomeStore(watch: FakeWatch(states: []))
+        store.activeProfileID = "p1"
         await store.rebuild(movies: [older, newer, undated], shows: [])
         #expect(store.recentlyAdded.map(\.id) == ["b", "a"])
     }

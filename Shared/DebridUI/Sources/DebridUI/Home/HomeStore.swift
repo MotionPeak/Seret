@@ -18,12 +18,18 @@ public final class HomeStore {
     public private(set) var recentlyAdded: [MediaItem] = []
     public var featured: HomeItem? { continueWatching.first }
 
+    /// The profile whose Continue Watching this Home shows. Set by `AppSession` on sign-in / switch.
+    public var activeProfileID: String?
+
     private let watch: WatchProgressProviding
     public init(watch: WatchProgressProviding) { self.watch = watch }
 
-    /// Recompute both rails from the current library + watch progress.
+    /// Recompute both rails for the active profile from the current library + watch progress.
     public func rebuild(movies: [MediaItem], shows: [MediaItem]) async {
-        let states = (try? await watch.recentlyWatched(limit: 20)) ?? []
+        guard let profileID = activeProfileID else {
+            continueWatching = []; recentlyAdded = []; return
+        }
+        let states = (try? await watch.recentlyWatched(limit: 20, profileID: profileID)) ?? []
         continueWatching = states.compactMap { Self.resolve($0, movies: movies, shows: shows) }
         let all = movies + shows
         recentlyAdded = Array(all.filter { $0.addedAt != nil }
