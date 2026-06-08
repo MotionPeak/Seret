@@ -29,6 +29,7 @@ struct ShowDetail: View {
                 VStack(alignment: .leading, spacing: Theme.Space.lg) {
                 Text(item.title).font(Theme.Typo.titleXL()).foregroundStyle(Theme.Palette.textPrimary)
                 Text(metaLine).font(Theme.Typo.body()).foregroundStyle(Theme.Palette.textSecondary)
+                RatingsRow(ratings: store.ratings)
                 if let overview = store.overview {
                     Text(overview).font(Theme.Typo.body())
                         .foregroundStyle(Theme.Palette.textSecondary).lineLimit(4)
