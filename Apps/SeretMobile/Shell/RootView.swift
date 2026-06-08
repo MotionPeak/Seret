@@ -24,6 +24,7 @@ struct RootView: View {
         .fullScreenCover(item: Binding(get: { router.detail }, set: { router.detail = $0 })) { item in
             if let details = session.detailsProvider {
                 DetailScreen(item: item, details: details, watch: session.watchStore,
+                             profileID: session.activeProfileID,
                              ratings: session.ratingsProvider)
             }
         }
