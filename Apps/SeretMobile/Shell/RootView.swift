@@ -12,6 +12,7 @@ struct RootView: View {
     var body: some View {
         ZStack {
             content
+                .animation(.easeInOut(duration: 0.45), value: session.needsProfileSelection)
             if showSplash {
                 SplashView { withAnimation(Theme.Motion.fade) { showSplash = false } }
                     .transition(.opacity)
@@ -53,8 +54,10 @@ struct RootView: View {
         case .signedIn:
             if session.needsProfileSelection {
                 WhoIsWatchingScreen()
+                    .transition(.opacity)
             } else {
                 MainShell()
+                    .transition(.opacity.combined(with: .scale(scale: 1.04)))
             }
         }
     }

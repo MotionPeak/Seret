@@ -6,6 +6,7 @@ import SwiftUI
 struct WhoIsWatchingScreen: View {
     @Environment(AppSession.self) private var session
     @State private var showingAdd = false
+    @State private var selectingID: String?
     /// Called after a profile is picked — lets a modal presentation (Settings → Manage Profiles)
     /// dismiss itself. The launch gate uses the default no-op (it disappears on its own).
     var onPicked: () -> Void = {}
@@ -15,18 +16,21 @@ struct WhoIsWatchingScreen: View {
     var body: some View {
         ZStack {
             CanvasBackground()
-            VStack(spacing: 54) {
+            VStack(spacing: 60) {
                 Text("Who's Watching?")
-                    .font(.system(size: 56, weight: .heavy))
+                    .font(.system(size: 64, weight: .heavy))
                     .foregroundStyle(Theme.Palette.textPrimary)
 
-                HStack(spacing: 56) {
+                HStack(spacing: 64) {
                     ForEach(profiles) { p in
-                        Button { session.selectProfile(p.id); onPicked() } label: { ProfileAvatar(profile: p) }
+                        Button { pick(p.id) } label: { ProfileAvatar(profile: p) }
                             .buttonStyle(.card)
+                            .scaleEffect(selectingID == p.id ? 1.3 : 1)
+                            .opacity(selectingID != nil && selectingID != p.id ? 0 : 1)
                     }
                     Button { showingAdd = true } label: { AddProfileTile() }
                         .buttonStyle(.card)
+                        .opacity(selectingID == nil ? 1 : 0)
                 }
                 .frame(maxWidth: .infinity)   // centers the row of avatars
             }
@@ -35,6 +39,14 @@ struct WhoIsWatchingScreen: View {
         }
         .fullScreenCover(isPresented: $showingAdd) {
             AddProfileScreen().environment(session)
+        }
+    }
+
+    private func pick(_ id: String) {
+        withAnimation(.easeInOut(duration: 0.4)) {
+            selectingID = id
+        } completion: {
+            session.selectProfile(id); onPicked()
         }
     }
 }

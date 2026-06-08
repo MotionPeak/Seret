@@ -21,8 +21,10 @@ struct RootView: View {
             case .signedIn:
                 if session.needsProfileSelection {
                     WhoIsWatchingScreen()
+                        .transition(.opacity)
                 } else {
                     LibraryShell()
+                        .transition(.opacity)
                 }
             }
             if !splashDone {
@@ -31,5 +33,6 @@ struct RootView: View {
             }
         }
         .animation(.easeInOut(duration: 0.4), value: splashDone)
+        .animation(.easeInOut(duration: 0.45), value: session.needsProfileSelection)
     }
 }
