@@ -49,6 +49,10 @@ public final class AppSession {
 
     /// Trailer auto-play preference, persisted; survives sign-out (a device setting).
     public let trailerSettings = TrailerSettingsModel()
+
+    /// Preferred audio/subtitle language, persisted and auto-applied to every playback; survives
+    /// sign-out (a device preference). Recorded by `PlayerModel` when the user picks a track.
+    public let trackPreferences = TrackPreferences()
     private var watchProgressStore: WatchProgressStore?   // concrete ref for PlaybackCoordinator
     private var torrents: TorrentsClient?
 
@@ -228,7 +232,8 @@ public final class AppSession {
                                          position: position, duration: duration)
             },
             subtitles: subtitlesProvider,
-            details: detailsProvider)
+            details: detailsProvider,
+            trackPreferences: trackPreferences)
     }
 
     /// Vend a `TrailerModel` for a title (nil while signed out). Chains the TMDB key provider with

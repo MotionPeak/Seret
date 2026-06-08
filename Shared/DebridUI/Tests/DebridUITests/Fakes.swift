@@ -13,6 +13,7 @@ final class FakeVideoPlayerEngine: VideoPlayerEngine {
     private(set) var stopCalled = false
     private(set) var addedSubtitles: [URL] = []
     private(set) var selectedSubtitleID: String??
+    private(set) var selectedAudioID: String??
 
     var audioTracks: [MediaTrack] = []
     var subtitleTracks: [MediaTrack] = []
@@ -32,13 +33,25 @@ final class FakeVideoPlayerEngine: VideoPlayerEngine {
     func stop() { stopCalled = true; continuation.finish() }
     func seek(to seconds: Double) { seekedTo = seconds }
     func setRate(_ rate: Double) { rateSet = rate }
-    func selectAudioTrack(id: String?) {}
+    func selectAudioTrack(id: String?) { selectedAudioID = id }
     func selectSubtitleTrack(id: String?) { selectedSubtitleID = id }
     func addExternalSubtitle(url: URL) {
         addedSubtitles.append(url)
         // Simulate VLCKit surfacing the external sub as a new, generically-named track.
         subtitleTracks.append(MediaTrack(id: "ext/\(addedSubtitles.count)", kind: .subtitle,
                                          name: "Track \(subtitleTracks.count + 1)", language: nil))
+    }
+}
+
+// MARK: - FakeTrackPreferences
+
+@MainActor
+final class FakeTrackPreferences: TrackPreferenceStoring {
+    var preferredAudio: TrackChoice
+    var preferredSubtitle: TrackChoice
+    init(audio: TrackChoice = .automatic, subtitle: TrackChoice = .automatic) {
+        preferredAudio = audio
+        preferredSubtitle = subtitle
     }
 }
 

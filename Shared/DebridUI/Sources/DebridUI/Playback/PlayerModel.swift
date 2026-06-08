@@ -118,6 +118,12 @@ public final class PlayerModel {
     /// On-demand TMDB episode metadata (names + stills) for the in-player episode strip. Optional —
     /// when nil (or for a movie) the strip simply carries no names/thumbnails.
     private let details: MediaDetailsProviding?
+    /// App-global preferred audio/subtitle language. Recorded on a manual pick and auto-applied once
+    /// per loaded source. Optional — nil disables persistence (no preference recorded or applied).
+    private let trackPreferences: TrackPreferenceStoring?
+    /// Whether the preferred tracks have been auto-applied for the current source (reset on reload),
+    /// so a later manual change isn't reverted by subsequent `.tracksChanged` events.
+    private var trackPrefsApplied = false
 
     private var eventTask: Task<Void, Never>?
     private var loadTask: Task<Void, Never>?
@@ -232,9 +238,11 @@ public final class PlayerModel {
          recordProgress: @escaping (_ contentKey: String, _ sourceKey: String, _ position: Double, _ duration: Double) async -> Void,
          subtitles: SubtitleProvider?,
          details: MediaDetailsProviding? = nil,
+         trackPreferences: TrackPreferenceStoring? = nil,
          autoHideDelay: Double = 4) {
         self.autoHideDelay = autoHideDelay
         self.details = details
+        self.trackPreferences = trackPreferences
         self.item = request.item
         // Preferred source first, then remaining sources in quality order (deduped).
         self.sources = [request.source] + request.item.sources.bestFirst().filter { $0 != request.source }
@@ -282,6 +290,7 @@ public final class PlayerModel {
         resumeTarget = (resumeAt ?? 0) > 0 ? (resumeAt ?? 0) : 0   // >0 → deferred-seek there once playing
         resumeSeekIssued = false
         pendingSeek = nil
+        trackPrefsApplied = false
         lastSavedPosition = -.infinity
         loadTask?.cancel()
         loadTask = Task { await self.loadCurrentSource() }
@@ -428,6 +437,40 @@ public final class PlayerModel {
         audioTracks = engine.audioTracks
         subtitleTracks = engine.subtitleTracks
         attachPendingSubtitleIfReady()
+        applyTrackPreferencesIfNeeded()
+    }
+
+    /// Auto-apply the user's persisted audio/subtitle language once this source's tracks have been
+    /// discovered (audio is always present, so its arrival means parsing is far enough along). Runs
+    /// once per source (`reload()` re-arms it), so a later manual change isn't reverted by a
+    /// subsequent `.tracksChanged`. A preferred he/en subtitle that isn't embedded auto-downloads —
+    /// but only when its row is still `.idle`, so a daily-cap or in-flight download isn't re-hit
+    /// every episode of a binge.
+    private func applyTrackPreferencesIfNeeded() {
+        guard let prefs = trackPreferences, !trackPrefsApplied, !audioTracks.isEmpty else { return }
+        trackPrefsApplied = true
+
+        if case .language(let lang) = prefs.preferredAudio,
+           let match = audioTracks.first(where: { $0.language == lang }) {
+            engine.selectAudioTrack(id: match.id)
+            selectedAudioID = match.id
+        }
+
+        switch prefs.preferredSubtitle {
+        case .automatic:
+            break
+        case .off:
+            engine.selectSubtitleTrack(id: nil)
+            selectedSubtitleID = nil
+        case .language(let lang):
+            if let match = subtitleTracks.first(where: { $0.language == lang }) {
+                engine.selectSubtitleTrack(id: match.id)
+                selectedSubtitleID = match.id
+            } else if ["he", "en"].contains(lang),
+                      subtitleRows.first(where: { $0.language == lang })?.state == .idle {
+                Task { await self.requestSubtitle(language: lang) }
+            }
+        }
     }
 
     /// First frames are on screen. Clears the loading state so the overlay/spinner hide.
@@ -610,9 +653,34 @@ public final class PlayerModel {
         }
     }
 
-    public func selectSubtitle(id: String) { selectedSubtitleID = id; engine.selectSubtitleTrack(id: id) }
-    public func selectSubtitleOff() { selectedSubtitleID = nil; engine.selectSubtitleTrack(id: nil) }
-    public func selectAudio(id: String) { selectedAudioID = id; engine.selectAudioTrack(id: id) }
+    public func selectSubtitle(id: String) {
+        selectedSubtitleID = id
+        engine.selectSubtitleTrack(id: id)
+        recordPreferredSubtitle(forTrackID: id)
+    }
+    public func selectSubtitleOff() {
+        selectedSubtitleID = nil
+        engine.selectSubtitleTrack(id: nil)
+        trackPreferences?.preferredSubtitle = .off
+    }
+    public func selectAudio(id: String) {
+        selectedAudioID = id
+        engine.selectAudioTrack(id: id)
+        if let lang = audioTracks.first(where: { $0.id == id })?.language {
+            trackPreferences?.preferredAudio = .language(lang)
+        }
+    }
+
+    /// Persist a manually-selected subtitle by language. A downloaded sub's engine track often has a
+    /// nil language, so resolve it from the owning language row first, then fall back to the track's
+    /// own language tag (embedded subs).
+    private func recordPreferredSubtitle(forTrackID id: String) {
+        if let row = subtitleRows.first(where: { attachedTrackID($0) == id }) {
+            trackPreferences?.preferredSubtitle = .language(row.language)
+        } else if let lang = subtitleTracks.first(where: { $0.id == id })?.language {
+            trackPreferences?.preferredSubtitle = .language(lang)
+        }
+    }
 
     // MARK: - Teardown
 
@@ -647,6 +715,9 @@ public final class PlayerModel {
             let results = try await subtitles.search(query, languages: [language])
             guard let best = results.first else { setRow(language, .error); return }
             let url = try await subtitles.download(best)
+            // Requesting a language IS choosing it — make it sticky so the next episode/title
+            // auto-downloads the same language without re-picking.
+            trackPreferences?.preferredSubtitle = .language(language)
             // The downloaded cues tell us when the dialogue ends → drives "Up Next" at content-end
             // rather than the file end. Timestamps are ASCII, so isoLatin1 is a safe fallback decode
             // for non-UTF-8 (e.g. windows-1255 Hebrew) files.

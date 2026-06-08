@@ -10,11 +10,13 @@ import DebridCore
         engine: FakeVideoPlayerEngine,
         unrestrict: @escaping (String) async throws -> URL = { _ in URL(string: "https://cdn/x.mkv")! },
         subtitles: SubtitleProvider? = nil,
+        trackPreferences: TrackPreferenceStoring? = nil,
         recorded: @escaping (String, String, Double, Double) async -> Void = { _, _, _, _ in },
         autoHideDelay: Double = 4
     ) -> PlayerModel {
         PlayerModel(request: request, engine: engine, unrestrict: unrestrict,
-                    recordProgress: recorded, subtitles: subtitles, autoHideDelay: autoHideDelay)
+                    recordProgress: recorded, subtitles: subtitles,
+                    trackPreferences: trackPreferences, autoHideDelay: autoHideDelay)
     }
 
     @Test func startUnrestrictsLoadsAndPlays() async {
@@ -516,5 +518,124 @@ import DebridCore
         engine.emit(.state(.playing)); await model.waitForIdleForTesting()
         engine.emit(.time(.init(position: 1003, duration: 2000))); await model.waitForIdleForTesting()
         #expect(model.upNextVisible == true)
+    }
+
+    // MARK: - Track preferences (persist audio/subtitle choice by language)
+
+    private func audioPair() -> [MediaTrack] {
+        [MediaTrack(id: "audio/0", kind: .audio, name: "English", language: "en"),
+         MediaTrack(id: "audio/1", kind: .audio, name: "Hebrew", language: "he")]
+    }
+
+    @Test func recordsAudioLanguageWhenUserSelects() async {
+        let engine = FakeVideoPlayerEngine()
+        let prefs = FakeTrackPreferences()
+        let model = makeModel(request: Fixture.request(), engine: engine, trackPreferences: prefs)
+        model.start(); await model.waitForIdleForTesting()
+        engine.audioTracks = audioPair()
+        engine.emit(.tracksChanged); await model.waitForIdleForTesting()
+        model.selectAudio(id: "audio/1")
+        #expect(prefs.preferredAudio == .language("he"))     // remembered by language, not the raw id
+    }
+
+    @Test func recordsSubtitleLanguageOnSelectAndOffOnSelectOff() async {
+        let engine = FakeVideoPlayerEngine()
+        let prefs = FakeTrackPreferences()
+        let model = makeModel(request: Fixture.request(), engine: engine, trackPreferences: prefs)
+        model.start(); await model.waitForIdleForTesting()
+        engine.audioTracks = audioPair()
+        engine.subtitleTracks = [MediaTrack(id: "spu/0", kind: .subtitle, name: "English", language: "en")]
+        engine.emit(.tracksChanged); await model.waitForIdleForTesting()
+        model.selectSubtitle(id: "spu/0")
+        #expect(prefs.preferredSubtitle == .language("en"))
+        model.selectSubtitleOff()
+        #expect(prefs.preferredSubtitle == .off)             // explicit Off persists (≠ automatic)
+    }
+
+    @Test func autoAppliesPreferredAudioLanguageWhenTracksLoad() async {
+        let engine = FakeVideoPlayerEngine()
+        let prefs = FakeTrackPreferences(audio: .language("he"))
+        let model = makeModel(request: Fixture.request(), engine: engine, trackPreferences: prefs)
+        model.start(); await model.waitForIdleForTesting()
+        engine.audioTracks = audioPair()
+        engine.emit(.tracksChanged); await model.waitForIdleForTesting()
+        #expect(engine.selectedAudioID == .some("audio/1"))  // Hebrew selected automatically
+        #expect(model.selectedAudioID == "audio/1")
+    }
+
+    @Test func autoAppliesSubtitleOffWhenPreferred() async {
+        let engine = FakeVideoPlayerEngine()
+        let prefs = FakeTrackPreferences(subtitle: .off)
+        let model = makeModel(request: Fixture.request(), engine: engine, trackPreferences: prefs)
+        model.start(); await model.waitForIdleForTesting()
+        engine.audioTracks = audioPair()
+        engine.subtitleTracks = [MediaTrack(id: "spu/0", kind: .subtitle, name: "English", language: "en")]
+        engine.emit(.tracksChanged); await model.waitForIdleForTesting()
+        #expect(engine.selectedSubtitleID == .some(nil))     // explicitly turned off
+        #expect(model.selectedSubtitleID == nil)
+    }
+
+    @Test func autoSelectsEmbeddedPreferredSubtitleLanguage() async {
+        let engine = FakeVideoPlayerEngine()
+        let prefs = FakeTrackPreferences(subtitle: .language("he"))
+        let model = makeModel(request: Fixture.request(), engine: engine, trackPreferences: prefs)
+        model.start(); await model.waitForIdleForTesting()
+        engine.audioTracks = audioPair()
+        engine.subtitleTracks = [MediaTrack(id: "spu/0", kind: .subtitle, name: "English", language: "en"),
+                                 MediaTrack(id: "spu/1", kind: .subtitle, name: "Hebrew", language: "he")]
+        engine.emit(.tracksChanged); await model.waitForIdleForTesting()
+        #expect(engine.selectedSubtitleID == .some("spu/1"))
+        #expect(model.selectedSubtitleID == "spu/1")
+    }
+
+    @Test func autoDownloadsPreferredSubtitleWhenNotEmbedded() async {
+        let engine = FakeVideoPlayerEngine()
+        let subs = FakeSubtitleProvider()
+        subs.searchResults = [SubtitleResult(fileID: 1, language: "he")]
+        subs.downloadedURL = URL(fileURLWithPath: "/tmp/he.srt")
+        let prefs = FakeTrackPreferences(subtitle: .language("he"))
+        let model = makeModel(request: Fixture.request(), engine: engine, subtitles: subs, trackPreferences: prefs)
+        model.start(); await model.waitForIdleForTesting()
+        engine.audioTracks = audioPair()
+        engine.subtitleTracks = []                           // no embedded Hebrew
+        engine.emit(.tracksChanged); await model.waitForIdleForTesting()
+        await model.waitForIdleForTesting()
+        #expect(subs.searchedLanguages.contains(["he"]))     // auto-kicked a Hebrew download
+    }
+
+    @Test func autoDownloadHappensOncePerSource() async {
+        let engine = FakeVideoPlayerEngine()
+        let subs = FakeSubtitleProvider()
+        subs.searchResults = [SubtitleResult(fileID: 1, language: "he")]
+        subs.downloadedURL = URL(fileURLWithPath: "/tmp/he.srt")
+        let prefs = FakeTrackPreferences(subtitle: .language("he"))
+        let model = makeModel(request: Fixture.request(), engine: engine, subtitles: subs, trackPreferences: prefs)
+        model.start(); await model.waitForIdleForTesting()
+        engine.audioTracks = audioPair()
+        engine.emit(.tracksChanged); await model.waitForIdleForTesting()
+        await model.waitForIdleForTesting()
+        engine.emit(.tracksChanged); await model.waitForIdleForTesting()   // VLCKit re-fires
+        #expect(subs.searchedLanguages.filter { $0 == ["he"] }.count == 1) // applied once, not per event
+    }
+
+    @Test func manualSubtitleDownloadRecordsLanguagePreference() async {
+        let engine = FakeVideoPlayerEngine()
+        let subs = FakeSubtitleProvider()
+        subs.searchResults = [SubtitleResult(fileID: 1, language: "he")]
+        subs.downloadedURL = URL(fileURLWithPath: "/tmp/he.srt")
+        let prefs = FakeTrackPreferences()
+        let model = makeModel(request: Fixture.request(), engine: engine, subtitles: subs, trackPreferences: prefs)
+        model.start(); await model.waitForIdleForTesting()
+        await model.requestSubtitle(language: "he")
+        #expect(prefs.preferredSubtitle == .language("he"))  // the first manual pick becomes sticky
+    }
+
+    @Test func noTrackPreferenceStoreLeavesSelectionUntouched() async {
+        let engine = FakeVideoPlayerEngine()
+        let model = makeModel(request: Fixture.request(), engine: engine)   // no prefs store
+        model.start(); await model.waitForIdleForTesting()
+        engine.audioTracks = audioPair()
+        engine.emit(.tracksChanged); await model.waitForIdleForTesting()
+        #expect(engine.selectedAudioID == nil)               // nothing auto-applied
     }
 }
