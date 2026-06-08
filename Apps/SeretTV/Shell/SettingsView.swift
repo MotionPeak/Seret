@@ -65,6 +65,19 @@ struct SettingsView: View {
                 }
                 .frame(maxWidth: 900)
 
+                VStack(alignment: .leading, spacing: 16) {
+                    Label("Profile", systemImage: "person.crop.circle.fill")
+                        .font(.title3.bold()).foregroundStyle(Theme.Palette.gold)
+                    if let name = session.activeProfiles?.activeProfile?.name {
+                        Text("Watching as \(name).").font(.callout)
+                            .foregroundStyle(Theme.Palette.textSecondary)
+                    }
+                    if (session.activeProfiles?.roster.count ?? 0) > 1 {
+                        Button("Switch Profile") { session.switchProfile() }
+                    }
+                }
+                .frame(maxWidth: 900)
+
                 Button(role: .destructive) {
                     Task { await session.signOut() }
                 } label: {

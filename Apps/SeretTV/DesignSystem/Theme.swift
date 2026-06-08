@@ -33,6 +33,17 @@ enum Theme {
         static let canvasGlow = RadialGradient(
             colors: [Color(hex: 0xEBC11D, alpha: 0.16), .clear],
             center: .init(x: 0.85, y: -0.1), startRadius: 0, endRadius: 1300)
+
+        /// Maps a profile's `colorTag` to its avatar color; defaults to gold.
+        static func color(for tag: String) -> Color {
+            switch tag {
+            case "blue":   return Color(hex: 0x3B82F6)
+            case "green":  return Color(hex: 0x22C55E)
+            case "red":    return Color(hex: 0xEF4444)
+            case "purple": return Color(hex: 0xA855F7)
+            default:        return gold
+            }
+        }
     }
 }
 

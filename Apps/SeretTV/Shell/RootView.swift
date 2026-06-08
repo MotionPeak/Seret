@@ -19,7 +19,11 @@ struct RootView: View {
                     SignInView(model: model)
                 }
             case .signedIn:
-                LibraryShell()
+                if session.needsProfileSelection {
+                    WhoIsWatchingScreen()
+                } else {
+                    LibraryShell()
+                }
             }
             if !splashDone {
                 SplashView { splashDone = true }
