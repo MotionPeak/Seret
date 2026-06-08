@@ -50,7 +50,11 @@ struct RootView: View {
                 SignInView(model: model)
             }
         case .signedIn:
-            MainShell()
+            if session.needsProfileSelection {
+                WhoIsWatchingScreen()
+            } else {
+                MainShell()
+            }
         }
     }
 }

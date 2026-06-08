@@ -20,6 +20,23 @@ struct SettingsView: View {
             }
             .listRowBackground(Theme.Palette.surface1)
 
+            if (session.activeProfiles?.roster.count ?? 0) > 1 {
+                Section {
+                    Button { session.switchProfile() } label: {
+                        Label("Switch Profile", systemImage: "person.crop.circle.badge.checkmark")
+                            .foregroundStyle(Theme.Palette.textPrimary)
+                    }
+                } header: {
+                    Text("Profile").foregroundStyle(Theme.Palette.gold)
+                } footer: {
+                    if let name = session.activeProfiles?.activeProfile?.name {
+                        Text("Watching as \(name).")
+                            .font(.footnote).foregroundStyle(Theme.Palette.textSecondary)
+                    }
+                }
+                .listRowBackground(Theme.Palette.surface1)
+            }
+
             Section {
                 if model.isConnected {
                     Label("Signed in to OpenSubtitles", systemImage: "checkmark.seal.fill")
