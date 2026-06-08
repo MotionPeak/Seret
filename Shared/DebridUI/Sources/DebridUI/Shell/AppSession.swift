@@ -55,6 +55,8 @@ public final class AppSession {
     public let trackPreferences = TrackPreferences()
     private var watchProgressStore: WatchProgressStore?   // concrete ref for PlaybackCoordinator
     private var torrents: TorrentsClient?
+    /// Single, app-lifetime observer that rebuilds Home when CloudKit imports remote changes.
+    private var remoteChangeObserver: NSObjectProtocol?
 
     /// Stage 2 Add-flow seams, composed at sign-in and consumed by the per-title `AddStore`
     /// the `makeAddStore(...)` factory vends (nil while signed out).
@@ -219,6 +221,7 @@ public final class AppSession {
                 await home.rebuild(movies: libraryStore.movies, shows: libraryStore.shows)
             }
         }
+        observeRemoteChanges()
         let osKey = Secrets.openSubtitlesAPIKey
         if !osKey.isEmpty,
            let account = KeychainSecretStore(service: "com.solomons.seret.opensubtitles").readAccount() {
@@ -227,6 +230,23 @@ public final class AppSession {
             subtitlesProvider = nil
         }
         state = .signedIn
+    }
+
+    /// Rebuild the Home rails from the current library + (possibly just-synced) watch progress.
+    private func rebuildHome() async {
+        guard let library = libraryStore, let home else { return }
+        await home.rebuild(movies: library.movies, shows: library.shows)
+    }
+
+    /// Install once: when the persistent store imports CloudKit changes, refresh Home so a title
+    /// watched on another device shows up in Continue Watching without relaunch. `[weak self]` +
+    /// app-lifetime single instance → no retain cycle, no teardown needed.
+    private func observeRemoteChanges() {
+        guard remoteChangeObserver == nil else { return }
+        remoteChangeObserver = NotificationCenter.default.addObserver(
+            forName: .NSPersistentStoreRemoteChange, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in await self?.rebuildHome() }
+        }
     }
 
     /// Build a fully-wired player for a playback request, or nil if not signed in. The platform
