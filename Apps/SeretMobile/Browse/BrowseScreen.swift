@@ -88,29 +88,33 @@ struct BrowseScreen: View {
     private var rails: some View {
         Group {
             if let browse {
-                switch browse.state {
-                case .idle, .loading:
-                    loadingView
-                case .failed:
-                    message("Couldn't load \(title.lowercased())", systemImage: "exclamationmark.triangle")
-                case .loaded:
-                    VStack(spacing: Theme.Space.md) {
-                        segmentPicker(browse)
-                        ScrollView {
-                            LazyVStack(alignment: .leading, spacing: Theme.Space.lg) {
-                                ForEach(browse.rows) { row in
-                                    Rail(title: row.title) {
-                                        ForEach(row.hits) { tile($0, width: 120, cam: isCAM($0)) }
-                                    }
-                                }
-                            }
-                            .padding(.vertical, Theme.Space.md)
+                VStack(spacing: Theme.Space.md) {
+                    segmentPicker(browse)
+                    segmentContent(browse)
+                }
+                .task(id: browse.selectedSegment) { await browse.loadSegment(browse.selectedSegment) }
+            }
+        }
+    }
+
+    @ViewBuilder private func segmentContent(_ browse: DiscoverStore) -> some View {
+        switch browse.segmentState(browse.selectedSegment) {
+        case .idle, .loading:
+            loadingView
+        case .failed:
+            message("Couldn't load \(title.lowercased())", systemImage: "exclamationmark.triangle")
+        case .loaded:
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: Theme.Space.lg) {
+                    ForEach(browse.rows) { row in
+                        Rail(title: row.title) {
+                            ForEach(row.hits) { tile($0, width: 120, cam: isCAM($0)) }
                         }
                     }
                 }
+                .padding(.vertical, Theme.Space.md)
             }
         }
-        .task { await browse?.load() }
     }
 
     /// Trending / New Releases / Popular selector — switching is instant (all loaded up front).
