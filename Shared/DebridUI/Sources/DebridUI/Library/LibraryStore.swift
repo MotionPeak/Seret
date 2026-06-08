@@ -29,6 +29,11 @@ public final class LibraryStore {
         self.watch = watch
     }
 
+    #if DEBUG
+    /// Test-only: seed the split arrays without a network/library round-trip.
+    func setForTest(movies: [MediaItem], shows: [MediaItem]) { self.movies = movies; self.shows = shows }
+    #endif
+
     public func load() async {
         if let cached = library.loadCached() { apply(cached) } else { state = .loading }
         do {

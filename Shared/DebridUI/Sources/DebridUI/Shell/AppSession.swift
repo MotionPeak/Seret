@@ -293,8 +293,11 @@ public final class AppSession {
         libraryStore = LibraryStore(library: service, watch: watchStore)
         searchStore = SearchStore(search: TMDBSearchService(client: tmdb))
         let discover = TMDBDiscoverService(client: tmdb)
-        moviesBrowse = DiscoverStore(kind: .movie, discover: discover)
-        showsBrowse = DiscoverStore(kind: .show, discover: discover)
+        let seedService = RecommendationSeedService(
+            watch: watchStore ?? NoWatch(), library: libraryStore,
+            profileID: { [weak self] in self?.activeProfileID })
+        moviesBrowse = DiscoverStore(kind: .movie, discover: discover, seeds: seedService)
+        showsBrowse = DiscoverStore(kind: .show, discover: discover, seeds: seedService)
         trailers = TMDBTrailerService(client: tmdb)
         trailerResolver = YouTubeKitStreamResolver()
         // Comet = accurate instant-cache flags; Torrentio = broad index incl. brand-new CAMs.
@@ -493,4 +496,14 @@ public final class AppSession {
         FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSTemporaryDirectory())
     }
+}
+
+/// No-op watch store for when SwiftData is unavailable — "For You" seeds then come from the
+/// library only.
+private struct NoWatch: WatchProgressProviding {
+    func progress(forContentKey key: String, profileID: String) async throws -> WatchState? { nil }
+    func record(contentKey: String, sourceKey: String, positionSeconds: Double,
+                durationSeconds: Double, finished: Bool, profileID: String) async throws {}
+    func recentlyWatched(limit: Int, profileID: String) async throws -> [WatchState] { [] }
+    func deleteProgress(forContentKeys keys: [String]) async throws {}
 }
