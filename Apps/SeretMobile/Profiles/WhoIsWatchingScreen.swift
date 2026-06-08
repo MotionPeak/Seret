@@ -8,6 +8,9 @@ struct WhoIsWatchingScreen: View {
     @Environment(AppSession.self) private var session
     @State private var addingName = ""
     @State private var showingAdd = false
+    /// Called after a profile is picked — lets a modal presentation (Settings → Manage Profiles)
+    /// dismiss itself. The launch gate uses the default no-op (it disappears on its own).
+    var onPicked: () -> Void = {}
 
     private var profiles: [ProfileDTO] { session.activeProfiles?.roster ?? [] }
     private let columns = [GridItem(.adaptive(minimum: 130), spacing: 28)]
@@ -21,7 +24,7 @@ struct WhoIsWatchingScreen: View {
                     .foregroundStyle(Theme.Palette.textPrimary)
                 LazyVGrid(columns: columns, spacing: 28) {
                     ForEach(profiles) { p in
-                        Button { session.selectProfile(p.id) } label: { ProfileAvatar(profile: p) }
+                        Button { session.selectProfile(p.id); onPicked() } label: { ProfileAvatar(profile: p) }
                             .buttonStyle(.plain)
                     }
                     Button { showingAdd = true } label: { AddProfileTile() }

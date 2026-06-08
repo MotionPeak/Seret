@@ -6,6 +6,7 @@ struct SettingsView: View {
     @Environment(AppSession.self) private var session
     @State private var model = SettingsModel(
         secretStore: KeychainSecretStore(service: "com.solomons.seret.opensubtitles"))
+    @State private var showingProfiles = false
 
     var body: some View {
         Form {
@@ -20,22 +21,23 @@ struct SettingsView: View {
             }
             .listRowBackground(Theme.Palette.surface1)
 
-            if (session.activeProfiles?.roster.count ?? 0) > 1 {
-                Section {
-                    Button { session.switchProfile() } label: {
-                        Label("Switch Profile", systemImage: "person.crop.circle.badge.checkmark")
-                            .foregroundStyle(Theme.Palette.textPrimary)
-                    }
-                } header: {
-                    Text("Profile").foregroundStyle(Theme.Palette.gold)
-                } footer: {
-                    if let name = session.activeProfiles?.activeProfile?.name {
-                        Text("Watching as \(name).")
-                            .font(.footnote).foregroundStyle(Theme.Palette.textSecondary)
-                    }
+            Section {
+                Button { showingProfiles = true } label: {
+                    Label("Manage Profiles", systemImage: "person.2.crop.square.stack")
+                        .foregroundStyle(Theme.Palette.textPrimary)
                 }
-                .listRowBackground(Theme.Palette.surface1)
+            } header: {
+                Text("Profile").foregroundStyle(Theme.Palette.gold)
+            } footer: {
+                if let name = session.activeProfiles?.activeProfile?.name {
+                    Text("Watching as \(name). Add a profile so each viewer gets their own Continue Watching and My List.")
+                        .font(.footnote).foregroundStyle(Theme.Palette.textSecondary)
+                } else {
+                    Text("Add a profile so each viewer gets their own Continue Watching and My List.")
+                        .font(.footnote).foregroundStyle(Theme.Palette.textSecondary)
+                }
             }
+            .listRowBackground(Theme.Palette.surface1)
 
             Section {
                 if model.isConnected {
@@ -116,6 +118,17 @@ struct SettingsView: View {
         .background(CanvasBackground())
         .tint(Theme.Palette.gold)
         .navigationTitle("Settings")
+        .sheet(isPresented: $showingProfiles) {
+            NavigationStack {
+                WhoIsWatchingScreen(onPicked: { showingProfiles = false })
+                    .environment(session)
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button("Done") { showingProfiles = false }.tint(Theme.Palette.gold)
+                        }
+                    }
+            }
+        }
     }
 
     // Bindings into the shared, persisted subtitle preferences.

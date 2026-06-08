@@ -6,6 +6,7 @@ struct SettingsView: View {
     @Environment(AppSession.self) private var session
     @State private var model = SettingsModel(
         secretStore: KeychainSecretStore(service: "com.solomons.seret.opensubtitles"))
+    @State private var showingProfiles = false
 
     var body: some View {
         ZStack {
@@ -72,9 +73,9 @@ struct SettingsView: View {
                         Text("Watching as \(name).").font(.callout)
                             .foregroundStyle(Theme.Palette.textSecondary)
                     }
-                    if (session.activeProfiles?.roster.count ?? 0) > 1 {
-                        Button("Switch Profile") { session.switchProfile() }
-                    }
+                    Text("Add a profile so each viewer gets their own Continue Watching and My List.")
+                        .font(.callout).foregroundStyle(Theme.Palette.textSecondary)
+                    Button("Manage Profiles") { showingProfiles = true }
                 }
                 .frame(maxWidth: 900)
 
@@ -90,6 +91,10 @@ struct SettingsView: View {
                 .padding(.bottom, 80)
                 .focusSection()      // let DOWN from the top nav bar move into the form
             }
+        }
+        .fullScreenCover(isPresented: $showingProfiles) {
+            WhoIsWatchingScreen(onPicked: { showingProfiles = false })
+                .environment(session)
         }
     }
 

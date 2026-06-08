@@ -8,6 +8,9 @@ struct WhoIsWatchingScreen: View {
     @Environment(AppSession.self) private var session
     @State private var addingName = ""
     @State private var showingAdd = false
+    /// Called after a profile is picked — lets a modal presentation (Settings → Manage Profiles)
+    /// dismiss itself. The launch gate uses the default no-op (it disappears on its own).
+    var onPicked: () -> Void = {}
 
     private var profiles: [ProfileDTO] { session.activeProfiles?.roster ?? [] }
 
@@ -20,7 +23,7 @@ struct WhoIsWatchingScreen: View {
                     .foregroundStyle(Theme.Palette.textPrimary)
                 HStack(spacing: 50) {
                     ForEach(profiles) { p in
-                        Button { session.selectProfile(p.id) } label: { ProfileAvatar(profile: p) }
+                        Button { session.selectProfile(p.id); onPicked() } label: { ProfileAvatar(profile: p) }
                             .buttonStyle(.card)
                     }
                     Button { showingAdd = true } label: { AddProfileTile() }
