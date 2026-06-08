@@ -50,14 +50,14 @@ private final class FakeDetails: MediaDetailsProviding {
 private actor FakeWatch: WatchProgressProviding {
     private var rows: [String: WatchState]
     init(_ seed: [String: WatchState] = [:]) { rows = seed }
-    func progress(forContentKey key: String) async throws -> WatchState? { rows[key] }
+    func progress(forContentKey key: String, profileID: String) async throws -> WatchState? { rows[key] }
     func record(contentKey: String, sourceKey: String, positionSeconds: Double,
-                durationSeconds: Double, finished: Bool) async throws {
+                durationSeconds: Double, finished: Bool, profileID: String) async throws {
         rows[contentKey] = WatchState(contentKey: contentKey, sourceKey: sourceKey,
                                       positionSeconds: positionSeconds, durationSeconds: durationSeconds,
                                       finished: finished, updatedAt: Date(timeIntervalSince1970: 0))
     }
-    func recentlyWatched(limit: Int) async throws -> [WatchState] {
+    func recentlyWatched(limit: Int, profileID: String) async throws -> [WatchState] {
         Array(rows.values.filter { !$0.finished && $0.positionSeconds > 0 }.prefix(limit))
     }
     func deleteProgress(forContentKeys keys: [String]) async throws {
@@ -121,7 +121,8 @@ private actor FakeWatch: WatchProgressProviding {
 
     @Test func markWatchedWritesAndReadsBack() async {
         let m = movie("1", sources: [source("t", "1080p")])
-        let store = DetailStore(item: m, details: FakeDetails(movie: .success(movieDetails())), watch: FakeWatch())
+        let store = DetailStore(item: m, details: FakeDetails(movie: .success(movieDetails())),
+                                watch: FakeWatch(), profileID: "p1")
         await store.load()
         let key = WatchKey.content(forMovie: m)
         #expect(store.watchState(forKey: key) == nil)
@@ -138,7 +139,7 @@ private actor FakeWatch: WatchProgressProviding {
                                 positionSeconds: 600, durationSeconds: 1200, finished: false,
                                 updatedAt: Date(timeIntervalSince1970: 0))
         let store = DetailStore(item: m, details: FakeDetails(movie: .success(movieDetails())),
-                                watch: FakeWatch([key: seeded]))
+                                watch: FakeWatch([key: seeded]), profileID: "p1")
         await store.load()
         #expect(store.playRequest(source: m.sources[0], episode: nil, label: m.title).resumeAt == 600)
         #expect(store.playRequest(source: m.sources[0], episode: nil, label: m.title, fromStart: true).resumeAt == nil)
@@ -151,7 +152,7 @@ private actor FakeWatch: WatchProgressProviding {
                                 positionSeconds: 1200, durationSeconds: 1200, finished: true,
                                 updatedAt: Date(timeIntervalSince1970: 0))
         let store = DetailStore(item: m, details: FakeDetails(movie: .success(movieDetails())),
-                                watch: FakeWatch([key: seeded]))
+                                watch: FakeWatch([key: seeded]), profileID: "p1")
         await store.load()
         #expect(store.playRequest(source: m.sources[0], episode: nil, label: m.title).resumeAt == nil)
     }

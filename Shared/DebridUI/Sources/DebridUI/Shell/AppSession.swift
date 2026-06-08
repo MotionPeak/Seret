@@ -57,6 +57,12 @@ public final class AppSession {
     /// sign-out (a device preference). Recorded by `PlayerModel` when the user picks a track.
     public let trackPreferences = TrackPreferences()
     private var watchProgressStore: WatchProgressStore?   // concrete ref for PlaybackCoordinator
+    /// Profile roster store (CRUD) — used by the Who's-Watching / profile-manager UI (later slice).
+    public private(set) var profileStore: ProfileStore?
+    /// Per-profile "My List" store — claimed-title membership (later slice wires claim on add/play).
+    public private(set) var myListStore: MyListStore?
+    /// The profile this device is currently watching as. Set after owner bootstrap / profile switch.
+    public private(set) var activeProfileID: String?
     private var torrents: TorrentsClient?
     /// Single, app-lifetime observer that rebuilds Home when CloudKit imports remote changes.
     private var remoteChangeObserver: NSObjectProtocol?
@@ -150,21 +156,25 @@ public final class AppSession {
     /// The shared CloudKit container both Seret apps sync through (one private DB per Apple ID).
     private static let cloudKitContainerID = "iCloud.com.solomons.seret"
 
-    /// Builds the watch-progress store backed by CloudKit so progress syncs across the user's
-    /// devices; falls back to a local-only store if iCloud/CloudKit is unavailable (e.g. no iCloud
-    /// account) so the app still works offline and never loses local data.
-    private static func makeWatchProgressStore() -> WatchProgressStore? {
-        let schema = Schema([WatchProgress.self])
+    /// The watch-progress + profile + My-List stores, built from ONE CloudKit-backed container so
+    /// cascade-delete + owner migration work across them and they share a single private DB. Falls
+    /// back to local-only if iCloud/CloudKit is unavailable so the app still works offline.
+    private struct ProfileStores {
+        let watch: WatchProgressStore
+        let profiles: ProfileStore
+        let myList: MyListStore
+    }
+
+    private static func makeProfileStores() -> ProfileStores? {
+        let schema = Schema([WatchProgress.self, Profile.self, MyListEntry.self])
         let cloud = ModelConfiguration(schema: schema,
                                        cloudKitDatabase: .private(cloudKitContainerID))
-        if let container = try? ModelContainer(for: schema, configurations: cloud) {
-            return WatchProgressStore(modelContainer: container)
-        }
-        let local = ModelConfiguration(schema: schema)
-        if let container = try? ModelContainer(for: schema, configurations: local) {
-            return WatchProgressStore(modelContainer: container)
-        }
-        return nil
+        let container = (try? ModelContainer(for: schema, configurations: cloud))
+            ?? (try? ModelContainer(for: schema, configurations: ModelConfiguration(schema: schema)))
+        guard let container else { return nil }
+        return ProfileStores(watch: WatchProgressStore(modelContainer: container),
+                             profiles: ProfileStore(modelContainer: container),
+                             myList: MyListStore(modelContainer: container))
     }
 
     /// Enter `.signedIn`, composing the DebridCore library pipeline once. Thin glue: the app
@@ -179,10 +189,13 @@ public final class AppSession {
             builder: LibraryBuilder(),
             enricher: MetadataEnricher(tmdb: tmdb),
             store: LibrarySnapshotStore(directory: Self.cachesDirectory))
-        // Build the watch store first so LibraryStore can purge a removed item's progress.
-        let concreteStore = Self.makeWatchProgressStore()
-        watchProgressStore = concreteStore
-        watchStore = concreteStore.map { $0 as WatchProgressProviding }
+        // Build the watch + profile + My-List stores from one shared container so cascade-delete,
+        // owner migration, and CloudKit sync all operate together.
+        let stores = Self.makeProfileStores()
+        watchProgressStore = stores?.watch
+        watchStore = stores?.watch as WatchProgressProviding?
+        profileStore = stores?.profiles
+        myListStore = stores?.myList
         libraryStore = LibraryStore(library: service, watch: watchStore)
         searchStore = SearchStore(search: TMDBSearchService(client: tmdb))
         let discover = TMDBDiscoverService(client: tmdb)
@@ -237,6 +250,17 @@ public final class AppSession {
         } else {
             subtitlesProvider = nil
         }
+        // Profiles: ensure an owner profile exists (migrating Phase-1 progress), set it active on
+        // this device, and scope Home to it. Profile switching arrives in a later slice.
+        if let profileStore {
+            Task { @MainActor in
+                let owner = try? await profileStore.ensureOwnerProfileAndMigrate(
+                    ownerName: "Me", colorTag: "gold")
+                self.activeProfileID = owner?.id
+                self.home?.activeProfileID = owner?.id
+                await self.rebuildHome()
+            }
+        }
         state = .signedIn
     }
 
@@ -263,7 +287,7 @@ public final class AppSession {
     public func makePlayer(for request: PlaybackRequest,
                            engine: VideoPlayerEngine) -> PlayerModel? {
         guard let torrents, let store = watchProgressStore else { return nil }
-        let coordinator = PlaybackCoordinator(store: store)
+        let coordinator = PlaybackCoordinator(store: store, profileID: activeProfileID ?? "")
         return PlayerModel(
             request: request,
             engine: engine,

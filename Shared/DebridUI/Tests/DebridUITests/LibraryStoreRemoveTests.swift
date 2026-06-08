@@ -32,10 +32,10 @@ private final class RemoveFakeLibrary: LibraryProviding {
 
 private actor RecordingWatch: WatchProgressProviding {
     private(set) var deletedKeys: [String] = []
-    func progress(forContentKey key: String) async throws -> WatchState? { nil }
+    func progress(forContentKey key: String, profileID: String) async throws -> WatchState? { nil }
     func record(contentKey: String, sourceKey: String, positionSeconds: Double,
-                durationSeconds: Double, finished: Bool) async throws {}
-    func recentlyWatched(limit: Int) async throws -> [WatchState] { [] }
+                durationSeconds: Double, finished: Bool, profileID: String) async throws {}
+    func recentlyWatched(limit: Int, profileID: String) async throws -> [WatchState] { [] }
     func deleteProgress(forContentKeys keys: [String]) async throws { deletedKeys.append(contentsOf: keys) }
 }
 

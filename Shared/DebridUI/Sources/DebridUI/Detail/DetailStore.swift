@@ -12,6 +12,9 @@ public final class DetailStore {
     public let item: MediaItem
     private let details: MediaDetailsProviding
     private let watch: WatchProgressProviding?
+    /// The active profile whose progress this Detail reads/writes. nil → no active profile yet
+    /// (record/read are skipped until `AppSession` sets one).
+    private let profileID: String?
     private let ratingsProvider: RatingsProviding?
 
     public private(set) var richState: RichState = .idle
@@ -35,10 +38,11 @@ public final class DetailStore {
     public private(set) var ratingsState: RichState = .idle
 
     public init(item: MediaItem, details: MediaDetailsProviding, watch: WatchProgressProviding?,
-                ratings: RatingsProviding? = nil) {
+                profileID: String? = nil, ratings: RatingsProviding? = nil) {
         self.item = item
         self.details = details
         self.watch = watch
+        self.profileID = profileID
         self.ratingsProvider = ratings
         self.overview = item.overview
         self.backdropPath = item.backdropPath
@@ -142,11 +146,12 @@ public final class DetailStore {
 
     /// Mark a movie or episode watched/unwatched. `source` records the exact file (sourceKey).
     public func setWatched(_ watched: Bool, contentKey: String, source: MediaSource) async {
-        guard let watch else { return }
+        guard let watch, let profileID else { return }
         // A manual mark has no playback position — `finished` drives the UI (full bar / ✓);
         // live playback progress (position) is written later by the 7c player.
         try? await watch.record(contentKey: contentKey, sourceKey: WatchKey.source(source),
-                                positionSeconds: 0, durationSeconds: 0, finished: watched)
+                                positionSeconds: 0, durationSeconds: 0, finished: watched,
+                                profileID: profileID)
         await refreshWatch(contentKey)
     }
 
@@ -215,7 +220,7 @@ public final class DetailStore {
     }
 
     private func refreshWatch(_ key: String) async {
-        guard let watch else { return }
-        watchByKey[key] = try? await watch.progress(forContentKey: key)
+        guard let watch, let profileID else { return }
+        watchByKey[key] = try? await watch.progress(forContentKey: key, profileID: profileID)
     }
 }
