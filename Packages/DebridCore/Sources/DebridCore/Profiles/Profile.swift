@@ -15,13 +15,16 @@ public final class Profile {
     /// A design-system color token (e.g. "gold"); the UI maps it to a palette. Stored as a string
     /// so the brain stays UI-free.
     public var colorTag: String = ""
+    /// The profile's avatar — an emoji (e.g. "🦊"). Empty for old rows; the UI shows a fallback.
+    public var avatar: String = ""
     public var createdAt: Date = Date(timeIntervalSince1970: 0)
 
-    public init(id: String = "", name: String = "", colorTag: String = "",
+    public init(id: String = "", name: String = "", colorTag: String = "", avatar: String = "",
                 createdAt: Date = Date(timeIntervalSince1970: 0)) {
         self.id = id
         self.name = name
         self.colorTag = colorTag
+        self.avatar = avatar
         self.createdAt = createdAt
     }
 }
@@ -32,16 +35,18 @@ public struct ProfileDTO: Sendable, Equatable, Identifiable {
     public let id: String
     public let name: String
     public let colorTag: String
+    public let avatar: String
     public let createdAt: Date
 
-    public init(id: String, name: String, colorTag: String, createdAt: Date) {
+    public init(id: String, name: String, colorTag: String, avatar: String = "", createdAt: Date) {
         self.id = id
         self.name = name
         self.colorTag = colorTag
+        self.avatar = avatar
         self.createdAt = createdAt
     }
 
     public init(_ m: Profile) {
-        self.init(id: m.id, name: m.name, colorTag: m.colorTag, createdAt: m.createdAt)
+        self.init(id: m.id, name: m.name, colorTag: m.colorTag, avatar: m.avatar, createdAt: m.createdAt)
     }
 }

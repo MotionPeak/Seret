@@ -31,6 +31,14 @@ extension SwiftDataSuite {
             #expect(all.first?.name == "A")
         }
 
+        @Test func createCarriesAvatar() async throws {
+            let store = ProfileStore(modelContainer: try container())
+            let p = try await store.create(name: "Kid", colorTag: "blue", avatar: "🦊",
+                                           id: "k", at: Date(timeIntervalSince1970: 1))
+            #expect(p.avatar == "🦊")
+            #expect(try await store.all().first?.avatar == "🦊")
+        }
+
         @Test func renameChangesName() async throws {
             let store = ProfileStore(modelContainer: try container())
             _ = try await store.create(name: "Old", colorTag: "gold", id: "p1",

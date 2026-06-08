@@ -18,9 +18,9 @@ public actor ProfileStore {
 
     /// Create a profile. `id`/`at` are injectable for deterministic tests.
     @discardableResult
-    public func create(name: String, colorTag: String,
+    public func create(name: String, colorTag: String, avatar: String = "",
                        id: String = UUID().uuidString, at: Date = Date()) throws -> ProfileDTO {
-        let p = Profile(id: id, name: name, colorTag: colorTag, createdAt: at)
+        let p = Profile(id: id, name: name, colorTag: colorTag, avatar: avatar, createdAt: at)
         modelContext.insert(p)
         try modelContext.save()
         return ProfileDTO(p)
@@ -50,14 +50,14 @@ public actor ProfileStore {
     /// untouched. Otherwise create an owner profile and re-key every `profileID == nil`
     /// `WatchProgress` row to it, so Phase-1 progress is preserved under the new profile model.
     @discardableResult
-    public func ensureOwnerProfileAndMigrate(ownerName: String, colorTag: String,
+    public func ensureOwnerProfileAndMigrate(ownerName: String, colorTag: String, avatar: String = "",
                                              id: String = UUID().uuidString,
                                              at: Date = Date()) throws -> ProfileDTO {
         let existing = try modelContext.fetch(FetchDescriptor<Profile>(
             sortBy: [SortDescriptor(\.createdAt, order: .forward)]))
         if let owner = existing.first { return ProfileDTO(owner) }
 
-        let owner = Profile(id: id, name: ownerName, colorTag: colorTag, createdAt: at)
+        let owner = Profile(id: id, name: ownerName, colorTag: colorTag, avatar: avatar, createdAt: at)
         modelContext.insert(owner)
         for row in try modelContext.fetch(FetchDescriptor<WatchProgress>(
             predicate: #Predicate { $0.profileID == nil })) {
