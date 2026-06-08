@@ -53,9 +53,7 @@ extension MockTests {
             let first = streams[0]
             #expect(first.infoHash == String(repeating: "a", count: 40))
             #expect(first.parsed.resolution == "2160p")
-            // FilenameParser yields "BluRay" for a "BluRay.REMUX" name (BluRay precedence) —
-            // pre-existing parser behavior; see the REMUX-precedence follow-up.
-            #expect(first.parsed.source == "BluRay")
+            #expect(first.parsed.source == "REMUX")   // "BluRay.REMUX" → REMUX (top tier) outranks BluRay
             #expect(first.languages == ["en", "fr"])
             #expect(first.sizeBytes == 64500000000)
             #expect(streams[1].infoHash == String(repeating: "b", count: 40))
