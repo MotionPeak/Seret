@@ -55,6 +55,7 @@ struct ShowDetailView: View {
         VStack(alignment: .leading, spacing: 18) {
             Text(item.title).font(.system(size: 46, weight: .bold))
             Text(metaLine).font(.body).foregroundStyle(.secondary)
+            RatingsRow(ratings: store.ratings)
             if let overview = store.overview {
                 Text(overview).font(.body).frame(maxWidth: 1100, alignment: .leading).lineLimit(3)
             }

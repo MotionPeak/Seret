@@ -37,6 +37,7 @@ struct MovieDetailView: View {
             Text(item.title).font(.system(size: 48, weight: .bold))
             Text(metaLine).font(.body).foregroundStyle(.secondary)
             if let best = store.bestSource { QualityChips(parsed: best.parsed) }
+            RatingsRow(ratings: store.ratings)
             if let overview = store.overview {
                 Text(overview).font(.body).frame(maxWidth: 1100, alignment: .leading).lineLimit(3)
             }
