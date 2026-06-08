@@ -28,6 +28,10 @@ struct HomeScreen: View {
         }
         .onChange(of: session.libraryStore?.movies) { _, _ in Task { await rebuild() } }
         .onChange(of: session.libraryStore?.shows) { _, _ in Task { await rebuild() } }
+        // The active profile resolves asynchronously after sign-in; rebuild once it's known.
+        .onChange(of: session.activeProfileID) { _, _ in Task { await rebuild() } }
+        // Re-enter the Home tab (e.g. after watching something) → refresh Continue Watching.
+        .onAppear { Task { await rebuild() } }
     }
 
     @ViewBuilder private var content: some View {

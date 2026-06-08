@@ -51,6 +51,10 @@ struct LibraryShell: View {
         .task(id: session.libraryStore?.attempt ?? -1) {
             await session.libraryStore?.load()
         }
+        // Refresh Continue Watching when you land on Home, and when you return from a pushed
+        // Detail/Player (the kept-alive Home tab won't re-run its own .task).
+        .onChange(of: tab) { _, new in if new == .home { Task { await session.refreshHome() } } }
+        .onChange(of: path.isEmpty) { _, empty in if empty { Task { await session.refreshHome() } } }
     }
 
     /// A focusable pill row. Moving focus across the pills switches the page live (onChange),

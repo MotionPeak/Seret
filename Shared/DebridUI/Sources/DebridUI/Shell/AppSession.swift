@@ -299,6 +299,10 @@ public final class AppSession {
         await home.rebuild(movies: library.movies, shows: library.shows)
     }
 
+    /// Public refresh so a screen can update Continue Watching after playback writes progress
+    /// (the Home tab is kept alive, so its `.task` doesn't re-run when you return to it).
+    public func refreshHome() async { await rebuildHome() }
+
     /// Install once: when the persistent store imports CloudKit changes, refresh Home so a title
     /// watched on another device shows up in Continue Watching without relaunch. `[weak self]` +
     /// app-lifetime single instance → no retain cycle, no teardown needed.

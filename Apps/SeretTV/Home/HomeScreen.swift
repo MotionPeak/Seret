@@ -15,6 +15,9 @@ struct HomeScreen: View {
         .task { await rebuild() }
         .onChange(of: session.libraryStore?.movies) { _, _ in Task { await rebuild() } }
         .onChange(of: session.libraryStore?.shows) { _, _ in Task { await rebuild() } }
+        // The active profile resolves asynchronously after sign-in; rebuild once it's known so
+        // Continue Watching isn't stuck on the empty (no-profile) state.
+        .onChange(of: session.activeProfileID) { _, _ in Task { await rebuild() } }
     }
 
     @ViewBuilder private var content: some View {
