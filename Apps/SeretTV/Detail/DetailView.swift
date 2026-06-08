@@ -16,9 +16,9 @@ struct DetailView: View {
     private struct EpisodePlayback: Identifiable { let id = UUID(); let request: PlaybackRequest }
 
     init(item: MediaItem, details: MediaDetailsProviding, watch: WatchProgressProviding?,
-         profileID: String? = nil, ratings: RatingsProviding? = nil) {
+         profileID: String? = nil, myList: MyListProviding? = nil, ratings: RatingsProviding? = nil) {
         _store = State(initialValue: DetailStore(item: item, details: details, watch: watch,
-                                                 profileID: profileID, ratings: ratings))
+                                                 profileID: profileID, myList: myList, ratings: ratings))
     }
 
     var body: some View {
@@ -36,6 +36,7 @@ struct DetailView: View {
             }
         }
         .task { await store.load() }
+        .task { await store.loadMyList(contentKey: store.item.id) }
         .fullScreenCover(item: $episodePlayback) { presented in
             let engine = VLCKitVideoPlayerEngine(preferences: session.subtitleSettings.preferences)
             if let model = session.makePlayer(for: presented.request, engine: engine) {

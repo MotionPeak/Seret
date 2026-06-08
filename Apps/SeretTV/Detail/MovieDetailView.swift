@@ -84,6 +84,12 @@ struct MovieDetailView: View {
                       systemImage: isWatched ? "checkmark.circle.fill" : "checkmark.circle")
             }
             .disabled(item.sources.isEmpty)
+            Button {
+                Task { await store.toggleMyList(contentKey: item.id) }
+            } label: {
+                Label(store.inMyList ? "In My List" : "Add to My List",
+                      systemImage: store.inMyList ? "checkmark" : "plus")
+            }
             Button(role: .destructive) { onRemove() } label: {
                 Label("Remove from Library", systemImage: "trash")
             }
