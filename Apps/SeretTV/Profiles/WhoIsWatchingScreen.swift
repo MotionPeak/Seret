@@ -11,17 +11,16 @@ struct WhoIsWatchingScreen: View {
     var onPicked: () -> Void = {}
 
     private var profiles: [ProfileDTO] { session.activeProfiles?.roster ?? [] }
-    private let columns = [GridItem(.adaptive(minimum: 260), spacing: 50)]
 
     var body: some View {
         ZStack {
             CanvasBackground()
-            ScrollView {
-                VStack(spacing: 60) {
-                    Text("Who's Watching?")
-                        .font(.system(size: 56, weight: .heavy))
-                        .foregroundStyle(Theme.Palette.textPrimary)
-                    LazyVGrid(columns: columns, spacing: 50) {
+            VStack(spacing: 64) {
+                Text("Who's Watching?")
+                    .font(.system(size: 56, weight: .heavy))
+                    .foregroundStyle(Theme.Palette.textPrimary)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 56) {
                         ForEach(profiles) { p in
                             Button { session.selectProfile(p.id); onPicked() } label: { ProfileAvatar(profile: p) }
                                 .buttonStyle(.card)
@@ -30,9 +29,10 @@ struct WhoIsWatchingScreen: View {
                             .buttonStyle(.card)
                     }
                     .padding(.horizontal, 80)
+                    .frame(minWidth: 0, maxWidth: .infinity)   // center when few profiles
                 }
-                .padding(.vertical, 80)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .fullScreenCover(isPresented: $showingAdd) {
             AddProfileScreen().environment(session)

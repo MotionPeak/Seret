@@ -11,8 +11,12 @@ struct AddProfileScreen: View {
 
     private let columns = [GridItem(.adaptive(minimum: 64), spacing: 14)]
     private let palette = ["gold", "blue", "green", "red", "purple"]
-    private var color: String { palette[(session.activeProfiles?.roster.count ?? 0) % palette.count] }
-    private var trimmedName: String { name.trimmingCharacters(in: .whitespaces) }
+    private var count: Int { session.activeProfiles?.roster.count ?? 0 }
+    private var color: String { palette[count % palette.count] }
+    private var finalName: String {
+        let t = name.trimmingCharacters(in: .whitespaces)
+        return t.isEmpty ? "Profile \(count + 1)" : t
+    }
 
     var body: some View {
         NavigationStack {
@@ -26,7 +30,7 @@ struct AddProfileScreen: View {
                         }
                         .padding(.top, 12)
 
-                        TextField("Name", text: $name)
+                        TextField("Name (optional)", text: $name)
                             .textFieldStyle(.roundedBorder)
                             .padding(.horizontal, 24)
 
@@ -56,13 +60,12 @@ struct AddProfileScreen: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Create") {
-                        guard !trimmedName.isEmpty else { return }
+                        let n = finalName, c = color, a = avatar
                         Task {
-                            await session.createProfile(name: trimmedName, colorTag: color, avatar: avatar)
+                            await session.createProfile(name: n, colorTag: c, avatar: a)
                             dismiss()
                         }
                     }
-                    .disabled(trimmedName.isEmpty)
                     .tint(Theme.Palette.gold)
                 }
             }

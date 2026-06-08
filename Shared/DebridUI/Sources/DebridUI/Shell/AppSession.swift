@@ -171,10 +171,17 @@ public final class AppSession {
 
     private static func makeProfileStores() -> ProfileStores? {
         let schema = Schema([WatchProgress.self, Profile.self, MyListEntry.self])
-        let cloud = ModelConfiguration(schema: schema,
-                                       cloudKitDatabase: .private(cloudKitContainerID))
-        let container = (try? ModelContainer(for: schema, configurations: cloud))
-            ?? (try? ModelContainer(for: schema, configurations: ModelConfiguration(schema: schema)))
+        // Only ask for CloudKit when an iCloud account is actually signed in. On a simulator (or a
+        // device without iCloud), a CloudKit-backed store fails its operations *silently* — which
+        // showed up as an empty roster and Add doing nothing. With no account we use a local-only
+        // store so profiles always work; CloudKit (cross-device sync) engages on real iCloud devices.
+        let useCloudKit = FileManager.default.ubiquityIdentityToken != nil
+        let local = ModelConfiguration(schema: schema)
+        let primary = useCloudKit
+            ? ModelConfiguration(schema: schema, cloudKitDatabase: .private(cloudKitContainerID))
+            : local
+        let container = (try? ModelContainer(for: schema, configurations: primary))
+            ?? (try? ModelContainer(for: schema, configurations: local))
         guard let container else { return nil }
         return ProfileStores(watch: WatchProgressStore(modelContainer: container),
                              profiles: ProfileStore(modelContainer: container),
