@@ -79,17 +79,25 @@ Cache lives behind `OMDbRatingsService` so `DetailStore` and the protocol stay c
 Cache entry: `{ imdbID, ratings, fetchedAt }`. Read → if entry fresh, return; else fetch,
 store, return. Network failure with a stale entry present → return the stale entry.
 
-## UI — one shared component
+## UI — native `RatingsRow` per app (follows the existing convention)
 
-`RatingsRow` SwiftUI view in `Shared/DebridUI`, used by both apps' Movie + Show detail screens
-(`SeretTV/Detail/MovieDetailView.swift` + `ShowDetailView.swift`, `SeretMobile/Detail/
-MovieDetail.swift` + `ShowDetail.swift`). Placed directly below the quality chips.
+This codebase shares *logic*, not *screens*: each app has its own `Theme` design system and its
+own quality-chip view (`QualityChipRow` on mobile, `QualityChips` on tvOS). So `RatingsRow` is
+implemented twice — once per app — exactly like the quality chips. Both read `store.ratings`.
 
-> ⭐ IMDB 8.7   🍅 88%   Ⓜ 73
+- **Mobile** `Apps/SeretMobile/Detail/RatingsRow.swift` — styled with `Theme` (gold accents).
+  Placed below `QualityChipRow` in `MovieDetail`; below the meta line in `ShowDetail`.
+- **tvOS** `Apps/SeretTV/Detail/RatingsRow.swift` — styled with raw fonts/colors like
+  `QualityChips`. Placed below `QualityChips` in `MovieDetailView` hero; below the meta line in
+  `ShowDetailView` hero.
 
-- Renders only badges that have data.
-- Entire row hidden when `ratings == nil` or all three are nil.
-- Metacritic label: `Ⓜ 73`.
+Both render:
+
+> ⭐ IMDb 8.7   🍅 88%   Ⓜ 73
+
+- Renders only badges that have data (`OMDbRatings.hasAny` gates the row).
+- Entire row hidden when `store.ratings == nil` or all three are nil.
+- Metacritic label: `Ⓜ 73`. IMDb uses ⭐, Rotten Tomatoes uses 🍅.
 
 ## Secrets
 
@@ -102,11 +110,19 @@ MovieDetail.swift` + `ShowDetail.swift`). Placed directly below the quality chip
 
 ## Testing (TDD, host-free under `swift test`)
 
-- `OMDbClient`/`OMDbResponse` decode: full response; RT missing; all ratings missing;
-  `Response:"False"` error; TV series response.
-- Cache: fresh hit returns cached; expired entry refetches; network failure with stale entry
-  returns stale.
-- `RatingsRow`: all three; partial; none → row hidden.
+All logic lives in DebridCore/DebridUI and is testable without a host app. SwiftUI views
+(`RatingsRow`) have no unit-test infra in this repo (same as `QualityChips`) — they're verified
+by the owner's simulator screenshot, matching the project's "verify UI in the sim" convention.
+
+- `OMDbResponse` decode + map to `OMDbRatings` (DebridCore): full response; RT missing;
+  all ratings missing; `Response:"False"` error; TV series response. (`MockURLProtocol` suite,
+  nested under `MockTests`.)
+- `OMDbRatings.hasAny`: true with any score, false when all nil.
+- `OMDbRatingsCache` (DebridCore): fresh hit returns cached; expired entry returns nil from
+  `cached`; `stored` returns expired entry; persists across instances (same directory).
+  (Injected `now` clock + temp directory; pure, plain top-level suite.)
+- `OMDbRatingsService` (DebridUI): cache miss fetches + stores; cache hit skips fetch;
+  network failure with a stored (even stale) entry returns it; failure with no entry rethrows.
 
 ## Out of scope
 
