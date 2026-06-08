@@ -54,27 +54,35 @@ struct BrowseScreen: View {
 
     @ViewBuilder private var rows: some View {
         if let browse {
-            switch browse.state {
-            case .idle, .loading:
-                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .task(id: kind) { await browse.load() }   // kick off the feed (self-guards re-runs)
-            case .failed:
-                VStack(spacing: 28) {
-                    Image(systemName: "exclamationmark.triangle").font(.system(size: 64)).foregroundStyle(.secondary)
-                    Text("Couldn't load.").font(.title3)
-                    Button("Retry") { Task { await browse.load() } }.buttonStyle(.bordered)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            case .loaded:
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 40) {
-                        segmentPicker(browse).padding(.leading, 60)
-                        ForEach(browse.rows) { row in
-                            rail(title: row.title, hits: row.hits, cam: false)
-                        }
+            VStack(alignment: .leading, spacing: 0) {
+                segmentPicker(browse).padding(.leading, 60).padding(.bottom, 8)
+                segmentContent(browse)
+            }
+            // Load the selected segment whenever it changes (and on first show). Lazy + cached.
+            .task(id: browse.selectedSegment) { await browse.loadSegment(browse.selectedSegment) }
+        }
+    }
+
+    @ViewBuilder private func segmentContent(_ browse: DiscoverStore) -> some View {
+        switch browse.segmentState(browse.selectedSegment) {
+        case .idle, .loading:
+            ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+        case .failed:
+            VStack(spacing: 20) {
+                Image(systemName: "exclamationmark.triangle").font(.system(size: 54)).foregroundStyle(.secondary)
+                Text("Couldn't load.").font(.title3)
+                Button("Retry") { Task { await browse.loadSegment(browse.selectedSegment) } }
+                    .buttonStyle(.bordered)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        case .loaded:
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 40) {
+                    ForEach(browse.rows) { row in
+                        rail(title: row.title, hits: row.hits, cam: false)
                     }
-                    .padding(.vertical, 20)
                 }
+                .padding(.vertical, 20)
             }
         }
     }
