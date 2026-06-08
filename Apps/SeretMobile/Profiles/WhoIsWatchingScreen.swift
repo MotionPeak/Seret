@@ -11,35 +11,30 @@ struct WhoIsWatchingScreen: View {
     var onPicked: () -> Void = {}
 
     private var profiles: [ProfileDTO] { session.activeProfiles?.roster ?? [] }
-    private let columns = [GridItem(.adaptive(minimum: 120), spacing: 28)]
-
     var body: some View {
         ZStack {
             Theme.Palette.canvas.ignoresSafeArea()
-            VStack(spacing: 36) {
+            VStack(spacing: 40) {
                 Text("Who's Watching?")
                     .font(Theme.Typo.titleXL())
                     .foregroundStyle(Theme.Palette.textPrimary)
-                LazyVGrid(columns: columns, spacing: 28) {
-                    ForEach(profiles) { p in
-                        Button { session.selectProfile(p.id); onPicked() } label: { ProfileAvatar(profile: p) }
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 36) {
+                        ForEach(profiles) { p in
+                            Button { session.selectProfile(p.id); onPicked() } label: { ProfileAvatar(profile: p) }
+                                .buttonStyle(.plain)
+                        }
+                        Button { showingAdd = true } label: { AddProfileTile() }
                             .buttonStyle(.plain)
                     }
-                    Button { showingAdd = true } label: { AddProfileTile() }
-                        .buttonStyle(.plain)
-                }
-                .fixedSize(horizontal: true, vertical: false)   // size to content so it centers
-                HStack(spacing: 16) {
-                    Text("\(profiles.count) profile\(profiles.count == 1 ? "" : "s") · store: \(session.profileStoreMode)")
-                        .font(.footnote).foregroundStyle(Theme.Palette.textSecondary)
-                    Button("Reload") { Task { await session.reloadProfiles() } }
-                        .font(.footnote).tint(Theme.Palette.gold)
+                    .padding(.horizontal, 28)
+                    .frame(maxWidth: .infinity)   // center the row when it fits
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding(24)
         }
-        .sheet(isPresented: $showingAdd) {
+        .fullScreenCover(isPresented: $showingAdd) {
             AddProfileScreen().environment(session)
         }
     }

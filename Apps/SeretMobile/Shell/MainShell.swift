@@ -7,7 +7,9 @@ import SwiftUI
 /// Movies / TV are **browse** surfaces; My Library holds the user's Real-Debrid content.
 struct MainShell: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
+    @Environment(AppSession.self) private var session
     @State private var sidebarSelection: Section = .home
+    @State private var showingProfiles = false
     /// Persisted across launches. Collapsed shows an icon-only rail; expanded shows labels.
     @AppStorage("seret.ipad.sidebarExpanded") private var sidebarExpanded = true
 
@@ -15,10 +17,15 @@ struct MainShell: View {
     private let railCollapsedWidth: CGFloat = 76
 
     var body: some View {
-        if sizeClass == .compact {
-            tabBar
-        } else {
-            splitView
+        Group {
+            if sizeClass == .compact {
+                tabBar
+            } else {
+                splitView
+            }
+        }
+        .fullScreenCover(isPresented: $showingProfiles) {
+            WhoIsWatchingScreen(onPicked: { showingProfiles = false }).environment(session)
         }
     }
 
@@ -73,6 +80,7 @@ struct MainShell: View {
                 sidebarRow(section)
             }
             Spacer()
+            profileRow
         }
         .padding(Theme.Space.sm)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -103,6 +111,35 @@ struct MainShell: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(sidebarExpanded ? "Collapse sidebar" : "Expand sidebar")
+    }
+
+    private var activeProfile: ProfileDTO? { session.activeProfiles?.activeProfile }
+
+    /// Bottom-of-sidebar profile chip — the active avatar; tap to switch profiles.
+    private var profileRow: some View {
+        let avatar = activeProfile?.avatar ?? ""
+        return Button { showingProfiles = true } label: {
+            HStack(spacing: Theme.Space.md) {
+                ZStack {
+                    Circle().fill(Theme.Palette.color(for: activeProfile?.colorTag ?? "gold"))
+                        .frame(width: 30, height: 30)
+                    Text(avatar.isEmpty ? ProfileAvatars.fallback : avatar)
+                        .font(.system(size: 16))
+                }
+                if sidebarExpanded {
+                    Text(activeProfile?.name ?? "Profile")
+                        .font(.system(size: 17, weight: .semibold)).lineLimit(1)
+                    Spacer(minLength: 0)
+                }
+            }
+            .foregroundStyle(Theme.Palette.textSecondary)
+            .padding(.vertical, Theme.Space.md)
+            .padding(.horizontal, sidebarExpanded ? Theme.Space.md : 0)
+            .frame(maxWidth: .infinity, alignment: sidebarExpanded ? .leading : .center)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Switch profile")
     }
 
     private func sidebarRow(_ section: Section) -> some View {

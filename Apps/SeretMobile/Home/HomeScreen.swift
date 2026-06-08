@@ -8,6 +8,7 @@ struct HomeScreen: View {
     @Environment(AppSession.self) private var session
     @Environment(\.horizontalSizeClass) private var hSize
     @Environment(AppRouter.self) private var router
+    @State private var showingProfiles = false
 
     private var isRegular: Bool { hSize == .regular }
     private var posterW: CGFloat { isRegular ? 150 : 112 }
@@ -21,6 +22,24 @@ struct HomeScreen: View {
                 content
             }
             .navigationTitle("Home")
+            .toolbar {
+                // iPhone: a profile avatar in the nav bar for quick switching (iPad uses the sidebar).
+                if !isRegular {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button { showingProfiles = true } label: {
+                            let a = session.activeProfiles?.activeProfile?.avatar ?? ""
+                            ZStack {
+                                Circle().fill(Theme.Palette.color(for: session.activeProfiles?.activeProfile?.colorTag ?? "gold"))
+                                    .frame(width: 32, height: 32)
+                                Text(a.isEmpty ? ProfileAvatars.fallback : a).font(.system(size: 17))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .fullScreenCover(isPresented: $showingProfiles) {
+            WhoIsWatchingScreen(onPicked: { showingProfiles = false }).environment(session)
         }
         .task {
             await session.libraryStore?.load()

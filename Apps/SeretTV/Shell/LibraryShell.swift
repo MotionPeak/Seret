@@ -10,6 +10,7 @@ struct LibraryShell: View {
     @Environment(AppSession.self) private var session
     @State private var tab: ShellTab = .home
     @State private var path = NavigationPath()
+    @State private var showingProfiles = false
     @FocusState private var focusedTab: ShellTab?
 
     var body: some View {
@@ -55,6 +56,21 @@ struct LibraryShell: View {
         // Detail/Player (the kept-alive Home tab won't re-run its own .task).
         .onChange(of: tab) { _, new in if new == .home { Task { await session.refreshHome() } } }
         .onChange(of: path.isEmpty) { _, empty in if empty { Task { await session.refreshHome() } } }
+        .fullScreenCover(isPresented: $showingProfiles) {
+            WhoIsWatchingScreen(onPicked: { showingProfiles = false }).environment(session)
+        }
+    }
+
+    /// The active profile avatar at the right of the top bar — tap to switch profiles.
+    private var profileButton: some View {
+        let p = session.activeProfiles?.activeProfile
+        return Button { showingProfiles = true } label: {
+            ZStack {
+                Circle().fill(Theme.Palette.color(for: p?.colorTag ?? "gold")).frame(width: 56, height: 56)
+                Text((p?.avatar.isEmpty == false ? p!.avatar : ProfileAvatars.fallback)).font(.system(size: 30))
+            }
+        }
+        .buttonStyle(.card)
     }
 
     /// A focusable pill row. Moving focus across the pills switches the page live (onChange),
@@ -71,6 +87,7 @@ struct LibraryShell: View {
         }
         .padding(.top, 28).padding(.bottom, 12)
         .frame(maxWidth: .infinity)
+        .overlay(alignment: .trailing) { profileButton.padding(.trailing, 50).padding(.top, 16) }
         .onChange(of: focusedTab) { _, new in
             // Instant swap — no crossfade. Animating a tab change cross-dissolved the whole page
             // (heavy poster grids included), which read as a sluggish "in-between" transition.

@@ -29,14 +29,6 @@ struct WhoIsWatchingScreen: View {
                         .buttonStyle(.card)
                 }
                 .frame(maxWidth: .infinity)   // centers the row of avatars
-
-                // Temporary status line while we stabilize the profile flow.
-                HStack(spacing: 24) {
-                    Text("\(profiles.count) profile\(profiles.count == 1 ? "" : "s") · store: \(session.profileStoreMode)")
-                        .font(.callout).foregroundStyle(Theme.Palette.textSecondary)
-                    Button("Reload") { Task { await session.reloadProfiles() } }
-                        .buttonStyle(.bordered)
-                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding(60)
