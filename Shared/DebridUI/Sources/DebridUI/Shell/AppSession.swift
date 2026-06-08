@@ -316,6 +316,11 @@ public final class AppSession {
     public func makePlayer(for request: PlaybackRequest,
                            engine: VideoPlayerEngine) -> PlayerModel? {
         guard let torrents, let store = watchProgressStore else { return nil }
+        // Playing a title claims it into the active profile's My List (add-or-play, rule ii).
+        if let myListStore, let pid = activeProfileID {
+            let key = request.contentKey
+            Task { try? await myListStore.claim(profileID: pid, contentKey: key) }
+        }
         let coordinator = PlaybackCoordinator(store: store, profileID: activeProfileID ?? "")
         return PlayerModel(
             request: request,
