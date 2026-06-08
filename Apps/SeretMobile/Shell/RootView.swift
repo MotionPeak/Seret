@@ -25,6 +25,7 @@ struct RootView: View {
             if let details = session.detailsProvider {
                 DetailScreen(item: item, details: details, watch: session.watchStore,
                              profileID: session.activeProfileID,
+                             myList: session.myListStore,
                              ratings: session.ratingsProvider)
             }
         }

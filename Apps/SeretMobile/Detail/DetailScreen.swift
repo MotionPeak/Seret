@@ -19,9 +19,9 @@ struct DetailScreen: View {
     @Environment(\.dismiss) private var dismiss
 
     init(item: MediaItem, details: MediaDetailsProviding, watch: WatchProgressProviding?,
-         profileID: String? = nil, ratings: RatingsProviding? = nil) {
+         profileID: String? = nil, myList: MyListProviding? = nil, ratings: RatingsProviding? = nil) {
         _store = State(initialValue: DetailStore(item: item, details: details, watch: watch,
-                                                 profileID: profileID, ratings: ratings))
+                                                 profileID: profileID, myList: myList, ratings: ratings))
     }
 
     var body: some View {
@@ -45,6 +45,7 @@ struct DetailScreen: View {
                 }
             }
             .task { await store.load() }
+            .task { await store.loadMyList(contentKey: store.item.id) }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button { dismiss() } label: { Image(systemName: "chevron.down").font(.headline) }
@@ -52,6 +53,10 @@ struct DetailScreen: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
+                        Button(store.inMyList ? "In My List" : "Add to My List",
+                               systemImage: store.inMyList ? "checkmark" : "plus") {
+                            Task { await store.toggleMyList(contentKey: store.item.id) }
+                        }
                         Button("Remove from Library", systemImage: "trash", role: .destructive) {
                             confirmingRemove = true
                         }
