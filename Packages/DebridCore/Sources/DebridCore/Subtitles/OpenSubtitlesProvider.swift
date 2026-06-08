@@ -18,14 +18,25 @@ public actor OpenSubtitlesProvider: SubtitleProvider {
     private let credentials: Credentials
     private let http: HTTPClient
     private let userAgent: String
+    private let cacheDirectory: URL
     private var token: String?
 
+    /// Persistent on-disk cache for downloaded subtitle files, keyed by OpenSubtitles `file_id`.
+    /// A re-download of the same file (re-watching a title) is served from here — no `POST /download`,
+    /// so it doesn't spend the daily quota. Defaults to a Caches subfolder (survives app restarts).
+    public static var defaultCacheDirectory: URL {
+        (FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory).appending(path: "SeretSubtitles")
+    }
+
     public init(apiKey: String, credentials: Credentials,
-                http: HTTPClient = HTTPClient(), userAgent: String = "Seret v1") {
+                http: HTTPClient = HTTPClient(), userAgent: String = "Seret v1",
+                cacheDirectory: URL = OpenSubtitlesProvider.defaultCacheDirectory) {
         self.apiKey = apiKey
         self.credentials = credentials
         self.http = http
         self.userAgent = userAgent
+        self.cacheDirectory = cacheDirectory
     }
 
     private var baseHeaders: [String: String] { ["Api-Key": apiKey, "User-Agent": userAgent] }
@@ -57,10 +68,30 @@ public actor OpenSubtitlesProvider: SubtitleProvider {
     }
 
     public func download(_ result: SubtitleResult) async throws -> URL {
+        if let cached = cachedSubtitle(fileID: result.fileID) { return cached }   // reuse → no quota spend
         let dl = try await requestDownload(fileID: result.fileID)
         guard let link = URL(string: dl.link) else { throw SubtitleError.invalidResponse }
         let bytes = try await http.data(link)
-        return try Self.writeTempFile(bytes, fileName: dl.fileName ?? result.fileName)
+        return try writeCacheFile(bytes, fileID: result.fileID, fileName: dl.fileName ?? result.fileName)
+    }
+
+    /// An already-cached subtitle file for this `file_id`, if one exists (prefix match — the
+    /// extension was decided at download time). nil when the cache dir is missing or has no match.
+    private func cachedSubtitle(fileID: Int) -> URL? {
+        let prefix = "sub-\(fileID)."
+        guard let files = try? FileManager.default.contentsOfDirectory(
+            at: cacheDirectory, includingPropertiesForKeys: nil) else { return nil }
+        return files.first { $0.lastPathComponent.hasPrefix(prefix) }
+    }
+
+    /// Writes subtitle bytes to the persistent cache, keyed by `file_id`. The name is `sub-<id>.<ext>`
+    /// — `file_id` is our own numeric search result (not hostile server input), and only a safe
+    /// extension is taken from the server `fileName` (default `srt`), so the path can't be influenced.
+    private func writeCacheFile(_ data: Data, fileID: Int, fileName: String?) throws -> URL {
+        try FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
+        let url = cacheDirectory.appending(path: "sub-\(fileID).\(Self.subtitleExtension(fileName))")
+        try data.write(to: url, options: .atomic)
+        return url
     }
 
     private func requestDownload(fileID: Int) async throws -> OSDownloadResponse {
@@ -120,16 +151,6 @@ public actor OpenSubtitlesProvider: SubtitleProvider {
         var headers = baseHeaders
         headers["Authorization"] = "Bearer \(token)"
         return headers
-    }
-
-    /// Writes subtitle bytes to a uniquely-named temp file, returning its URL. The name is a UUID
-    /// (so a hostile server `file_name` cannot influence the path); only a safe extension is taken
-    /// from the server name (default `srt`) to keep the format hint for the player.
-    static func writeTempFile(_ data: Data, fileName: String?) throws -> URL {
-        let url = FileManager.default.temporaryDirectory
-            .appending(path: "\(UUID().uuidString).\(subtitleExtension(fileName))")
-        try data.write(to: url, options: .atomic)
-        return url
     }
 
     /// A safe lowercased extension from `fileName` (letters only, ≤4 chars), else `srt`.

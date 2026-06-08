@@ -7,9 +7,13 @@ extension MockTests {
         init() { MockURLProtocol.handler = nil }
 
         private func provider() -> OpenSubtitlesProvider {
+            // Each provider gets an isolated cache dir so a successful download in one test can't be
+            // served from cache (and skip the network) in another that reuses the same file id.
             OpenSubtitlesProvider(apiKey: "K",
                                   credentials: .init(username: "u", password: "p"),
-                                  http: HTTPClient(session: .mock))
+                                  http: HTTPClient(session: .mock),
+                                  cacheDirectory: FileManager.default.temporaryDirectory
+                                      .appending(path: "ostest-\(UUID().uuidString)"))
         }
         private func result(_ id: Int) -> SubtitleResult { SubtitleResult(fileID: id, language: "he") }
         private static func resp(_ req: URLRequest, _ status: Int, _ body: String) -> (HTTPURLResponse, Data) {
