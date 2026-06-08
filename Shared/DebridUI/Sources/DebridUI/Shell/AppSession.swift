@@ -176,25 +176,55 @@ public final class AppSession {
 
     private static func makeProfileStores() -> ProfileStores? {
         let schema = Schema([WatchProgress.self, Profile.self, MyListEntry.self])
-        // Only ask for CloudKit when an iCloud account is actually signed in. On a simulator (or a
-        // device without iCloud), a CloudKit-backed store fails its operations *silently* — which
-        // showed up as an empty roster and Add doing nothing. With no account we use a local-only
-        // store so profiles always work; CloudKit (cross-device sync) engages on real iCloud devices.
+        // Only ask for CloudKit when an iCloud account is actually signed in (a CloudKit store fails
+        // silently on a sim / no-account device). Otherwise local-only — sync engages on real
+        // iCloud devices.
         let useCloudKit = FileManager.default.ubiquityIdentityToken != nil
-        let local = ModelConfiguration(schema: schema)
-        if useCloudKit,
-           let container = try? ModelContainer(
-               for: schema,
-               configurations: ModelConfiguration(schema: schema,
-                                                  cloudKitDatabase: .private(cloudKitContainerID))) {
-            return ProfileStores(watch: WatchProgressStore(modelContainer: container),
-                                 profiles: ProfileStore(modelContainer: container),
-                                 myList: MyListStore(modelContainer: container), mode: "cloud")
+        let mode = useCloudKit ? "cloud" : "local"
+
+        if let container = makeContainer(schema: schema, cloudKit: useCloudKit), storeHealthy(container) {
+            return wrap(container, mode: mode)
         }
-        guard let container = try? ModelContainer(for: schema, configurations: local) else { return nil }
-        return ProfileStores(watch: WatchProgressStore(modelContainer: container),
-                             profiles: ProfileStore(modelContainer: container),
-                             myList: MyListStore(modelContainer: container), mode: "local")
+        // The on-disk store is incompatible — created by an older build that lacked the Profile /
+        // MyList tables ("no such table: ZPROFILE"), and SwiftData didn't add them. Wipe the store
+        // files and rebuild fresh (local) so profiles always work. Watch progress is re-derivable.
+        destroyDefaultStore()
+        guard let container = makeContainer(schema: schema, cloudKit: false) else { return nil }
+        return wrap(container, mode: mode + "-reset")
+    }
+
+    private static func makeContainer(schema: Schema, cloudKit: Bool) -> ModelContainer? {
+        let local = ModelConfiguration(schema: schema)
+        let config = cloudKit
+            ? ModelConfiguration(schema: schema, cloudKitDatabase: .private(cloudKitContainerID))
+            : local
+        return (try? ModelContainer(for: schema, configurations: config))
+            ?? (try? ModelContainer(for: schema, configurations: local))
+    }
+
+    private static func wrap(_ container: ModelContainer, mode: String) -> ProfileStores {
+        ProfileStores(watch: WatchProgressStore(modelContainer: container),
+                      profiles: ProfileStore(modelContainer: container),
+                      myList: MyListStore(modelContainer: container), mode: mode)
+    }
+
+    /// A `Profile` fetch on a stale store throws ("no such table: ZPROFILE"); a healthy store
+    /// returns (even if empty). Probes synchronously via a throwaway context.
+    private static func storeHealthy(_ container: ModelContainer) -> Bool {
+        let ctx = ModelContext(container)
+        do { _ = try ctx.fetch(FetchDescriptor<Profile>()); return true }
+        catch { return false }
+    }
+
+    /// Delete SwiftData's default on-disk store (and its WAL/SHM sidecars) so a fresh, correctly
+    /// schema'd store is recreated. Used only when the existing store is incompatible.
+    private static func destroyDefaultStore() {
+        guard let base = try? FileManager.default.url(for: .applicationSupportDirectory,
+                                                      in: .userDomainMask, appropriateFor: nil,
+                                                      create: false) else { return }
+        for name in ["default.store", "default.store-wal", "default.store-shm"] {
+            try? FileManager.default.removeItem(at: base.appendingPathComponent(name))
+        }
     }
 
     /// Re-run the profile load (owner migration + roster) and re-scope Home. Exposed so the
