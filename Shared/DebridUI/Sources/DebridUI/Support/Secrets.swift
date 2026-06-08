@@ -15,4 +15,10 @@ public enum Secrets {
     public static var openSubtitlesAPIKey: String {
         (Bundle.main.object(forInfoDictionaryKey: "OpenSubtitlesAPIKey") as? String) ?? ""
     }
+
+    /// OMDb API key: `OMDB_API_KEY` (Secrets.xcconfig) → `OMDBAPIKey` (Info.plist) → here.
+    /// Empty string when unset — callers treat empty as "ratings unavailable."
+    public static var omdbAPIKey: String {
+        (Bundle.main.object(forInfoDictionaryKey: "OMDBAPIKey") as? String) ?? ""
+    }
 }
