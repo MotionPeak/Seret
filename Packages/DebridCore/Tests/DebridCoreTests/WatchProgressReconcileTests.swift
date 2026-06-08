@@ -27,5 +27,37 @@ extension SwiftDataSuite {
             let fetched = try ctx.fetch(FetchDescriptor<WatchProgress>()).first
             #expect(fetched?.profileID == "alice")
         }
+
+        /// Insert duplicate rows for one key straight into the store, as CloudKit would after a
+        /// two-device merge.
+        private func seedDuplicates(_ c: ModelContainer) throws {
+            let ctx = ModelContext(c)
+            ctx.insert(WatchProgress(contentKey: "dupe", sourceKey: "old", positionSeconds: 10,
+                                     durationSeconds: 100, finished: false,
+                                     updatedAt: Date(timeIntervalSince1970: 1)))
+            ctx.insert(WatchProgress(contentKey: "dupe", sourceKey: "new", positionSeconds: 80,
+                                     durationSeconds: 100, finished: false,
+                                     updatedAt: Date(timeIntervalSince1970: 5)))
+            try ctx.save()
+        }
+
+        @Test func progressReturnsNewestAndPrunesDuplicates() async throws {
+            let c = try container()
+            try seedDuplicates(c)
+            let store = WatchProgressStore(modelContainer: c)
+            let got = try await store.progress(forContentKey: "dupe")
+            #expect(got?.positionSeconds == 80)        // the newest row wins
+            #expect(got?.sourceKey == "new")
+            #expect(try await store.allCount() == 1)   // the stale duplicate is gone
+        }
+
+        @Test func recentlyWatchedDedupesByContentKey() async throws {
+            let c = try container()
+            try seedDuplicates(c)
+            let store = WatchProgressStore(modelContainer: c)
+            let feed = try await store.recentlyWatched(limit: 20)
+            #expect(feed.count == 1)                   // one entry per key, not two
+            #expect(feed.first?.positionSeconds == 80)
+        }
     }
 }

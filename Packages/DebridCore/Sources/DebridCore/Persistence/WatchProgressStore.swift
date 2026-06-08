@@ -29,14 +29,20 @@ public actor WatchProgressStore {
         try modelContext.save()
     }
 
-    /// Continue-Watching feed: unfinished rows that have progress, newest first.
+    /// Continue-Watching feed: unfinished rows that have progress, newest first, **deduped by
+    /// contentKey** (CloudKit can sync more than one row per key from different devices).
     public func recentlyWatched(limit: Int) throws -> [WatchState] {
         guard limit > 0 else { return [] }
-        var descriptor = FetchDescriptor<WatchProgress>(
+        let rows = try modelContext.fetch(FetchDescriptor<WatchProgress>(
             predicate: #Predicate { $0.finished == false && $0.positionSeconds > 0 },
-            sortBy: [SortDescriptor(\.updatedAt, order: .reverse)])
-        descriptor.fetchLimit = limit
-        return try modelContext.fetch(descriptor).map(WatchState.init)
+            sortBy: [SortDescriptor(\.updatedAt, order: .reverse)]))
+        var seen = Set<String>()
+        var out: [WatchState] = []
+        for row in rows where seen.insert(row.contentKey).inserted {   // newest-first → first wins
+            out.append(WatchState(row))
+            if out.count == limit { break }
+        }
+        return out
     }
 
     /// Delete the rows for these content keys (used when an item is removed from the library).
@@ -55,10 +61,17 @@ public actor WatchProgressStore {
         try modelContext.fetchCount(FetchDescriptor<WatchProgress>())
     }
 
+    /// Newest row for `key`. If CloudKit merged duplicates, keep the newest (`updatedAt`) and
+    /// delete the rest so the store converges to one row per key (last-write-wins).
     private func fetchOne(contentKey key: String) throws -> WatchProgress? {
-        var descriptor = FetchDescriptor<WatchProgress>(
-            predicate: #Predicate { $0.contentKey == key })
-        descriptor.fetchLimit = 1
-        return try modelContext.fetch(descriptor).first
+        let matches = try modelContext.fetch(FetchDescriptor<WatchProgress>(
+            predicate: #Predicate { $0.contentKey == key },
+            sortBy: [SortDescriptor(\.updatedAt, order: .reverse)]))
+        guard let survivor = matches.first else { return nil }
+        if matches.count > 1 {
+            for stale in matches.dropFirst() { modelContext.delete(stale) }
+            try modelContext.save()
+        }
+        return survivor
     }
 }
