@@ -10,8 +10,9 @@ struct AddProfileScreen: View {
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
     @State private var avatar = ProfileAvatars.all.first ?? ProfileAvatars.fallback
+    @FocusState private var focusedAvatar: String?
 
-    private let columns = [GridItem(.adaptive(minimum: 118), spacing: 22)]
+    private let columns = [GridItem(.adaptive(minimum: 130), spacing: 28)]
     private let palette = ["gold", "blue", "green", "red", "purple"]
     private var count: Int { session.activeProfiles?.roster.count ?? 0 }
     private var color: String { palette[count % palette.count] }
@@ -30,11 +31,8 @@ struct AddProfileScreen: View {
                     VStack(spacing: 24) {
                         Text("Add Profile").font(.system(size: 46, weight: .heavy))
                             .foregroundStyle(Theme.Palette.textPrimary)
-                        ZStack {
-                            Circle().fill(Theme.Palette.color(for: color)).frame(width: 170, height: 170)
-                                .goldGlow(20, opacity: 0.25)
-                            Text(avatar).font(.system(size: 96))
-                        }
+                        ProfileAvatarImage(token: avatar, diameter: 170, colorTag: color)
+                            .goldGlow(20, opacity: 0.25)
                         TextField("Name (optional)", text: $name)
                             .frame(maxWidth: 560).font(.title3)
                             .padding(.vertical, 10).padding(.horizontal, 24)
@@ -51,17 +49,18 @@ struct AddProfileScreen: View {
                     }
 
                     Text("Pick an avatar").font(.title3).foregroundStyle(Theme.Palette.textSecondary)
-                    LazyVGrid(columns: columns, spacing: 22) {
+                    LazyVGrid(columns: columns, spacing: 28) {
                         ForEach(ProfileAvatars.all, id: \.self) { e in
                             Button { avatar = e } label: {
-                                Text(e).font(.system(size: 54))
-                                    .frame(width: 104, height: 104)
-                                    .background(avatar == e ? Theme.Palette.color(for: color).opacity(0.35)
-                                                            : Theme.Palette.surface1, in: Circle())
+                                ProfileAvatarImage(token: e, diameter: 104, colorTag: color)
                                     .overlay(Circle().strokeBorder(
-                                        avatar == e ? Theme.Palette.gold : .clear, lineWidth: 4))
+                                        avatar == e ? Theme.Palette.gold : .clear, lineWidth: 5))
                             }
-                            .buttonStyle(.card)
+                            .buttonStyle(.plain)
+                            .focusEffectDisabled()
+                            .focused($focusedAvatar, equals: e)
+                            .scaleEffect(focusedAvatar == e ? 1.12 : 1)
+                            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: focusedAvatar)
                         }
                     }
                     .padding(.horizontal, 80)

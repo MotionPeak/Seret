@@ -26,6 +26,7 @@ struct WhoIsWatchingScreen: View {
                     ForEach(profiles) { p in
                         Button { pick(p.id) } label: { ProfileAvatar(profile: p) }
                             .buttonStyle(.plain)
+                            .focusEffectDisabled()   // no system highlight card — the scale is our focus cue
                             .focused($focusedID, equals: p.id)
                             .scaleEffect(selectingID == p.id ? 1.3 : (focusedID == p.id ? 1.12 : 1))
                             .opacity(selectingID != nil && selectingID != p.id ? 0 : 1)
@@ -33,6 +34,7 @@ struct WhoIsWatchingScreen: View {
                     }
                     Button { showingAdd = true } label: { AddProfileTile() }
                         .buttonStyle(.plain)
+                        .focusEffectDisabled()
                         .focused($focusedID, equals: "add")
                         .scaleEffect(focusedID == "add" ? 1.12 : 1)
                         .opacity(selectingID == nil ? 1 : 0)
@@ -57,17 +59,12 @@ struct WhoIsWatchingScreen: View {
     }
 }
 
-/// Circular emoji avatar in the profile's color.
+/// Circular generated avatar in the profile's color.
 struct ProfileAvatar: View {
     let profile: ProfileDTO
     var body: some View {
         VStack(spacing: 18) {
-            ZStack {
-                Circle().fill(Theme.Palette.color(for: profile.colorTag))
-                    .frame(width: 200, height: 200)
-                Text(profile.avatar.isEmpty ? ProfileAvatars.fallback : profile.avatar)
-                    .font(.system(size: 110))
-            }
+            ProfileAvatarImage(token: profile.avatar, diameter: 200, colorTag: profile.colorTag)
             Text(profile.name).font(.title3).foregroundStyle(Theme.Palette.textPrimary)
         }
     }

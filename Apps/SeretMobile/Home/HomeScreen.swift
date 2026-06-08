@@ -27,12 +27,9 @@ struct HomeScreen: View {
                 if !isRegular {
                     ToolbarItem(placement: .topBarTrailing) {
                         Button { showingProfiles = true } label: {
-                            let a = session.activeProfiles?.activeProfile?.avatar ?? ""
-                            ZStack {
-                                Circle().fill(Theme.Palette.color(for: session.activeProfiles?.activeProfile?.colorTag ?? "gold"))
-                                    .frame(width: 32, height: 32)
-                                Text(a.isEmpty ? ProfileAvatars.fallback : a).font(.system(size: 17))
-                            }
+                            ProfileAvatarImage(token: session.activeProfiles?.activeProfile?.avatar ?? "",
+                                               diameter: 32,
+                                               colorTag: session.activeProfiles?.activeProfile?.colorTag ?? "gold")
                         }
                     }
                 }

@@ -24,11 +24,8 @@ struct AddProfileScreen: View {
                 CanvasBackground()
                 ScrollView {
                     VStack(spacing: 28) {
-                        ZStack {
-                            Circle().fill(Theme.Palette.color(for: color)).frame(width: 120, height: 120)
-                            Text(avatar).font(.system(size: 64))
-                        }
-                        .padding(.top, 12)
+                        ProfileAvatarImage(token: avatar, diameter: 120, colorTag: color)
+                            .padding(.top, 12)
 
                         TextField("Name (optional)", text: $name)
                             .textFieldStyle(.roundedBorder)
@@ -36,13 +33,12 @@ struct AddProfileScreen: View {
 
                         Text("Pick an avatar").font(Theme.Typo.headline())
                             .foregroundStyle(Theme.Palette.textSecondary)
-                        LazyVGrid(columns: columns, spacing: 14) {
+                        LazyVGrid(columns: columns, spacing: 16) {
                             ForEach(ProfileAvatars.all, id: \.self) { e in
                                 Button { avatar = e } label: {
-                                    Text(e).font(.system(size: 34))
-                                        .frame(width: 60, height: 60)
-                                        .background(avatar == e ? Theme.Palette.gold.opacity(0.30)
-                                                                : Theme.Palette.surface1, in: Circle())
+                                    ProfileAvatarImage(token: e, diameter: 60, colorTag: color)
+                                        .overlay(Circle().strokeBorder(
+                                            avatar == e ? Theme.Palette.gold : .clear, lineWidth: 3))
                                 }
                                 .buttonStyle(.plain)
                             }

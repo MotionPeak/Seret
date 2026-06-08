@@ -117,15 +117,10 @@ struct MainShell: View {
 
     /// Bottom-of-sidebar profile chip — the active avatar; tap to switch profiles.
     private var profileRow: some View {
-        let avatar = activeProfile?.avatar ?? ""
-        return Button { showingProfiles = true } label: {
+        Button { showingProfiles = true } label: {
             HStack(spacing: Theme.Space.md) {
-                ZStack {
-                    Circle().fill(Theme.Palette.color(for: activeProfile?.colorTag ?? "gold"))
-                        .frame(width: 30, height: 30)
-                    Text(avatar.isEmpty ? ProfileAvatars.fallback : avatar)
-                        .font(.system(size: 16))
-                }
+                ProfileAvatarImage(token: activeProfile?.avatar ?? "", diameter: 30,
+                                   colorTag: activeProfile?.colorTag ?? "gold")
                 if sidebarExpanded {
                     Text(activeProfile?.name ?? "Profile")
                         .font(.system(size: 17, weight: .semibold)).lineLimit(1)

@@ -78,13 +78,8 @@ private struct Avatar: View {
     let diameter: CGFloat
     var body: some View {
         VStack(spacing: 12) {
-            ZStack {
-                Circle().fill(Theme.Palette.color(for: profile.colorTag))
-                    .frame(width: diameter, height: diameter)
-                    .shadow(color: Theme.Palette.color(for: profile.colorTag).opacity(0.5), radius: 14, y: 4)
-                Text(profile.avatar.isEmpty ? ProfileAvatars.fallback : profile.avatar)
-                    .font(.system(size: diameter * 0.5))
-            }
+            ProfileAvatarImage(token: profile.avatar, diameter: diameter, colorTag: profile.colorTag)
+                .shadow(color: Theme.Palette.color(for: profile.colorTag).opacity(0.5), radius: 14, y: 4)
             Text(profile.name).font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(Theme.Palette.textPrimary)
         }

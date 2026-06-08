@@ -65,12 +65,9 @@ struct LibraryShell: View {
     private var profileButton: some View {
         let p = session.activeProfiles?.activeProfile
         return Button { showingProfiles = true } label: {
-            ZStack {
-                Circle().fill(Theme.Palette.color(for: p?.colorTag ?? "gold")).frame(width: 56, height: 56)
-                Text((p?.avatar.isEmpty == false ? p!.avatar : ProfileAvatars.fallback)).font(.system(size: 30))
-            }
+            ProfileAvatarImage(token: p?.avatar ?? "", diameter: 56, colorTag: p?.colorTag ?? "gold")
         }
-        .buttonStyle(.card)
+        .buttonStyle(.plain)
     }
 
     /// A focusable pill row. Moving focus across the pills switches the page live (onChange),
