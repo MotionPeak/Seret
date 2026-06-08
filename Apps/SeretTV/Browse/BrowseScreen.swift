@@ -2,54 +2,23 @@ import DebridCore
 import DebridUI
 import SwiftUI
 
-/// A browse tab (Movies or TV): `.searchable` scoped to the kind over the kind's `DiscoverStore`
-/// rows when idle, search results when typing. Owned titles get an "In Library" badge and push
-/// their library Detail; new titles push the Add flow. (Destinations are registered by the shell.)
+/// A browse tab (Movies or TV): the kind's `DiscoverStore` rows (For You / Trending / …). Search is
+/// a SEPARATE full-screen screen opened by the Search button, so navigating the rows never pops the
+/// keyboard. Owned titles get an "In Library" badge and push their library Detail; new titles push
+/// the Add flow. (Destinations are registered by the shell.)
 struct BrowseScreen: View {
     let kind: MediaKind
 
     @Environment(AppSession.self) private var session
-    @State private var query = ""
     /// Which segment pill has focus — moving across them switches the section live (no press).
     @FocusState private var focusedSegment: DiscoverStore.Segment?
 
     private var browse: DiscoverStore? { kind == .movie ? session.moviesBrowse : session.showsBrowse }
 
     var body: some View {
-        Group {
-            if let search = session.searchStore {
-                content(search)
-                    .searchable(text: $query, placement: .automatic,
-                                prompt: kind == .movie ? "Search movies" : "Search shows")
-                    .task(id: query) {
-                        try? await Task.sleep(for: .milliseconds(350))
-                        guard !Task.isCancelled else { return }
-                        await search.search(query: query, kind: kind)
-                    }
-            } else {
-                ProgressView()
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(CanvasBackground())
-        .onChange(of: kind) { _, _ in query = "" }   // shared Movies/TV view: clear search on swap
-    }
-
-    @ViewBuilder private func content(_ search: SearchStore) -> some View {
-        if query.trimmingCharacters(in: .whitespaces).isEmpty {
-            rows
-        } else {
-            switch search.state {
-            case .idle, .searching:
-                ProgressView("Searching…").font(.title3)
-            case .empty:
-                message("No results.", systemImage: "magnifyingglass")
-            case .failed(let msg):
-                message(msg, systemImage: "exclamationmark.triangle")
-            case .results:
-                resultsGrid(search.results)
-            }
-        }
+        rows
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(CanvasBackground())
     }
 
     @ViewBuilder private var rows: some View {
@@ -60,37 +29,45 @@ struct BrowseScreen: View {
             }
             // Load the selected segment whenever it changes (and on first show). Lazy + cached.
             .task(id: browse.selectedSegment) { await browse.loadSegment(browse.selectedSegment) }
+        } else {
+            SeretLoader()
         }
     }
 
     @ViewBuilder private func segmentContent(_ browse: DiscoverStore) -> some View {
-        switch browse.segmentState(browse.selectedSegment) {
-        case .idle, .loading:
-            ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
-        case .failed:
-            VStack(spacing: 20) {
-                Image(systemName: "exclamationmark.triangle").font(.system(size: 54)).foregroundStyle(.secondary)
-                Text("Couldn't load.").font(.title3)
-                Button("Retry") { Task { await browse.loadSegment(browse.selectedSegment) } }
-                    .buttonStyle(.bordered)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        case .loaded:
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 40) {
-                    ForEach(browse.rows) { row in
-                        rail(title: row.title, hits: row.hits, cam: false)
-                    }
+        Group {
+            switch browse.segmentState(browse.selectedSegment) {
+            case .idle, .loading:
+                BrowseSkeleton()                          // something to look at — not a black void
+            case .failed:
+                VStack(spacing: 24) {
+                    Image(systemName: "exclamationmark.triangle").font(.system(size: 54))
+                        .foregroundStyle(Theme.Palette.textSecondary)
+                    Text("Couldn't load.").sectionTitle()
+                    Button("Retry") { Task { await browse.loadSegment(browse.selectedSegment) } }
+                        .buttonStyle(SeretPillStyle(selected: false))
                 }
-                .padding(.vertical, 20)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case .loaded:
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 44) {
+                        ForEach(browse.rows) { row in
+                            rail(title: row.title, hits: row.hits, cam: false)
+                        }
+                    }
+                    .padding(.vertical, 20)
+                }
             }
         }
     }
 
-    /// Trending / New Releases / Popular selector — a focusable pill row (segmented Pickers don't
-    /// take focus well on tvOS). Switching is instant (all segments loaded up front).
+    /// Search button + For You / Trending / New / Popular / Top Rated selector. The pills switch the
+    /// section instantly as focus moves across them (no press); Search is an explicit button so the
+    /// keyboard never opens just from navigating.
     private func segmentPicker(_ browse: DiscoverStore) -> some View {
         HStack(spacing: 16) {
+            NavigationLink { SearchScreen(kind: kind) } label: { Image(systemName: "magnifyingglass") }
+                .buttonStyle(SeretPillStyle(selected: false))
             ForEach(DiscoverStore.Segment.allCases) { seg in
                 Button(seg.title) { browse.select(seg) }
                     .buttonStyle(SeretPillStyle(selected: seg == browse.selectedSegment))
@@ -104,39 +81,49 @@ struct BrowseScreen: View {
 
     private func rail(title: String, hits: [SearchHit], cam: Bool) -> some View {
         VStack(alignment: .leading, spacing: 16) {
-            if !title.isEmpty { Text(title).font(.title2.bold()).padding(.leading, 60) }
+            if !title.isEmpty { Text(title).sectionTitle().padding(.leading, Theme.Layout.contentMargin) }
             ScrollView(.horizontal) {
-                LazyHStack(spacing: 40) {
+                LazyHStack(spacing: 36) {
                     ForEach(hits) { BrowseTile(hit: $0, cam: cam || (browse?.isCAM($0.result) ?? false)) }
                 }
-                .padding(.horizontal, 60).padding(.vertical, 40)
+                .padding(.horizontal, Theme.Layout.contentMargin).padding(.vertical, 40)
             }
             .scrollClipDisabled()
         }
     }
 
-    private func resultsGrid(_ hits: [SearchHit]) -> some View {
-        let columns = [GridItem(.adaptive(minimum: 220, maximum: 260), spacing: 50)]
-        return ScrollView {
-            LazyVGrid(columns: columns, spacing: 50) {
-                ForEach(hits) { BrowseTile(hit: $0, cam: browse?.isCAM($0.result) ?? false) }
-            }
-            .padding(60)
-        }
-    }
+}
 
-    private func message(_ text: String, systemImage: String) -> some View {
-        VStack(spacing: 28) {
-            Image(systemName: systemImage).font(.system(size: 64)).foregroundStyle(.secondary)
-            Text(text).font(.title3).multilineTextAlignment(.center).frame(maxWidth: 700)
+/// Loading state for a browse segment — a few redacted poster rails so the screen reads as
+/// "filling in" rather than flashing black while the genre rails fan out.
+private struct BrowseSkeleton: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 44) {
+            ForEach(0..<3, id: \.self) { _ in
+                VStack(alignment: .leading, spacing: 16) {
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(Theme.Palette.surface2)
+                        .frame(width: 280, height: 30)
+                        .padding(.leading, Theme.Layout.contentMargin)
+                    HStack(spacing: 36) {
+                        ForEach(0..<6, id: \.self) { _ in
+                            RoundedRectangle(cornerRadius: Theme.Layout.posterCorner, style: .continuous)
+                                .fill(Theme.Palette.surface2)
+                                .frame(width: 220, height: 330)
+                        }
+                    }
+                    .padding(.horizontal, Theme.Layout.contentMargin)
+                }
+            }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.vertical, 20)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
 /// A focusable browse poster. Owned → pushes the library `MediaItem` (Detail); else the
-/// `SearchHit` (Add flow). Owned posters carry an "In Library" badge.
-private struct BrowseTile: View {
+/// `SearchHit` (Add flow). Owned posters carry an "In Library" badge. Shared by Browse + Search.
+struct BrowseTile: View {
     let hit: SearchHit
     var cam: Bool = false
     @Environment(AppSession.self) private var session
@@ -158,12 +145,16 @@ private struct BrowseTile: View {
     @ViewBuilder private func poster(owned: Bool) -> some View {
         ZStack(alignment: .topTrailing) {
             if let url = TMDBClient.imageURL(path: hit.result.posterPath, size: "w500") {
-                AsyncImage(url: url) { $0.resizable().aspectRatio(contentMode: .fill) }
-                    placeholder: { ZStack { Rectangle().fill(.gray.opacity(0.18)); ProgressView() } }
-                    .frame(width: width, height: height).clipped()
+                RemoteImage(url: url)
+                    .frame(width: width, height: height)
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Layout.posterCorner, style: .continuous))
             } else {
-                Rectangle().fill(.gray.opacity(0.3))
-                    .overlay { Text(hit.result.displayTitle).font(.headline).multilineTextAlignment(.center).padding(12) }
+                RoundedRectangle(cornerRadius: Theme.Layout.posterCorner, style: .continuous)
+                    .fill(Theme.Palette.surface1)
+                    .overlay {
+                        Text(hit.result.displayTitle).cardTitle().foregroundStyle(Theme.Palette.textSecondary)
+                            .multilineTextAlignment(.center).padding(12)
+                    }
                     .frame(width: width, height: height)
             }
             if owned {

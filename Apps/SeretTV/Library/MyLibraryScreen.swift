@@ -81,7 +81,7 @@ struct MyLibraryScreen: View {
                     .focusSection()      // let DOWN from the Movies/TV pills enter the grid and scroll it
                                           // (same fix as SettingsView / the player SettingsPanel)
             } else {
-                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+                SeretLoader()
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -115,7 +115,7 @@ private struct DownloadingTile: View {
                 progressOverlay
             }
             .frame(width: 180, height: 270)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .clipShape(RoundedRectangle(cornerRadius: Theme.Layout.posterCorner, style: .continuous))
             Text(tile.title).font(.callout).lineLimit(1)
                 .frame(width: 180, alignment: .leading).foregroundStyle(.secondary)
         }
@@ -123,10 +123,9 @@ private struct DownloadingTile: View {
 
     @ViewBuilder private var poster: some View {
         if let url = TMDBClient.imageURL(path: tile.posterPath, size: "w500") {
-            AsyncImage(url: url) { $0.resizable().aspectRatio(contentMode: .fill) }
-                placeholder: { Rectangle().fill(.gray.opacity(0.25)) }
+            RemoteImage(url: url)
         } else {
-            Rectangle().fill(.gray.opacity(0.25))
+            Theme.Palette.surface2
         }
     }
 

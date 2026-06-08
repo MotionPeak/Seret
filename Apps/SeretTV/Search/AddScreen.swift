@@ -17,8 +17,7 @@ struct AddScreen: View {
             if let flow {
                 switch flow.phase {
                 case .resolving:
-                    ProgressView("Loading…").font(.title3)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    SeretLoader(label: "Loading…")
                 case .resolveFailed(let msg):
                     centered(msg, systemImage: "exclamationmark.triangle")
                 case .movie:
@@ -27,7 +26,7 @@ struct AddScreen: View {
                     ShowAdd(flow: flow, onPlay: { player = PlayerPresentation(request: $0) })
                 }
             } else {
-                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+                SeretLoader()
             }
         }
         .background(BackdropBackground(path: flow?.backdropPath, posterFallback: flow?.posterPath))
@@ -61,8 +60,8 @@ struct AddScreen: View {
 
     private func centered(_ text: String, systemImage: String) -> some View {
         VStack(spacing: 28) {
-            Image(systemName: systemImage).font(.system(size: 64)).foregroundStyle(.secondary)
-            Text(text).font(.title3).multilineTextAlignment(.center).frame(maxWidth: 700)
+            Image(systemName: systemImage).font(.system(size: 64)).foregroundStyle(Theme.Palette.textSecondary)
+            Text(text).sectionTitle().multilineTextAlignment(.center).frame(maxWidth: 700)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -80,10 +79,10 @@ private struct MovieAdd: View {
                 // Keep the title low over the backdrop, but high enough that the Play/version
                 // actions stay inside a real TV's bottom safe area (no overscan clipping).
                 Spacer(minLength: 260)
-                Text(flow.title).font(.system(size: 44, weight: .bold))
-                if let year = flow.year { Text(String(year)).font(.body).foregroundStyle(.secondary) }
+                Text(flow.title).screenTitle()
+                if let year = flow.year { Text(String(year)).calloutText().foregroundStyle(Theme.Palette.textSecondary) }
                 if let overview = flow.overview {
-                    Text(overview).font(.body).frame(maxWidth: 1100, alignment: .leading).lineLimit(3)
+                    Text(overview).bodyText().frame(maxWidth: 1100, alignment: .leading).lineLimit(3)
                 }
                 TrailerButton(tmdbID: flow.tmdbID, kind: flow.mediaKind).font(.title3)
                 if let add = flow.add {
@@ -111,9 +110,9 @@ private struct ShowAdd: View {
                 // Small top inset so the title sits low over the backdrop but the season pills +
                 // Download + episode row all fit on the first screen (no scroll to reach episodes).
                 Spacer(minLength: 230)
-                Text(flow.title).font(.system(size: 44, weight: .bold))
+                Text(flow.title).screenTitle()
                 if let overview = flow.overview {
-                    Text(overview).font(.body).frame(maxWidth: 1100, alignment: .leading).lineLimit(2)
+                    Text(overview).bodyText().frame(maxWidth: 1100, alignment: .leading).lineLimit(2)
                 }
                 TrailerButton(tmdbID: flow.tmdbID, kind: flow.mediaKind).font(.title3)
                 seasonPicker
@@ -174,13 +173,14 @@ private struct EpisodeAddCard: View {
                 .buttonStyle(.card)
             HStack(spacing: 8) {
                 Text("\(ep.episodeNumber) · \(ep.name ?? "Episode \(ep.episodeNumber)")")
-                    .font(.headline).lineLimit(1)
+                    .cardTitle().lineLimit(1)
                 if selected {
                     Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.Palette.gold)
                 }
             }
             if let runtime = ep.runtime {
-                Text("\(runtime) min").font(.caption).foregroundStyle(.secondary)
+                Text("\(runtime) min").font(.seret(Theme.Typography.captionSize, .medium))
+                    .foregroundStyle(Theme.Palette.textSecondary)
             }
         }
         .frame(width: width, alignment: .leading)
@@ -189,14 +189,15 @@ private struct EpisodeAddCard: View {
     @ViewBuilder private var still: some View {
         Group {
             if let url = TMDBClient.imageURL(path: ep.stillPath, size: "w300") {
-                AsyncImage(url: url) { $0.resizable().aspectRatio(contentMode: .fill) }
-                    placeholder: { ZStack { Color.gray.opacity(0.25); ProgressView() } }
+                RemoteImage(url: url)
             } else {
-                Color.gray.opacity(0.3)
+                Theme.Palette.surface2.overlay {
+                    Image(systemName: "tv").font(.system(size: 36)).foregroundStyle(.white.opacity(0.2))
+                }
             }
         }
         .frame(width: width, height: width * 9 / 16)
-        .clipped()
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Layout.posterCorner, style: .continuous))
     }
 }
 
@@ -223,12 +224,13 @@ private struct AddActions: View {
         VStack(alignment: .leading, spacing: 20) {
             switch add.state {
             case .loadingStreams:
-                ProgressView("Finding cached versions…").font(.title3)
+                ProgressView("Finding cached versions…").font(.title3).tint(Theme.Palette.gold)
             case .noStreams:
                 DownloadSection(flow: flow, onPlay: onPlay)
             case .failed(let msg):
                 Label(msg, systemImage: "exclamationmark.triangle").font(.title3)
-                Button("Try Again") { Task { await add.loadStreams() } }.font(.title3)
+                Button("Try Again") { Task { await add.loadStreams() } }
+                    .buttonStyle(SeretActionButtonStyle())
             default:
                 actions
             }
@@ -265,7 +267,7 @@ private struct AddActions: View {
                     .font(.callout).foregroundStyle(.secondary)
             }
             Button { playBest() } label: { Label("Play", systemImage: "play.fill") }
-                .font(.title3)
+                .buttonStyle(SeretActionButtonStyle(prominent: true))
             addStatus
         }
     }
@@ -285,10 +287,10 @@ private struct AddActions: View {
         } label: {
             Label(showAll ? "Hide versions" : "Show all versions", systemImage: "square.stack.3d.up")
         }
-        .font(.title3)
+        .buttonStyle(SeretActionButtonStyle())
         if showAll {
             if loadingAll {
-                ProgressView().padding(.vertical, 8)
+                ProgressView().tint(Theme.Palette.gold).padding(.vertical, 8)
             } else if add.allVersions.isEmpty {
                 Text("No other versions found.").font(.callout).foregroundStyle(.secondary)
             } else {
@@ -324,8 +326,8 @@ private struct AddActions: View {
                         Text(stream.rawTitle).font(.callout).foregroundStyle(.secondary)
                             .lineLimit(1).truncationMode(.middle)
                     }
-                    .padding(.vertical, 6)
                 }
+                .buttonStyle(SeretRowStyle())
             }
         }
         .frame(maxWidth: 1100, alignment: .leading)

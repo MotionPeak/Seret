@@ -40,8 +40,13 @@ struct TrailerHero: View {
         Group {
             if let url = TMDBClient.imageURL(path: backdropPath, size: "w1280")
                 ?? TMDBClient.imageURL(path: posterFallback, size: "w780") {
-                AsyncImage(url: url) { $0.resizable().aspectRatio(contentMode: .fill) }
-                    placeholder: { Theme.Palette.surface1 }
+                AsyncImage(url: url, transaction: Transaction(animation: Theme.Anim.imageFade)) { phase in
+                    if let image = phase.image {
+                        image.resizable().aspectRatio(contentMode: .fill).transition(.opacity)
+                    } else {
+                        Theme.Palette.surface1
+                    }
+                }
             } else {
                 LinearGradient(colors: [Theme.Palette.surface1, .black], startPoint: .top, endPoint: .bottom)
             }

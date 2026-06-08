@@ -7,6 +7,12 @@ import SwiftUI
 struct HomeScreen: View {
     @Environment(AppSession.self) private var session
 
+    /// True once there's anything to show.
+    private var homeReady: Bool {
+        guard let h = session.home else { return false }
+        return !(h.continueWatching.isEmpty && h.recentlyAdded.isEmpty)
+    }
+
     var body: some View {
         ZStack {
             CanvasBackground()
@@ -21,7 +27,7 @@ struct HomeScreen: View {
     }
 
     @ViewBuilder private var content: some View {
-        if let home = session.home, !(home.continueWatching.isEmpty && home.recentlyAdded.isEmpty) {
+        if let home = session.home, homeReady {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 50) {
                     hero(home)
@@ -55,8 +61,7 @@ struct HomeScreen: View {
         if let f = home.featured {
             NavigationLink(value: f.item) {
                 ZStack(alignment: .bottomLeading) {
-                    AsyncImage(url: backdropURL(f.item)) { $0.resizable().aspectRatio(contentMode: .fill) }
-                        placeholder: { Rectangle().fill(Theme.Palette.surface1) }
+                    RemoteImage(url: backdropURL(f.item))
                         .frame(height: 620).frame(maxWidth: .infinity).clipped()
                     LinearGradient(stops: [
                         .init(color: .clear, location: 0.0),
@@ -65,8 +70,8 @@ struct HomeScreen: View {
                     ], startPoint: .top, endPoint: .bottom)
                     VStack(alignment: .leading, spacing: 14) {
                         Text(f.subtitle.isEmpty ? "Continue Watching" : "Continue · \(f.subtitle)")
-                            .font(.caption.weight(.semibold)).tracking(2).foregroundStyle(Theme.Palette.gold)
-                        Text(f.item.title).font(.system(size: 52, weight: .heavy))
+                            .eyebrow().foregroundStyle(Theme.Palette.gold)
+                        Text(f.item.title).heroTitle()
                             .foregroundStyle(Theme.Palette.textPrimary).lineLimit(2)
                         HStack(spacing: 10) { Image(systemName: "play.fill"); Text("Resume") }
                             .font(.title3.weight(.semibold)).foregroundStyle(.black)
@@ -83,17 +88,16 @@ struct HomeScreen: View {
 
     private func posterCard(_ item: MediaItem) -> some View {
         // No title label — posters already carry their title in the artwork.
-        AsyncImage(url: TMDBClient.imageURL(path: item.posterPath, size: "w500")) {
-            $0.resizable().aspectRatio(contentMode: .fill)
-        } placeholder: { Rectangle().fill(Theme.Palette.surface2) }
-            .frame(width: 220, height: 330).clipped()
+        RemoteImage(url: TMDBClient.imageURL(path: item.posterPath, size: "w500"))
+            .frame(width: 220, height: 330)
+            .clipShape(RoundedRectangle(cornerRadius: Theme.Layout.posterCorner, style: .continuous))
     }
 
     private var empty: some View {
         VStack(spacing: 18) {
             SeretMark(glow: false).frame(width: 90).opacity(0.5)
-            Text("Nothing here yet").font(.title2).foregroundStyle(Theme.Palette.textSecondary)
-            Text("Play something and it'll show up here.").font(.body)
+            Text("Nothing here yet").sectionTitle().foregroundStyle(Theme.Palette.textSecondary)
+            Text("Play something and it'll show up here.").bodyText()
                 .foregroundStyle(Theme.Palette.textSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

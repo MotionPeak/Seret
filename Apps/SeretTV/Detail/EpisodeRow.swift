@@ -35,11 +35,12 @@ struct EpisodeRow: View {
                     .disabled(isDownloading)
             }
             HStack(spacing: 8) {
-                Text(title).font(.headline).lineLimit(1)
+                Text(title).cardTitle().lineLimit(1)
                 if isWatched { Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.Palette.gold) }
             }
             if !subtitle.isEmpty {
-                Text(subtitle).font(.caption).foregroundStyle(.secondary)
+                Text(subtitle).font(.seret(Theme.Typography.captionSize, .medium))
+                    .foregroundStyle(Theme.Palette.textSecondary)
             }
         }
         .frame(width: width, alignment: .leading)
@@ -57,14 +58,15 @@ struct EpisodeRow: View {
     @ViewBuilder private var still: some View {
         Group {
             if let url = TMDBClient.imageURL(path: row.meta?.stillPath, size: "w300") {
-                AsyncImage(url: url) { $0.resizable().aspectRatio(contentMode: .fill) }
-                    placeholder: { ZStack { Color.gray.opacity(0.25); ProgressView() } }
+                RemoteImage(url: url)
             } else {
-                Color.gray.opacity(0.3)
+                Theme.Palette.surface2.overlay {
+                    Image(systemName: "tv").font(.system(size: 36)).foregroundStyle(.white.opacity(0.2))
+                }
             }
         }
         .frame(width: width, height: width * 9 / 16)
-        .clipped()
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Layout.posterCorner, style: .continuous))
         .opacity(row.isDownloaded ? 1 : 0.5)          // dim not-downloaded episodes
         .overlay {
             if !row.isDownloaded {

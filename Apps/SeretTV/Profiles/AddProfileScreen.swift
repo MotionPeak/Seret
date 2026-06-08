@@ -11,6 +11,7 @@ struct AddProfileScreen: View {
     @State private var color: String
     @State private var avatar: String
     @FocusState private var focusedAvatar: String?
+    @FocusState private var focusedColor: String?
 
     private let editing: ProfileDTO?
 
@@ -38,7 +39,7 @@ struct AddProfileScreen: View {
                 VStack(spacing: 32) {
                     VStack(spacing: 24) {
                         Text(editing == nil ? "Add Profile" : "Edit Profile")
-                            .font(.system(size: 46, weight: .heavy)).foregroundStyle(Theme.Palette.textPrimary)
+                            .screenTitle().foregroundStyle(Theme.Palette.textPrimary)
                         ProfileAvatarImage(token: avatar, diameter: 170, colorTag: color)
                             .goldGlow(20, opacity: 0.25)
                         TextField("Name (optional)", text: $name)
@@ -60,7 +61,7 @@ struct AddProfileScreen: View {
                         .font(.title3)
                     }
 
-                    Text("Pick an avatar").font(.title3).foregroundStyle(Theme.Palette.textSecondary)
+                    Text("Pick an avatar").cardTitle().foregroundStyle(Theme.Palette.textSecondary)
                     LazyVGrid(columns: columns, spacing: 28) {
                         ForEach(ProfileAvatars.all, id: \.self) { e in
                             Button { avatar = e } label: {
@@ -68,11 +69,11 @@ struct AddProfileScreen: View {
                                     .overlay(Circle().strokeBorder(
                                         avatar == e ? Theme.Palette.gold : .clear, lineWidth: 5))
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(BareButtonStyle())
                             .focusEffectDisabled()
                             .focused($focusedAvatar, equals: e)
-                            .scaleEffect(focusedAvatar == e ? 1.12 : 1)
-                            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: focusedAvatar)
+                            .scaleEffect(focusedAvatar == e ? Theme.Anim.heroFocusScale : 1)
+                            .animation(Theme.Anim.heroSpring, value: focusedAvatar)
                         }
                     }
                     .padding(.horizontal, 80)
@@ -89,8 +90,11 @@ struct AddProfileScreen: View {
                     Circle().fill(Theme.Palette.color(for: tag)).frame(width: 56, height: 56)
                         .overlay(Circle().strokeBorder(color == tag ? Theme.Palette.textPrimary : .clear, lineWidth: 4))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(BareButtonStyle())
                 .focusEffectDisabled()
+                .focused($focusedColor, equals: tag)
+                .scaleEffect(focusedColor == tag ? 1.18 : 1)
+                .animation(Theme.Anim.focus, value: focusedColor)
             }
         }
     }

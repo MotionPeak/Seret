@@ -24,7 +24,7 @@ struct LibraryScreen: View {
     @ViewBuilder private var content: some View {
         switch state {
         case .loading:
-            ProgressView("Loading your library…").font(.title3)
+            SeretLoader(label: "Loading your library…")
         case .failed(let msg):
             message(msg, systemImage: "exclamationmark.triangle", action: ("Try Again", onRetry))
         case .empty:
@@ -42,10 +42,12 @@ struct LibraryScreen: View {
                          action: (label: String, run: () -> Void)?) -> some View {
         VStack(spacing: 28) {
             Image(systemName: systemImage).font(.system(size: 64)).foregroundStyle(Theme.Palette.gold)
-            Text(text).font(.title3).multilineTextAlignment(.center).frame(maxWidth: 700)
+            Text(text).sectionTitle().multilineTextAlignment(.center).frame(maxWidth: 700)
+                .foregroundStyle(Theme.Palette.textSecondary)
             if let action {
-                Button(action.label, action: action.run).font(.title3)
+                Button(action.label, action: action.run).buttonStyle(SeretActionButtonStyle())
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)   // center in the canvas
     }
 }

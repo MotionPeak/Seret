@@ -19,26 +19,26 @@ struct WhoIsWatchingScreen: View {
             CanvasBackground()
             VStack(spacing: 60) {
                 Text("Who's Watching?")
-                    .font(.system(size: 64, weight: .heavy))
+                    .displayTitle()
                     .foregroundStyle(Theme.Palette.textPrimary)
 
                 HStack(spacing: 64) {
                     ForEach(profiles) { p in
                         Button { pick(p.id) } label: { ProfileAvatar(profile: p) }
-                            .buttonStyle(.plain)
-                            .focusEffectDisabled()   // no system highlight card — the scale is our focus cue
+                            .buttonStyle(BareButtonStyle())   // no system focus platter — the scale is our cue
+                            .focusEffectDisabled()
                             .focused($focusedID, equals: p.id)
-                            .scaleEffect(selectingID == p.id ? 1.3 : (focusedID == p.id ? 1.12 : 1))
+                            .scaleEffect(selectingID == p.id ? 1.3 : (focusedID == p.id ? Theme.Anim.heroFocusScale : 1))
                             .opacity(selectingID != nil && selectingID != p.id ? 0 : 1)
-                            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: focusedID)
+                            .animation(Theme.Anim.heroSpring, value: focusedID)
                     }
                     Button { showingAdd = true } label: { AddProfileTile() }
-                        .buttonStyle(.plain)
+                        .buttonStyle(BareButtonStyle())
                         .focusEffectDisabled()
                         .focused($focusedID, equals: "add")
-                        .scaleEffect(focusedID == "add" ? 1.12 : 1)
+                        .scaleEffect(focusedID == "add" ? Theme.Anim.heroFocusScale : 1)
                         .opacity(selectingID == nil ? 1 : 0)
-                        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: focusedID)
+                        .animation(Theme.Anim.heroSpring, value: focusedID)
                 }
                 .frame(maxWidth: .infinity)   // centers the row of avatars
             }
@@ -65,7 +65,7 @@ struct ProfileAvatar: View {
     var body: some View {
         VStack(spacing: 18) {
             ProfileAvatarImage(token: profile.avatar, diameter: 200, colorTag: profile.colorTag)
-            Text(profile.name).font(.title3).foregroundStyle(Theme.Palette.textPrimary)
+            Text(profile.name).cardTitle().foregroundStyle(Theme.Palette.textPrimary)
         }
     }
 }
@@ -79,7 +79,7 @@ struct AddProfileTile: View {
                 Image(systemName: "plus").font(.system(size: 72, weight: .bold))
                     .foregroundStyle(Theme.Palette.textSecondary)
             }
-            Text("Add Profile").font(.title3).foregroundStyle(Theme.Palette.textSecondary)
+            Text("Add Profile").cardTitle().foregroundStyle(Theme.Palette.textSecondary)
         }
     }
 }

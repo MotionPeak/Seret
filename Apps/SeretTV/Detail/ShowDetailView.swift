@@ -52,12 +52,12 @@ struct ShowDetailView: View {
     }
 
     private var hero: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Text(item.title).font(.system(size: 46, weight: .bold))
-            Text(metaLine).font(.body).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 22) {
+            Text(item.title).screenTitle()
+            Text(metaLine).calloutText().foregroundStyle(Theme.Palette.textSecondary)
             RatingsRow(ratings: store.ratings)
             if let overview = store.overview {
-                Text(overview).font(.body).frame(maxWidth: 1100, alignment: .leading).lineLimit(3)
+                Text(overview).bodyText().frame(maxWidth: 1100, alignment: .leading).lineLimit(4)
             }
             heroActions
         }
@@ -73,7 +73,7 @@ struct ShowDetailView: View {
     }
 
     @ViewBuilder private var heroActions: some View {
-        HStack(spacing: 20) {
+        HStack(spacing: 16) {
             if let next = store.nextEpisode() {
                 let resume = store.watchState(forKey: WatchKey.content(forShow: item, episode: next))
                     .flatMap { (!$0.finished && $0.positionSeconds > 0) ? $0.positionSeconds : nil }
@@ -84,12 +84,13 @@ struct ShowDetailView: View {
                                         : "Play S\(next.season)·E\(next.number)",
                           systemImage: "play.fill")
                 }
+                .buttonStyle(SeretActionButtonStyle(prominent: true))
             }
             Button(role: .destructive) { onRemove() } label: {
                 Label("Remove from Library", systemImage: "trash")
             }
+            .buttonStyle(SeretActionButtonStyle(destructive: true))
         }
-        .font(.title3)
         // Swipe UP on the remote here → watch the trailer full-screen with sound; the muted hero
         // keeps playing underneath, Menu returns here.
         .onMoveCommand { direction in

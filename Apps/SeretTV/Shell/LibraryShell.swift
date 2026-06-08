@@ -86,9 +86,8 @@ struct LibraryShell: View {
         .frame(maxWidth: .infinity)
         .overlay(alignment: .trailing) { profileButton.padding(.trailing, 50).padding(.top, 16) }
         .onChange(of: focusedTab) { _, new in
-            // Instant swap — no crossfade. Animating a tab change cross-dissolved the whole page
-            // (heavy poster grids included), which read as a sluggish "in-between" transition.
-            // The native tvOS feel is an immediate switch; the pages are kept alive so it's free.
+            // Switch the page as focus moves across the bar (no press needed). The swap is INSTANT
+            // (pages are kept alive); crossfading the heavy grids read as sluggish, so we don't.
             if let new { tab = new }
         }
     }
@@ -96,7 +95,8 @@ struct LibraryShell: View {
     /// Pages stay alive across switches (instant, no rebuild → snappy). Home/Library/Settings are
     /// kept in the tree (hidden + disabled when inactive). Movies/TV share ONE BrowseScreen whose
     /// `kind` follows the tab (so Movies↔TV is an instant content swap, not a rebuild) — it only
-    /// exists while active so its `.searchable` bar never leaks onto the other tabs.
+    /// exists while active so its `.searchable` bar never leaks onto the other tabs. The swap is
+    /// INSTANT on purpose: crossfading the heavy poster grids read as a sluggish in-between.
     @ViewBuilder private var pages: some View {
         ZStack {
             keptAlive(tab == .home) { HomeScreen() }

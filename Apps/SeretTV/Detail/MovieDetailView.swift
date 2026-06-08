@@ -33,13 +33,13 @@ struct MovieDetailView: View {
     }
 
     private var hero: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            Text(item.title).font(.system(size: 48, weight: .bold))
-            Text(metaLine).font(.body).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 22) {
+            Text(item.title).screenTitle()
+            Text(metaLine).calloutText().foregroundStyle(Theme.Palette.textSecondary)
             if let best = store.bestSource { QualityChips(parsed: best.parsed) }
             RatingsRow(ratings: store.ratings)
             if let overview = store.overview {
-                Text(overview).font(.body).frame(maxWidth: 1100, alignment: .leading).lineLimit(3)
+                Text(overview).bodyText().frame(maxWidth: 1100, alignment: .leading).lineLimit(4)
             }
             actions
             if store.bestSource == nil, let tmdb = item.tmdbID {
@@ -58,20 +58,23 @@ struct MovieDetailView: View {
     }
 
     @ViewBuilder private var actions: some View {
-        HStack(spacing: 20) {
+        HStack(spacing: 16) {
             if let best = store.bestSource {
                 if let resume = resumeSeconds {
                     NavigationLink(value: store.playRequest(source: best, episode: nil, label: item.title)) {
                         Label("Resume \(Timecode.format(resume))", systemImage: "play.fill")
                     }
+                    .buttonStyle(SeretActionButtonStyle(prominent: true))
                     NavigationLink(value: store.playRequest(source: best, episode: nil,
                                                             label: item.title, fromStart: true)) {
                         Label("Play from Start", systemImage: "gobackward")
                     }
+                    .buttonStyle(SeretActionButtonStyle())
                 } else {
                     NavigationLink(value: store.playRequest(source: best, episode: nil, label: item.title)) {
                         Label("Play", systemImage: "play.fill")
                     }
+                    .buttonStyle(SeretActionButtonStyle(prominent: true))
                 }
             }
             Button {
@@ -83,6 +86,7 @@ struct MovieDetailView: View {
                 Label(isWatched ? "Mark Unwatched" : "Mark Watched",
                       systemImage: isWatched ? "checkmark.circle.fill" : "checkmark.circle")
             }
+            .buttonStyle(SeretActionButtonStyle())
             .disabled(item.sources.isEmpty)
             Button {
                 Task { await store.toggleMyList(contentKey: item.id) }
@@ -90,11 +94,12 @@ struct MovieDetailView: View {
                 Label(store.inMyList ? "In My List" : "Add to My List",
                       systemImage: store.inMyList ? "checkmark" : "plus")
             }
+            .buttonStyle(SeretActionButtonStyle())
             Button(role: .destructive) { onRemove() } label: {
                 Label("Remove from Library", systemImage: "trash")
             }
+            .buttonStyle(SeretActionButtonStyle(destructive: true))
         }
-        .font(.title3)
         // Swipe UP on the remote while the action row is focused → watch the trailer full-screen
         // with sound. The muted hero keeps playing underneath; Menu returns here (focus on Play).
         .onMoveCommand { direction in
@@ -109,17 +114,17 @@ struct MovieDetailView: View {
     private var isWatched: Bool { watch?.finished == true }
 
     private var versionsSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Versions").font(.title2.bold())
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Versions").sectionTitle()
             ForEach(store.versions, id: \.self) { src in
                 NavigationLink(value: store.playRequest(source: src, episode: nil, label: item.title)) {
                     HStack {
                         QualityChips(parsed: src.parsed)
                         Spacer()
-                        Image(systemName: "play.circle")
+                        Image(systemName: "play.fill")
                     }
-                    .padding(.vertical, 6)
                 }
+                .buttonStyle(SeretRowStyle())
             }
         }
         .frame(maxWidth: 1100, alignment: .leading)

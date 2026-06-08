@@ -29,15 +29,16 @@ struct LandscapeProgressCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             ZStack(alignment: .bottom) {
-                AsyncImage(url: imageURL) { $0.resizable().aspectRatio(contentMode: .fill) }
-                    placeholder: { Rectangle().fill(Theme.Palette.surface2) }
-                    .frame(width: width, height: width * 9 / 16).clipped()
+                RemoteImage(url: imageURL)
+                    .frame(width: width, height: width * 9 / 16)
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Layout.posterCorner, style: .continuous))
                 GoldProgressBar(fraction: fraction).frame(width: width)
             }
-            Text(title).font(.callout.weight(.semibold)).lineLimit(1)
+            Text(title).cardTitle().lineLimit(1)
                 .frame(width: width, alignment: .leading)
             if !subtitle.isEmpty {
-                Text(subtitle).font(.caption).foregroundStyle(Theme.Palette.textSecondary)
+                Text(subtitle).font(.seret(Theme.Typography.captionSize, .medium))
+                    .foregroundStyle(Theme.Palette.textSecondary)
                     .lineLimit(1).frame(width: width, alignment: .leading)
             }
         }
@@ -50,10 +51,10 @@ struct HomeRail<Content: View>: View {
     @ViewBuilder var content: Content
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text(title).font(.title2.bold()).padding(.leading, 60)
+            Text(title).sectionTitle().padding(.leading, Theme.Layout.contentMargin)
             ScrollView(.horizontal) {
-                LazyHStack(spacing: 40) { content }
-                    .padding(.horizontal, 60).padding(.vertical, 40)
+                LazyHStack(spacing: 36) { content }
+                    .padding(.horizontal, Theme.Layout.contentMargin).padding(.vertical, 40)
             }
             .scrollClipDisabled()
         }

@@ -32,7 +32,7 @@ struct RootView: View {
                     .transition(.opacity)
             }
         }
-        .animation(.easeInOut(duration: 0.4), value: splashDone)
-        .animation(.easeInOut(duration: 0.45), value: session.needsProfileSelection)
+        .animation(Theme.Anim.pageFade, value: splashDone)
+        .animation(Theme.Anim.pageFade, value: session.needsProfileSelection)
     }
 }

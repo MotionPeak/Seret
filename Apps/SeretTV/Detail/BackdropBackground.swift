@@ -16,10 +16,13 @@ struct BackdropBackground: View {
     @ViewBuilder private var image: some View {
         if let url = TMDBClient.imageURL(path: path, size: "w1280")
             ?? TMDBClient.imageURL(path: posterFallback, size: "w780") {
-            AsyncImage(url: url) { $0.resizable().aspectRatio(contentMode: .fill) }
-                placeholder: {
-                    ZStack { Color.black; ProgressView() }   // small indicator, not a flat screen
+            AsyncImage(url: url, transaction: Transaction(animation: Theme.Anim.imageFade)) { phase in
+                if let image = phase.image {
+                    image.resizable().aspectRatio(contentMode: .fill).transition(.opacity)
+                } else {
+                    ZStack { Color.black; ProgressView().tint(Theme.Palette.gold) }
                 }
+            }
         } else {
             LinearGradient(colors: [.gray.opacity(0.3), .black], startPoint: .top, endPoint: .bottom)
         }
