@@ -9,8 +9,18 @@ struct MyLibraryScreen: View {
     @State private var kind: MediaKind = .movie
     @State private var pendingRemoval: MediaItem?
     @State private var removeErrorMessage: String?
+    @State private var mineOnly = false
+    @State private var myKeys: Set<String> = []
     /// Which filter pill has focus — moving between them switches the list live (no press).
     @FocusState private var focusedKind: MediaKind?
+
+    /// Show the All/Mine filter only when more than one profile exists.
+    private var hasProfiles: Bool { (session.activeProfiles?.roster.count ?? 0) > 1 }
+
+    private func items(_ store: LibraryStore) -> [MediaItem] {
+        let all = kind == .movie ? store.movies : store.shows
+        return (mineOnly && hasProfiles) ? all.filter { myKeys.contains($0.id) } : all
+    }
 
     var body: some View {
         VStack(spacing: 24) {
@@ -21,9 +31,21 @@ struct MyLibraryScreen: View {
                 Button("TV Shows") { kind = .show }
                     .buttonStyle(SeretPillStyle(selected: kind == .show))
                     .focused($focusedKind, equals: .show)
+                if hasProfiles {
+                    Divider().frame(height: 40)
+                    Button("All") { mineOnly = false }
+                        .buttonStyle(SeretPillStyle(selected: !mineOnly))
+                    Button("Mine") { mineOnly = true }
+                        .buttonStyle(SeretPillStyle(selected: mineOnly))
+                }
             }
             .padding(.top, 30)
             .onChange(of: focusedKind) { _, new in if let new { kind = new } }
+            .task {
+                mineOnly = hasProfiles
+                myKeys = Set((try? await session.myListStore?.contentKeys(
+                    forProfile: session.activeProfileID ?? "")) ?? [])
+            }
 
             if let tiles = session.downloadStore?.activeTiles, !tiles.isEmpty {
                 DownloadingStrip(tiles: tiles)
@@ -32,7 +54,7 @@ struct MyLibraryScreen: View {
             if let store = session.libraryStore {
                 LibraryScreen(
                     title: kind == .movie ? "Movies" : "Shows",
-                    items: kind == .movie ? store.movies : store.shows,
+                    items: items(store),
                     state: store.state,
                     onRetry: { store.retry() },
                     onRemove: { pendingRemoval = $0 })

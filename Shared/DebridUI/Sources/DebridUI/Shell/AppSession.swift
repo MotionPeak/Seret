@@ -317,8 +317,10 @@ public final class AppSession {
                            engine: VideoPlayerEngine) -> PlayerModel? {
         guard let torrents, let store = watchProgressStore else { return nil }
         // Playing a title claims it into the active profile's My List (add-or-play, rule ii).
+        // Keyed by the title's id (matches the Detail toggle + My Library filter), not the
+        // episode-level contentKey.
         if let myListStore, let pid = activeProfileID {
-            let key = request.contentKey
+            let key = request.item.id
             Task { try? await myListStore.claim(profileID: pid, contentKey: key) }
         }
         let coordinator = PlaybackCoordinator(store: store, profileID: activeProfileID ?? "")
