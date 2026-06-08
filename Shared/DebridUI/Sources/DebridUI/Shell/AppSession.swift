@@ -33,6 +33,9 @@ public final class AppSession {
     /// On-demand TMDB detail provider for the Detail screen (nil while signed out).
     public private(set) var detailsProvider: MediaDetailsProviding?
 
+    /// On-demand OMDb ratings provider for the Detail screen (nil while signed out or no key).
+    public private(set) var ratingsProvider: RatingsProviding?
+
     /// Shared watch-progress store (nil while signed out, or if the container fails to build).
     /// 7c's player + a later Continue-Watching feed reuse this same instance.
     public private(set) var watchStore: WatchProgressProviding?
@@ -128,6 +131,7 @@ public final class AppSession {
         showsBrowse = nil
         trailers = nil
         detailsProvider = nil
+        ratingsProvider = nil
         watchStore = nil
         home = nil
         watchProgressStore = nil
@@ -212,6 +216,10 @@ public final class AppSession {
             Task { await downloadNotifier.requestAuthorization() }
         }
         detailsProvider = TMDBDetailsService(client: tmdb)
+        let omdbKey = Secrets.omdbAPIKey
+        ratingsProvider = omdbKey.isEmpty ? nil
+            : OMDbRatingsService(client: OMDbClient(apiKey: omdbKey),
+                                 cache: OMDbRatingsCache(directory: Self.cachesDirectory))
         home = watchStore.map { HomeStore(watch: $0) }
         // Recompute the Home rails the moment a removal changes the library, so a deleted title
         // doesn't linger in Continue Watching / Recently Added until the Home tab is revisited.

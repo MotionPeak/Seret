@@ -15,8 +15,10 @@ struct DetailView: View {
     /// play via the value-nav link in `EpisodeRow`; this covers the download-then-play path).
     private struct EpisodePlayback: Identifiable { let id = UUID(); let request: PlaybackRequest }
 
-    init(item: MediaItem, details: MediaDetailsProviding, watch: WatchProgressProviding?) {
-        _store = State(initialValue: DetailStore(item: item, details: details, watch: watch))
+    init(item: MediaItem, details: MediaDetailsProviding, watch: WatchProgressProviding?,
+         ratings: RatingsProviding? = nil) {
+        _store = State(initialValue: DetailStore(item: item, details: details, watch: watch,
+                                                 ratings: ratings))
     }
 
     var body: some View {

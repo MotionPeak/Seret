@@ -18,8 +18,10 @@ struct DetailScreen: View {
     @Environment(AppSession.self) private var session
     @Environment(\.dismiss) private var dismiss
 
-    init(item: MediaItem, details: MediaDetailsProviding, watch: WatchProgressProviding?) {
-        _store = State(initialValue: DetailStore(item: item, details: details, watch: watch))
+    init(item: MediaItem, details: MediaDetailsProviding, watch: WatchProgressProviding?,
+         ratings: RatingsProviding? = nil) {
+        _store = State(initialValue: DetailStore(item: item, details: details, watch: watch,
+                                                 ratings: ratings))
     }
 
     var body: some View {
