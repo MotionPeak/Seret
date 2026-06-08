@@ -61,8 +61,12 @@ public final class AppSession {
     public private(set) var profileStore: ProfileStore?
     /// Per-profile "My List" store — claimed-title membership (later slice wires claim on add/play).
     public private(set) var myListStore: MyListStore?
-    /// The profile this device is currently watching as. Set after owner bootstrap / profile switch.
-    public private(set) var activeProfileID: String?
+    /// Device-local active-profile selection + roster (drives the Who's-Watching gate).
+    public private(set) var activeProfiles: ActiveProfileStore?
+    /// The profile this device is watching as (nil until resolved / while the gate is showing).
+    public var activeProfileID: String? { activeProfiles?.activeProfileID }
+    /// True when the Who's-Watching gate should show (more than one profile, none chosen here).
+    public var needsProfileSelection: Bool { activeProfiles?.needsSelection ?? false }
     private var torrents: TorrentsClient?
     /// Single, app-lifetime observer that rebuilds Home when CloudKit imports remote changes.
     private var remoteChangeObserver: NSObjectProtocol?
@@ -250,18 +254,43 @@ public final class AppSession {
         } else {
             subtitlesProvider = nil
         }
-        // Profiles: ensure an owner profile exists (migrating Phase-1 progress), set it active on
-        // this device, and scope Home to it. Profile switching arrives in a later slice.
+        // Profiles: ensure an owner profile exists (migrating Phase-1 progress), resolve this
+        // device's selection (solo → auto-select; multiple → Who's-Watching gate), and scope Home.
         if let profileStore {
+            let profiles = ActiveProfileStore(provider: profileStore)
+            activeProfiles = profiles
             Task { @MainActor in
-                let owner = try? await profileStore.ensureOwnerProfileAndMigrate(
-                    ownerName: "Me", colorTag: "gold")
-                self.activeProfileID = owner?.id
-                self.home?.activeProfileID = owner?.id
+                await profiles.loadAndResolve()
+                self.home?.activeProfileID = profiles.activeProfileID
                 await self.rebuildHome()
             }
         }
         state = .signedIn
+    }
+
+    /// Pick a profile (Who's-Watching tap): persist the device selection, re-scope Home, rebuild.
+    public func selectProfile(_ id: String) {
+        activeProfiles?.select(id)
+        home?.activeProfileID = activeProfileID
+        Task { await rebuildHome() }
+    }
+
+    /// Switch user — clears the device selection so the Who's-Watching gate reappears.
+    public func switchProfile() {
+        activeProfiles?.switchProfile()
+        home?.activeProfileID = nil
+    }
+
+    /// Create a profile (then it can be picked on the Who's-Watching screen).
+    public func createProfile(name: String, colorTag: String) async {
+        await activeProfiles?.create(name: name, colorTag: colorTag)
+    }
+
+    /// Delete a profile (cascades its progress + My List via the store).
+    public func deleteProfile(_ id: String) async {
+        await activeProfiles?.delete(id: id)
+        home?.activeProfileID = activeProfileID
+        await rebuildHome()
     }
 
     /// Rebuild the Home rails from the current library + (possibly just-synced) watch progress.
