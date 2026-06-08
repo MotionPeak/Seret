@@ -23,7 +23,8 @@ struct RootView: View {
         // so rotating the device doesn't dismiss it.
         .fullScreenCover(item: Binding(get: { router.detail }, set: { router.detail = $0 })) { item in
             if let details = session.detailsProvider {
-                DetailScreen(item: item, details: details, watch: session.watchStore)
+                DetailScreen(item: item, details: details, watch: session.watchStore,
+                             ratings: session.ratingsProvider)
             }
         }
         // The Add flow is presented here too (above the shell) so it and its nested player

@@ -27,7 +27,8 @@ struct LibraryShell: View {
                     }
                     .navigationDestination(for: MediaItem.self) { item in
                         if let details = session.detailsProvider {
-                            DetailView(item: item, details: details, watch: session.watchStore)
+                            DetailView(item: item, details: details, watch: session.watchStore,
+                                       ratings: session.ratingsProvider)
                         }
                     }
                     .navigationDestination(for: PlaybackRequest.self) { request in
