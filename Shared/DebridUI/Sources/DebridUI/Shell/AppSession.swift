@@ -185,18 +185,30 @@ public final class AppSession {
         if let container = makeContainer(schema: schema, cloudKit: useCloudKit), storeHealthy(container) {
             return wrap(container, mode: mode)
         }
-        // The on-disk store is incompatible — created by an older build that lacked the Profile /
-        // MyList tables ("no such table: ZPROFILE"), and SwiftData didn't add them. Wipe the store
-        // files and rebuild fresh (local) so profiles always work. Watch progress is re-derivable.
-        destroyDefaultStore()
+        // The dedicated store is incompatible (e.g. left over from an earlier schema). Wipe it and
+        // rebuild fresh (local) so profiles always work. Watch progress is re-derivable.
+        destroyProfileStore()
         guard let container = makeContainer(schema: schema, cloudKit: false) else { return nil }
         return wrap(container, mode: mode + "-reset")
     }
 
+    /// A DEDICATED store file for profile/watch/My-List data, kept separate from `default.store`
+    /// (which the downloads container uses). Two SwiftData containers sharing one file with
+    /// different schemas clobber each other's tables — that was the real "no such table: ZPROFILE".
+    private static var profileStoreURL: URL? {
+        try? FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask,
+                                     appropriateFor: nil, create: true)
+            .appendingPathComponent("SeretProfiles.store")
+    }
+
     private static func makeContainer(schema: Schema, cloudKit: Bool) -> ModelContainer? {
-        let local = ModelConfiguration(schema: schema)
+        guard let url = profileStoreURL else {
+            // No dedicated URL available — last-resort default store.
+            return try? ModelContainer(for: schema, configurations: ModelConfiguration(schema: schema))
+        }
+        let local = ModelConfiguration(schema: schema, url: url)
         let config = cloudKit
-            ? ModelConfiguration(schema: schema, cloudKitDatabase: .private(cloudKitContainerID))
+            ? ModelConfiguration(schema: schema, url: url, cloudKitDatabase: .private(cloudKitContainerID))
             : local
         return (try? ModelContainer(for: schema, configurations: config))
             ?? (try? ModelContainer(for: schema, configurations: local))
@@ -216,14 +228,13 @@ public final class AppSession {
         catch { return false }
     }
 
-    /// Delete SwiftData's default on-disk store (and its WAL/SHM sidecars) so a fresh, correctly
-    /// schema'd store is recreated. Used only when the existing store is incompatible.
-    private static func destroyDefaultStore() {
-        guard let base = try? FileManager.default.url(for: .applicationSupportDirectory,
-                                                      in: .userDomainMask, appropriateFor: nil,
-                                                      create: false) else { return }
-        for name in ["default.store", "default.store-wal", "default.store-shm"] {
-            try? FileManager.default.removeItem(at: base.appendingPathComponent(name))
+    /// Delete the dedicated profile store (and its WAL/SHM sidecars) so a fresh, correctly-schema'd
+    /// store is recreated. Used only when the existing store is incompatible.
+    private static func destroyProfileStore() {
+        guard let url = profileStoreURL else { return }
+        let dir = url.deletingLastPathComponent(), name = url.lastPathComponent
+        for suffix in ["", "-wal", "-shm"] {
+            try? FileManager.default.removeItem(at: dir.appendingPathComponent(name + suffix))
         }
     }
 
