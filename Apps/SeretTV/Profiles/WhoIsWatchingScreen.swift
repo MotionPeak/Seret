@@ -2,64 +2,61 @@ import DebridCore
 import DebridUI
 import SwiftUI
 
-/// tvOS "Who's Watching?" — pick a profile (or add one). Shown by RootView when more than one
-/// profile exists and this device hasn't resolved a selection.
+/// tvOS "Who's Watching?" — shown on every launch. Pick a profile (or add one).
 struct WhoIsWatchingScreen: View {
     @Environment(AppSession.self) private var session
-    @State private var addingName = ""
     @State private var showingAdd = false
     /// Called after a profile is picked — lets a modal presentation (Settings → Manage Profiles)
     /// dismiss itself. The launch gate uses the default no-op (it disappears on its own).
     var onPicked: () -> Void = {}
 
     private var profiles: [ProfileDTO] { session.activeProfiles?.roster ?? [] }
+    private let columns = [GridItem(.adaptive(minimum: 260), spacing: 50)]
 
     var body: some View {
         ZStack {
             CanvasBackground()
-            VStack(spacing: 60) {
-                Text("Who's Watching?")
-                    .font(.system(size: 56, weight: .heavy))
-                    .foregroundStyle(Theme.Palette.textPrimary)
-                HStack(spacing: 50) {
-                    ForEach(profiles) { p in
-                        Button { session.selectProfile(p.id); onPicked() } label: { ProfileAvatar(profile: p) }
+            ScrollView {
+                VStack(spacing: 60) {
+                    Text("Who's Watching?")
+                        .font(.system(size: 56, weight: .heavy))
+                        .foregroundStyle(Theme.Palette.textPrimary)
+                    LazyVGrid(columns: columns, spacing: 50) {
+                        ForEach(profiles) { p in
+                            Button { session.selectProfile(p.id); onPicked() } label: { ProfileAvatar(profile: p) }
+                                .buttonStyle(.card)
+                        }
+                        Button { showingAdd = true } label: { AddProfileTile() }
                             .buttonStyle(.card)
                     }
-                    Button { showingAdd = true } label: { AddProfileTile() }
-                        .buttonStyle(.card)
+                    .padding(.horizontal, 80)
                 }
+                .padding(.vertical, 80)
             }
         }
-        .alert("New Profile", isPresented: $showingAdd) {
-            TextField("Name", text: $addingName)
-            Button("Create") {
-                let name = addingName.trimmingCharacters(in: .whitespaces)
-                guard !name.isEmpty else { return }
-                Task { await session.createProfile(name: name, colorTag: "gold"); addingName = "" }
-            }
-            Button("Cancel", role: .cancel) { addingName = "" }
+        .fullScreenCover(isPresented: $showingAdd) {
+            AddProfileScreen().environment(session)
         }
     }
 }
 
-/// Circular monogram avatar in the profile's color.
-private struct ProfileAvatar: View {
+/// Circular emoji avatar in the profile's color.
+struct ProfileAvatar: View {
     let profile: ProfileDTO
     var body: some View {
         VStack(spacing: 18) {
             ZStack {
                 Circle().fill(Theme.Palette.color(for: profile.colorTag))
                     .frame(width: 200, height: 200)
-                Text(String(profile.name.prefix(1)).uppercased())
-                    .font(.system(size: 84, weight: .bold)).foregroundStyle(.black)
+                Text(profile.avatar.isEmpty ? ProfileAvatars.fallback : profile.avatar)
+                    .font(.system(size: 110))
             }
             Text(profile.name).font(.title3).foregroundStyle(Theme.Palette.textPrimary)
         }
     }
 }
 
-private struct AddProfileTile: View {
+struct AddProfileTile: View {
     var body: some View {
         VStack(spacing: 18) {
             ZStack {
