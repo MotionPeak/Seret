@@ -15,6 +15,9 @@ public final class DetailStore {
     /// The active profile whose progress this Detail reads/writes. nil → no active profile yet
     /// (record/read are skipped until `AppSession` sets one).
     private let profileID: String?
+    private let myList: MyListProviding?
+    /// Whether the active profile has this title in its My List (drives the Add/In-My-List button).
+    public private(set) var inMyList = false
     private let ratingsProvider: RatingsProviding?
 
     public private(set) var richState: RichState = .idle
@@ -38,11 +41,13 @@ public final class DetailStore {
     public private(set) var ratingsState: RichState = .idle
 
     public init(item: MediaItem, details: MediaDetailsProviding, watch: WatchProgressProviding?,
-                profileID: String? = nil, ratings: RatingsProviding? = nil) {
+                profileID: String? = nil, myList: MyListProviding? = nil,
+                ratings: RatingsProviding? = nil) {
         self.item = item
         self.details = details
         self.watch = watch
         self.profileID = profileID
+        self.myList = myList
         self.ratingsProvider = ratings
         self.overview = item.overview
         self.backdropPath = item.backdropPath
@@ -222,5 +227,23 @@ public final class DetailStore {
     private func refreshWatch(_ key: String) async {
         guard let watch, let profileID else { return }
         watchByKey[key] = try? await watch.progress(forContentKey: key, profileID: profileID)
+    }
+
+    /// Load whether the active profile has claimed this title (for the Add-to-My-List button).
+    public func loadMyList(contentKey: String) async {
+        guard let myList, let profileID else { inMyList = false; return }
+        inMyList = (try? await myList.isClaimed(profileID: profileID, contentKey: contentKey)) ?? false
+    }
+
+    /// Add or remove this title from the active profile's My List.
+    public func toggleMyList(contentKey: String) async {
+        guard let myList, let profileID else { return }
+        if inMyList {
+            try? await myList.unclaim(profileID: profileID, contentKey: contentKey)
+            inMyList = false
+        } else {
+            try? await myList.claim(profileID: profileID, contentKey: contentKey)
+            inMyList = true
+        }
     }
 }

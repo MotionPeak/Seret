@@ -65,6 +65,17 @@ private actor FakeWatch: WatchProgressProviding {
     }
 }
 
+private actor FakeMyList: MyListProviding {
+    private var claimed: Set<String> = []
+    init(_ seed: Set<String> = []) { claimed = seed }
+    func claim(profileID: String, contentKey: String) async throws { claimed.insert("\(profileID)|\(contentKey)") }
+    func unclaim(profileID: String, contentKey: String) async throws { claimed.remove("\(profileID)|\(contentKey)") }
+    func isClaimed(profileID: String, contentKey: String) async throws -> Bool { claimed.contains("\(profileID)|\(contentKey)") }
+    func contentKeys(forProfile profileID: String) async throws -> [String] {
+        claimed.filter { $0.hasPrefix("\(profileID)|") }.map { String($0.dropFirst(profileID.count + 1)) }
+    }
+}
+
 // MARK: - Tests
 
 @MainActor
@@ -117,6 +128,21 @@ private actor FakeWatch: WatchProgressProviding {
         #expect(store.richState == .loaded)
         #expect(store.selectedSeason == 1)
         #expect(store.episodeMeta[1]?[1]?.name == "Pilot")
+    }
+
+    @Test func toggleMyListClaimsThenUnclaims() async {
+        let m = movie("1", sources: [source("t", "1080p")])
+        let key = WatchKey.content(forMovie: m)
+        let list = FakeMyList()
+        let store = DetailStore(item: m, details: FakeDetails(movie: .success(movieDetails())),
+                                watch: nil, profileID: "p1", myList: list)
+        await store.loadMyList(contentKey: key)
+        #expect(store.inMyList == false)
+        await store.toggleMyList(contentKey: key)
+        #expect(store.inMyList == true)
+        #expect((try? await list.isClaimed(profileID: "p1", contentKey: key)) == true)
+        await store.toggleMyList(contentKey: key)
+        #expect(store.inMyList == false)
     }
 
     @Test func markWatchedWritesAndReadsBack() async {
