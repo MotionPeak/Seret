@@ -7,6 +7,7 @@ struct SettingsView: View {
     @State private var model = SettingsModel(
         secretStore: KeychainSecretStore(service: "com.solomons.seret.opensubtitles"))
     @State private var showingProfiles = false
+    @State private var editingActive = false
 
     var body: some View {
         Form {
@@ -22,6 +23,12 @@ struct SettingsView: View {
             .listRowBackground(Theme.Palette.surface1)
 
             Section {
+                if session.activeProfiles?.activeProfile != nil {
+                    Button { editingActive = true } label: {
+                        Label("Edit Profile", systemImage: "pencil")
+                            .foregroundStyle(Theme.Palette.textPrimary)
+                    }
+                }
                 Button { showingProfiles = true } label: {
                     Label("Manage Profiles", systemImage: "person.2.crop.square.stack")
                         .foregroundStyle(Theme.Palette.textPrimary)
@@ -131,6 +138,9 @@ struct SettingsView: View {
                         }
                     }
             }
+        }
+        .sheet(isPresented: $editingActive) {
+            AddProfileScreen(editing: session.activeProfiles?.activeProfile).environment(session)
         }
     }
 

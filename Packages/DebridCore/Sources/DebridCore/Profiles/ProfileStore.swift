@@ -32,6 +32,15 @@ public actor ProfileStore {
         try modelContext.save()
     }
 
+    /// Edit a profile's name, color, and avatar. No-op if the id doesn't exist.
+    public func update(id: String, name: String, colorTag: String, avatar: String) throws {
+        guard let p = try fetchOne(id: id) else { return }
+        p.name = name
+        p.colorTag = colorTag
+        p.avatar = avatar
+        try modelContext.save()
+    }
+
     /// Delete a profile and cascade to its My-List entries and watch progress.
     public func delete(id: String) throws {
         if let p = try fetchOne(id: id) { modelContext.delete(p) }

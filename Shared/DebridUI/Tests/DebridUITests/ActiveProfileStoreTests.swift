@@ -26,6 +26,11 @@ private actor FakeRoster: ProfileRosterProviding {
                                  avatar: rows[i].avatar, createdAt: rows[i].createdAt)
         }
     }
+    func update(id: String, name: String, colorTag: String, avatar: String) async throws {
+        if let i = rows.firstIndex(where: { $0.id == id }) {
+            rows[i] = ProfileDTO(id: id, name: name, colorTag: colorTag, avatar: avatar, createdAt: rows[i].createdAt)
+        }
+    }
     func delete(id: String) async throws { rows.removeAll { $0.id == id } }
 }
 

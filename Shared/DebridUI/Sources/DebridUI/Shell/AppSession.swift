@@ -391,6 +391,11 @@ public final class AppSession {
         await activeProfiles?.create(name: name, colorTag: colorTag, avatar: avatar)
     }
 
+    /// Edit an existing profile's name, color, and avatar.
+    public func updateProfile(id: String, name: String, colorTag: String, avatar: String) async {
+        await activeProfiles?.update(id: id, name: name, colorTag: colorTag, avatar: avatar)
+    }
+
     /// Delete a profile (cascades its progress + My List via the store).
     public func deleteProfile(_ id: String) async {
         await activeProfiles?.delete(id: id)

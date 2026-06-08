@@ -47,6 +47,23 @@ extension SwiftDataSuite {
             #expect(try await store.all().first?.name == "New")
         }
 
+        @Test func updateChangesNameColorAndAvatar() async throws {
+            let store = ProfileStore(modelContainer: try container())
+            _ = try await store.create(name: "Old", colorTag: "gold", avatar: "bottts:A", id: "p1",
+                                       at: Date(timeIntervalSince1970: 1))
+            try await store.update(id: "p1", name: "New", colorTag: "blue", avatar: "pixel-art:Z")
+            let p = try await store.all().first
+            #expect(p?.name == "New")
+            #expect(p?.colorTag == "blue")
+            #expect(p?.avatar == "pixel-art:Z")
+        }
+
+        @Test func updateUnknownIdIsANoOp() async throws {
+            let store = ProfileStore(modelContainer: try container())
+            try await store.update(id: "ghost", name: "x", colorTag: "red", avatar: "y")
+            #expect(try await store.all().isEmpty)
+        }
+
         @Test func deleteCascadesMyListAndProgress() async throws {
             let c = try container()
             let store = ProfileStore(modelContainer: c)

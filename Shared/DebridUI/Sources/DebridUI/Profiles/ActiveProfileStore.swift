@@ -55,6 +55,11 @@ public final class ActiveProfileStore {
         roster = (try? await provider.all()) ?? roster
     }
 
+    public func update(id: String, name: String, colorTag: String, avatar: String) async {
+        try? await provider.update(id: id, name: name, colorTag: colorTag, avatar: avatar)
+        roster = (try? await provider.all()) ?? roster
+    }
+
     public func delete(id: String) async {
         try? await provider.delete(id: id)
         if activeProfileID == id { activeProfileID = nil }

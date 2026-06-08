@@ -7,6 +7,7 @@ public protocol ProfileRosterProviding: Sendable {
     func ensureOwnerProfileAndMigrate(ownerName: String, colorTag: String, avatar: String) async throws -> ProfileDTO
     func create(name: String, colorTag: String, avatar: String) async throws -> ProfileDTO
     func rename(id: String, to name: String) async throws
+    func update(id: String, name: String, colorTag: String, avatar: String) async throws
     func delete(id: String) async throws
 }
 

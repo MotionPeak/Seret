@@ -7,6 +7,7 @@ struct SettingsView: View {
     @State private var model = SettingsModel(
         secretStore: KeychainSecretStore(service: "com.solomons.seret.opensubtitles"))
     @State private var showingProfiles = false
+    @State private var editingActive = false
 
     var body: some View {
         ZStack {
@@ -79,7 +80,12 @@ struct SettingsView: View {
                           systemImage: session.profilesSyncedViaICloud ? "checkmark.icloud.fill" : "icloud.slash")
                         .font(.callout)
                         .foregroundStyle(session.profilesSyncedViaICloud ? Theme.Palette.gold : Theme.Palette.textSecondary)
-                    Button("Manage Profiles") { showingProfiles = true }
+                    HStack(spacing: 24) {
+                        if session.activeProfiles?.activeProfile != nil {
+                            Button("Edit Profile") { editingActive = true }
+                        }
+                        Button("Manage Profiles") { showingProfiles = true }
+                    }
                 }
                 .frame(maxWidth: 900)
 
@@ -99,6 +105,9 @@ struct SettingsView: View {
         .fullScreenCover(isPresented: $showingProfiles) {
             WhoIsWatchingScreen(onPicked: { showingProfiles = false })
                 .environment(session)
+        }
+        .fullScreenCover(isPresented: $editingActive) {
+            AddProfileScreen(editing: session.activeProfiles?.activeProfile).environment(session)
         }
     }
 
