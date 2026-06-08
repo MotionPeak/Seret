@@ -170,9 +170,11 @@ public final class AppSession {
         let mode: String
     }
 
-    /// Diagnostic: which backing store profiles use ("cloud", "local", or "none"). Shown on the
-    /// Who's-Watching screen while we stabilize the profile flow.
+    /// Which backing store profiles use ("cloud", "local", "local-reset", or "none").
     public private(set) var profileStoreMode: String = "none"
+    /// True when profiles are backed by CloudKit (syncing across this Apple ID's devices); false
+    /// means a local-only store on this device (no iCloud account / CloudKit unavailable).
+    public var profilesSyncedViaICloud: Bool { profileStoreMode == "cloud" }
 
     private static func makeProfileStores() -> ProfileStores? {
         let schema = Schema([WatchProgress.self, Profile.self, MyListEntry.self])

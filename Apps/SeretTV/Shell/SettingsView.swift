@@ -75,6 +75,10 @@ struct SettingsView: View {
                     }
                     Text("Add a profile so each viewer gets their own Continue Watching and My List.")
                         .font(.callout).foregroundStyle(Theme.Palette.textSecondary)
+                    Label(session.profilesSyncedViaICloud ? "Syncing via iCloud" : "On this device only",
+                          systemImage: session.profilesSyncedViaICloud ? "checkmark.icloud.fill" : "icloud.slash")
+                        .font(.callout)
+                        .foregroundStyle(session.profilesSyncedViaICloud ? Theme.Palette.gold : Theme.Palette.textSecondary)
                     Button("Manage Profiles") { showingProfiles = true }
                 }
                 .frame(maxWidth: 900)

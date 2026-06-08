@@ -26,6 +26,9 @@ struct SettingsView: View {
                     Label("Manage Profiles", systemImage: "person.2.crop.square.stack")
                         .foregroundStyle(Theme.Palette.textPrimary)
                 }
+                Label(session.profilesSyncedViaICloud ? "Syncing via iCloud" : "On this device only",
+                      systemImage: session.profilesSyncedViaICloud ? "checkmark.icloud.fill" : "icloud.slash")
+                    .foregroundStyle(session.profilesSyncedViaICloud ? Theme.Palette.gold : Theme.Palette.textSecondary)
             } header: {
                 Text("Profile").foregroundStyle(Theme.Palette.gold)
             } footer: {
