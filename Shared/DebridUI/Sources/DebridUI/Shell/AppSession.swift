@@ -282,8 +282,8 @@ public final class AppSession {
     }
 
     /// Create a profile (then it can be picked on the Who's-Watching screen).
-    public func createProfile(name: String, colorTag: String) async {
-        await activeProfiles?.create(name: name, colorTag: colorTag)
+    public func createProfile(name: String, colorTag: String, avatar: String) async {
+        await activeProfiles?.create(name: name, colorTag: colorTag, avatar: avatar)
     }
 
     /// Delete a profile (cascades its progress + My List via the store).

@@ -2,59 +2,45 @@ import DebridCore
 import Foundation
 import Observation
 
-/// Owns the profile roster and the **device-local** active selection (Netflix-style: the roster
-/// syncs via CloudKit, the selection does not). Drives the "Who's Watching?" gate.
+/// Owns the profile roster and the active selection for this app session. We **always ask** "Who's
+/// Watching?" on launch (Netflix-style): `loadAndResolve` leaves no profile selected, so the gate
+/// shows until the user taps one. The roster syncs via CloudKit; the selection is per-session.
 @MainActor
 @Observable
 public final class ActiveProfileStore {
     public private(set) var roster: [ProfileDTO] = []
     public private(set) var activeProfileID: String?
 
-    private let provider: ProfileRosterProviding
-    private let defaults: UserDefaults
-    private static let key = "seret.activeProfileID"
+    /// The auto-created owner's avatar (a movie-night popcorn).
+    public static let ownerAvatar = "🍿"
 
-    public init(provider: ProfileRosterProviding, defaults: UserDefaults = .standard) {
-        self.provider = provider
-        self.defaults = defaults
-    }
+    private let provider: ProfileRosterProviding
+    public init(provider: ProfileRosterProviding) { self.provider = provider }
 
     public var activeProfile: ProfileDTO? { roster.first { $0.id == activeProfileID } }
 
-    /// Show "Who's Watching?" when there are multiple profiles and this device hasn't resolved one.
-    public var needsSelection: Bool { roster.count > 1 && activeProfile == nil }
+    /// Show "Who's Watching?" whenever no profile is picked for this session.
+    public var needsSelection: Bool { activeProfileID == nil }
 
-    /// Ensure an owner profile exists (migrating Phase-1 progress), load the roster, and resolve the
-    /// device-stored selection. Solo/owner-only → auto-select (no gate); multiple with no valid
-    /// stored selection → leave unselected to force the gate.
+    /// Ensure an owner profile exists (migrating Phase-1 progress) and load the roster, then leave
+    /// the selection empty so the launch picker is shown.
     public func loadAndResolve() async {
-        let owner = try? await provider.ensureOwnerProfileAndMigrate(ownerName: "Me", colorTag: "gold")
+        _ = try? await provider.ensureOwnerProfileAndMigrate(
+            ownerName: "Me", colorTag: "gold", avatar: Self.ownerAvatar)
         roster = (try? await provider.all()) ?? []
-        let stored = defaults.string(forKey: Self.key)
-        if let stored, roster.contains(where: { $0.id == stored }) {
-            activeProfileID = stored
-        } else if roster.count <= 1 {
-            activeProfileID = roster.first?.id ?? owner?.id
-            persist()
-        } else {
-            activeProfileID = nil
-        }
+        activeProfileID = nil
     }
 
     public func select(_ id: String) {
         guard roster.contains(where: { $0.id == id }) else { return }
         activeProfileID = id
-        persist()
     }
 
     /// Deselect to re-show "Who's Watching?" (the Switch-Profile action).
-    public func switchProfile() {
-        activeProfileID = nil
-        defaults.removeObject(forKey: Self.key)
-    }
+    public func switchProfile() { activeProfileID = nil }
 
-    public func create(name: String, colorTag: String) async {
-        _ = try? await provider.create(name: name, colorTag: colorTag)
+    public func create(name: String, colorTag: String, avatar: String) async {
+        _ = try? await provider.create(name: name, colorTag: colorTag, avatar: avatar)
         roster = (try? await provider.all()) ?? roster
     }
 
@@ -65,11 +51,7 @@ public final class ActiveProfileStore {
 
     public func delete(id: String) async {
         try? await provider.delete(id: id)
-        if activeProfileID == id { switchProfile() }
+        if activeProfileID == id { activeProfileID = nil }
         roster = (try? await provider.all()) ?? roster
-    }
-
-    private func persist() {
-        if let id = activeProfileID { defaults.set(id, forKey: Self.key) }
     }
 }
