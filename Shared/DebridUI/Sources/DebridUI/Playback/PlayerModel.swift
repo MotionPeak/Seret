@@ -131,6 +131,10 @@ public final class PlayerModel {
     /// deferred seek (not a load-time start-time) keeps the whole timeline seekable.
     private var resumeTarget: Double = 0
     private var resumeSeekIssued: Bool = false
+    /// A manual seek (skip/commitScrub) in flight: `to` is the optimistic target the bar already
+    /// shows, `from` the pre-seek playhead. While set, `tick()` ignores VLCKit's stale pre-seek
+    /// time echoes (which would snap the bar back) until a tick arrives nearer `to` than `from`.
+    private var pendingSeek: (from: Double, to: Double)?
     private let saveInterval: Double = 5
     private let autoHideDelay: Double
     private let scrubBarDwell: Double = 5      // bar stays visible for 5s after the last interaction
@@ -277,6 +281,7 @@ public final class PlayerModel {
         lastTickPosition = 0
         resumeTarget = (resumeAt ?? 0) > 0 ? (resumeAt ?? 0) : 0   // >0 → deferred-seek there once playing
         resumeSeekIssued = false
+        pendingSeek = nil
         lastSavedPosition = -.infinity
         loadTask?.cancel()
         loadTask = Task { await self.loadCurrentSource() }
@@ -324,7 +329,6 @@ public final class PlayerModel {
     }
 
     private func tick(_ t: PlaybackTime) async {
-        position = t.position
         duration = t.duration
 
         // Resume: a tick means VLCKit has parsed the media and will honor a seek, so issue the
@@ -342,6 +346,20 @@ public final class PlayerModel {
             }
             return                                      // overlay stays; no promote/save while seeking
         }
+
+        // Manual seek settling (bug #4): skip()/commitScrub() already moved `position` to the target
+        // optimistically. VLCKit keeps echoing the PRE-seek time for a tick or two until the seek
+        // lands; accepting those would snap the scrub bar back to the old spot. Hold the displayed
+        // position at the target and drop ticks until one arrives that is decisively nearer the
+        // target than the pre-seek origin (works for both forward and backward seeks, any distance).
+        // `lastTickPosition` was set to the target when the seek was issued, so advance detection
+        // below still fires on the landing tick.
+        if let seek = pendingSeek {
+            guard abs(t.position - seek.to) < abs(t.position - seek.from) else { return }
+            pendingSeek = nil                           // landed → resume live tracking
+        }
+
+        position = t.position
 
         // Sustained advance past the last tick = the decoder is really producing frames. A single
         // tick at the seek target is not advance, so the overlay stays until the picture is moving.
@@ -491,10 +509,12 @@ public final class PlayerModel {
     }
 
     public func skip(_ delta: Double) {
+        let from = position
         let target = clamp(position + delta)
         position = target            // optimistic: the scrub bar jumps to the new time immediately
         isBuffering = true           // …and shows the loading hint while the seek rebuffers
         lastTickPosition = target    // re-arm advance detection past the target
+        pendingSeek = target != from ? (from: from, to: target) : nil   // hold the bar through stale ticks
         engine.seek(to: target)
     }
     public func scrub(to seconds: Double) { engine.seek(to: clamp(seconds)) }
@@ -537,9 +557,11 @@ public final class PlayerModel {
     public func commitScrub() {
         guard isScrubbing else { return }
         isScrubbing = false
+        let from = position
         position = scrubTarget
         lastTickPosition = scrubTarget
         isBuffering = true                     // loading hint while the seek rebuffers
+        pendingSeek = scrubTarget != from ? (from: from, to: scrubTarget) : nil   // hold through stale ticks
         engine.seek(to: scrubTarget)
         armAutoHide()
         revealScrubBar()                       // sticky 5s after commit

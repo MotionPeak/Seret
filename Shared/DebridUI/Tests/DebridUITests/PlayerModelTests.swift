@@ -329,9 +329,48 @@ import DebridCore
         engine.emit(.time(.init(position: 5, duration: 100))); await model.waitForIdleForTesting()
         model.skip(-30)
         #expect(model.position == 0)             // clamped at 0
+        engine.emit(.time(.init(position: 0.1, duration: 100))); await model.waitForIdleForTesting()  // seek lands → guard settles
         engine.emit(.time(.init(position: 95, duration: 100))); await model.waitForIdleForTesting()
         model.skip(50)
         #expect(model.position == 100)           // clamped at duration
+    }
+
+    @Test func seekHoldsTargetThroughStalePreSeekTicks() async {
+        // Bug #4: VLCKit keeps echoing the PRE-seek time for a tick or two after a seek is issued,
+        // before the seek actually lands. Those stale ticks must NOT snap the scrub bar back to the
+        // old spot — the displayed position holds at the target until a tick arrives near it.
+        let engine = FakeVideoPlayerEngine()
+        let model = makeModel(request: Fixture.request(), engine: engine)
+        model.start(); await model.waitForIdleForTesting()
+        engine.emit(.time(.init(position: 100, duration: 2000))); await model.waitForIdleForTesting()
+        #expect(model.position == 100)
+
+        model.skip(1000)                                   // jump 100 → 1100
+        #expect(model.position == 1100)                    // optimistic jump
+        engine.emit(.time(.init(position: 101, duration: 2000))); await model.waitForIdleForTesting()
+        #expect(model.position == 1100)                    // held at target — NOT snapped back to ~101
+        engine.emit(.time(.init(position: 1100.4, duration: 2000))); await model.waitForIdleForTesting()
+        #expect(model.position == 1100.4)                  // seek landed → live tracking resumes
+        engine.emit(.time(.init(position: 1101, duration: 2000))); await model.waitForIdleForTesting()
+        #expect(model.position == 1101)                    // continues advancing normally
+    }
+
+    @Test func backwardSeekHoldsTargetThroughStaleTicks() async {
+        // Same as above but seeking backwards (commitScrub): the stale tick is now at a HIGHER
+        // position than the target — it must not snap the bar forward either.
+        let engine = FakeVideoPlayerEngine()
+        let model = makeModel(request: Fixture.request(), engine: engine)
+        model.start(); await model.waitForIdleForTesting()
+        engine.emit(.time(.init(position: 1500, duration: 2000))); await model.waitForIdleForTesting()
+        model.beginScrub()
+        model.updateScrub(by: -1000)                       // target 500
+        #expect(model.scrubTarget == 500)
+        model.commitScrub()
+        #expect(model.position == 500)
+        engine.emit(.time(.init(position: 1499, duration: 2000))); await model.waitForIdleForTesting()
+        #expect(model.position == 500)                     // held — NOT snapped forward to ~1499
+        engine.emit(.time(.init(position: 500.3, duration: 2000))); await model.waitForIdleForTesting()
+        #expect(model.position == 500.3)                   // landed → resumes
     }
 
     @Test func midPlaybackBufferingShowsHintButKeepsVideoVisible() async {
