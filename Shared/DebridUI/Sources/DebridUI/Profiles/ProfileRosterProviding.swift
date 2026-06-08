@@ -17,7 +17,9 @@ extension ProfileStore: ProfileRosterProviding {
         try create(name: name, colorTag: colorTag, id: UUID().uuidString, at: Date())
     }
     public func ensureOwnerProfileAndMigrate(ownerName: String, colorTag: String) async throws -> ProfileDTO {
+        // Stable id (NOT random) so every device converges on the same owner — the fix for watch
+        // progress not lining up across devices.
         try ensureOwnerProfileAndMigrate(ownerName: ownerName, colorTag: colorTag,
-                                         id: UUID().uuidString, at: Date())
+                                         id: Profile.defaultOwnerID, at: Date())
     }
 }

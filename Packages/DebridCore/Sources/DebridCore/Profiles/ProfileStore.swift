@@ -6,10 +6,14 @@ import SwiftData
 /// migration can re-key existing progress.
 @ModelActor
 public actor ProfileStore {
-    /// All profiles, oldest first (creation order = display order).
+    /// All profiles, oldest first (creation order = display order), **deduped by id** — CloudKit
+    /// can sync more than one row for the same id (e.g. two devices each bootstrapped the default
+    /// owner before syncing); keep the earliest per id so the roster shows one entry.
     public func all() throws -> [ProfileDTO] {
-        try modelContext.fetch(FetchDescriptor<Profile>(
-            sortBy: [SortDescriptor(\.createdAt, order: .forward)])).map(ProfileDTO.init)
+        let rows = try modelContext.fetch(FetchDescriptor<Profile>(
+            sortBy: [SortDescriptor(\.createdAt, order: .forward)]))
+        var seen = Set<String>()
+        return rows.compactMap { seen.insert($0.id).inserted ? ProfileDTO($0) : nil }
     }
 
     /// Create a profile. `id`/`at` are injectable for deterministic tests.

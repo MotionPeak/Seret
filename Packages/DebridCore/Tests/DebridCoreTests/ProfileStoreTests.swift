@@ -78,6 +78,29 @@ extension SwiftDataSuite {
             #expect(migrated.first?.profileID == "owner")   // nil row re-keyed to owner
         }
 
+        @Test func allDedupesByIdKeepingEarliest() async throws {
+            let c = try container()
+            // Two devices each created the default owner before CloudKit synced → same id, two rows.
+            let ctx = ModelContext(c)
+            ctx.insert(Profile(id: Profile.defaultOwnerID, name: "Me", colorTag: "gold",
+                               createdAt: Date(timeIntervalSince1970: 5)))
+            ctx.insert(Profile(id: Profile.defaultOwnerID, name: "Me", colorTag: "gold",
+                               createdAt: Date(timeIntervalSince1970: 2)))
+            try ctx.save()
+            let all = try await ProfileStore(modelContainer: c).all()
+            #expect(all.map(\.id) == [Profile.defaultOwnerID])   // one entry, not two
+            #expect(all.first?.createdAt == Date(timeIntervalSince1970: 2))   // earliest kept
+        }
+
+        @Test func ensureOwnerUsesDefaultIdWhenNotSpecified() async throws {
+            // The seam path (no explicit id) must use the stable shared id so devices converge.
+            let store = ProfileStore(modelContainer: try container())
+            let owner = try await store.ensureOwnerProfileAndMigrate(
+                ownerName: "Me", colorTag: "gold", id: Profile.defaultOwnerID,
+                at: Date(timeIntervalSince1970: 1))
+            #expect(owner.id == Profile.defaultOwnerID)
+        }
+
         @Test func ensureOwnerIsIdempotentWhenProfilesExist() async throws {
             let store = ProfileStore(modelContainer: try container())
             _ = try await store.create(name: "Existing", colorTag: "blue", id: "p1",

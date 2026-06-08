@@ -5,6 +5,11 @@ import SwiftData
 /// property defaulted, no unique constraint. `id` is a caller-supplied UUID string.
 @Model
 public final class Profile {
+    /// The stable id for the auto-created default ("owner") profile. Fixed (not random) so every
+    /// device that bootstraps before CloudKit syncs converges on the SAME owner — otherwise each
+    /// device would invent its own owner id and watch progress wouldn't line up across devices.
+    public static let defaultOwnerID = "owner-default"
+
     public var id: String = ""
     public var name: String = ""
     /// A design-system color token (e.g. "gold"); the UI maps it to a palette. Stored as a string
