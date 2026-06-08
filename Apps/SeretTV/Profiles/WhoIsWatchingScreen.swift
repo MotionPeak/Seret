@@ -7,6 +7,7 @@ struct WhoIsWatchingScreen: View {
     @Environment(AppSession.self) private var session
     @State private var showingAdd = false
     @State private var selectingID: String?
+    @FocusState private var focusedID: String?
     /// Called after a profile is picked — lets a modal presentation (Settings → Manage Profiles)
     /// dismiss itself. The launch gate uses the default no-op (it disappears on its own).
     var onPicked: () -> Void = {}
@@ -24,13 +25,18 @@ struct WhoIsWatchingScreen: View {
                 HStack(spacing: 64) {
                     ForEach(profiles) { p in
                         Button { pick(p.id) } label: { ProfileAvatar(profile: p) }
-                            .buttonStyle(.card)
-                            .scaleEffect(selectingID == p.id ? 1.3 : 1)
+                            .buttonStyle(.plain)
+                            .focused($focusedID, equals: p.id)
+                            .scaleEffect(selectingID == p.id ? 1.3 : (focusedID == p.id ? 1.12 : 1))
                             .opacity(selectingID != nil && selectingID != p.id ? 0 : 1)
+                            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: focusedID)
                     }
                     Button { showingAdd = true } label: { AddProfileTile() }
-                        .buttonStyle(.card)
+                        .buttonStyle(.plain)
+                        .focused($focusedID, equals: "add")
+                        .scaleEffect(focusedID == "add" ? 1.12 : 1)
                         .opacity(selectingID == nil ? 1 : 0)
+                        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: focusedID)
                 }
                 .frame(maxWidth: .infinity)   // centers the row of avatars
             }
