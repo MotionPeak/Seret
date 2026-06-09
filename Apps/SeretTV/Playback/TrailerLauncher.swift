@@ -5,8 +5,9 @@ import SwiftUI
 import UIKit
 
 /// A "Trailer" button for tvOS: resolves the title's trailer to a playable stream on appear and
-/// plays it full-screen in-app (AVPlayer). Falls back to opening the YouTube app if extraction
-/// fails. Renders nothing until there's something to offer.
+/// plays it full-screen in-app (AVPlayer). The button appears ONLY once the in-app stream is
+/// ready, so pressing it always plays. If extraction fails, no button is shown — we never
+/// deep-link to the YouTube app (on tvOS that just dumps you into YouTube and does nothing).
 struct TrailerButton: View {
     let tmdbID: Int?
     let kind: MediaKind
@@ -34,30 +35,19 @@ struct TrailerButton: View {
         }
     }
 
+    /// Offer the button only when the in-app stream is actually ready — so a press always plays
+    /// (never a half-resolved state that bailed to the YouTube app).
     private func canOffer(_ m: TrailerModel) -> Bool {
-        m.streamURL != nil || m.youTubeKey != nil
+        m.streamURL != nil
     }
 
     @ViewBuilder private func cover(_ m: TrailerModel) -> some View {
         if let url = m.streamURL {
             FullScreenTrailer(url: url)
         } else {
-            // Extraction failed but we have a key → open the YouTube app, then dismiss.
-            Color.black.ignoresSafeArea()
-                .onAppear {
-                    if let key = m.youTubeKey, let url = Self.youTubeURL(for: key) {
-                        UIApplication.shared.open(url)
-                    }
-                    showing = false
-                }
+            // canOffer gates on a ready stream, so this shouldn't happen — but never deep-link to
+            // YouTube (dead end on tvOS); just dismiss.
+            Color.black.ignoresSafeArea().onAppear { showing = false }
         }
-    }
-
-    /// The `youtube://` deep link if the YouTube app is installed, else nil.
-    static func youTubeURL(for key: String) -> URL? {
-        for scheme in ["youtube://watch?v=\(key)", "vnd.youtube://\(key)"] {
-            if let url = URL(string: scheme), UIApplication.shared.canOpenURL(url) { return url }
-        }
-        return nil
     }
 }
