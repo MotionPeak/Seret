@@ -50,20 +50,11 @@ struct PlayerView: View {
                          onPullUp: { model.revealScrubBar() })   // pull up lands on the scrub bar first
                 // Thin scrub bar: appears on click + during scrub, sticky 5s, fades in/out.
                 // Forced visible while buffering (a seek/rebuffer), so the user gets the loading hint.
-                MinimalScrubBar(model: model, buffering: model.isBuffering, bottomInset: scrubInset)
+                MinimalScrubBar(model: model, buffering: model.isBuffering)
                     .opacity((model.scrubBarVisible || model.isBuffering) ? 1 : 0)
                     .animation(.easeInOut(duration: 0.25), value: model.scrubBarVisible)
                     .animation(.easeInOut(duration: 0.25), value: model.isBuffering)
-                    .animation(.easeInOut(duration: 0.25), value: scrubInset)
                     .allowsHitTesting(false)
-                // A dimmed sliver of episode stills above the scrub bar — a hint that swiping down
-                // opens the full strip. Shows only with the scrub bar, on a show.
-                if model.isEpisode && model.scrubBarVisible && !showEpisodes && !showSettings
-                    && !model.seasonEpisodes.isEmpty {
-                    EpisodePeek(model: model)
-                        .transition(.opacity)
-                        .animation(.easeInOut(duration: 0.25), value: model.scrubBarVisible)
-                }
             }
 
             if showSettings {
@@ -98,18 +89,8 @@ struct PlayerView: View {
             model.start()
             model.revealScrubBar()           // show the bar right away on open (sticky 5s)
         }
-        .task(id: model.currentEpisode?.season) {
-            if model.isEpisode { await model.loadSeasonEpisodes() }   // so the peek has thumbnails
-        }
         .onChange(of: model.shouldDismiss) { _, dismissNow in if dismissNow { dismiss() } }
         .onDisappear { Task { await model.teardown() } }
-    }
-
-    /// How far the scrub bar rides up: normal for a movie; lifted on a show so the episode peek
-    /// sits beneath it; lifted further while the full strip is open so it has room to grow upward.
-    private var scrubInset: CGFloat {
-        guard model.isEpisode else { return 56 }
-        return showEpisodes ? 268 : 140
     }
 }
 
@@ -146,48 +127,7 @@ private struct UpNextBar: View {
     }
 }
 
-/// A dimmed, vertically-cropped sliver of the season's stills, shown above the scrub bar as a hint
-/// that swiping down opens the full episode strip. Non-interactive (the ScrubPad handles the swipe).
-private struct EpisodePeek: View {
-    let model: PlayerModel
-    var body: some View {
-        VStack(spacing: 6) {
-            Spacer()
-            HStack(spacing: 6) {
-                Image(systemName: "chevron.compact.down")
-                Text("Episodes").font(.callout.weight(.semibold))
-            }
-            .foregroundStyle(.white.opacity(0.65))
-            HStack(spacing: 10) {
-                ForEach(model.seasonEpisodes.prefix(14)) { ep in
-                    let isCurrent = ep.season == model.currentEpisode?.season
-                        && ep.number == model.currentEpisode?.number
-                    AsyncImage(url: TMDBClient.imageURL(path: ep.stillPath, size: "w300")) {
-                        $0.resizable().aspectRatio(contentMode: .fill)
-                    } placeholder: { Rectangle().fill(.white.opacity(0.08)) }
-                    .frame(width: 150, height: 84)
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .overlay {
-                        if isCurrent {
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .strokeBorder(Theme.Palette.gold, lineWidth: 2)
-                        }
-                    }
-                }
-            }
-            .frame(height: 34, alignment: .top)   // crop to a thin sliver — only the top shows
-            .clipped()
-            .opacity(0.5)
-            .mask(LinearGradient(colors: [.clear, .black, .black, .clear],
-                                 startPoint: .leading, endPoint: .trailing))
-        }
-        .padding(.bottom, 36)                     // sit BENEATH the (raised) scrub bar
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .allowsHitTesting(false)
-    }
-}
-
-/// Swipe-down episode strip (shows): the current season's episodes as focusable still cards.
+/// Swipe-up episode strip (shows): the current season's episodes as focusable still cards.
 /// Selecting one switches playback to it in-place. Seeds focus to the playing episode and sits
 /// just above the thin scrub bar so both are visible.
 private struct EpisodesPanel: View {
@@ -233,11 +173,8 @@ private struct EpisodesPanel: View {
                 }
             }
             .padding(.vertical, 22)
-            .background(
-                LinearGradient(colors: [.clear, .black.opacity(0.92)],
-                               startPoint: .top, endPoint: .bottom)
-            )
-            .padding(.bottom, 36)        // rise from the bottom, BENEATH the (raised) scrub bar
+            .background(.black.opacity(0.85))
+            .padding(.bottom, 96)        // clear the thin scrub bar below
         }
     }
 
@@ -246,20 +183,17 @@ private struct EpisodesPanel: View {
         return VStack(alignment: .leading, spacing: 8) {
             AsyncImage(url: TMDBClient.imageURL(path: ep.stillPath, size: "w300")) {
                 $0.resizable().aspectRatio(contentMode: .fill)
-            } placeholder: { Rectangle().fill(.white.opacity(0.08)) }
-                .frame(width: 300, height: 300 * 9 / 16)
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            } placeholder: { Rectangle().fill(.gray.opacity(0.25)) }
+                .frame(width: 300, height: 300 * 9 / 16).clipped()
                 .overlay {
                     if isCurrent {
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .strokeBorder(Theme.Palette.gold, lineWidth: 4)
+                        RoundedRectangle(cornerRadius: 6).stroke(Theme.Palette.gold, lineWidth: 4)
                     } else if !ep.isPlayable {
                         // Not downloaded → dim + a small marker so it reads as "not in your library".
-                        RoundedRectangle(cornerRadius: 10, style: .continuous).fill(.black.opacity(0.45))
-                            .overlay {
-                                Image(systemName: "arrow.down.circle").font(.title2)
-                                    .foregroundStyle(.white.opacity(0.85))
-                            }
+                        ZStack {
+                            Color.black.opacity(0.45)
+                            Image(systemName: "arrow.down.circle").font(.title2).foregroundStyle(.white.opacity(0.85))
+                        }
                     }
                 }
             Text("\(ep.number) · \(ep.name ?? "Episode \(ep.number)")")
@@ -274,9 +208,6 @@ private struct EpisodesPanel: View {
 private struct MinimalScrubBar: View {
     @Bindable var model: PlayerModel
     let buffering: Bool
-    /// Distance from the bottom edge. Rides UP on a show so the episode peek/strip can sit BENEATH
-    /// the bar without ever overlapping it.
-    var bottomInset: CGFloat = 56
 
     var body: some View {
         // Mid-scrub → preview target; otherwise the live playhead.
@@ -313,7 +244,7 @@ private struct MinimalScrubBar: View {
                 }
             }
             .padding(.horizontal, 80)
-            .padding(.bottom, bottomInset)
+            .padding(.bottom, 56)
         }
         .transition(.opacity)
     }
