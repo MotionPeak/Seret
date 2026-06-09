@@ -16,11 +16,13 @@ public protocol DiscoverProviding: Sendable {
     func topRatedByGenre(_ kind: MediaKind, _ genreID: Int) async throws -> [TMDBSearchResult]
 }
 
-/// Production conformance. Fetches **2 pages per rail** (≈40 titles) and concatenates.
+/// Production conformance. Fetches **1 page per rail** (≈20 titles). (Measured: 2 pages ≈ 5× the
+/// wall-time of 1 page for a full segment on a fast link — far worse on an Apple TV — so a single
+/// page keeps browse snappy while still giving a full rail to scroll.)
 public struct TMDBDiscoverService: DiscoverProviding {
     let client: TMDBClient
     public init(client: TMDBClient) { self.client = client }
-    private static let pages = 2
+    private static let pages = 1
 
     private func paged(_ f: (Int) async throws -> [TMDBSearchResult]) async rethrows -> [TMDBSearchResult] {
         var all: [TMDBSearchResult] = []
@@ -133,19 +135,42 @@ public final class DiscoverStore {
     public func load() async { await loadSegment(selectedSegment) }
 
     /// Load one segment's rails if not already loaded/loading. Idempotent.
+    ///
+    /// **Progressive:** rails are fetched with a small concurrency cap and **published as each one
+    /// completes** (in spec order), so the first rail appears in ~one request's time instead of
+    /// after the whole segment finishes. The segment flips to `.loaded` the moment its first rail
+    /// has content; if every rail comes back empty it ends `.failed`.
     public func loadSegment(_ segment: Segment) async {
         switch statesBySegment[segment] ?? .idle {
         case .loading, .loaded: return
         case .idle, .failed: break
         }
         statesBySegment[segment] = .loading
+        rowsBySegment[segment] = []
         if kind == .movie && camIDs.isEmpty {
             camIDs = Set(((try? await discover.nowPlayingMovies()) ?? []).map(\.id))
         }
         let specs = await rowSpecs(for: segment)
-        let built = await runCapped(specs)
-        rowsBySegment[segment] = built
-        statesBySegment[segment] = built.isEmpty ? .failed : .loaded
+        let kind = self.kind
+        let cap = 6
+        var completed: [Int: [SearchHit]] = [:]
+        await withTaskGroup(of: (Int, [SearchHit]).self) { group in
+            var next = 0, running = 0
+            func addTask(_ i: Int) {
+                let spec = specs[i]
+                group.addTask { (i, (await spec.fetch()).map { SearchHit(result: $0, kind: kind) }) }
+            }
+            while next < specs.count && running < cap { addTask(next); next += 1; running += 1 }
+            for await (i, hits) in group {
+                completed[i] = hits
+                rowsBySegment[segment] = Self.assemble(specs: specs, completed: completed)
+                if statesBySegment[segment] != .loaded, !(rowsBySegment[segment]?.isEmpty ?? true) {
+                    statesBySegment[segment] = .loaded   // show as soon as the first rail has content
+                }
+                if next < specs.count { addTask(next); next += 1 } else { running -= 1 }
+            }
+        }
+        if rowsBySegment[segment]?.isEmpty ?? true { statesBySegment[segment] = .failed }
     }
 
     // MARK: - Row specs per segment
@@ -223,31 +248,17 @@ public final class DiscoverStore {
         }
     }
 
-    // MARK: - Concurrency-capped fetch
+    // MARK: - Progressive assembly
 
-    /// Runs the row fetches with at most `cap` in flight, preserving spec order, dropping empties.
-    /// Dedups poster ids ACROSS rails in the segment so a title doesn't repeat in every rail.
-    private func runCapped(_ specs: [RowSpec], cap: Int = 8) async -> [Row] {
-        let kind = self.kind
-        let indexed: [(Int, [SearchHit])] = await withTaskGroup(of: (Int, [SearchHit]).self) { group in
-            var next = 0, running = 0
-            func addTask(_ i: Int) {
-                let spec = specs[i]
-                group.addTask { (i, (await spec.fetch()).map { SearchHit(result: $0, kind: kind) }) }
-            }
-            while next < specs.count && running < cap { addTask(next); next += 1; running += 1 }
-            var out: [(Int, [SearchHit])] = []
-            for await pair in group {
-                out.append(pair)
-                if next < specs.count { addTask(next); next += 1 } else { running -= 1 }
-            }
-            return out
-        }
-        let byIndex = Dictionary(uniqueKeysWithValues: indexed)
+    /// Builds the visible rows from whatever rails have completed so far, in spec order, dropping
+    /// empties and deduping poster ids ACROSS rails (a title settles into its earliest rail). Called
+    /// after each rail completes, so the list grows as the segment loads.
+    private static func assemble(specs: [RowSpec], completed: [Int: [SearchHit]]) -> [Row] {
         var seen = Set<Int>()
         var rows: [Row] = []
         for i in specs.indices {
-            let hits = (byIndex[i] ?? []).filter { seen.insert($0.result.id).inserted }
+            guard let hits0 = completed[i] else { continue }   // rail not finished yet
+            let hits = hits0.filter { seen.insert($0.result.id).inserted }
             if hits.isEmpty { continue }
             rows.append(Row(id: specs[i].id, title: specs[i].title, hits: hits))
         }
