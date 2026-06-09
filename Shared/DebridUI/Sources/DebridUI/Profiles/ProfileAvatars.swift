@@ -1,45 +1,32 @@
 import Foundation
 
-/// Profile avatars are generated art from the free, no-auth DiceBear HTTP API (PNG output, so
-/// `AsyncImage` renders them natively). An avatar is stored as a compact `"style:seed"` token; the
-/// image URL is built on demand. A curated MIXED set (robots, pixel-art, faces, monsters …) gives
-/// lots of variety in the picker.
+/// Profile avatars are **local emoji** — rendered on-device as text inside the profile's colour
+/// circle. No network, so every one shows instantly (the old DiceBear HTTP avatars left blank
+/// circles whenever the CDN was slow/unreachable, especially on Apple TV). An avatar is stored as
+/// the emoji string itself.
 public enum ProfileAvatars {
-    /// `"style:seed"` tokens, mixing many DiceBear styles for variety.
+    /// A big, varied set of emoji (faces, animals, creatures, things) for the picker.
     public static let all: [String] = [
-        "bottts:Apollo", "pixel-art:Hero", "adventurer:Mia", "fun-emoji:Ziggy",
-        "lorelei:Luna", "thumbs:Chip", "micah:Felix", "notionists:Ari",
-        "bottts:Vega", "pixel-art:Zed", "adventurer:Kai", "fun-emoji:Pop",
-        "open-peeps:Rio", "big-smile:Joy", "croodles:Bean", "micah:Jude",
-        "bottts:Pixel", "pixel-art:Boss", "adventurer:Sky", "fun-emoji:Bolt",
-        "lorelei:Ivy", "thumbs:Doodle", "notionists:Nova", "open-peeps:Sage",
-        "bottts-neutral:Zap", "big-ears:Milo", "adventurer-neutral:Ash", "big-smile:Sunny",
-        "croodles:Pip", "miniavs:Toad", "lorelei:Nyx", "fun-emoji:Mango",
+        "😀", "😎", "🤩", "🥳", "😈", "🤖", "👻", "👽",
+        "🐶", "🐱", "🦊", "🐼", "🐯", "🦁", "🐸", "🐵",
+        "🐧", "🦉", "🦄", "🐲", "🦖", "🦋", "🐙", "🦀",
+        "🌟", "🔥", "⚡️", "🌈", "🍿", "🎮", "🎬", "🎸",
+        "🚀", "👾", "💎", "🎃", "🍕", "🦕", "🐢", "🐝",
     ]
 
-    /// Fallback for profiles with no (or a legacy emoji) avatar.
-    public static let fallback = "fun-emoji:Seret"
+    /// Fallback for a profile with no avatar (or a legacy DiceBear `"style:seed"` token).
+    public static let fallback = "🍿"
 
-    /// The DiceBear PNG URL for a `"style:seed"` token. `backgroundColor` is a hex WITHOUT '#'
-    /// (DiceBear fills the square so it reads as a solid circle). nil for an invalid token.
-    public static func imageURL(for token: String, size: Int = 256, backgroundColor: String? = nil) -> URL? {
-        let parts = token.split(separator: ":", maxSplits: 1)
-        guard parts.count == 2 else { return nil }
-        var c = URLComponents(string: "https://api.dicebear.com/10.x/\(parts[0])/png")
-        var items = [URLQueryItem(name: "seed", value: String(parts[1])),
-                     URLQueryItem(name: "size", value: String(size)),
-                     URLQueryItem(name: "radius", value: "50")]
-        if let backgroundColor { items.append(URLQueryItem(name: "backgroundColor", value: backgroundColor)) }
-        c?.queryItems = items
-        return c?.url
+    /// Resolve a stored avatar value to a renderable emoji. Legacy DiceBear tokens (which contain
+    /// ":") and empty values map to the fallback emoji.
+    public static func emoji(_ stored: String) -> String {
+        stored.isEmpty || stored.contains(":") ? fallback : stored
     }
 
-    /// Resolve a stored avatar value to a usable token (legacy emoji / empty → fallback).
-    public static func token(_ stored: String) -> String {
-        stored.contains(":") ? stored : fallback
-    }
+    /// Back-compat shim — older call sites resolve a stored value to a "token". Now an emoji.
+    public static func token(_ stored: String) -> String { emoji(stored) }
 
-    /// DiceBear-friendly hex (no '#') for a profile color tag — the avatar background.
+    /// Hex (no '#') for a profile colour tag — the avatar circle's background.
     public static func backgroundHex(forColorTag tag: String) -> String {
         switch tag {
         case "blue":   return "3B82F6"

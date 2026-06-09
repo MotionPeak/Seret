@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// Renders a profile's DiceBear avatar (a `"style:seed"` token → PNG) clipped to a circle, with a
-/// solid-color placeholder while it loads or if the network fails. Shared by both apps so every
-/// avatar — picker, launch gate, shell button — looks identical.
+/// Renders a profile's avatar: a local emoji centred in the profile's colour circle. Fully
+/// on-device (no network), so it always shows instantly. Shared by both apps so every avatar —
+/// picker, launch gate, shell button — looks identical.
 public struct ProfileAvatarImage: View {
     private let token: String
     private let diameter: CGFloat
@@ -16,13 +16,11 @@ public struct ProfileAvatarImage: View {
 
     public var body: some View {
         let hex = ProfileAvatars.backgroundHex(forColorTag: colorTag)
-        AsyncImage(url: ProfileAvatars.imageURL(for: ProfileAvatars.token(token),
-                                                size: 256, backgroundColor: hex)) { phase in
-            if let image = phase.image {
-                image.resizable().scaledToFill()
-            } else {
-                Circle().fill(Color(avatarHex: hex))   // loading / failure placeholder
-            }
+        ZStack {
+            Circle().fill(Color(avatarHex: hex))
+            Text(ProfileAvatars.emoji(token))
+                .font(.system(size: diameter * 0.56))
+                .minimumScaleFactor(0.5)
         }
         .frame(width: diameter, height: diameter)
         .clipShape(Circle())
