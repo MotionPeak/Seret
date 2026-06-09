@@ -53,16 +53,24 @@ public struct MetadataEnricher: Sendable {
 
     /// Enriches every item concurrently, preserving input order. Per-item lookup failures
     /// are swallowed — that item is returned unenriched rather than failing the whole batch.
-    public func enrich(_ items: [MediaItem]) async -> [MediaItem] {
+    public func enrich(_ items: [MediaItem], maxConcurrent: Int = 5) async -> [MediaItem] {
+        // Bounded fan-out: at most `maxConcurrent` TMDB searches in flight (an unbounded burst on a
+        // cold first load competes with browse + risks TMDB throttling). Order is preserved by index.
         await withTaskGroup(of: (Int, MediaItem).self) { group in
-            for (index, item) in items.enumerated() {
+            var next = 0, running = 0
+            func add(_ i: Int) {
+                let item = items[i]
                 group.addTask {
-                    do { return (index, try await self.enrich(item)) }
-                    catch { return (index, item) }
+                    do { return (i, try await self.enrich(item)) }
+                    catch { return (i, item) }
                 }
             }
+            while next < items.count && running < maxConcurrent { add(next); next += 1; running += 1 }
             var out = items
-            for await (index, enriched) in group { out[index] = enriched }
+            for await (index, enriched) in group {
+                out[index] = enriched
+                if next < items.count { add(next); next += 1 } else { running -= 1 }
+            }
             return out
         }
     }

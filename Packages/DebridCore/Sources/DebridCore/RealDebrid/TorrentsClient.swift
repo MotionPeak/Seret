@@ -183,17 +183,18 @@ public struct TorrentsClient: Sendable {
 
     /// Every torrent's detailed info (files + links), fetched concurrently. A torrent whose
     /// info fetch fails is skipped rather than failing the whole load.
-    public func allTorrentInfos() async throws -> [TorrentInfo] {
+    public func allTorrentInfos(maxConcurrent: Int = 5) async throws -> [TorrentInfo] {
         let list = try await allTorrents()
+        // Bounded fan-out: at most `maxConcurrent` `/torrents/info` calls in flight. An unbounded
+        // burst (one per torrent) tripped RD's rate limit on larger libraries → 429 thrash + stalls.
         let infos = await withTaskGroup(of: TorrentInfo?.self) { group in
-            for torrent in list {
-                // TODO: fan-out is currently unbounded; add a concurrency cap once RD
-                // rate-limit behavior is characterised (v1-descoped).
-                group.addTask { try? await self.info(id: torrent.id) }
-            }
+            var next = 0, running = 0
+            func add(_ i: Int) { let id = list[i].id; group.addTask { try? await self.info(id: id) } }
+            while next < list.count && running < maxConcurrent { add(next); next += 1; running += 1 }
             var infos: [TorrentInfo] = []
             for await result in group {
                 if let result { infos.append(result) }
+                if next < list.count { add(next); next += 1 } else { running -= 1 }
             }
             return infos
         }

@@ -27,6 +27,13 @@ public struct LibraryReconciler: Sendable {
         return cachedIDs != rdTorrentIDs
     }
 
+    /// True when RD's current torrent-id set differs from the set seen at the last refresh. Exact —
+    /// non-item-producing torrents (non-video, empty) are included in `seenTorrentIDs`, so an
+    /// unchanged library takes the cheap path (no `/torrents/info` fan-out every launch).
+    public func hasDelta(seenTorrentIDs: Set<String>, rdTorrentIDs: Set<String>) -> Bool {
+        seenTorrentIDs != rdTorrentIDs
+    }
+
     /// Splits the freshly-grouped library into carried-over (reuse cached TMDB metadata) and
     /// new (enrich) — preserving fresh order so the caller can reassemble after enriching.
     public func reconcile(fresh: [MediaItem], cached: [MediaItem]) -> [Reconciled] {

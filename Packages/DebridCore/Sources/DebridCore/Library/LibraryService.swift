@@ -30,9 +30,13 @@ public struct LibraryService: Sendable {
     /// (the caller keeps showing `loadCached()`).
     @discardableResult
     public func refresh() async throws -> [MediaItem] {
-        let cached = loadCached() ?? []
+        let snapshot = store.load()
+        let cached = snapshot?.items ?? []
+        let seen = Set(snapshot?.seenTorrentIDs ?? [])
         let rdTorrentIDs = Set(try await torrents.allTorrents().map(\.id))
-        guard reconciler.hasDelta(cached: cached, rdTorrentIDs: rdTorrentIDs) else {
+        // Compare against the persisted seen-id set (exact), NOT ids derived from items — otherwise
+        // a non-video torrent looks "new" forever and re-runs the whole info fan-out every launch.
+        guard reconciler.hasDelta(seenTorrentIDs: seen, rdTorrentIDs: rdTorrentIDs) else {
             return cached
         }
 
@@ -61,7 +65,7 @@ public struct LibraryService: Sendable {
             }
         }
 
-        try store.save(LibrarySnapshot(items: library))
+        try store.save(LibrarySnapshot(items: library, seenTorrentIDs: Array(rdTorrentIDs)))
         return library
     }
 
