@@ -50,10 +50,11 @@ struct PlayerView: View {
                          onPullUp: { model.revealScrubBar() })   // pull up lands on the scrub bar first
                 // Thin scrub bar: appears on click + during scrub, sticky 5s, fades in/out.
                 // Forced visible while buffering (a seek/rebuffer), so the user gets the loading hint.
-                MinimalScrubBar(model: model, buffering: model.isBuffering)
+                MinimalScrubBar(model: model, buffering: model.isBuffering, bottomInset: scrubInset)
                     .opacity((model.scrubBarVisible || model.isBuffering) ? 1 : 0)
                     .animation(.easeInOut(duration: 0.25), value: model.scrubBarVisible)
                     .animation(.easeInOut(duration: 0.25), value: model.isBuffering)
+                    .animation(.easeInOut(duration: 0.25), value: scrubInset)
                     .allowsHitTesting(false)
                 // A dimmed sliver of episode stills above the scrub bar — a hint that swiping down
                 // opens the full strip. Shows only with the scrub bar, on a show.
@@ -102,6 +103,13 @@ struct PlayerView: View {
         }
         .onChange(of: model.shouldDismiss) { _, dismissNow in if dismissNow { dismiss() } }
         .onDisappear { Task { await model.teardown() } }
+    }
+
+    /// How far the scrub bar rides up: normal for a movie; lifted on a show so the episode peek
+    /// sits beneath it; lifted further while the full strip is open so it has room to grow upward.
+    private var scrubInset: CGFloat {
+        guard model.isEpisode else { return 56 }
+        return showEpisodes ? 268 : 140
     }
 }
 
@@ -173,7 +181,7 @@ private struct EpisodePeek: View {
             .mask(LinearGradient(colors: [.clear, .black, .black, .clear],
                                  startPoint: .leading, endPoint: .trailing))
         }
-        .padding(.bottom, 150)                    // sit above the thin scrub bar
+        .padding(.bottom, 36)                     // sit BENEATH the (raised) scrub bar
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .allowsHitTesting(false)
     }
@@ -229,7 +237,7 @@ private struct EpisodesPanel: View {
                 LinearGradient(colors: [.clear, .black.opacity(0.92)],
                                startPoint: .top, endPoint: .bottom)
             )
-            .padding(.bottom, 96)        // clear the thin scrub bar below
+            .padding(.bottom, 36)        // rise from the bottom, BENEATH the (raised) scrub bar
         }
     }
 
@@ -266,6 +274,9 @@ private struct EpisodesPanel: View {
 private struct MinimalScrubBar: View {
     @Bindable var model: PlayerModel
     let buffering: Bool
+    /// Distance from the bottom edge. Rides UP on a show so the episode peek/strip can sit BENEATH
+    /// the bar without ever overlapping it.
+    var bottomInset: CGFloat = 56
 
     var body: some View {
         // Mid-scrub → preview target; otherwise the live playhead.
@@ -302,7 +313,7 @@ private struct MinimalScrubBar: View {
                 }
             }
             .padding(.horizontal, 80)
-            .padding(.bottom, 56)
+            .padding(.bottom, bottomInset)
         }
         .transition(.opacity)
     }
