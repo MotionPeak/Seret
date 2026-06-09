@@ -151,12 +151,12 @@ public final class DetailStore {
 
     /// Mark a movie or episode watched/unwatched. `source` records the exact file (sourceKey).
     public func setWatched(_ watched: Bool, contentKey: String, source: MediaSource) async {
-        guard let watch, let profileID else { return }
+        guard let watch else { return }
         // A manual mark has no playback position — `finished` drives the UI (full bar / ✓);
         // live playback progress (position) is written later by the 7c player.
         try? await watch.record(contentKey: contentKey, sourceKey: WatchKey.source(source),
                                 positionSeconds: 0, durationSeconds: 0, finished: watched,
-                                profileID: profileID)
+                                profileID: watchProfileID)
         await refreshWatch(contentKey)
     }
 
@@ -224,9 +224,14 @@ public final class DetailStore {
         }
     }
 
+    /// The id the player saves progress under is `activeProfileID ?? ""` (see `AppSession.makePlayer`).
+    /// Read/write under the SAME fallback so a nil active profile doesn't silently skip the resume
+    /// read — which made "Resume" do nothing because `watchByKey` never got the saved position.
+    private var watchProfileID: String { profileID ?? "" }
+
     private func refreshWatch(_ key: String) async {
-        guard let watch, let profileID else { return }
-        watchByKey[key] = try? await watch.progress(forContentKey: key, profileID: profileID)
+        guard let watch else { return }
+        watchByKey[key] = try? await watch.progress(forContentKey: key, profileID: watchProfileID)
     }
 
     /// Load whether the active profile has claimed this title (for the Add-to-My-List button).
