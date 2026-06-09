@@ -57,6 +57,9 @@ struct PlayerView: View {
         .animation(.easeInOut(duration: 0.2), value: model.controlsVisible)
         .animation(.easeInOut(duration: 0.25), value: model.upNextVisible)
         .onAppear { model.start() }
+        .task(id: model.currentEpisode?.season) {
+            if model.isEpisode { await model.loadSeasonEpisodes() }
+        }
         .onChange(of: model.shouldDismiss) { _, done in if done { onExit() } }
         .onDisappear { Task { await model.teardown() } }
     }
@@ -138,29 +141,11 @@ struct PlayerView: View {
             centerControls
             Spacer()
             scrubber
-            nextEpisodeBar
+            EpisodePeekStrip(model: model)
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 16)
         .foregroundStyle(.white)
-    }
-
-    /// "Next Episode" under the scrub bar — shows only for a show with another episode after the
-    /// one playing. Tapping it advances in-place (the same player keeps running).
-    @ViewBuilder private var nextEpisodeBar: some View {
-        if model.hasNextEpisode {
-            HStack {
-                Spacer()
-                Button { model.playNext(); model.showControls() } label: {
-                    Label("Next Episode", systemImage: "forward.end.fill")
-                        .font(.subheadline.weight(.semibold))
-                        .padding(.horizontal, 16).padding(.vertical, 9)
-                        .background(.white.opacity(0.16), in: Capsule())
-                        .contentShape(Capsule())
-                }
-            }
-            .padding(.top, 12)
-        }
     }
 
     private var topBar: some View {
