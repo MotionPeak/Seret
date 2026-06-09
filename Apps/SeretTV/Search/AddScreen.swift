@@ -300,7 +300,9 @@ private struct AddActions: View {
     }
 
     private var allVersionsList: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        // LazyVStack so the (often 30+) version rows realise on demand as they scroll into view —
+        // a plain VStack built every chip/badge for every row up front, which made scrolling stutter.
+        LazyVStack(alignment: .leading, spacing: 14) {
             ForEach(add.allVersions) { stream in
                 Button { pick(stream) } label: {
                     VStack(alignment: .leading, spacing: 6) {
