@@ -65,7 +65,9 @@ public struct LibraryService: Sendable {
             }
         }
 
-        try store.save(LibrarySnapshot(items: library, seenTorrentIDs: Array(rdTorrentIDs)))
+        // Best-effort: a cache-write failure (e.g. a sandbox/storage hiccup) must NEVER fail the
+        // refresh — the freshly-built library still displays, it just won't be cached this time.
+        try? store.save(LibrarySnapshot(items: library, seenTorrentIDs: Array(rdTorrentIDs)))
         return library
     }
 
