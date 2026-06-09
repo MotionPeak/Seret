@@ -12,6 +12,7 @@ struct AddProfileScreen: View {
     @State private var avatar: String
     @FocusState private var focusedAvatar: String?
     @FocusState private var focusedColor: String?
+    @State private var showingDeleteConfirm = false
 
     private let editing: ProfileDTO?
 
@@ -52,10 +53,18 @@ struct AddProfileScreen: View {
                             Button(editing == nil ? "Create" : "Save") { save() }
                                 .buttonStyle(.borderedProminent).tint(Theme.Palette.gold)
                             if canDelete {
-                                Button("Delete", role: .destructive) {
-                                    let id = editing!.id
-                                    Task { await session.deleteProfile(id); dismiss() }
-                                }
+                                Button("Delete", role: .destructive) { showingDeleteConfirm = true }
+                                    .confirmationDialog(
+                                        "Delete \(editing?.name ?? "this profile")?",
+                                        isPresented: $showingDeleteConfirm, titleVisibility: .visible) {
+                                        Button("Delete Profile", role: .destructive) {
+                                            let id = editing!.id
+                                            Task { await session.deleteProfile(id); dismiss() }
+                                        }
+                                        Button("Cancel", role: .cancel) {}
+                                    } message: {
+                                        Text("This permanently removes this profile, its Continue Watching, and its My List. This can't be undone.")
+                                    }
                             }
                         }
                         .font(.title3)
