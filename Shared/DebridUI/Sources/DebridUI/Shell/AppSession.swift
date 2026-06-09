@@ -279,7 +279,7 @@ public final class AppSession {
             torrents: torrents,
             builder: LibraryBuilder(),
             enricher: MetadataEnricher(tmdb: tmdb),
-            store: LibrarySnapshotStore(directory: Self.cachesDirectory))
+            store: LibrarySnapshotStore(directory: Self.dataDirectory))
         // Remove the orphaned legacy `default.store` (old builds shared it across containers + had
         // CloudKit metadata) BEFORE opening any store, so it can't double-register CloudKit sync.
         Self.purgeLegacyDefaultStore()
@@ -341,7 +341,7 @@ public final class AppSession {
         let omdbKey = Secrets.omdbAPIKey
         ratingsProvider = omdbKey.isEmpty ? nil
             : OMDbRatingsService(client: OMDbClient(apiKey: omdbKey),
-                                 cache: OMDbRatingsCache(directory: Self.cachesDirectory))
+                                 cache: OMDbRatingsCache(directory: Self.dataDirectory))
         home = watchStore.map { HomeStore(watch: $0) }
         // Recompute the Home rails the moment a removal changes the library, so a deleted title
         // doesn't linger in Continue Watching / Recently Added until the Home tab is revisited.
@@ -500,6 +500,16 @@ public final class AppSession {
     private static var cachesDirectory: URL {
         FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSTemporaryDirectory())
+    }
+
+    /// Durable on-disk location for caches we want to SURVIVE relaunches. tvOS aggressively purges
+    /// `Caches/`, which evicted the library snapshot + OMDb ratings → a cold, blocking rebuild on
+    /// nearly every launch. Application Support is not purged, so the snapshot sticks and the
+    /// library renders instantly on relaunch.
+    private static var dataDirectory: URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? cachesDirectory
+        return base.appending(path: "Seret", directoryHint: .isDirectory)
     }
 }
 
