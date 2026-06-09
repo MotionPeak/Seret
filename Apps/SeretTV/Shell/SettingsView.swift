@@ -44,15 +44,9 @@ struct SettingsView: View {
                         .font(.title3.bold()).foregroundStyle(Theme.Palette.gold)
                     Text("Applies to every movie and show. Takes effect on the next playback.")
                         .font(.callout).foregroundStyle(Theme.Palette.textSecondary)
-                    Picker("Size", selection: subtitleSize) {
-                        ForEach(SubtitlePreferences.Size.allCases, id: \.self) { Text($0.label).tag($0) }
-                    }.pickerStyle(.segmented)
-                    Picker("Font", selection: subtitleFont) {
-                        ForEach(SubtitlePreferences.Font.allCases, id: \.self) { Text($0.label).tag($0) }
-                    }.pickerStyle(.segmented)
-                    Picker("Color", selection: subtitleColor) {
-                        ForEach(SubtitlePreferences.Color.allCases, id: \.self) { Text($0.label).tag($0) }
-                    }.pickerStyle(.segmented)
+                    pillRow("Size", SubtitlePreferences.Size.allCases, label: { $0.label }, selected: subtitleSize)
+                    pillRow("Font", SubtitlePreferences.Font.allCases, label: { $0.label }, selected: subtitleFont)
+                    pillRow("Color", SubtitlePreferences.Color.allCases, label: { $0.label }, selected: subtitleColor)
                 }
                 .frame(maxWidth: 900)
 
@@ -108,6 +102,23 @@ struct SettingsView: View {
         }
         .fullScreenCover(isPresented: $editingActive) {
             AddProfileScreen(editing: session.activeProfiles?.activeProfile).environment(session)
+        }
+    }
+
+    /// A labelled row of focusable Gold-Glass pills (replaces the cramped `.segmented` picker that
+    /// clipped longer labels like "Monospace" on tvOS). Pills size to their text, so nothing clips.
+    @ViewBuilder
+    private func pillRow<T: Hashable>(_ title: String, _ options: [T],
+                                      label: @escaping (T) -> String,
+                                      selected: Binding<T>) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title).font(.callout.weight(.semibold)).foregroundStyle(Theme.Palette.textSecondary)
+            HStack(spacing: 14) {
+                ForEach(options, id: \.self) { opt in
+                    Button(label(opt)) { selected.wrappedValue = opt }
+                        .buttonStyle(SeretPillStyle(selected: selected.wrappedValue == opt))
+                }
+            }
         }
     }
 
