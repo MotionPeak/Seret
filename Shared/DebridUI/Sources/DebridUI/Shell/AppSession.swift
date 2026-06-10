@@ -442,7 +442,8 @@ public final class AppSession {
             let key = request.item.id
             Task { try? await myListStore.claim(profileID: pid, contentKey: key) }
         }
-        let coordinator = PlaybackCoordinator(store: store, profileID: activeProfileID ?? "")
+        let savePID = activeProfileID ?? ""
+        let coordinator = PlaybackCoordinator(store: store, profileID: savePID)
         return PlayerModel(
             request: request,
             engine: engine,
@@ -454,6 +455,7 @@ public final class AppSession {
             // PlayerModel supplies the live contentKey/sourceKey so a next-episode advance records
             // against the new episode rather than the one playback started on.
             recordProgress: { contentKey, sourceKey, position, duration in
+                print("[resume] SAVE key=\(contentKey) profile=\(savePID) pos=\(position) dur=\(duration)")
                 await coordinator.record(contentKey: contentKey, sourceKey: sourceKey,
                                          position: position, duration: duration)
             },
