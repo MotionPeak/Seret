@@ -27,7 +27,7 @@ public struct SubtitlePreferences: Codable, Sendable, Equatable {
     }
 
     public enum Font: String, Codable, CaseIterable, Sendable {
-        case system, sans, serif, rounded, monospace
+        case system, sans, serif, rounded, monospace, rubik
         /// VLCKit `--freetype-font` value; nil = leave VLCKit's bundled default.
         public var freetypeName: String? {
             switch self {
@@ -36,6 +36,7 @@ public struct SubtitlePreferences: Codable, Sendable, Equatable {
             case .serif: "Georgia"
             case .rounded: "Arial Rounded MT Bold"
             case .monospace: "Menlo"
+            case .rubik: "Rubik"               // bundled (Rubik-Regular.ttf, registered via UIAppFonts)
             }
         }
         public var label: String {
@@ -45,6 +46,7 @@ public struct SubtitlePreferences: Codable, Sendable, Equatable {
             case .serif: "Serif"
             case .rounded: "Rounded"
             case .monospace: "Monospace"
+            case .rubik: "Rubik"
             }
         }
     }

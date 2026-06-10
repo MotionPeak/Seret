@@ -23,6 +23,7 @@ targets:
     sources:
       - path: Apps/SeretTV
       - path: Shared/SeretPlayer
+      - path: Shared/Fonts
     dependencies:
       - package: DebridCore
       - package: DebridUI
@@ -40,6 +41,7 @@ targets:
         OMDBAPIKey: "$(OMDB_API_KEY)"
         LSApplicationQueriesSchemes: [youtube, vnd.youtube]
         UIBackgroundModes: [remote-notification]
+        UIAppFonts: [Rubik-Regular.ttf]      # registers Rubik so VLCKit can use it for subtitles
     settings:
       base:
         PRODUCT_NAME: Seret
@@ -82,6 +84,7 @@ targets:
     sources:
       - path: Apps/SeretMobile
       - path: Shared/SeretPlayer
+      - path: Shared/Fonts
     dependencies:
       - package: DebridCore
       - package: DebridUI
@@ -98,6 +101,7 @@ targets:
         OpenSubtitlesAPIKey: "$(OPENSUBTITLES_API_KEY)"
         OMDBAPIKey: "$(OMDB_API_KEY)"
         UIBackgroundModes: [remote-notification]
+        UIAppFonts: [Rubik-Regular.ttf]      # registers Rubik so VLCKit can use it for subtitles
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
