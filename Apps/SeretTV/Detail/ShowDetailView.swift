@@ -127,12 +127,19 @@ struct ShowDetailView: View {
     }
 
     private var episodeList: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
+        let rows = store.episodes(forSeason: store.selectedSeason)
+        return ScrollView(.horizontal, showsIndicators: false) {
             LazyHStack(alignment: .top, spacing: 30) {
-                ForEach(store.episodes(forSeason: store.selectedSeason)) { row in
-                    EpisodeRow(store: store, row: row,
-                               isDownloading: downloadingEpisodeID == row.id,
-                               onDownload: onDownloadEpisode)
+                if rows.isEmpty {
+                    // Hold the row's HEIGHT with skeletons while the season loads — an empty row
+                    // collapses to nothing and snaps the page's scroll to the top (the B/D jump).
+                    ForEach(0..<5, id: \.self) { _ in EpisodePlaceholderCard() }
+                } else {
+                    ForEach(rows) { row in
+                        EpisodeRow(store: store, row: row,
+                                   isDownloading: downloadingEpisodeID == row.id,
+                                   onDownload: onDownloadEpisode)
+                    }
                 }
             }
             .padding(.vertical, 16)   // room for the focus lift

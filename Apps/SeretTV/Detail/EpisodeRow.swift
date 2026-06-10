@@ -96,3 +96,21 @@ struct EpisodeRow: View {
         .frame(height: 5)
     }
 }
+
+/// A stable-height skeleton card shown while a season's episodes load. It matches `EpisodeRow`'s
+/// size so the side-scrolling row never collapses to nothing — which is what snapped the whole
+/// Detail page's scroll back to the top when you switched seasons or scrolled into the episodes.
+struct EpisodePlaceholderCard: View {
+    private let width: CGFloat = 320
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            RoundedRectangle(cornerRadius: Theme.Layout.posterCorner, style: .continuous)
+                .fill(Theme.Palette.surface2)
+                .frame(width: width, height: width * 9 / 16)
+            RoundedRectangle(cornerRadius: 4).fill(Theme.Palette.surface2).frame(width: 200, height: 18)
+            RoundedRectangle(cornerRadius: 4).fill(Theme.Palette.surface2.opacity(0.6)).frame(width: 120, height: 14)
+        }
+        .frame(width: width, alignment: .leading)
+        .redacted(reason: .placeholder)
+    }
+}
