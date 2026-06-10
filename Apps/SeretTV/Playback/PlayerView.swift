@@ -156,9 +156,9 @@ private struct PlayerBottomBar: View {
                 }
             }
         }
-        // 100pt horizontal so the bar ENDS + timecodes clear the TV's left/right overscan (80 still
-        // clipped on a real set).
-        .padding(.horizontal, 100)
+        // 140pt horizontal so the bar ENDS + timecodes clear heavy TV overscan (80 and 100 both still
+        // clipped on the owner's set — ~7% inset each side covers up to a 7.5% overscan crop).
+        .padding(.horizontal, 140)
         // Collapsed (just the bar / a movie) the bar would sit in the TV's overscan and clip; lift it
         // clear. Expanded, the tall strip already rides the bar well up, so keep it tight to the cards.
         .padding(.bottom, showEpisodes ? 48 : 76)
