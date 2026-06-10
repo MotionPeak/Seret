@@ -182,15 +182,10 @@ private struct SettingsRowButtonStyle: ButtonStyle {
         @Environment(\.isFocused) private var focused: Bool
         var body: some View {
             configuration.label
-                .padding(.horizontal, 16).padding(.vertical, 8)
+                .padding(.horizontal, 22).padding(.vertical, 10)
                 .background(focused ? AnyShapeStyle(Theme.Palette.gold.opacity(0.18)) : AnyShapeStyle(.clear),
-                            in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .overlay {
-                    if focused {
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .strokeBorder(Theme.Palette.gold, lineWidth: 2)
-                    }
-                }
+                            in: Capsule())
+                .overlay { if focused { Capsule().strokeBorder(Theme.Palette.gold, lineWidth: 2) } }
                 .scaleEffect(focused ? 1.04 : 1)
                 .opacity(configuration.isPressed ? 0.7 : 1)
                 .animation(.easeOut(duration: 0.15), value: focused)

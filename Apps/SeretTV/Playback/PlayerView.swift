@@ -156,9 +156,9 @@ private struct PlayerBottomBar: View {
                 }
             }
         }
-        // 140pt horizontal so the bar ENDS + timecodes clear heavy TV overscan (80 and 100 both still
-        // clipped on the owner's set — ~7% inset each side covers up to a 7.5% overscan crop).
-        .padding(.horizontal, 140)
+        // A clean side margin (the bar now genuinely respects this — see ScrubBarRow). Also keeps the
+        // bar + timecodes inside the tvOS title-safe area.
+        .padding(.horizontal, 90)
         // Collapsed (just the bar / a movie) the bar would sit in the TV's overscan and clip; lift it
         // clear. Expanded, the tall strip already rides the bar well up, so keep it tight to the cards.
         .padding(.bottom, showEpisodes ? 48 : 76)
@@ -185,15 +185,19 @@ private struct ScrubBarRow: View {
         let shown = model.isScrubbing ? model.scrubTarget : model.position
         let frac = model.duration > 0 ? min(1, max(0, shown / model.duration)) : 0
         VStack(spacing: 8) {
-            GeometryReader { geo in
-                let headX = geo.size.width * frac
-                ZStack(alignment: .leading) {
-                    Capsule().fill(.white.opacity(0.25)).frame(height: 6)
+            ZStack(alignment: .leading) {
+                // A plain Capsule (NOT the GeometryReader) sets the bar's width, so it respects the
+                // cluster's horizontal padding. The GeometryReader is nested INSIDE and reads this
+                // already-padded width. Previously the GeometryReader was the outer view and stretched
+                // the bar edge-to-edge, ignoring the padding (why bumping the inset never moved it).
+                Capsule().fill(.white.opacity(0.25)).frame(height: 6)
+                GeometryReader { geo in
+                    let headX = min(geo.size.width, max(0, geo.size.width * frac))
                     Capsule().fill(.white).frame(width: headX, height: 6)
+                        .frame(maxHeight: .infinity, alignment: .center)
                     Circle().fill(.white).frame(width: 16, height: 16)
-                        .offset(x: min(geo.size.width - 16, max(0, headX - 8)))
+                        .position(x: min(geo.size.width - 8, max(8, headX)), y: geo.size.height / 2)
                 }
-                .frame(maxHeight: .infinity, alignment: .center)
             }
             .frame(height: 22)
             HStack {
@@ -218,34 +222,14 @@ private struct ScrubBarRow: View {
 private struct EpisodePeek: View {
     let model: PlayerModel
     var body: some View {
-        VStack(spacing: 4) {
-            HStack(spacing: 6) {
-                Image(systemName: "chevron.compact.up")
-                Text("Episodes").font(.callout.weight(.semibold))
-            }
-            .foregroundStyle(.white.opacity(0.55))
-            HStack(spacing: 10) {
-                ForEach(model.seasonEpisodes.prefix(14)) { ep in
-                    let isCur = ep.season == model.currentEpisode?.season && ep.number == model.currentEpisode?.number
-                    AsyncImage(url: TMDBClient.imageURL(path: ep.stillPath, size: "w300")) {
-                        $0.resizable().aspectRatio(contentMode: .fill)
-                    } placeholder: { Rectangle().fill(.white.opacity(0.08)) }
-                    .frame(width: 150, height: 84)
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .overlay {
-                        if isCur {
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .strokeBorder(Theme.Palette.gold, lineWidth: 2)
-                        }
-                    }
-                }
-            }
-            .frame(height: 30, alignment: .top)        // crop to a thin sliver — only the top shows
-            .clipped()
-            .opacity(0.5)
-            .mask(LinearGradient(colors: [.clear, .black, .black, .clear],
-                                 startPoint: .leading, endPoint: .trailing))
+        // Just a clean hint — no cropped thumbnail sliver (it read as stretched + thin under the bar).
+        // Swipe up again opens the full strip.
+        HStack(spacing: 6) {
+            Image(systemName: "chevron.compact.up")
+            Text("Episodes").font(.callout.weight(.semibold))
         }
+        .foregroundStyle(.white.opacity(0.6))
+        .frame(maxWidth: .infinity)
     }
 }
 
@@ -293,10 +277,10 @@ private struct EpisodeStripExpanded: View {
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .overlay(alignment: .topLeading) {
                     Text("\(ep.number)")
-                        .font(.title3.weight(.heavy)).monospacedDigit().foregroundStyle(.white)
-                        .padding(.horizontal, 11).padding(.vertical, 4)
+                        .font(.caption.weight(.bold)).monospacedDigit().foregroundStyle(.white)
+                        .padding(.horizontal, 7).padding(.vertical, 2)
                         .background(.black.opacity(0.6), in: Capsule())
-                        .padding(8)
+                        .padding(6)
                 }
                 .overlay {
                     if isCurrent {
