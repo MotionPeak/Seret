@@ -119,7 +119,10 @@ struct ShowDetailView: View {
                             .focused($focusedSeason, equals: number)
                     }
                 }
+                .padding(.horizontal, 60)    // align with the page + leave room for the focus scale,
             }
+            .padding(.horizontal, -60)       // while the ScrollView runs edge-to-edge so a focused
+                                             // pill's scaled side isn't clipped at the row edge.
             .onChange(of: focusedSeason) { _, new in
                 if let new, new != store.selectedSeason { Task { await store.selectSeason(new) } }
             }
@@ -142,8 +145,10 @@ struct ShowDetailView: View {
                     }
                 }
             }
-            .padding(.vertical, 16)   // room for the focus lift
+            .padding(.vertical, 16)      // room for the focus lift
+            .padding(.horizontal, 60)    // align with the page + room for the focus scale at the edges
         }
+        .padding(.horizontal, -60)       // ScrollView runs edge-to-edge so a focused card doesn't clip
     }
 }
 

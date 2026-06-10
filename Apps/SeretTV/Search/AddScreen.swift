@@ -137,7 +137,9 @@ private struct ShowAdd: View {
                             .focused($focusedSeason, equals: s)
                     }
                 }
+                .padding(.horizontal, 60)    // align + room for the focus scale; ScrollView is edge-
             }
+            .padding(.horizontal, -60)       // to-edge so a focused pill's scaled side isn't clipped.
             .onChange(of: focusedSeason) { _, new in
                 if let new, new != flow.selectedSeason { Task { await flow.selectSeason(new) } }
             }
@@ -160,8 +162,10 @@ private struct ShowAdd: View {
                     }
                 }
             }
-            .padding(.vertical, 16)   // room for the focus lift
+            .padding(.vertical, 16)      // room for the focus lift
+            .padding(.horizontal, 60)    // align + room for the focus scale at the edges
         }
+        .padding(.horizontal, -60)       // edge-to-edge so a focused card doesn't clip
     }
 }
 
