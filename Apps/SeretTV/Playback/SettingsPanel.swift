@@ -142,12 +142,16 @@ private struct SettingsColumn<Content: View>: View {
             Text(header).font(.caption.weight(.bold))
                 .foregroundStyle(Theme.Palette.gold)
                 .tracking(1.2)
+                .padding(.leading, 30)        // align with the rows below
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 14) { content }
-                    .padding(.vertical, 2)   // a little room so the focus pill isn't clipped
+                    .padding(.vertical, 2)
+                    // The focus pill extends past the row's text and the ScrollView clips its edge —
+                    // inset the rows so the pill (and its focus lift) has room and never cuts off.
+                    .padding(.horizontal, 30)
             }
         }
-        .frame(minWidth: 220, maxHeight: 640, alignment: .leading)
+        .frame(minWidth: 240, maxHeight: 640, alignment: .leading)
     }
 }
 
@@ -182,11 +186,11 @@ private struct SettingsRowButtonStyle: ButtonStyle {
         @Environment(\.isFocused) private var focused: Bool
         var body: some View {
             configuration.label
-                .padding(.horizontal, 22).padding(.vertical, 10)
+                .padding(.horizontal, 18).padding(.vertical, 10)
                 .background(focused ? AnyShapeStyle(Theme.Palette.gold.opacity(0.18)) : AnyShapeStyle(.clear),
                             in: Capsule())
                 .overlay { if focused { Capsule().strokeBorder(Theme.Palette.gold, lineWidth: 2) } }
-                .scaleEffect(focused ? 1.04 : 1)
+                .scaleEffect(focused ? 1.02 : 1)
                 .opacity(configuration.isPressed ? 0.7 : 1)
                 .animation(.easeOut(duration: 0.15), value: focused)
         }
