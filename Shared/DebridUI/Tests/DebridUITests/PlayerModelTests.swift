@@ -444,6 +444,22 @@ import DebridCore
         #expect(saves.contains { $0.1 == 1400 })         // finished episode's tail recorded before advancing
     }
 
+    @Test func staleEndDuringEpisodeSwitchIsIgnored() async {
+        // After an auto-advance loads the next episode (still loading, no frame yet), the OLD media
+        // can emit a LATE `.ended`. Without a guard that stale end runs `finish()` again — exiting
+        // the player (or skipping another episode) right after it advanced ("new one plays, then it
+        // jumps/restarts"). The switch window must swallow it.
+        let engine = FakeVideoPlayerEngine()
+        let model = makeModel(request: Fixture.showRequest(playingEpisode: 1), engine: engine)
+        model.start(); await model.waitForIdleForTesting()
+        engine.emit(.time(.init(position: 1400, duration: 1400))); await model.waitForIdleForTesting()
+        engine.emit(.state(.ended)); await model.waitForIdleForTesting()   // → advance to E2 (still loading)
+        #expect(model.label == "The Show — S1·E2")
+        engine.emit(.state(.ended)); await model.waitForIdleForTesting()   // stale end from E1's media
+        #expect(model.label == "The Show — S1·E2")                         // still on E2
+        #expect(model.shouldDismiss == false)                              // did NOT exit
+    }
+
     @Test func endedOnLastEpisodeDismisses() async {
         let engine = FakeVideoPlayerEngine()
         let model = makeModel(request: Fixture.showRequest(playingEpisode: 2), engine: engine)

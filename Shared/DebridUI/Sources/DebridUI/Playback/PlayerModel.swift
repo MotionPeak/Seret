@@ -141,6 +141,10 @@ public final class PlayerModel {
     /// shows, `from` the pre-seek playhead. While set, `tick()` ignores VLCKit's stale pre-seek
     /// time echoes (which would snap the bar back) until a tick arrives nearer `to` than `from`.
     private var pendingSeek: (from: Double, to: Double)?
+    /// True from the moment we swap episodes until the new media renders its first frame. The OLD
+    /// media can emit a late `.ended` during that window; this flag makes `finish()` swallow it so a
+    /// stale end can't auto-advance/exit a second time (the "it keeps jumping/restarting" bug).
+    private var isSwitching = false
     private let saveInterval: Double = 5
     private let autoHideDelay: Double
     private let scrubBarDwell: Double = 5      // bar stays visible for 5s after the last interaction
@@ -477,10 +481,12 @@ public final class PlayerModel {
     private func markRendered() {
         hasRenderedFrame = true
         isBuffering = false
+        isSwitching = false        // the new episode's media is on screen → end events are real again
     }
 
     private func finish() async {
         guard phase != .ended else { return }   // VLCKit can emit .stopped + .ended; finish once
+        guard !isSwitching else { return }      // ignore the OLD media's late `.ended` mid-swap
         // Binge: a finished episode records its tail, then auto-advances to the next one in-place
         // (same player/engine) — unless the viewer dismissed the Up Next bar to watch the credits,
         // in which case the real file end exits. A movie or last episode records and dismisses.
@@ -518,6 +524,7 @@ public final class PlayerModel {
     /// outgoing episode's progress.
     private func switchTo(_ ep: Episode, resumeAt newResume: Double?) {
         resetUpNext()                        // clear the bar/countdown + the old episode's content-end
+        isSwitching = true                   // swallow the old media's late `.ended` until E2 renders
         episode = ep
         sources = [ep.source]
         sourceIndex = 0
