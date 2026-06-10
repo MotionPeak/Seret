@@ -148,9 +148,15 @@ private struct ShowAdd: View {
     private var episodeList: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             LazyHStack(alignment: .top, spacing: 30) {
-                ForEach(flow.episodes) { ep in
-                    EpisodeAddCard(ep: ep, selected: ep.episodeNumber == flow.selectedEpisode) {
-                        Task { await flow.selectEpisode(ep.episodeNumber) }
+                if flow.episodes.isEmpty {
+                    // Stable-height skeletons while the season loads (same as the Detail page) so the
+                    // row doesn't collapse and snap the page's scroll to the top.
+                    ForEach(0..<5, id: \.self) { _ in EpisodePlaceholderCard() }
+                } else {
+                    ForEach(flow.episodes) { ep in
+                        EpisodeAddCard(ep: ep, selected: ep.episodeNumber == flow.selectedEpisode) {
+                            Task { await flow.selectEpisode(ep.episodeNumber) }
+                        }
                     }
                 }
             }
