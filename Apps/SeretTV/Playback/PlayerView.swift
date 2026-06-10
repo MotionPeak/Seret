@@ -152,7 +152,9 @@ private struct PlayerBottomBar: View {
             }
         }
         .padding(.horizontal, 80)
-        .padding(.bottom, 48)
+        // Collapsed (just the bar / a movie) the bar would sit in the TV's overscan and clip; lift it
+        // clear. Expanded, the tall strip already rides the bar well up, so keep it tight to the cards.
+        .padding(.bottom, showEpisodes ? 48 : 76)
         // A soft bottom scrim so the bar + episode stills/labels stay readable over bright scenes.
         .background(alignment: .bottom) {
             LinearGradient(colors: [.clear, .black.opacity(0.8)], startPoint: .top, endPoint: .bottom)
@@ -282,6 +284,13 @@ private struct EpisodeStripExpanded: View {
             } placeholder: { Rectangle().fill(.white.opacity(0.08)) }
                 .frame(width: 200, height: 112)
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(alignment: .topLeading) {
+                    Text("\(ep.number)")
+                        .font(.footnote.weight(.heavy)).monospacedDigit().foregroundStyle(.white)
+                        .padding(.horizontal, 8).padding(.vertical, 3)
+                        .background(.black.opacity(0.55), in: Capsule())
+                        .padding(7)
+                }
                 .overlay {
                     if isCurrent {
                         RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -294,8 +303,9 @@ private struct EpisodeStripExpanded: View {
                             }
                     }
                 }
-            Text("\(ep.number) · \(ep.name ?? "Episode \(ep.number)")")
-                .font(.callout.weight(.semibold)).lineLimit(1).frame(width: 200, alignment: .leading)
+            Text(ep.name ?? "Episode \(ep.number)")
+                .font(.footnote.weight(.semibold)).lineLimit(1).truncationMode(.tail)
+                .frame(width: 200, alignment: .leading)
                 .foregroundStyle(ep.isPlayable ? .primary : .secondary)
         }
         .opacity(ep.isPlayable ? 1 : 0.7)
