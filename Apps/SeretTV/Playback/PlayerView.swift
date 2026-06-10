@@ -48,23 +48,16 @@ struct PlayerView: View {
                              }
                          },
                          onPullUp: { model.revealScrubBar() })   // pull up lands on the scrub bar first
-                // Thin scrub bar: appears on click + during scrub, sticky 5s, fades in/out.
-                // Forced visible while buffering (a seek/rebuffer), so the user gets the loading hint.
-                MinimalScrubBar(model: model, buffering: model.isBuffering)
-                    .opacity((model.scrubBarVisible || model.isBuffering) ? 1 : 0)
-                    .animation(.easeInOut(duration: 0.25), value: model.scrubBarVisible)
-                    .animation(.easeInOut(duration: 0.25), value: model.isBuffering)
-                    .allowsHitTesting(false)
+                // One bottom-anchored column: the thin scrub bar on top, the episode strip beneath
+                // it (a dimmed peek, or — on swipe-down — the full selectable strip). Stacking them
+                // means the bar AUTOMATICALLY rides up as the strip grows: it can never overlap the
+                // bar or float to the middle.
+                PlayerBottomBar(model: model, showEpisodes: $showEpisodes)
             }
 
             if showSettings {
                 SettingsPanel(model: model, onClose: { showSettings = false })
                     .transition(.move(edge: .top).combined(with: .opacity))
-            }
-
-            if showEpisodes {
-                EpisodesPanel(model: model, onClose: { showEpisodes = false })
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
             }
 
             if model.upNextVisible, let next = model.nextEpisode {
@@ -88,6 +81,9 @@ struct PlayerView: View {
         .onAppear {
             model.start()
             model.revealScrubBar()           // show the bar right away on open (sticky 5s)
+        }
+        .task(id: model.currentEpisode?.season) {
+            if model.isEpisode { await model.loadSeasonEpisodes() }   // so the peek has thumbnails
         }
         .onChange(of: model.shouldDismiss) { _, dismissNow in if dismissNow { dismiss() } }
         .onDisappear { Task { await model.teardown() } }
@@ -127,125 +123,172 @@ private struct UpNextBar: View {
     }
 }
 
-/// Swipe-up episode strip (shows): the current season's episodes as focusable still cards.
-/// Selecting one switches playback to it in-place. Seeds focus to the playing episode and sits
-/// just above the thin scrub bar so both are visible.
-private struct EpisodesPanel: View {
+/// The bottom-anchored player cluster: scrub bar on TOP, episode strip BENEATH it. Because they're
+/// stacked in one bottom-pinned column, the bar automatically rides up as the strip grows — it can
+/// never overlap the bar or float to the middle of the screen.
+private struct PlayerBottomBar: View {
     @Bindable var model: PlayerModel
-    let onClose: () -> Void
-    @FocusState private var focused: String?
+    @Binding var showEpisodes: Bool
+
+    private var barShown: Bool { model.scrubBarVisible || model.isBuffering || showEpisodes }
 
     var body: some View {
-        VStack {
+        VStack(spacing: 14) {
             Spacer()
-            VStack(alignment: .leading, spacing: 14) {
-                Text("Episodes").font(.title3.weight(.semibold)).foregroundStyle(Theme.Palette.gold)
-                    .padding(.horizontal, 60)
-                if model.seasonEpisodes.isEmpty {
-                    HStack(spacing: 12) {
-                        ProgressView().tint(Theme.Palette.gold)
-                        Text("Loading episodes…").foregroundStyle(.secondary)
-                    }
-                    .frame(height: 200).padding(.horizontal, 60)
-                } else {
-                    ScrollViewReader { proxy in
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            LazyHStack(spacing: 28) {
-                                ForEach(model.seasonEpisodes) { ep in
-                                    Button {
-                                        if let owned = ep.owned { model.play(owned); onClose() }
-                                    } label: { card(ep) }
-                                        .buttonStyle(.card)
-                                        .disabled(!ep.isPlayable)        // not downloaded → not selectable
-                                        .id(ep.id)
-                                        .focused($focused, equals: ep.id)
-                                }
-                            }
-                            .padding(.horizontal, 60).padding(.vertical, 12)
-                        }
-                        .onAppear {
-                            guard let cur = model.currentEpisode else { return }
-                            let id = "\(cur.season)x\(cur.number)"
-                            focused = id
-                            proxy.scrollTo(id, anchor: .center)
-                        }
-                    }
+            if barShown {
+                ScrubBarRow(model: model, buffering: model.isBuffering)
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
+            }
+            if model.isEpisode && !model.seasonEpisodes.isEmpty {
+                if showEpisodes {
+                    EpisodeStripExpanded(model: model, onPlay: { showEpisodes = false })
+                        .transition(.opacity)
+                } else if barShown {
+                    EpisodePeek(model: model)
+                        .allowsHitTesting(false)
+                        .transition(.opacity)
                 }
             }
-            .padding(.vertical, 22)
-            .background(.black.opacity(0.85))
-            .padding(.bottom, 96)        // clear the thin scrub bar below
         }
-    }
-
-    private func card(_ ep: PlayerModel.PlayerEpisode) -> some View {
-        let isCurrent = ep.season == model.currentEpisode?.season && ep.number == model.currentEpisode?.number
-        return VStack(alignment: .leading, spacing: 8) {
-            AsyncImage(url: TMDBClient.imageURL(path: ep.stillPath, size: "w300")) {
-                $0.resizable().aspectRatio(contentMode: .fill)
-            } placeholder: { Rectangle().fill(.gray.opacity(0.25)) }
-                .frame(width: 300, height: 300 * 9 / 16).clipped()
-                .overlay {
-                    if isCurrent {
-                        RoundedRectangle(cornerRadius: 6).stroke(Theme.Palette.gold, lineWidth: 4)
-                    } else if !ep.isPlayable {
-                        // Not downloaded → dim + a small marker so it reads as "not in your library".
-                        ZStack {
-                            Color.black.opacity(0.45)
-                            Image(systemName: "arrow.down.circle").font(.title2).foregroundStyle(.white.opacity(0.85))
-                        }
-                    }
-                }
-            Text("\(ep.number) · \(ep.name ?? "Episode \(ep.number)")")
-                .font(.callout.weight(.semibold)).lineLimit(1).frame(width: 300, alignment: .leading)
-                .foregroundStyle(ep.isPlayable ? .primary : .secondary)
-        }
-        .opacity(ep.isPlayable ? 1 : 0.7)
+        .padding(.horizontal, 80)
+        .padding(.bottom, 48)
+        .animation(.easeInOut(duration: 0.25), value: barShown)
+        .animation(.easeInOut(duration: 0.3), value: showEpisodes)
     }
 }
 
-/// Thin bottom scrubber shown only while scrubbing — current time, mini bar, remaining.
-private struct MinimalScrubBar: View {
+/// The thin scrub bar's content (no bottom anchoring of its own — `PlayerBottomBar` stacks it).
+private struct ScrubBarRow: View {
     @Bindable var model: PlayerModel
     let buffering: Bool
 
     var body: some View {
-        // Mid-scrub → preview target; otherwise the live playhead.
         let shown = model.isScrubbing ? model.scrubTarget : model.position
         let frac = model.duration > 0 ? min(1, max(0, shown / model.duration)) : 0
-        VStack {
-            Spacer()
-            VStack(spacing: 8) {
-                GeometryReader { geo in
-                    let headX = geo.size.width * frac
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(.white.opacity(0.25)).frame(height: 6)
-                        Capsule().fill(.white).frame(width: headX, height: 6)
-                        Circle().fill(.white).frame(width: 16, height: 16)
-                            .offset(x: min(geo.size.width - 16, max(0, headX - 8)))
-                    }
-                    .frame(maxHeight: .infinity, alignment: .center)
+        VStack(spacing: 8) {
+            GeometryReader { geo in
+                let headX = geo.size.width * frac
+                ZStack(alignment: .leading) {
+                    Capsule().fill(.white.opacity(0.25)).frame(height: 6)
+                    Capsule().fill(.white).frame(width: headX, height: 6)
+                    Circle().fill(.white).frame(width: 16, height: 16)
+                        .offset(x: min(geo.size.width - 16, max(0, headX - 8)))
                 }
-                .frame(height: 22)
-                HStack {
-                    Text(Timecode.format(shown)).font(.body.monospacedDigit().weight(.semibold))
-                    Spacer()
-                    Text("-" + Timecode.format(max(0, model.duration - shown)))
-                        .font(.body.monospacedDigit()).foregroundStyle(.secondary)
+                .frame(maxHeight: .infinity, alignment: .center)
+            }
+            .frame(height: 22)
+            HStack {
+                Text(Timecode.format(shown)).font(.body.monospacedDigit().weight(.semibold))
+                Spacer()
+                Text("-" + Timecode.format(max(0, model.duration - shown)))
+                    .font(.body.monospacedDigit()).foregroundStyle(.secondary)
+            }
+            if buffering {
+                HStack(spacing: 10) {
+                    ProgressView().controlSize(.small).tint(.white)
+                    Text("Loading…").font(.caption).foregroundStyle(.secondary)
                 }
-                // Inline loading hint under the bar while buffering (a seek/rebuffer) — bar stays up.
-                if buffering {
-                    HStack(spacing: 10) {
-                        ProgressView().controlSize(.small).tint(.white)
-                        Text("Loading…").font(.caption).foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .center)
+            }
+        }
+    }
+}
+
+/// Resting hint: a dimmed, vertically-cropped, edge-faded sliver of the season's stills, sitting
+/// just under the scrub bar. Swipe down (handled by the ScrubPad) opens the full strip.
+private struct EpisodePeek: View {
+    let model: PlayerModel
+    var body: some View {
+        VStack(spacing: 4) {
+            HStack(spacing: 6) {
+                Image(systemName: "chevron.compact.down")
+                Text("Episodes").font(.callout.weight(.semibold))
+            }
+            .foregroundStyle(.white.opacity(0.55))
+            HStack(spacing: 10) {
+                ForEach(model.seasonEpisodes.prefix(14)) { ep in
+                    let isCur = ep.season == model.currentEpisode?.season && ep.number == model.currentEpisode?.number
+                    AsyncImage(url: TMDBClient.imageURL(path: ep.stillPath, size: "w300")) {
+                        $0.resizable().aspectRatio(contentMode: .fill)
+                    } placeholder: { Rectangle().fill(.white.opacity(0.08)) }
+                    .frame(width: 150, height: 84)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .overlay {
+                        if isCur {
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .strokeBorder(Theme.Palette.gold, lineWidth: 2)
+                        }
                     }
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .transition(.opacity)
                 }
             }
-            .padding(.horizontal, 80)
-            .padding(.bottom, 56)
+            .frame(height: 30, alignment: .top)        // crop to a thin sliver — only the top shows
+            .clipped()
+            .opacity(0.5)
+            .mask(LinearGradient(colors: [.clear, .black, .black, .clear],
+                                 startPoint: .leading, endPoint: .trailing))
         }
-        .transition(.opacity)
+    }
+}
+
+/// Open state: the season's episodes as focusable still cards. Selecting a downloaded one switches
+/// playback in place; not-downloaded ones are dimmed + a ⬇︎ glyph. Seeds focus to the current one.
+private struct EpisodeStripExpanded: View {
+    @Bindable var model: PlayerModel
+    let onPlay: () -> Void
+    @FocusState private var focused: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Episodes").font(.title3.weight(.semibold)).foregroundStyle(Theme.Palette.gold)
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(spacing: 24) {
+                        ForEach(model.seasonEpisodes) { ep in
+                            Button { if let owned = ep.owned { model.play(owned); onPlay() } } label: { card(ep) }
+                                .buttonStyle(.card)
+                                .disabled(!ep.isPlayable)
+                                .id(ep.id)
+                                .focused($focused, equals: ep.id)
+                        }
+                    }
+                    .padding(.vertical, 8)
+                }
+                .onAppear {
+                    guard let cur = model.currentEpisode else { return }
+                    let id = "\(cur.season)x\(cur.number)"
+                    focused = id
+                    proxy.scrollTo(id, anchor: .center)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func card(_ ep: PlayerModel.PlayerEpisode) -> some View {
+        let isCurrent = ep.season == model.currentEpisode?.season && ep.number == model.currentEpisode?.number
+        return VStack(alignment: .leading, spacing: 6) {
+            AsyncImage(url: TMDBClient.imageURL(path: ep.stillPath, size: "w300")) {
+                $0.resizable().aspectRatio(contentMode: .fill)
+            } placeholder: { Rectangle().fill(.white.opacity(0.08)) }
+                .frame(width: 200, height: 112)
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay {
+                    if isCurrent {
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .strokeBorder(Theme.Palette.gold, lineWidth: 4)
+                    } else if !ep.isPlayable {
+                        RoundedRectangle(cornerRadius: 10, style: .continuous).fill(.black.opacity(0.45))
+                            .overlay {
+                                Image(systemName: "arrow.down.circle").font(.title2)
+                                    .foregroundStyle(.white.opacity(0.85))
+                            }
+                    }
+                }
+            Text("\(ep.number) · \(ep.name ?? "Episode \(ep.number)")")
+                .font(.callout.weight(.semibold)).lineLimit(1).frame(width: 200, alignment: .leading)
+                .foregroundStyle(ep.isPlayable ? .primary : .secondary)
+        }
+        .opacity(ep.isPlayable ? 1 : 0.7)
     }
 }
