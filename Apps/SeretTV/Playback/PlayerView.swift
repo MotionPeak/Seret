@@ -252,8 +252,12 @@ private struct EpisodeStripExpanded: View {
                                 .focused($focused, equals: ep.id)
                         }
                     }
-                    .padding(.vertical, 8)
+                    .padding(.vertical, 14)        // room for the focus lift
                 }
+                .frame(height: 188)                // KEEP THE STRIP COMPACT: a horizontal ScrollView
+                                                   // is greedy vertically — without a fixed height it
+                                                   // fills the screen and the cards float to the
+                                                   // MIDDLE instead of hugging the bottom.
                 .onAppear {
                     guard let cur = model.currentEpisode else { return }
                     let id = "\(cur.season)x\(cur.number)"

@@ -82,6 +82,15 @@ final class ScrubInteractionView: UIView {
         let fwd  = UITapGestureRecognizer(target: self, action: #selector(skipForward))
         fwd.allowedPressTypes = [NSNumber(value: UIPress.PressType.rightArrow.rawValue)]
         addGestureRecognizer(fwd)
+        // D-pad UP / DOWN clicks — a discrete affordance for the same pull-up (reveal bar) and
+        // pull-down (episodes for a show, else settings) the trackpad swipe does, so the episode
+        // strip isn't hidden behind a swipe-only gesture.
+        let up = UITapGestureRecognizer(target: self, action: #selector(pressUp))
+        up.allowedPressTypes = [NSNumber(value: UIPress.PressType.upArrow.rawValue)]
+        addGestureRecognizer(up)
+        let down = UITapGestureRecognizer(target: self, action: #selector(pressDown))
+        down.allowedPressTypes = [NSNumber(value: UIPress.PressType.downArrow.rawValue)]
+        addGestureRecognizer(down)
     }
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError("init(coder:) unavailable") }
@@ -116,6 +125,15 @@ final class ScrubInteractionView: UIView {
             model.togglePlayPause()
         }
         model.revealScrubBar()
+    }
+
+    @objc private func pressUp() {
+        guard isInteractive else { return }
+        onPullUp?()              // reveal the scrub bar (+ episode peek for shows)
+    }
+    @objc private func pressDown() {
+        guard isInteractive else { return }
+        onShowSettings?()        // episodes (a show, bar up) or the settings panel
     }
 
     @objc private func skipBackward() {
