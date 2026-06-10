@@ -207,11 +207,9 @@ Shared/SeretPlayer/         ← shared VLCKit engine + video view
 Apps/SeretTV/               ← tvOS app + tests
 Apps/SeretMobile/           ← iPhone / iPad app + tests
 Scripts/                    ← fetch-frameworks.sh, asset/icon generators
-docs/superpowers/           ← design specs + per-slice implementation plans
 project.yml                 ← XcodeGen project definition (generates Seret.xcodeproj)
 Secrets.example.xcconfig    ← committed template (copy to gitignored Secrets.xcconfig)
 Frameworks/                 ← VLCKit.xcframework lands here (gitignored, fetched by the script)
-CLAUDE.md                   ← contributor guide / design rationale
 ```
 
 > **Never commit your keys.** They live in `Secrets.xcconfig`, which is **gitignored**; only the blank `Secrets.example.xcconfig` template is tracked. Seret never logs RD tokens or unrestricted URLs.

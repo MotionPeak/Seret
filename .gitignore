@@ -36,3 +36,7 @@ Apps/SeretTV/Info.plist
 
 # Misc
 *.log
+
+# Internal contributor docs — kept local, not published (not needed to build or run Seret)
+CLAUDE.md
+docs/
