@@ -27,21 +27,25 @@ struct LandscapeProgressCard: View {
     var width: CGFloat = 460
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            ZStack(alignment: .bottom) {
-                RemoteImage(url: imageURL)
-                    .frame(width: width, height: width * 9 / 16)
-                    .clipShape(RoundedRectangle(cornerRadius: Theme.Layout.posterCorner, style: .continuous))
-                GoldProgressBar(fraction: fraction).frame(width: width)
+        let height = width * 9 / 16
+        return ZStack(alignment: .bottomLeading) {
+            RemoteImage(url: imageURL)
+                .frame(width: width, height: height)
+            // Soft scrim only across the lower third, so the title reads without a hard grey bar.
+            LinearGradient(colors: [.clear, .black.opacity(0.82)], startPoint: .center, endPoint: .bottom)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.seret(Theme.Typography.cardSize, .semibold))
+                    .foregroundStyle(.white).lineLimit(1)
+                if !subtitle.isEmpty {
+                    Text(subtitle).font(.seret(Theme.Typography.captionSize, .medium))
+                        .foregroundStyle(.white.opacity(0.8)).lineLimit(1)
+                }
             }
-            Text(title).cardTitle().lineLimit(1)
-                .frame(width: width, alignment: .leading)
-            if !subtitle.isEmpty {
-                Text(subtitle).font(.seret(Theme.Typography.captionSize, .medium))
-                    .foregroundStyle(Theme.Palette.textSecondary)
-                    .lineLimit(1).frame(width: width, alignment: .leading)
-            }
+            .padding(.horizontal, 18).padding(.bottom, 18)
+            GoldProgressBar(fraction: fraction).frame(width: width)   // pinned to the very bottom edge
         }
+        .frame(width: width, height: height)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Layout.posterCorner, style: .continuous))
     }
 }
 

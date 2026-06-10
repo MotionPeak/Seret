@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 extension View {
     /// Soft gold bloom behind a view. A `radius` of 0 disables it.
@@ -7,22 +8,51 @@ extension View {
     }
 }
 
+/// In-memory cache of DECODED images. `AsyncImage` re-decodes on every appearance — which flashed
+/// the placeholder and re-loaded every poster when you switched between Movies/TV/etc. Caching the
+/// decoded `UIImage` makes an already-seen poster reappear INSTANTLY.
+enum ImageMemoryCache {
+    // NSCache is documented thread-safe; `nonisolated(unsafe)` just tells Swift 6 we know that.
+    nonisolated(unsafe) static let shared: NSCache<NSURL, UIImage> = {
+        let c = NSCache<NSURL, UIImage>()
+        c.totalCostLimit = 96 * 1024 * 1024      // ~96 MB of decoded bitmaps; auto-evicts on pressure
+        return c
+    }()
+}
+
 /// An image that crossfades in from a dark surface placeholder — no hard pop-in (the #1 source of
-/// the "jumpy / loads pages" feel). The default placeholder is an on-brand surface with a gold
-/// spinner; pass a custom one (e.g. a titled fallback) when needed. Wrap with `.frame`/`.clipShape`
-/// at the call site exactly like `AsyncImage`.
+/// the "jumpy / loads pages" feel). Backed by `ImageMemoryCache` so a poster already shown reappears
+/// instantly (no re-fetch, no re-decode); decodes off the main thread so a full grid doesn't hitch.
+/// Wrap with `.frame`/`.clipShape` at the call site exactly like `AsyncImage`.
 struct RemoteImage<Placeholder: View>: View {
     let url: URL?
     var contentMode: ContentMode = .fill
     @ViewBuilder var placeholder: () -> Placeholder
+    @State private var loaded: UIImage?
 
     var body: some View {
-        AsyncImage(url: url, transaction: Transaction(animation: Theme.Anim.imageFade)) { phase in
-            if let image = phase.image {
-                image.resizable().aspectRatio(contentMode: contentMode).transition(.opacity)
+        // Synchronous cache check (current url first) → no placeholder flash when a page reappears.
+        let image = url.flatMap { ImageMemoryCache.shared.object(forKey: $0 as NSURL) } ?? loaded
+        return Group {
+            if let image {
+                Image(uiImage: image).resizable().aspectRatio(contentMode: contentMode).transition(.opacity)
             } else {
                 placeholder()
             }
+        }
+        .animation(Theme.Anim.imageFade, value: image != nil)
+        .onChange(of: url) { loaded = nil }     // a reused cell pointed at a new url → drop the old
+        .task(id: url) {
+            guard let url, ImageMemoryCache.shared.object(forKey: url as NSURL) == nil else { return }
+            guard let (data, _) = try? await URLSession.shared.data(from: url) else { return }
+            // Decode off the main actor — decoding a whole screen of posters on main is what made
+            // the grid feel like it "loads for a long time".
+            let decoded = await Task.detached(priority: .utility) {
+                UIImage(data: data)?.preparingForDisplay()
+            }.value
+            guard let decoded, !Task.isCancelled else { return }
+            ImageMemoryCache.shared.setObject(decoded, forKey: url as NSURL, cost: data.count)
+            loaded = decoded
         }
     }
 }

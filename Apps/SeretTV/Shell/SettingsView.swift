@@ -117,6 +117,7 @@ struct SettingsView: View {
                 ForEach(options, id: \.self) { opt in
                     Button(label(opt)) { selected.wrappedValue = opt }
                         .buttonStyle(SeretPillStyle(selected: selected.wrappedValue == opt))
+                        .fixedSize(horizontal: true, vertical: false)   // one line — never wrap "Rounded"
                 }
             }
         }
