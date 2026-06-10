@@ -133,7 +133,7 @@ private struct PlayerBottomBar: View {
     private var barShown: Bool { model.scrubBarVisible || model.isBuffering || showEpisodes }
 
     var body: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: 10) {
             Spacer()
             if barShown {
                 ScrubBarRow(model: model, buffering: model.isBuffering)
@@ -153,6 +153,15 @@ private struct PlayerBottomBar: View {
         }
         .padding(.horizontal, 80)
         .padding(.bottom, 48)
+        // A soft bottom scrim so the bar + episode stills/labels stay readable over bright scenes.
+        .background(alignment: .bottom) {
+            LinearGradient(colors: [.clear, .black.opacity(0.8)], startPoint: .top, endPoint: .bottom)
+                .frame(height: showEpisodes ? 360 : 210)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                .opacity(barShown ? 1 : 0)
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+        }
         .animation(.easeInOut(duration: 0.25), value: barShown)
         .animation(.easeInOut(duration: 0.3), value: showEpisodes)
     }
@@ -239,31 +248,27 @@ private struct EpisodeStripExpanded: View {
     @FocusState private var focused: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Episodes").font(.title3.weight(.semibold)).foregroundStyle(Theme.Palette.gold)
-            ScrollViewReader { proxy in
-                ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHStack(spacing: 24) {
-                        ForEach(model.seasonEpisodes) { ep in
-                            Button { if let owned = ep.owned { model.play(owned); onPlay() } } label: { card(ep) }
-                                .buttonStyle(.card)
-                                .disabled(!ep.isPlayable)
-                                .id(ep.id)
-                                .focused($focused, equals: ep.id)
-                        }
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(spacing: 22) {
+                    ForEach(model.seasonEpisodes) { ep in
+                        Button { if let owned = ep.owned { model.play(owned); onPlay() } } label: { card(ep) }
+                            .buttonStyle(.card)
+                            .disabled(!ep.isPlayable)
+                            .id(ep.id)
+                            .focused($focused, equals: ep.id)
                     }
-                    .padding(.vertical, 14)        // room for the focus lift
                 }
-                .frame(height: 188)                // KEEP THE STRIP COMPACT: a horizontal ScrollView
-                                                   // is greedy vertically — without a fixed height it
-                                                   // fills the screen and the cards float to the
-                                                   // MIDDLE instead of hugging the bottom.
-                .onAppear {
-                    guard let cur = model.currentEpisode else { return }
-                    let id = "\(cur.season)x\(cur.number)"
-                    focused = id
-                    proxy.scrollTo(id, anchor: .center)
-                }
+                .padding(.vertical, 10)            // just enough room for the focus lift
+            }
+            // Snug to the cards so the strip sits TIGHT under the scrub bar (a horizontal ScrollView
+            // is greedy vertically — without a fixed height it fills the screen / leaves a big gap).
+            .frame(height: 168)
+            .onAppear {
+                guard let cur = model.currentEpisode else { return }
+                let id = "\(cur.season)x\(cur.number)"
+                focused = id
+                proxy.scrollTo(id, anchor: .center)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
