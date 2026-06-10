@@ -224,7 +224,14 @@ private struct AddActions: View {
         VStack(alignment: .leading, spacing: 20) {
             switch add.state {
             case .loadingStreams:
-                ProgressView("Finding cached versions…").font(.title3).tint(Theme.Palette.gold)
+                HStack(spacing: 16) {
+                    ProgressView().controlSize(.large).tint(Theme.Palette.gold)
+                    Text("Finding cached versions…").font(.title3.weight(.medium))
+                        .foregroundStyle(Theme.Palette.textSecondary)
+                }
+                .padding(.vertical, 16).padding(.horizontal, 28)
+                .background(.white.opacity(0.06), in: Capsule())
+                .overlay(Capsule().strokeBorder(.white.opacity(0.08)))
             case .noStreams:
                 DownloadSection(flow: flow, onPlay: onPlay)
             case .failed(let msg):
