@@ -150,20 +150,25 @@ public final class PlayerModel {
     private let scrubBarDwell: Double = 5      // bar stays visible for 5s after the last interaction
 
     // MARK: - Up Next (binge)
-    /// End-of-content time (seconds): the last subtitle cue when a sub was downloaded, so the bar
-    /// appears when the dialogue ends rather than at the file end (long credits). nil → fall back.
+    /// Last subtitle cue (seconds), when a sub was downloaded. A FLOOR for the Up Next bar — it
+    /// won't fire while a line is still being spoken — but no longer triggers it directly (the last
+    /// line is often well before the credits). nil → use the credits-lead estimate alone.
     private var contentEndTime: Double?
     private var upNextDismissed = false
     private var upNextTask: Task<Void, Never>?
     private let upNextCountdownStart = 10
-    private let upNextFallbackTail: Double = 45   // when content-end is unknown, show this far from the file end
+    /// The credits are roughly the last ~30s of the file. The countdown should roll DURING the
+    /// credits, so the bar appears no earlier than this before the end — never at the last spoken
+    /// line (which is often well before the credits) nor during dialogue that runs late.
+    private let upNextCreditsLead: Double = 30
 
-    /// When the "Up Next" bar should appear (nil → never, e.g. no next episode or unknown timing).
+    /// When the "Up Next" bar should appear (nil → never, e.g. no next episode or a too-short file).
+    /// The LATER of the last subtitle cue and a credits-length before the end — so it lands in the
+    /// credits, not the final scene — clamped so the 10s countdown still finishes before the file end.
     private var upNextThreshold: Double? {
-        guard hasNextEpisode else { return nil }
-        if let contentEndTime { return contentEndTime }
-        guard duration > upNextFallbackTail + 1 else { return nil }
-        return duration - upNextFallbackTail
+        guard hasNextEpisode, duration > Double(upNextCountdownStart) + 6 else { return nil }
+        let creditsStart = max(contentEndTime ?? 0, duration - upNextCreditsLead)
+        return min(creditsStart, duration - Double(upNextCountdownStart) - 2)
     }
 
     // MARK: - Computed helpers
