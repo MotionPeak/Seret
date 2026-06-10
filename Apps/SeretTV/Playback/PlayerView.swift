@@ -38,16 +38,21 @@ struct PlayerView: View {
                 // panel instead of starting a scrub.
                 ScrubPad(model: model, isInteractive: !showSettings && !showEpisodes,
                          onShowSettings: {
-                             // Swipe DOWN: when the scrub bar is up on a show → the episodes popup
-                             // (sits under the bar); otherwise → the audio/subtitle settings panel.
-                             if model.scrubBarVisible && model.isEpisode {
+                             // Swipe DOWN: collapse the episode strip if it's open, else open settings.
+                             if showEpisodes { showEpisodes = false }
+                             else { showSettings = true }
+                         },
+                         onPullUp: {
+                             // Swipe UP: first reveals the scrub bar; a SECOND swipe up (bar already
+                             // showing, on a show) lifts the episode strip — up-then-up, no direction
+                             // change, which reads more naturally than up-then-down.
+                             if model.scrubBarVisible && model.isEpisode && !model.seasonEpisodes.isEmpty {
                                  showEpisodes = true
                                  Task { await model.loadSeasonEpisodes() }
                              } else {
-                                 showSettings = true
+                                 model.revealScrubBar()
                              }
-                         },
-                         onPullUp: { model.revealScrubBar() })   // pull up lands on the scrub bar first
+                         })
                 // One bottom-anchored column: the thin scrub bar on top, the episode strip beneath
                 // it (a dimmed peek, or — on swipe-down — the full selectable strip). Stacking them
                 // means the bar AUTOMATICALLY rides up as the strip grows: it can never overlap the
@@ -151,7 +156,9 @@ private struct PlayerBottomBar: View {
                 }
             }
         }
-        .padding(.horizontal, 80)
+        // 100pt horizontal so the bar ENDS + timecodes clear the TV's left/right overscan (80 still
+        // clipped on a real set).
+        .padding(.horizontal, 100)
         // Collapsed (just the bar / a movie) the bar would sit in the TV's overscan and clip; lift it
         // clear. Expanded, the tall strip already rides the bar well up, so keep it tight to the cards.
         .padding(.bottom, showEpisodes ? 48 : 76)
@@ -213,7 +220,7 @@ private struct EpisodePeek: View {
     var body: some View {
         VStack(spacing: 4) {
             HStack(spacing: 6) {
-                Image(systemName: "chevron.compact.down")
+                Image(systemName: "chevron.compact.up")
                 Text("Episodes").font(.callout.weight(.semibold))
             }
             .foregroundStyle(.white.opacity(0.55))
@@ -263,9 +270,9 @@ private struct EpisodeStripExpanded: View {
                 }
                 .padding(.vertical, 10)            // just enough room for the focus lift
             }
-            // Snug to the cards so the strip sits TIGHT under the scrub bar (a horizontal ScrollView
-            // is greedy vertically — without a fixed height it fills the screen / leaves a big gap).
-            .frame(height: 168)
+            // Snug to the cards (stills only now, no name labels) so the strip sits TIGHT under the
+            // scrub bar — a horizontal ScrollView is greedy vertically and would otherwise fill it.
+            .frame(height: 140)
             .onAppear {
                 guard let cur = model.currentEpisode else { return }
                 let id = "\(cur.season)x\(cur.number)"
@@ -286,10 +293,10 @@ private struct EpisodeStripExpanded: View {
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .overlay(alignment: .topLeading) {
                     Text("\(ep.number)")
-                        .font(.footnote.weight(.heavy)).monospacedDigit().foregroundStyle(.white)
-                        .padding(.horizontal, 8).padding(.vertical, 3)
-                        .background(.black.opacity(0.55), in: Capsule())
-                        .padding(7)
+                        .font(.title3.weight(.heavy)).monospacedDigit().foregroundStyle(.white)
+                        .padding(.horizontal, 11).padding(.vertical, 4)
+                        .background(.black.opacity(0.6), in: Capsule())
+                        .padding(8)
                 }
                 .overlay {
                     if isCurrent {
@@ -303,10 +310,6 @@ private struct EpisodeStripExpanded: View {
                             }
                     }
                 }
-            Text(ep.name ?? "Episode \(ep.number)")
-                .font(.footnote.weight(.semibold)).lineLimit(1).truncationMode(.tail)
-                .frame(width: 200, alignment: .leading)
-                .foregroundStyle(ep.isPlayable ? .primary : .secondary)
         }
         .opacity(ep.isPlayable ? 1 : 0.7)
     }
