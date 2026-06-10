@@ -2,57 +2,26 @@ import SwiftUI
 import DebridUI
 import DebridCore
 
-/// The top-down player settings panel — modeled on the native tvOS player overlay.
-/// Three tabs (Info · Playback Settings · Technical Details); Playback Settings shows
-/// Audio Streams, Subtitles, and Playback Speed columns.
+/// The top-down player settings panel — just the three things you actually change mid-playback:
+/// Audio Streams, Subtitles, and Playback Speed. (No Info / Technical tabs.)
 struct SettingsPanel: View {
     @Bindable var model: PlayerModel
     let onClose: () -> Void
-    @State private var tab: Tab = .playback
-    @FocusState private var focusedTab: Tab?
-
-    enum Tab: String, CaseIterable {
-        case info = "Info", playback = "Playback Settings", technical = "Technical Details"
-    }
 
     var body: some View {
-        VStack(spacing: 24) {
-            // Tab bar — switches on FOCUS (no click needed), like the native tvOS player overlay,
-            // and uses the exact same gold-pill style as the Browse Trending/Popular selector.
-            HStack(spacing: 14) {
-                ForEach(Tab.allCases, id: \.self) { t in
-                    Button(t.rawValue) { tab = t }
-                        .buttonStyle(SeretPillStyle(selected: tab == t))
-                        .focused($focusedTab, equals: t)
-                }
-            }
-            .padding(.top, 28)
-            .onChange(of: focusedTab) { _, newValue in
-                if let newValue { tab = newValue }     // moving across the top switches tabs live
-            }
-
-            // Body.
-            Group {
-                switch tab {
-                case .info:      InfoColumn(model: model)
-                case .playback:  PlaybackColumns(model: model, onPick: onClose)
-                case .technical: TechnicalColumn(model: model)
-                }
-            }
+        PlaybackColumns(model: model, onPick: onClose)
             .padding(.horizontal, 60)
-            .padding(.bottom, 32)
+            .padding(.vertical, 40)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .focusSection()          // let DOWN from the tab pills move into the columns
-        }
-        .background(
-            // Dark translucent backdrop — matches the native player.
-            RoundedRectangle(cornerRadius: 24)
-                .fill(Theme.Palette.canvas.opacity(0.92))
-                .overlay(RoundedRectangle(cornerRadius: 24).stroke(Theme.Palette.gold.opacity(0.18), lineWidth: 1))
-        )
-        .padding(.horizontal, 60)
-        .padding(.top, 40)                // sits at the top of the screen
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .background(
+                // Dark translucent backdrop — matches the native player.
+                RoundedRectangle(cornerRadius: 24)
+                    .fill(Theme.Palette.canvas.opacity(0.92))
+                    .overlay(RoundedRectangle(cornerRadius: 24).stroke(Theme.Palette.gold.opacity(0.18), lineWidth: 1))
+            )
+            .padding(.horizontal, 60)
+            .padding(.top, 40)                // sits at the top of the screen
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 }
 
@@ -70,25 +39,11 @@ private struct PlaybackColumns: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 60) {
-            if model.hasNextEpisode { upNextColumn }
             audioColumn
             subtitlesColumn
             speedColumn
         }
         .onAppear { landingFocused = true }
-    }
-
-    /// Shows for a show episode that has another after it — selecting it advances the running player
-    /// in-place. The "next episode option", reachable via the swipe-down panel; the end of an
-    /// episode also auto-advances on its own.
-    @ViewBuilder private var upNextColumn: some View {
-        if let next = model.nextEpisode {
-            SettingsColumn(header: "UP NEXT") {
-                CheckRow(title: "Play S\(next.season)·E\(next.number)", checked: false) {
-                    model.playNext(); onPick()
-                }
-            }
-        }
     }
 
     private var audioColumn: some View {
@@ -174,37 +129,6 @@ private struct PlaybackColumns: View {
     }
 }
 
-// MARK: - Info / Technical
-
-private struct InfoColumn: View {
-    @Bindable var model: PlayerModel
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(model.label).font(.title2.bold())
-            Text(timeLine).font(.body).foregroundStyle(.secondary).monospacedDigit()
-        }
-    }
-    private var timeLine: String {
-        "\(Timecode.format(model.position)) / \(Timecode.format(model.duration))"
-    }
-}
-
-private struct TechnicalColumn: View {
-    @Bindable var model: PlayerModel
-    var body: some View {
-        HStack(alignment: .top, spacing: 60) {
-            SettingsColumn(header: "AUDIO TRACKS") {
-                ForEach(model.audioTracks) { Text($0.name).font(.callout) }
-                if model.audioTracks.isEmpty { Text("—").font(.callout).foregroundStyle(.secondary) }
-            }
-            SettingsColumn(header: "SUBTITLES") {
-                ForEach(model.subtitleTracks) { Text($0.name).font(.callout) }
-                if model.subtitleTracks.isEmpty { Text("—").font(.callout).foregroundStyle(.secondary) }
-            }
-        }
-    }
-}
-
 // MARK: - Building blocks
 
 private struct SettingsColumn<Content: View>: View {
@@ -249,8 +173,8 @@ private struct CheckRow: View {
     }
 }
 
-/// A settings row's focus look: a clean white pill + dark text + a subtle lift, replacing the
-/// inconsistent default `.plain` highlight (the "buggy glow").
+/// A settings row's focus look: the same gold-glass treatment as the app's other buttons (a soft
+/// gold-tinted fill + gold border + a subtle lift) — not the stark white rectangle it had before.
 private struct SettingsRowButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View { Row(configuration: configuration) }
     private struct Row: View {
@@ -259,9 +183,15 @@ private struct SettingsRowButtonStyle: ButtonStyle {
         var body: some View {
             configuration.label
                 .padding(.horizontal, 16).padding(.vertical, 8)
-                .foregroundStyle(focused ? .black : .white)
-                .background(focused ? Color.white : .clear, in: RoundedRectangle(cornerRadius: 10))
-                .scaleEffect(focused ? 1.06 : 1)
+                .background(focused ? AnyShapeStyle(Theme.Palette.gold.opacity(0.18)) : AnyShapeStyle(.clear),
+                            in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay {
+                    if focused {
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .strokeBorder(Theme.Palette.gold, lineWidth: 2)
+                    }
+                }
+                .scaleEffect(focused ? 1.04 : 1)
                 .opacity(configuration.isPressed ? 0.7 : 1)
                 .animation(.easeOut(duration: 0.15), value: focused)
         }
