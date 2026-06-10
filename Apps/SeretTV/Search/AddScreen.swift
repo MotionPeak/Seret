@@ -84,9 +84,9 @@ private struct MovieAdd: View {
                 if let overview = flow.overview {
                     Text(overview).bodyText().frame(maxWidth: 1100, alignment: .leading).lineLimit(3)
                 }
-                TrailerButton(tmdbID: flow.tmdbID, kind: flow.mediaKind).font(.title3)
                 if let add = flow.add {
-                    AddActions(flow: flow, add: add, onPlay: onPlay)
+                    AddActions(flow: flow, add: add, onPlay: onPlay,
+                               trailer: AnyView(TrailerButton(tmdbID: flow.tmdbID, kind: flow.mediaKind).font(.title3)))
                 }
             }
             .padding(.horizontal, 60).padding(.vertical, 40)
@@ -208,6 +208,9 @@ private struct AddActions: View {
     let flow: AddFlowStore
     let add: AddStore
     let onPlay: (PlaybackRequest) -> Void
+    /// The Trailer button, so a movie can sit it in the SAME row as Play / Show-all-versions (the
+    /// show flow keeps its own Trailer above the season picker, so it passes nil).
+    var trailer: AnyView? = nil
     @Environment(AppSession.self) private var session
     @State private var showAll = false
     @State private var loadingAll = false
@@ -224,6 +227,7 @@ private struct AddActions: View {
         VStack(alignment: .leading, spacing: 20) {
             switch add.state {
             case .loadingStreams:
+                if let trailer { trailer }
                 HStack(spacing: 16) {
                     ProgressView().controlSize(.large).tint(Theme.Palette.gold)
                     Text("Finding cached versions…").font(.title3.weight(.medium))
@@ -233,15 +237,39 @@ private struct AddActions: View {
                 .background(.white.opacity(0.06), in: Capsule())
                 .overlay(Capsule().strokeBorder(.white.opacity(0.08)))
             case .noStreams:
+                HStack(spacing: 16) {
+                    if let trailer { trailer }
+                    if showAllAvailable { showAllToggleButton }
+                }
                 DownloadSection(flow: flow, onPlay: onPlay)
             case .failed(let msg):
+                if let trailer { trailer }
                 Label(msg, systemImage: "exclamationmark.triangle").font(.title3)
                 Button("Try Again") { Task { await add.loadStreams() } }
                     .buttonStyle(SeretActionButtonStyle())
             default:
-                actions
+                if let best = add.best {
+                    HStack(spacing: 16) {
+                        QualityChips(parsed: best.parsed)
+                        LanguageBadges(codes: best.languages)
+                    }
+                    if add.isFallback {
+                        Label("Audio may not be in the original language.", systemImage: "info.circle")
+                            .font(.callout).foregroundStyle(.secondary)
+                    }
+                }
+                // The whole action row on ONE line: Trailer · Play · Show all versions.
+                HStack(spacing: 16) {
+                    if let trailer { trailer }
+                    if add.best != nil {
+                        Button { playBest() } label: { Label("Play", systemImage: "play.fill") }
+                            .buttonStyle(SeretActionButtonStyle(prominent: true))
+                    }
+                    if showAllAvailable { showAllToggleButton }
+                }
+                addStatus
             }
-            if showAllAvailable { showAllVersions }
+            if showAll { expandedVersionList }      // the version list drops BELOW the row
         }
         .alert("Replace existing version?",
                isPresented: Binding(get: { pendingReplace != nil },
@@ -263,29 +291,14 @@ private struct AddActions: View {
         }
     }
 
-    @ViewBuilder private var actions: some View {
-        if let best = add.best {
-            HStack(spacing: 16) {
-                QualityChips(parsed: best.parsed)
-                LanguageBadges(codes: best.languages)
-            }
-            if add.isFallback {
-                Label("Audio may not be in the original language.", systemImage: "info.circle")
-                    .font(.callout).foregroundStyle(.secondary)
-            }
-            Button { playBest() } label: { Label("Play", systemImage: "play.fill") }
-                .buttonStyle(SeretActionButtonStyle(prominent: true))
-            addStatus
-        }
-    }
-
     /// The expander shows whenever the title resolved (a cached best exists, or none is cached).
     private var showAllAvailable: Bool {
         if case .noStreams = add.state { return true }
         return add.best != nil
     }
 
-    @ViewBuilder private var showAllVersions: some View {
+    /// The "Show all versions" toggle — lives in the action row; the list it reveals drops below.
+    private var showAllToggleButton: some View {
         Button {
             showAll.toggle()
             if showAll && add.allVersions.isEmpty {
@@ -295,14 +308,15 @@ private struct AddActions: View {
             Label(showAll ? "Hide versions" : "Show all versions", systemImage: "square.stack.3d.up")
         }
         .buttonStyle(SeretActionButtonStyle())
-        if showAll {
-            if loadingAll {
-                ProgressView().tint(Theme.Palette.gold).padding(.vertical, 8)
-            } else if add.allVersions.isEmpty {
-                Text("No other versions found.").font(.callout).foregroundStyle(.secondary)
-            } else {
-                allVersionsList
-            }
+    }
+
+    @ViewBuilder private var expandedVersionList: some View {
+        if loadingAll {
+            ProgressView().tint(Theme.Palette.gold).padding(.vertical, 8)
+        } else if add.allVersions.isEmpty {
+            Text("No other versions found.").font(.callout).foregroundStyle(.secondary)
+        } else {
+            allVersionsList
         }
     }
 
