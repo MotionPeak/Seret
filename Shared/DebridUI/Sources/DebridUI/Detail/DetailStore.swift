@@ -231,9 +231,7 @@ public final class DetailStore {
 
     private func refreshWatch(_ key: String) async {
         guard let watch else { return }
-        let state = try? await watch.progress(forContentKey: key, profileID: watchProfileID)
-        watchByKey[key] = state
-        print("[resume] READ key=\(key) profile=\(watchProfileID) pos=\(state?.positionSeconds ?? -1) finished=\(state?.finished ?? false)")
+        watchByKey[key] = try? await watch.progress(forContentKey: key, profileID: watchProfileID)
     }
 
     /// Load whether the active profile has claimed this title (for the Add-to-My-List button).
