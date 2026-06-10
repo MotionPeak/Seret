@@ -17,6 +17,11 @@ struct ShowDetailView: View {
     @State private var seasonStore: AddStore?
     /// Which season pill has focus — moving across them switches the season live (no press).
     @FocusState private var focusedSeason: Int?
+    /// Forces INITIAL focus onto the Play CTA. Without it, the action row sits below the tall hero
+    /// (off-screen on open) and tvOS sets no initial focus at all — the remote goes dead (you can't
+    /// move or select anything). `.defaultFocus` puts focus on Play and scrolls it into view.
+    private enum Field: Hashable { case play }
+    @FocusState private var initialFocus: Field?
     @State private var trailerURL: URL?
     @State private var expandTrailer = false
     private var item: MediaItem { store.item }
@@ -39,6 +44,7 @@ struct ShowDetailView: View {
                 .padding(60)
             }
         }
+        .defaultFocus($initialFocus, .play)
         .background(CanvasBackground())
         .fullScreenCover(isPresented: $expandTrailer) {
             if let u = trailerURL { FullScreenTrailer(url: u) }
@@ -85,17 +91,22 @@ struct ShowDetailView: View {
                           systemImage: "play.fill")
                 }
                 .buttonStyle(SeretActionButtonStyle(prominent: true))
+                .focused($initialFocus, equals: .play)
+            }
+            if trailerURL != nil {
+                Button { expandTrailer = true } label: {
+                    Label("Trailer", systemImage: "play.rectangle.fill")
+                }
+                .buttonStyle(SeretActionButtonStyle())
             }
             Button(role: .destructive) { onRemove() } label: {
                 Label("Remove from Library", systemImage: "trash")
             }
             .buttonStyle(SeretActionButtonStyle(destructive: true))
         }
-        // Swipe UP on the remote here → watch the trailer full-screen with sound; the muted hero
-        // keeps playing underneath, Menu returns here.
-        .onMoveCommand { direction in
-            if direction == .up, trailerURL != nil { expandTrailer = true }
-        }
+        // A focusable Trailer button (above) opens the full-screen trailer. We do NOT use
+        // `.onMoveCommand` here — on tvOS it captures directional input for the focused subtree and
+        // blocks the focus engine, which trapped focus on this row (couldn't reach the episodes).
     }
 
     @ViewBuilder private var seasonPicker: some View {

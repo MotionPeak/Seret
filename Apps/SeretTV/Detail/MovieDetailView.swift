@@ -12,6 +12,11 @@ struct MovieDetailView: View {
     private var watch: WatchState? { store.watchState(forKey: contentKey) }
     @State private var trailerURL: URL?
     @State private var expandTrailer = false
+    /// Forces INITIAL focus onto the Play CTA. Without it the action row sits below the tall hero
+    /// (off-screen on open) and tvOS sets no initial focus — the remote goes dead. `.defaultFocus`
+    /// puts focus on Play and scrolls it into view.
+    private enum Field: Hashable { case play }
+    @FocusState private var initialFocus: Field?
 
     var body: some View {
         ScrollView {
@@ -26,6 +31,7 @@ struct MovieDetailView: View {
                 .padding(60)
             }
         }
+        .defaultFocus($initialFocus, .play)
         .background(CanvasBackground())
         .fullScreenCover(isPresented: $expandTrailer) {
             if let u = trailerURL { FullScreenTrailer(url: u) }
@@ -65,6 +71,7 @@ struct MovieDetailView: View {
                         Label("Resume \(Timecode.format(resume))", systemImage: "play.fill")
                     }
                     .buttonStyle(SeretActionButtonStyle(prominent: true))
+                    .focused($initialFocus, equals: .play)
                     NavigationLink(value: store.playRequest(source: best, episode: nil,
                                                             label: item.title, fromStart: true)) {
                         Label("Play from Start", systemImage: "gobackward")
@@ -75,6 +82,7 @@ struct MovieDetailView: View {
                         Label("Play", systemImage: "play.fill")
                     }
                     .buttonStyle(SeretActionButtonStyle(prominent: true))
+                    .focused($initialFocus, equals: .play)
                 }
             }
             Button {
@@ -95,16 +103,20 @@ struct MovieDetailView: View {
                       systemImage: store.inMyList ? "checkmark" : "plus")
             }
             .buttonStyle(SeretActionButtonStyle())
+            if trailerURL != nil {
+                Button { expandTrailer = true } label: {
+                    Label("Trailer", systemImage: "play.rectangle.fill")
+                }
+                .buttonStyle(SeretActionButtonStyle())
+            }
             Button(role: .destructive) { onRemove() } label: {
                 Label("Remove from Library", systemImage: "trash")
             }
             .buttonStyle(SeretActionButtonStyle(destructive: true))
         }
-        // Swipe UP on the remote while the action row is focused → watch the trailer full-screen
-        // with sound. The muted hero keeps playing underneath; Menu returns here (focus on Play).
-        .onMoveCommand { direction in
-            if direction == .up, trailerURL != nil { expandTrailer = true }
-        }
+        // A focusable Trailer button (above) opens the full-screen trailer. We do NOT use
+        // `.onMoveCommand` here — on tvOS it captures directional input for the focused subtree and
+        // blocks the focus engine, which trapped focus on this row (couldn't reach the versions).
     }
 
     private var resumeSeconds: Double? {
