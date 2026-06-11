@@ -18,6 +18,20 @@ enum ImageMemoryCache {
         c.totalCostLimit = 96 * 1024 * 1024      // ~96 MB of decoded bitmaps; auto-evicts on pressure
         return c
     }()
+
+    /// Warm the cache for a batch of URLs in the background — call when a list's data loads (e.g. a
+    /// season's episode stills) so the cards render with images instead of sitting grey until each one
+    /// scrolls into view. No-op for already-cached URLs; failures are silent (the on-appear load still
+    /// fetches as a fallback).
+    static func prefetch(_ urls: [URL]) {
+        for url in urls where shared.object(forKey: url as NSURL) == nil {
+            Task.detached(priority: .utility) {
+                guard let (data, _) = try? await URLSession.shared.data(from: url),
+                      let img = UIImage(data: data)?.preparingForDisplay() else { return }
+                shared.setObject(img, forKey: url as NSURL, cost: data.count)
+            }
+        }
+    }
 }
 
 /// An image that crossfades in from a dark surface placeholder — no hard pop-in (the #1 source of
@@ -47,7 +61,7 @@ struct RemoteImage<Placeholder: View>: View {
             guard let (data, _) = try? await URLSession.shared.data(from: url) else { return }
             // Decode off the main actor — decoding a whole screen of posters on main is what made
             // the grid feel like it "loads for a long time".
-            let decoded = await Task.detached(priority: .utility) {
+            let decoded = await Task.detached(priority: .userInitiated) {
                 UIImage(data: data)?.preparingForDisplay()
             }.value
             guard let decoded, !Task.isCancelled else { return }

@@ -55,6 +55,13 @@ struct ShowDetailView: View {
             seasonStore = s
             await s?.loadStreams()
         }
+        // Warm the episode stills as soon as the season's metadata lands, so the cards aren't grey
+        // while you scroll down to them. Re-fires when the season changes or its episodes load.
+        .task(id: "\(store.selectedSeason)#\(store.episodeMeta[store.selectedSeason]?.count ?? 0)") {
+            ImageMemoryCache.prefetch(
+                store.episodes(forSeason: store.selectedSeason)
+                    .compactMap { TMDBClient.imageURL(path: $0.meta?.stillPath, size: "w300") })
+        }
     }
 
     private var hero: some View {

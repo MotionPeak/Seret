@@ -8,6 +8,7 @@ struct DetailView: View {
     @State private var removeError: String?
     @State private var downloadingEpisodeID: String?
     @State private var episodePlayback: EpisodePlayback?
+    @State private var episodeError: String?
     @Environment(AppSession.self) private var session
     @Environment(\.dismiss) private var dismiss
 
@@ -58,6 +59,12 @@ struct DetailView: View {
         } message: {
             Text(removeError ?? "")
         }
+        .alert("Couldn\u{2019}t Download", isPresented: Binding(
+            get: { episodeError != nil }, set: { if !$0 { episodeError = nil } })) {
+            Button("OK", role: .cancel) { episodeError = nil }
+        } message: {
+            Text(episodeError ?? "")
+        }
     }
 
     private func performRemove() {
@@ -82,12 +89,15 @@ struct DetailView: View {
                                              originalLanguage: store.originalLanguage) else { return }
         downloadingEpisodeID = row.id
         Task {
+            await add.loadStreams()   // MUST run first: addBest() is a no-op on an empty `ranked` list
             await add.addBest()
             downloadingEpisodeID = nil
             if case let .added(info) = add.state,
                let req = store.playRequest(forAdded: info, season: row.season, number: row.number) {
                 session.libraryStore?.retry()
                 episodePlayback = EpisodePlayback(request: req)
+            } else {
+                episodeError = "Couldn't find a cached version of this episode to download."
             }
         }
     }
