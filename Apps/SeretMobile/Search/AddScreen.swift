@@ -170,10 +170,7 @@ private struct ShowAddBody: View {
     }
 
     private func episodeStill(_ ep: TMDBEpisodeDetails) -> some View {
-        AsyncImage(url: TMDBClient.imageURL(path: ep.stillPath, size: "w300")) { phase in
-            if case .success(let img) = phase { img.resizable().aspectRatio(contentMode: .fill) }
-            else { ZStack { Theme.Palette.surface2; Image(systemName: "film").foregroundStyle(Theme.Palette.textTertiary) } }
-        }
+        RemoteImage(url: TMDBClient.imageURL(path: ep.stillPath, size: "w300"))
         .frame(width: 124, height: 70)
         .clipped()
         .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.chip))

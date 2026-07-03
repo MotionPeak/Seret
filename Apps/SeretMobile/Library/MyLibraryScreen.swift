@@ -128,8 +128,7 @@ private struct DownloadingTile: View {
 
     @ViewBuilder private var poster: some View {
         if let url = TMDBClient.imageURL(path: tile.posterPath, size: "w300") {
-            AsyncImage(url: url) { $0.resizable().aspectRatio(contentMode: .fill) }
-                placeholder: { Rectangle().fill(.gray.opacity(0.25)) }
+            RemoteImage(url: url) { Rectangle().fill(.gray.opacity(0.25)) }
         } else {
             Rectangle().fill(.gray.opacity(0.25))
         }

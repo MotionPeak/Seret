@@ -7,11 +7,8 @@ struct HeroBackdrop<Overlay: View>: View {
     @ViewBuilder var overlay: Overlay
     var body: some View {
         ZStack(alignment: .bottomLeading) {
-            AsyncImage(url: imageURL) { phase in
-                if case .success(let image) = phase { image.resizable().scaledToFill() }
-                else { Theme.Palette.surface1 }
-            }
-            .frame(height: height).frame(maxWidth: .infinity).clipped()
+            RemoteImage(url: imageURL) { Theme.Palette.surface1 }
+                .frame(height: height).frame(maxWidth: .infinity).clipped()
             LinearGradient(
                 stops: [.init(color: .clear, location: 0.0),
                         .init(color: Theme.Palette.canvas.opacity(0.6), location: 0.55),

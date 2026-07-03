@@ -129,6 +129,13 @@ struct HomeScreen: View {
     private func rebuild() async {
         guard let library = session.libraryStore, let home = session.home else { return }
         await home.rebuild(movies: library.movies, shows: library.shows)
+        // Warm the rail images in the background so cards render filled instead of popping in
+        // one by one as they scroll into view.
+        var urls: [URL] = []
+        if let f = home.featured, let u = backdropURL(f.item) { urls.append(u) }
+        urls += home.continueWatching.compactMap { backdropURL($0.item) }
+        urls += home.recentlyAdded.compactMap { posterURL($0) }
+        ImageMemoryCache.prefetch(urls)
     }
 
     private func posterURL(_ i: MediaItem) -> URL? { TMDBClient.imageURL(path: i.posterPath, size: "w500") }

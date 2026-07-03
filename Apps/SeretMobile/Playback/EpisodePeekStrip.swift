@@ -83,9 +83,7 @@ struct EpisodePeekStrip: View {
 
     private func thumb(_ ep: PlayerModel.PlayerEpisode, height: CGFloat) -> some View {
         let isCurrent = ep.season == model.currentEpisode?.season && ep.number == model.currentEpisode?.number
-        return AsyncImage(url: TMDBClient.imageURL(path: ep.stillPath, size: "w300")) { img in
-            img.resizable().aspectRatio(contentMode: .fill)
-        } placeholder: {
+        return RemoteImage(url: TMDBClient.imageURL(path: ep.stillPath, size: "w300")) {
             ZStack { Color.white.opacity(0.08); Image(systemName: "tv").foregroundStyle(.white.opacity(0.25)) }
         }
         .frame(width: height * 16 / 9, height: height)

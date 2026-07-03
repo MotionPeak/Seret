@@ -11,18 +11,7 @@ struct PosterCard: View {
         VStack(alignment: .leading, spacing: 6) {
             Color.clear
                 .aspectRatio(2.0 / 3.0, contentMode: .fit)
-                .overlay {
-                    AsyncImage(url: posterURL) { phase in
-                        if case .success(let image) = phase {
-                            image.resizable().scaledToFill()
-                        } else {
-                            ZStack {
-                                Theme.Palette.surface2
-                                Image(systemName: "film").foregroundStyle(Theme.Palette.textTertiary)
-                            }
-                        }
-                    }
-                }
+                .overlay { RemoteImage(url: posterURL) }
                 .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
                     .stroke(Theme.Palette.hairline, lineWidth: 1))

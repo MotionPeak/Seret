@@ -55,6 +55,13 @@ struct ShowDetail: View {
             seasonStore = s
             await s?.loadStreams()
         }
+        // Warm the season's episode stills as soon as its TMDB metadata lands (the id re-fires
+        // when the meta count changes), so the list renders with images, not grey tiles.
+        .task(id: "stills#\(store.selectedSeason)#\(store.episodeMeta[store.selectedSeason]?.count ?? 0)") {
+            let stills = store.episodes(forSeason: store.selectedSeason)
+                .compactMap { TMDBClient.imageURL(path: $0.meta?.stillPath, size: "w300") }
+            ImageMemoryCache.prefetch(stills)
+        }
     }
 
     private var metaLine: String {
@@ -188,10 +195,7 @@ struct EpisodeRowView: View {
     }
 
     private var still: some View {
-        AsyncImage(url: TMDBClient.imageURL(path: row.meta?.stillPath, size: "w300")) { phase in
-            if case .success(let img) = phase { img.resizable().aspectRatio(contentMode: .fill) }
-            else { ZStack { Theme.Palette.surface2; Image(systemName: "film").foregroundStyle(Theme.Palette.textTertiary) } }
-        }
+        RemoteImage(url: TMDBClient.imageURL(path: row.meta?.stillPath, size: "w300"))
         .frame(width: 124, height: 70)
         .clipped()
         .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.chip))

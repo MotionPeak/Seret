@@ -9,11 +9,8 @@ struct LandscapeProgressCard: View {
     var width: CGFloat = 168
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            AsyncImage(url: imageURL) { phase in
-                if case .success(let image) = phase { image.resizable().scaledToFill() }
-                else { Theme.Palette.surface2 }
-            }
-            .frame(width: width, height: width * 9 / 16)
+            RemoteImage(url: imageURL) { Theme.Palette.surface2 }
+                .frame(width: width, height: width * 9 / 16)
             .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
                 .stroke(Theme.Palette.hairline, lineWidth: 1))

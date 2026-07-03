@@ -44,7 +44,13 @@ struct DetailScreen: View {
                                 onSeasonAdded: { session.libraryStore?.retry() })
                 }
             }
-            .task { await store.load() }
+            .task {
+                await store.load()
+                // Warm the RD unrestrict for what Play would start (the movie's best source /
+                // the show's next-up episode) — tapping Play then skips the network round-trip.
+                let source = store.item.kind == .movie ? store.bestSource : store.nextEpisode()?.source
+                if let source { session.prefetchPlayback(for: source) }
+            }
             .task { await store.loadMyList(contentKey: store.item.id) }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -81,7 +87,9 @@ struct DetailScreen: View {
                 Text(removeError ?? "")
             }
         }
-        .fullScreenCover(item: $playback) { presented in
+        // Re-read watch state when the player closes so Resume · <time> reflects the position
+        // the player just recorded (the underlying screen's .task does not re-run on dismiss).
+        .fullScreenCover(item: $playback, onDismiss: { Task { await store.reloadWatch() } }) { presented in
             let engine = VLCKitVideoPlayerEngine(preferences: session.subtitleSettings.preferences)
             if let model = session.makePlayer(for: presented.request, engine: engine) {
                 PlayerView(model: model, engine: engine,
@@ -120,8 +128,7 @@ struct DetailBackdrop: View {
         Group {
             if let url = TMDBClient.imageURL(path: path, size: "w1280")
                 ?? TMDBClient.imageURL(path: posterFallback, size: "w780") {
-                AsyncImage(url: url) { $0.resizable().aspectRatio(contentMode: .fill) }
-                    placeholder: { Color.black }
+                RemoteImage(url: url) { Color.black }
             } else {
                 LinearGradient(colors: [.gray.opacity(0.3), .black], startPoint: .top, endPoint: .bottom)
             }

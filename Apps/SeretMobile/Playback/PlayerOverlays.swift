@@ -56,7 +56,7 @@ private struct DimBackdrop<Content: View>: View {
         ZStack {
             Color.black
             if let url {
-                AsyncImage(url: url) { $0.resizable().scaledToFill() } placeholder: { Color.clear }
+                RemoteImage(url: url) { Color.clear }
             }
             Color.black.opacity(0.7)
             content
