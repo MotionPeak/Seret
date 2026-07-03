@@ -76,7 +76,17 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
     func load(url: URL, headers: [String: String]) {
         let media = VLCMedia(url: url)
         for (k, v) in headers { media?.addOption(":http-\(k.lowercased())=\(v)") } // unused for RD CDN
-        media?.addOption(":network-caching=3000")   // buffer more for high-bitrate RD streams (fewer stalls)
+        // network-caching is the pre-roll VLC fills before playback starts AND after every seek —
+        // it is the floor on start latency and skip latency. The RD CDN sustains high-bitrate
+        // remuxes easily, so iOS runs a 1.5s pipeline for snappy starts/skips; tvOS keeps the
+        // deeper 3s buffer that fixed its stalls (unchanged behavior there).
+        #if os(tvOS)
+        media?.addOption(":network-caching=3000")
+        #else
+        media?.addOption(":network-caching=1500")
+        #endif
+        media?.addOption(":input-fast-seek")   // land on the nearest keyframe — skips respond fast
+        media?.addOption(":http-reconnect")    // transparently re-open a dropped CDN connection
         player.media = media
         player.currentSubTitleFontScale = subtitleScale   // global size preference (1.0 = VLCKit default)
     }
