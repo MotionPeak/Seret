@@ -93,6 +93,13 @@ struct BrowseScreen: View {
                     segmentContent(browse)
                 }
                 .task(id: browse.selectedSegment) { await browse.loadSegment(browse.selectedSegment) }
+                // Warm the first screenful of rail posters as rails land (the id re-fires per new
+                // rail). First few rails only — prefetching a whole segment is cellular-hostile.
+                .task(id: "prefetch-\(browse.selectedSegment)-\(browse.rows.count)") {
+                    ImageMemoryCache.prefetch(browse.rows.prefix(3).flatMap(\.hits).compactMap {
+                        TMDBClient.imageURL(path: $0.result.posterPath, size: "w342")
+                    })
+                }
             }
         }
     }

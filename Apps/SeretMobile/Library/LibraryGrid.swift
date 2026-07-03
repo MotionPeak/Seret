@@ -58,6 +58,13 @@ struct LibraryGrid: View {
                     }
                     .padding(Theme.Space.lg)
                 }
+                // Warm the first screenful of posters when the grid's data lands (re-fires on a
+                // library refresh) — the cold-open grid fills instead of popping in tile by tile.
+                .task(id: "prefetch-\(title)-\(items.count)") {
+                    ImageMemoryCache.prefetch(items.prefix(18).compactMap {
+                        TMDBClient.imageURL(path: $0.posterPath, size: "w500")
+                    })
+                }
             }
         }
     }

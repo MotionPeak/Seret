@@ -36,8 +36,17 @@ struct DetailView: View {
                 downloadingEpisodeID: downloadingEpisodeID)
             }
         }
-        .task { await store.load() }
+        .task {
+            await store.load()
+            // Warm the RD unrestrict for what Play would start (the movie's best source / the
+            // show's next-up episode) — tapping Play then skips the network round-trip.
+            let source = store.item.kind == .movie ? store.bestSource : store.nextEpisode()?.source
+            if let source { session.prefetchPlayback(for: source) }
+        }
         .task { await store.loadMyList(contentKey: store.item.id) }
+        // Fires again when the player pops back to this screen (value-nav) — re-read watch state
+        // so Resume · <time> reflects the position the player just recorded.
+        .onAppear { Task { await store.reloadWatch() } }
         .fullScreenCover(item: $episodePlayback) { presented in
             let engine = VLCKitVideoPlayerEngine(preferences: session.subtitleSettings.preferences)
             if let model = session.makePlayer(for: presented.request, engine: engine) {
