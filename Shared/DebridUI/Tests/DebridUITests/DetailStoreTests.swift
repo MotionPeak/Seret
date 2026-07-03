@@ -236,4 +236,69 @@ private actor FakeMyList: MyListProviding {
         #expect(rows.map(\.number) == [1, 2])
         #expect(rows.allSatisfy { !$0.isDownloaded })
     }
+
+    // MARK: - Batched watch reads / fromStart / reloadWatch
+
+    @Test func playRequestCarriesTheExplicitFromStartIntent() async {
+        let m = movie("1", sources: [source("t", "1080p")])
+        let store = DetailStore(item: m, details: FakeDetails(movie: .success(movieDetails())), watch: nil)
+        #expect(store.playRequest(source: m.sources[0], episode: nil, label: m.title,
+                                  fromStart: true).fromStart == true)
+        #expect(store.playRequest(source: m.sources[0], episode: nil, label: m.title).fromStart == false)
+    }
+
+    @Test func seasonWatchStateLoadsThroughTheBatchedRead() async {
+        // A provider with a real batch implementation must be hit ONCE for the whole season —
+        // proving the seam dispatches to the batch method (WatchProgressStore's single fetch),
+        // not the per-key default.
+        let e1 = episode(1, 1, "t1"), e2 = episode(1, 2, "t2")
+        let sh = show("9", seasons: [Season(number: 1, episodes: [e1, e2])])
+        let e1Key = WatchKey.content(forShow: sh, episode: e1)
+        let watch = BatchingFakeWatch([e1Key: WatchState(contentKey: e1Key, sourceKey: "s",
+                                                         positionSeconds: 300, durationSeconds: 1200,
+                                                         finished: false,
+                                                         updatedAt: Date(timeIntervalSince1970: 0))])
+        let store = DetailStore(item: sh,
+                                details: FakeDetails(tv: .success(tvDetails()), seasons: [:]),
+                                watch: watch, profileID: "p1")
+        await store.load()
+        #expect(store.watchState(forKey: e1Key)?.positionSeconds == 300)
+        #expect(await watch.batchCalls == 1)          // one batched read for the season
+        #expect(await watch.singleCalls == 0)         // never fell back to per-key reads
+    }
+
+    @Test func reloadWatchPicksUpProgressRecordedSincePlayback() async {
+        let m = movie("1", sources: [source("t", "1080p")])
+        let key = WatchKey.content(forMovie: m)
+        let watch = FakeWatch()
+        let store = DetailStore(item: m, details: FakeDetails(movie: .success(movieDetails())),
+                                watch: watch, profileID: "p1")
+        await store.load()
+        #expect(store.watchState(forKey: key) == nil)
+        // The player recorded progress while this screen sat behind the cover…
+        try? await watch.record(contentKey: key, sourceKey: "s", positionSeconds: 480,
+                                durationSeconds: 1200, finished: false, profileID: "p1")
+        await store.reloadWatch()
+        #expect(store.watchState(forKey: key)?.positionSeconds == 480)   // …and the label follows
+    }
+}
+
+/// A watch fake with a REAL batch implementation + call counters, to assert protocol dispatch.
+private actor BatchingFakeWatch: WatchProgressProviding {
+    private var rows: [String: WatchState]
+    private(set) var batchCalls = 0
+    private(set) var singleCalls = 0
+    init(_ seed: [String: WatchState] = [:]) { rows = seed }
+    func progress(forContentKey key: String, profileID: String) async throws -> WatchState? {
+        singleCalls += 1
+        return rows[key]
+    }
+    func progress(forContentKeys keys: [String], profileID: String) async throws -> [String: WatchState] {
+        batchCalls += 1
+        return rows.filter { keys.contains($0.key) }
+    }
+    func record(contentKey: String, sourceKey: String, positionSeconds: Double,
+                durationSeconds: Double, finished: Bool, profileID: String) async throws {}
+    func recentlyWatched(limit: Int, profileID: String) async throws -> [WatchState] { [] }
+    func deleteProgress(forContentKeys keys: [String]) async throws {}
 }

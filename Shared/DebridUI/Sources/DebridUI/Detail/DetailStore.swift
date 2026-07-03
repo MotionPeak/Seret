@@ -98,8 +98,15 @@ public final class DetailStore {
         // Re-entrancy guard: one load per store (a retry after failure is still allowed).
         guard richState == .idle || richState == .failed else { return }
         richState = .loading
-        await loadWatch()
-        guard let tmdbID = item.tmdbID else { richState = .loaded; return }
+        // Watch state (local store) and TMDB details (network) are independent — overlap them so
+        // neither delays the other. The async let must be awaited on every path below, or scope
+        // exit would cancel the store reads mid-flight.
+        async let watchLoad: Void = loadWatch()
+        guard let tmdbID = item.tmdbID else {
+            await watchLoad
+            richState = .loaded
+            return
+        }
         do {
             switch item.kind {
             case .movie:
@@ -120,9 +127,11 @@ public final class DetailStore {
                 numberOfSeasons = d.numberOfSeasons
                 await loadSeason(selectedSeason, tvID: tmdbID)
             }
+            await watchLoad
             richState = .loaded
             await loadRatings()
         } catch {
+            await watchLoad
             richState = .failed          // keep base info; no error wall
         }
     }
@@ -149,6 +158,11 @@ public final class DetailStore {
 
     public func watchState(forKey key: String) -> WatchState? { watchByKey[key] }
 
+    /// Re-read watch state (the movie's key / the selected season's keys). Call when the player
+    /// dismisses so Resume labels and checkmarks reflect the just-recorded progress instead of
+    /// what was loaded when the screen opened.
+    public func reloadWatch() async { await loadWatch() }
+
     /// Mark a movie or episode watched/unwatched. `source` records the exact file (sourceKey).
     public func setWatched(_ watched: Bool, contentKey: String, source: MediaSource) async {
         guard let watch else { return }
@@ -168,8 +182,10 @@ public final class DetailStore {
         let resume: Double? = fromStart ? nil : watchByKey[key].flatMap {
             (!$0.finished && $0.positionSeconds > 0) ? $0.positionSeconds : nil
         }
+        // `resume` is only a hint — the player re-resolves the saved position from the store at
+        // load time (see PlayerModel.resolveResume). `fromStart` carries the explicit intent.
         return PlaybackRequest(item: item, source: source, resumeAt: resume, label: label,
-                               contentKey: key, episode: episode)
+                               contentKey: key, episode: episode, fromStart: fromStart)
     }
 
     /// Build a play request for an episode just downloaded from this page (its fresh `TorrentInfo`),
@@ -218,10 +234,13 @@ public final class DetailStore {
     }
 
     private func loadWatchForSeason(_ n: Int) async {
-        guard let season = item.seasons.first(where: { $0.number == n }) else { return }
-        for ep in season.episodes {
-            await refreshWatch(WatchKey.content(forShow: item, episode: ep))
-        }
+        guard let watch, let season = item.seasons.first(where: { $0.number == n }) else { return }
+        let keys = season.episodes.map { WatchKey.content(forShow: item, episode: $0) }
+        guard !keys.isEmpty else { return }
+        // One batched read for the whole season — not a store round-trip per episode.
+        guard let states = try? await watch.progress(forContentKeys: keys, profileID: watchProfileID)
+        else { return }
+        for key in keys { watchByKey[key] = states[key] }
     }
 
     /// The id the player saves progress under is `activeProfileID ?? ""` (see `AppSession.makePlayer`).
