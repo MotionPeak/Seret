@@ -30,6 +30,23 @@ public actor WatchProgressStore {
         try modelContext.save()
     }
 
+    /// Batched read: the most-recent state for each of `keys` under a profile, in ONE fetch.
+    /// Keys never played are simply absent. Used by Detail to load a whole season's episode
+    /// states without a store round-trip per episode. Newest row wins per key (CloudKit can
+    /// sync duplicates), read-only — no dedupe cleanup here (`fetchOne` handles that on writes).
+    public func progress(forContentKeys keys: [String], profileID: String) throws -> [String: WatchState] {
+        guard !keys.isEmpty else { return [:] }
+        let keySet = Set(keys)
+        let rows = try modelContext.fetch(FetchDescriptor<WatchProgress>(
+            predicate: #Predicate { $0.profileID == profileID },
+            sortBy: [SortDescriptor(\.updatedAt, order: .reverse)]))
+        var out: [String: WatchState] = [:]
+        for row in rows where keySet.contains(row.contentKey) && out[row.contentKey] == nil {
+            out[row.contentKey] = WatchState(row)
+        }
+        return out
+    }
+
     /// Continue-Watching feed for one profile: unfinished rows that have progress, newest first,
     /// **deduped by contentKey** (CloudKit can sync more than one row per key from different devices).
     public func recentlyWatched(limit: Int, profileID: String) throws -> [WatchState] {

@@ -64,5 +64,52 @@ extension SwiftDataSuite {
             #expect(try await store.recentlyWatched(limit: 0, profileID: "p1") == [])
             #expect(try await store.recentlyWatched(limit: -5, profileID: "p1") == [])
         }
+
+        // MARK: - Batched read (one fetch for a whole season's episode keys)
+
+        @Test func batchProgressReturnsStatesForKnownKeysOnly() async throws {
+            let store = try store()
+            try await store.record(contentKey: "e1", sourceKey: "s", positionSeconds: 10,
+                                   durationSeconds: 100, finished: false, profileID: "p1")
+            try await store.record(contentKey: "e2", sourceKey: "s", positionSeconds: 90,
+                                   durationSeconds: 100, finished: true, profileID: "p1")
+            let got = try await store.progress(forContentKeys: ["e1", "e2", "e3"], profileID: "p1")
+            #expect(got["e1"]?.positionSeconds == 10)
+            #expect(got["e2"]?.finished == true)
+            #expect(got["e3"] == nil)                       // never played → absent, not a zero row
+            #expect(got.count == 2)
+        }
+
+        @Test func batchProgressIsScopedToTheProfile() async throws {
+            let store = try store()
+            try await store.record(contentKey: "e1", sourceKey: "s", positionSeconds: 10,
+                                   durationSeconds: 100, finished: false, profileID: "p1")
+            try await store.record(contentKey: "e1", sourceKey: "s", positionSeconds: 77,
+                                   durationSeconds: 100, finished: false, profileID: "p2")
+            let got = try await store.progress(forContentKeys: ["e1"], profileID: "p2")
+            #expect(got["e1"]?.positionSeconds == 77)       // p2's row, not p1's
+        }
+
+        @Test func batchProgressPicksTheNewestRowPerKeyWhenCloudKitDuplicated() async throws {
+            // CloudKit can sync two rows for the same (key, profile) from different devices —
+            // the batch read must converge on the newest, like the single-key read does.
+            let container = try ModelContainer(
+                for: WatchProgress.self,
+                configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+            let ctx = ModelContext(container)
+            let old = WatchProgress(contentKey: "e1", profileID: "p1")
+            old.positionSeconds = 10; old.updatedAt = Date(timeIntervalSince1970: 1)
+            let new = WatchProgress(contentKey: "e1", profileID: "p1")
+            new.positionSeconds = 55; new.updatedAt = Date(timeIntervalSince1970: 2)
+            ctx.insert(old); ctx.insert(new)
+            try ctx.save()
+            let store = WatchProgressStore(modelContainer: container)
+            let got = try await store.progress(forContentKeys: ["e1"], profileID: "p1")
+            #expect(got["e1"]?.positionSeconds == 55)       // newest wins
+        }
+
+        @Test func batchProgressEmptyKeysReturnsEmpty() async throws {
+            #expect(try await store().progress(forContentKeys: [], profileID: "p1").isEmpty)
+        }
     }
 }
