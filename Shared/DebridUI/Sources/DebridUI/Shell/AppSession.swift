@@ -68,6 +68,9 @@ public final class AppSession {
     /// True when the Who's-Watching gate should show (more than one profile, none chosen here).
     public var needsProfileSelection: Bool { activeProfiles?.needsSelection ?? false }
     private var torrents: TorrentsClient?
+    /// Short-TTL, one-shot cache of unrestricted URLs so Detail can warm the RD `unrestrict`
+    /// call before Play is tapped (and the player can warm the next episode at Up Next).
+    private var linkCache: PlayableLinkCache?
     /// Single, app-lifetime observer that rebuilds Home when CloudKit imports remote changes.
     private var remoteChangeObserver: NSObjectProtocol?
 
@@ -146,6 +149,7 @@ public final class AppSession {
         home = nil
         watchProgressStore = nil
         torrents = nil
+        linkCache = nil
         trailerResolver = nil
         streamSource = nil
         addService = nil
@@ -275,6 +279,11 @@ public final class AppSession {
         let tmdb = TMDBClient(apiKey: Secrets.tmdbAPIKey)
         let torrents = TorrentsClient(tokens: realDebrid)
         self.torrents = torrents
+        linkCache = PlayableLinkCache { link in
+            let unrestricted = try await torrents.unrestrict(link: link)
+            guard let url = URL(string: unrestricted.download) else { throw URLError(.badURL) }
+            return url
+        }
         let service = LibraryService(
             torrents: torrents,
             builder: LibraryBuilder(),
@@ -443,10 +452,14 @@ public final class AppSession {
             Task { try? await myListStore.claim(profileID: pid, contentKey: key) }
         }
         let coordinator = PlaybackCoordinator(store: store, profileID: activeProfileID ?? "")
+        let cache = linkCache
         return PlayerModel(
             request: request,
             engine: engine,
+            // Through the link cache: a Detail-open prefetch makes this instant; otherwise it
+            // resolves directly (consume is one-shot, so a retry always re-unrestricts fresh).
             unrestrict: { link in
+                if let cache { return try await cache.consume(link) }
                 let unrestricted = try await torrents.unrestrict(link: link)
                 guard let url = URL(string: unrestricted.download) else { throw URLError(.badURL) }
                 return url
@@ -459,7 +472,24 @@ public final class AppSession {
             },
             subtitles: subtitlesProvider,
             details: detailsProvider,
-            trackPreferences: trackPreferences)
+            trackPreferences: trackPreferences,
+            // Authoritative resume: the saved position is re-read from the store at load time,
+            // so playback can't race the screen's watch-state load or use a stale hint.
+            resolveResume: { key in await coordinator.resumePosition(contentKey: key) },
+            // Up Next warm-up: resolve the next episode's link while the countdown runs.
+            prefetchLink: { link in
+                guard let cache else { return }
+                Task { await cache.prefetch(link) }
+            })
+    }
+
+    /// Warm the RD `unrestrict` for a source the user is likely to play next (fire-and-forget).
+    /// Detail screens call this on open with the movie's best source / the show's next episode,
+    /// so tapping Play starts with the playable URL already resolved. In-memory + short-TTL +
+    /// one-shot — see `PlayableLinkCache`.
+    public func prefetchPlayback(for source: MediaSource) {
+        guard let linkCache else { return }
+        Task { await linkCache.prefetch(source.restrictedLink) }
     }
 
     /// Vend a `TrailerModel` for a title (nil while signed out). Chains the TMDB key provider with
