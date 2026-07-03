@@ -111,6 +111,17 @@ public final class PlayerModel {
     private var contentKey: String
     private let engine: VideoPlayerEngine
     private let unrestrict: (String) async throws -> URL
+    /// Authoritative resume lookup (contentKey → saved seconds, nil/0 = start). Resolved at LOAD
+    /// time so playback always resumes from the store's truth — the screen's watch state can be
+    /// not-yet-loaded (tap Play right after Detail opens) or stale (immediate re-play) when the
+    /// request was built. Also what lets retry/try-another-version resume where playback failed.
+    private let resolveResume: ((String) async -> Double?)?
+    /// Fire-and-forget unrestrict warm-up (PlayableLinkCache.prefetch) — called for the next
+    /// episode's link when the Up Next bar appears, so a binge auto-advance starts instantly.
+    private let prefetchLink: ((String) -> Void)?
+    /// "Start over" was explicitly chosen for the initial request — never resume it. Cleared on
+    /// an episode switch (the provider decides for the new episode).
+    private var fromStart: Bool
     /// Records progress for the *currently playing* content — PlayerModel passes the live
     /// contentKey + sourceKey so next-episode advances record under the right keys.
     private let recordProgress: (_ contentKey: String, _ sourceKey: String, _ position: Double, _ duration: Double) async -> Void
@@ -148,6 +159,15 @@ public final class PlayerModel {
     private let saveInterval: Double = 5
     private let autoHideDelay: Double
     private let scrubBarDwell: Double = 5      // bar stays visible for 5s after the last interaction
+
+    /// Engine-seek coalescing for skip bursts: the first skip seeks immediately (instant
+    /// response); further skips inside the window only move the target and ONE trailing seek
+    /// fires at the final target — four fast double-taps become two engine seeks, not four
+    /// full seek+rebuffer cycles.
+    private let seekCoalesceWindow: Double
+    private var seekDispatchTask: Task<Void, Never>?
+    private var coalescedSeekTarget: Double?
+    private var dispatchedSeekTarget: Double?
 
     // MARK: - Up Next (binge)
     /// Last subtitle cue (seconds), when a sub was downloaded. A FLOOR for the Up Next bar — it
@@ -232,7 +252,8 @@ public final class PlayerModel {
     }
 
     /// Switch playback to a chosen episode of the season, in-place (records the current episode's
-    /// progress first). No-op if it's already the one playing. Starts from the beginning.
+    /// progress first). No-op if it's already the one playing. Resumes from the episode's saved
+    /// position when partially watched (the resume provider decides); otherwise from the start.
     public func play(_ ep: Episode) {
         guard ep.season != episode?.season || ep.number != episode?.number else { return }
         Task { await self.recordCurrentProgress() }
@@ -248,10 +269,17 @@ public final class PlayerModel {
          subtitles: SubtitleProvider?,
          details: MediaDetailsProviding? = nil,
          trackPreferences: TrackPreferenceStoring? = nil,
-         autoHideDelay: Double = 4) {
+         resolveResume: ((String) async -> Double?)? = nil,
+         prefetchLink: ((String) -> Void)? = nil,
+         autoHideDelay: Double = 4,
+         seekCoalesceWindow: Double = 0.35) {
         self.autoHideDelay = autoHideDelay
+        self.seekCoalesceWindow = seekCoalesceWindow
         self.details = details
         self.trackPreferences = trackPreferences
+        self.resolveResume = resolveResume
+        self.prefetchLink = prefetchLink
+        self.fromStart = request.fromStart
         self.item = request.item
         // Preferred source first, then remaining sources in quality order (deduped).
         self.sources = [request.source] + request.item.sources.bestFirst().filter { $0 != request.source }
@@ -296,9 +324,13 @@ public final class PlayerModel {
         hasRenderedFrame = false
         isBuffering = true
         lastTickPosition = 0
-        resumeTarget = (resumeAt ?? 0) > 0 ? (resumeAt ?? 0) : 0   // >0 → deferred-seek there once playing
+        // The request's resumeAt is only the FALLBACK — loadCurrentSource() re-resolves the
+        // saved position from the store (when a provider is wired) so resume can't race the
+        // screen's watch-state load or go stale after a previous playback.
+        resumeTarget = fromStart ? 0 : max(resumeAt ?? 0, 0)
         resumeSeekIssued = false
         pendingSeek = nil
+        cancelCoalescedSeek()
         trackPrefsApplied = false
         lastSavedPosition = -.infinity
         loadTask?.cancel()
@@ -307,12 +339,21 @@ public final class PlayerModel {
 
     private func loadCurrentSource() async {
         do {
+            // The resume lookup first (a local store read, single-digit ms), then unrestrict —
+            // which is instant anyway when the link was prefetched (PlayableLinkCache).
+            if !fromStart, let resolveResume {
+                let saved = await resolveResume(contentKey) ?? 0
+                resumeTarget = saved > 0 ? saved : 0     // authoritative: overrides the UI hint
+            }
             let url = try await unrestrict(currentSource.restrictedLink)
             guard !Task.isCancelled else { return }   // superseded by a newer reload()
             engine.load(url: url, headers: [:])
             engine.play()
-            // Resume is a DEFERRED seek (issued from tick() once playback starts), not a load-time
-            // start-time: a start-time clips the timeline so you can't rewind before the point.
+            // Resume: a best-effort seek right at load — when VLC honors it while opening, the
+            // stream starts AT the point (no pre-roll at 0, no double buffer). If it's dropped,
+            // tick() issues the deferred seek exactly as before. Never a load-time start-time:
+            // that clips the timeline so you can't rewind before the point.
+            if resumeTarget > 0 { engine.seek(to: resumeTarget) }
         } catch is CancellationError {
             return                                       // superseded; not a real failure
         } catch {
@@ -349,18 +390,18 @@ public final class PlayerModel {
     private func tick(_ t: PlaybackTime) async {
         duration = t.duration
 
-        // Resume: a tick means VLCKit has parsed the media and will honor a seek, so issue the
-        // resume seek ONCE here, then keep the loading overlay up until the playhead actually
-        // reaches the point — the bar never flashes 0 and jumps, and the full timeline stays
-        // seekable (a load-time start-time would clip it: no rewinding before the point).
+        // Resume: the load path already issued a best-effort seek. Arrival is checked FIRST so
+        // that when VLC honored it (first ticks land at the point) no second seek fires; when it
+        // was dropped (ticks start near 0) the deferred seek is issued ONCE here — a tick means
+        // VLCKit has parsed the media and will now honor it. The loading overlay stays up until
+        // the playhead actually reaches the point, so the bar never flashes 0 and jumps.
         if resumeTarget > 0 {
-            if !resumeSeekIssued {
-                engine.seek(to: resumeTarget)
-                resumeSeekIssued = true
-            }
             if t.position >= resumeTarget - 5 {        // arrived (keyframe slack) → resume complete
                 lastTickPosition = t.position
                 resumeTarget = 0
+            } else if !resumeSeekIssued {
+                engine.seek(to: resumeTarget)
+                resumeSeekIssued = true
             }
             return                                      // overlay stays; no promote/save while seeking
         }
@@ -405,6 +446,9 @@ public final class PlayerModel {
               duration > 0, let threshold = upNextThreshold,
               position >= threshold, position < duration else { return }
         upNextVisible = true
+        // Warm the next episode's unrestrict now (fire-and-forget) — by the time the countdown
+        // auto-advances (or Play Now is tapped), the playable URL is already resolved.
+        if let next = nextEpisode { prefetchLink?(next.source.restrictedLink) }
         upNextSecondsRemaining = upNextCountdownStart
         upNextTask?.cancel()
         upNextTask = Task { @MainActor in
@@ -536,6 +580,7 @@ public final class PlayerModel {
         contentKey = WatchKey.content(forShow: item, episode: ep)
         label = "\(item.title) — S\(ep.season)·E\(ep.number)"
         resumeAt = newResume
+        fromStart = false                    // the new episode resumes via the provider if mid-watched
         selectedAudioID = nil
         selectedSubtitleID = nil
         pendingSubtitleAttach = nil
@@ -564,15 +609,42 @@ public final class PlayerModel {
     }
 
     public func skip(_ delta: Double) {
-        let from = position
+        let origin = pendingSeek?.from ?? position   // a burst keeps the ORIGINAL pre-seek origin
         let target = clamp(position + delta)
         position = target            // optimistic: the scrub bar jumps to the new time immediately
         isBuffering = true           // …and shows the loading hint while the seek rebuffers
         lastTickPosition = target    // re-arm advance detection past the target
-        pendingSeek = target != from ? (from: from, to: target) : nil   // hold the bar through stale ticks
-        engine.seek(to: target)
+        pendingSeek = target != origin ? (from: origin, to: target) : nil   // hold the bar through stale ticks
+        scheduleCoalescedSeek(to: target)
     }
     public func scrub(to seconds: Double) { engine.seek(to: clamp(seconds)) }
+
+    /// See `seekCoalesceWindow`: leading seek fires immediately, skips landing inside the open
+    /// window only retarget, and one trailing seek issues the final target when it closes.
+    private func scheduleCoalescedSeek(to target: Double) {
+        coalescedSeekTarget = target
+        guard seekDispatchTask == nil else { return }   // window open → the trailing pass handles it
+        engine.seek(to: target)
+        dispatchedSeekTarget = target
+        seekDispatchTask = Task { @MainActor in
+            defer { seekDispatchTask = nil }
+            try? await Task.sleep(for: .seconds(seekCoalesceWindow))
+            guard !Task.isCancelled else { return }
+            if let final = coalescedSeekTarget, final != dispatchedSeekTarget {
+                engine.seek(to: final)
+            }
+            coalescedSeekTarget = nil
+            dispatchedSeekTarget = nil
+        }
+    }
+
+    /// Drop any open coalescing window (a direct seek — scrub commit / reload — supersedes it).
+    private func cancelCoalescedSeek() {
+        seekDispatchTask?.cancel()
+        seekDispatchTask = nil
+        coalescedSeekTarget = nil
+        dispatchedSeekTarget = nil
+    }
 
     /// Clamp a time to `[0, duration]` (duration may be 0 before it is known).
     private func clamp(_ t: Double) -> Double {
@@ -617,6 +689,7 @@ public final class PlayerModel {
         lastTickPosition = scrubTarget
         isBuffering = true                     // loading hint while the seek rebuffers
         pendingSeek = scrubTarget != from ? (from: from, to: scrubTarget) : nil   // hold through stale ticks
+        cancelCoalescedSeek()                  // a commit supersedes any open skip window
         engine.seek(to: scrubTarget)
         armAutoHide()
         revealScrubBar()                       // sticky 5s after commit
@@ -702,6 +775,7 @@ public final class PlayerModel {
         hideControlsTask?.cancel()
         scrubBarHideTask?.cancel()
         upNextTask?.cancel()
+        seekDispatchTask?.cancel()
         await recordCurrentProgress()
         engine.stop()
     }

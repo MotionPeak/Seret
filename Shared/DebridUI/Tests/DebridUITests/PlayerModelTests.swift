@@ -12,11 +12,16 @@ import DebridCore
         subtitles: SubtitleProvider? = nil,
         trackPreferences: TrackPreferenceStoring? = nil,
         recorded: @escaping (String, String, Double, Double) async -> Void = { _, _, _, _ in },
-        autoHideDelay: Double = 4
+        resolveResume: ((String) async -> Double?)? = nil,
+        prefetchLink: ((String) -> Void)? = nil,
+        autoHideDelay: Double = 4,
+        seekCoalesceWindow: Double = 0.35
     ) -> PlayerModel {
         PlayerModel(request: request, engine: engine, unrestrict: unrestrict,
                     recordProgress: recorded, subtitles: subtitles,
-                    trackPreferences: trackPreferences, autoHideDelay: autoHideDelay)
+                    trackPreferences: trackPreferences, resolveResume: resolveResume,
+                    prefetchLink: prefetchLink, autoHideDelay: autoHideDelay,
+                    seekCoalesceWindow: seekCoalesceWindow)
     }
 
     @Test func startUnrestrictsLoadsAndPlays() async {
@@ -32,21 +37,36 @@ import DebridCore
         #expect(engine.seekedTo == nil)           // no resume → no seek
     }
 
-    @Test func resumeDefersSeekUntilPlaybackStartsKeepingFullTimeline() async {
-        // Resume must NOT use a load-time start-time (that clips the timeline — no rewinding before
-        // the point). Instead: no seek until playback starts, then a deferred seek to the offset,
-        // with the overlay held until the playhead actually arrives (no flash-0-then-jump).
+    @Test func resumeSeeksEarlyAtLoadAndFallsBackToDeferredSeekOnFirstTick() async {
+        // Resume must NOT use a load-time start-time (that clips the timeline — no rewinding
+        // before the point). Instead: a best-effort seek right after load (so when VLC honors it
+        // there is no pre-roll at 0), the deferred seek as the fallback when ticks start near 0,
+        // and the overlay held until the playhead actually arrives (no flash-0-then-jump).
         let engine = FakeVideoPlayerEngine()
         let model = makeModel(request: Fixture.request(resumeAt: 615), engine: engine)
         model.start(); await model.waitForIdleForTesting()
-        #expect(engine.seekedTo == nil)            // nothing seeked before playback begins
+        #expect(engine.seeks == [615])             // the early best-effort seek — via seek, never start-time
         engine.emit(.time(.init(position: 0.2, duration: 1000))); await model.waitForIdleForTesting()
-        #expect(engine.seekedTo == 615)            // deferred seek fired once playback started
+        #expect(engine.seeks == [615, 615])        // ticks near 0 → VLC dropped it → deferred seek fired
         #expect(model.hasRenderedFrame == false)   // overlay still up — haven't reached the point
         engine.emit(.time(.init(position: 615.1, duration: 1000))); await model.waitForIdleForTesting()
         #expect(model.hasRenderedFrame == false)   // just arrived; wait for frames to advance
         engine.emit(.time(.init(position: 615.7, duration: 1000))); await model.waitForIdleForTesting()
         #expect(model.hasRenderedFrame == true)    // advancing past the point → overlay hides
+        #expect(model.phase == .playing)
+    }
+
+    @Test func honoredEarlySeekCompletesResumeWithoutASecondSeek() async {
+        // When VLC honors the load-time seek, the first ticks land AT the resume point — the
+        // deferred fallback must not fire a redundant second seek (that would re-flush the buffer).
+        let engine = FakeVideoPlayerEngine()
+        let model = makeModel(request: Fixture.request(resumeAt: 615), engine: engine)
+        model.start(); await model.waitForIdleForTesting()
+        #expect(engine.seeks == [615])
+        engine.emit(.time(.init(position: 615.2, duration: 1000))); await model.waitForIdleForTesting()
+        engine.emit(.time(.init(position: 615.9, duration: 1000))); await model.waitForIdleForTesting()
+        #expect(engine.seeks == [615])             // arrival detected — no second seek
+        #expect(model.hasRenderedFrame == true)
         #expect(model.phase == .playing)
     }
 
@@ -676,5 +696,140 @@ import DebridCore
         engine.audioTracks = audioPair()
         engine.emit(.tracksChanged); await model.waitForIdleForTesting()
         #expect(engine.selectedAudioID == nil)               // nothing auto-applied
+    }
+
+    // MARK: - Authoritative resume (the store, not the screen's possibly-stale watch state)
+
+    @Test func resumeProviderOverridesTheRequestHint() async {
+        // The screen built the request with a stale hint; the store's saved position wins.
+        let engine = FakeVideoPlayerEngine()
+        let model = makeModel(request: Fixture.request(resumeAt: 615), engine: engine,
+                              resolveResume: { _ in 300 })
+        model.start(); await model.waitForIdleForTesting()
+        #expect(engine.seeks == [300])                       // store's truth, not the hint
+        engine.emit(.time(.init(position: 300.2, duration: 1000))); await model.waitForIdleForTesting()
+        engine.emit(.time(.init(position: 300.9, duration: 1000))); await model.waitForIdleForTesting()
+        #expect(model.phase == .playing)
+    }
+
+    @Test func resumeProviderFixesThePlayBeforeWatchStateLoadedRace() async {
+        // THE bug: tap Play right after Detail opens → the request carries resumeAt nil because
+        // watch state hadn't loaded. The provider must still resume from the saved position.
+        let engine = FakeVideoPlayerEngine()
+        var asked: [String] = []
+        let model = makeModel(request: Fixture.request(resumeAt: nil), engine: engine,
+                              resolveResume: { key in asked.append(key); return 500 })
+        model.start(); await model.waitForIdleForTesting()
+        #expect(asked == ["m1"])                             // resolved for the movie's contentKey
+        #expect(engine.seeks == [500])                       // resumed despite the nil hint
+    }
+
+    @Test func fromStartNeverConsultsTheProviderOrSeeks() async {
+        // Explicit "Start over" must win over any saved position.
+        let engine = FakeVideoPlayerEngine()
+        var asked = 0
+        let model = makeModel(request: Fixture.request(resumeAt: nil, fromStart: true), engine: engine,
+                              resolveResume: { _ in asked += 1; return 500 })
+        model.start(); await model.waitForIdleForTesting()
+        #expect(asked == 0)                                  // provider not even consulted
+        #expect(engine.seeks.isEmpty)                        // plays from 0
+    }
+
+    @Test func retryReResolvesResumeSoPlaybackContinuesWhereItFailed() async {
+        // Progress saved during playback + a provider re-read on reload → a retry (or
+        // try-another-version) resumes near the failure point instead of starting over.
+        let engine = FakeVideoPlayerEngine()
+        var saved: Double? = nil
+        let model = makeModel(request: Fixture.request(), engine: engine,
+                              resolveResume: { _ in saved })
+        model.start(); await model.waitForIdleForTesting()
+        #expect(engine.seeks.isEmpty)                        // nothing saved yet → from the start
+        saved = 44                                           // playback progressed, then failed
+        engine.emit(.state(.failed("boom"))); await model.waitForIdleForTesting()
+        model.retry(); await model.waitForIdleForTesting()
+        #expect(engine.seeks == [44])                        // resumed where it failed
+    }
+
+    @Test func finishedElsewhereMeansStartFromZeroDespiteAHint() async {
+        // Watched to the end on another device (provider says 0/finished) — the stale local
+        // hint must not drag playback to the old position.
+        let engine = FakeVideoPlayerEngine()
+        let model = makeModel(request: Fixture.request(resumeAt: 615), engine: engine,
+                              resolveResume: { _ in 0 })
+        model.start(); await model.waitForIdleForTesting()
+        #expect(engine.seeks.isEmpty)                        // authoritative 0 → no resume seek
+    }
+
+    @Test func episodeSwitchResolvesResumeForTheNewEpisodesKey() async {
+        // Auto-advance / strip picks resume the NEW episode when it was partially watched.
+        let engine = FakeVideoPlayerEngine()
+        var asked: [String] = []
+        let request = Fixture.showRequest(playingEpisode: 1)
+        let e2 = request.item.seasons[0].episodes[1]
+        let e2Key = WatchKey.content(forShow: request.item, episode: e2)
+        let model = makeModel(request: request, engine: engine,
+                              resolveResume: { key in asked.append(key); return key == e2Key ? 120 : nil })
+        model.start(); await model.waitForIdleForTesting()
+        #expect(engine.seeks.isEmpty)                        // E1 has no saved position
+        model.playNext(); await model.waitForIdleForTesting()
+        #expect(asked.count == 2)                            // re-resolved for the new episode
+        #expect(engine.seeks == [120])                       // E2 resumes at its own position
+    }
+
+    // MARK: - Seek coalescing (rapid skips)
+
+    @Test func rapidSkipsCoalesceIntoLeadingAndTrailingEngineSeeks() async {
+        let engine = FakeVideoPlayerEngine()
+        let model = makeModel(request: Fixture.request(), engine: engine, seekCoalesceWindow: 0.08)
+        model.start(); await model.waitForIdleForTesting()
+        engine.emit(.time(.init(position: 50, duration: 1000))); await model.waitForIdleForTesting()
+        model.skip(10); model.skip(10); model.skip(10); model.skip(10)
+        #expect(model.position == 90)                        // bar reflects all four immediately
+        #expect(engine.seeks == [60])                        // leading seek only — burst still open
+        for _ in 0..<40 where engine.seeks.count < 2 {       // wait out the window
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+        #expect(engine.seeks == [60, 90])                    // one trailing seek at the final target
+    }
+
+    @Test func slowSkipsEachSeekImmediately() async {
+        let engine = FakeVideoPlayerEngine()
+        let model = makeModel(request: Fixture.request(), engine: engine, seekCoalesceWindow: 0.03)
+        model.start(); await model.waitForIdleForTesting()
+        engine.emit(.time(.init(position: 50, duration: 1000))); await model.waitForIdleForTesting()
+        model.skip(10)
+        try? await Task.sleep(nanoseconds: 60_000_000)       // past the window
+        model.skip(10)
+        #expect(engine.seeks == [60, 70])                    // two isolated skips → two leading seeks
+    }
+
+    @Test func skipBurstHoldsTheBarAgainstStaleTicksFromTheOriginalOrigin() async {
+        // Mid-burst stale engine echoes near the ORIGINAL origin must not snap the bar back,
+        // even though the displayed position has stacked several skips since.
+        let engine = FakeVideoPlayerEngine()
+        let model = makeModel(request: Fixture.request(), engine: engine, seekCoalesceWindow: 0.08)
+        model.start(); await model.waitForIdleForTesting()
+        engine.emit(.time(.init(position: 100, duration: 2000))); await model.waitForIdleForTesting()
+        model.skip(100); model.skip(100)                     // 100 → 300 optimistically
+        #expect(model.position == 300)
+        engine.emit(.time(.init(position: 101, duration: 2000))); await model.waitForIdleForTesting()
+        #expect(model.position == 300)                       // stale echo near origin → held
+        engine.emit(.time(.init(position: 299.5, duration: 2000))); await model.waitForIdleForTesting()
+        #expect(model.position == 299.5)                     // landed near the target → live again
+    }
+
+    // MARK: - Up Next prefetch (binge warm-up)
+
+    @Test func upNextAppearingPrefetchesTheNextEpisodesLink() async {
+        let engine = FakeVideoPlayerEngine()
+        var prefetched: [String] = []
+        let model = makeModel(request: Fixture.showRequest(playingEpisode: 1), engine: engine,
+                              prefetchLink: { prefetched.append($0) })
+        model.start(); await model.waitForIdleForTesting()
+        engine.emit(.state(.playing)); await model.waitForIdleForTesting()
+        #expect(prefetched.isEmpty)
+        engine.emit(.time(.init(position: 1375, duration: 1400))); await model.waitForIdleForTesting()
+        #expect(model.upNextVisible == true)
+        #expect(prefetched == ["rd://e2"])                   // warmed as the bar appeared
     }
 }

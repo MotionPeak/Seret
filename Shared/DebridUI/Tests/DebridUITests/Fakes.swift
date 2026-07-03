@@ -8,6 +8,8 @@ import DebridCore
 final class FakeVideoPlayerEngine: VideoPlayerEngine {
     private(set) var loadedURL: URL?
     private(set) var seekedTo: Double?
+    /// Every seek in order — coalescing tests assert on the full history, not just the last.
+    private(set) var seeks: [Double] = []
     private(set) var rateSet: Double = 1
     private(set) var playCalled = false
     private(set) var stopCalled = false
@@ -31,7 +33,7 @@ final class FakeVideoPlayerEngine: VideoPlayerEngine {
     func play() { playCalled = true }
     func pause() {}
     func stop() { stopCalled = true; continuation.finish() }
-    func seek(to seconds: Double) { seekedTo = seconds }
+    func seek(to seconds: Double) { seekedTo = seconds; seeks.append(seconds) }
     func setRate(_ rate: Double) { rateSet = rate }
     func selectAudioTrack(id: String?) { selectedAudioID = id }
     func selectSubtitleTrack(id: String?) { selectedSubtitleID = id }
@@ -87,10 +89,12 @@ enum Fixture {
         MediaItem(id: "m1", kind: .movie, title: "Dune: Part Two", year: 2024,
                   sources: sources, seasons: [], tmdbID: 693134)
     }
-    static func request(resumeAt: Double? = nil, sources: [MediaSource]? = nil) -> PlaybackRequest {
+    static func request(resumeAt: Double? = nil, sources: [MediaSource]? = nil,
+                        fromStart: Bool = false) -> PlaybackRequest {
         let srcs = sources ?? [movieSource()]
         return PlaybackRequest(item: movie(sources: srcs), source: srcs[0],
-                               resumeAt: resumeAt, label: "Dune: Part Two", contentKey: "m1")
+                               resumeAt: resumeAt, label: "Dune: Part Two", contentKey: "m1",
+                               fromStart: fromStart)
     }
 
     static func episodeSource(_ torrent: String) -> MediaSource {
