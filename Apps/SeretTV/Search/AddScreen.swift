@@ -147,23 +147,32 @@ private struct ShowAdd: View {
     }
 
     /// Side-scrolling episode cards with stills — mirrors the library show Detail's row.
+    /// ⚠️ The skeleton/loaded branch lives OUTSIDE the lazy container. The skeleton ids (0..<5,
+    /// Ints) overlap the episode ids (episodeNumber, also Ints) — and a LazyHStack whose ForEach
+    /// swaps branches with colliding ids KEEPS the stale cells: episodes 1–4 stayed dead
+    /// placeholder cards (unfocusable, so the d-pad couldn't enter the row) while 5+ rendered
+    /// real. Distinct containers per branch force every cell to rebuild on the swap.
     private var episodeList: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            LazyHStack(alignment: .top, spacing: 30) {
-                if flow.episodes.isEmpty {
-                    // Stable-height skeletons while the season loads (same as the Detail page) so the
-                    // row doesn't collapse and snap the page's scroll to the top.
+            if flow.episodes.isEmpty {
+                // Stable-height skeletons while the season loads (same as the Detail page) so the
+                // row doesn't collapse and snap the page's scroll to the top.
+                LazyHStack(alignment: .top, spacing: 30) {
                     ForEach(0..<5, id: \.self) { _ in EpisodePlaceholderCard() }
-                } else {
+                }
+                .padding(.vertical, 16)      // room for the focus lift
+                .padding(.horizontal, 60)    // align + room for the focus scale at the edges
+            } else {
+                LazyHStack(alignment: .top, spacing: 30) {
                     ForEach(flow.episodes) { ep in
                         EpisodeAddCard(ep: ep, selected: ep.episodeNumber == flow.selectedEpisode) {
                             Task { await flow.selectEpisode(ep.episodeNumber) }
                         }
                     }
                 }
+                .padding(.vertical, 16)
+                .padding(.horizontal, 60)
             }
-            .padding(.vertical, 16)      // room for the focus lift
-            .padding(.horizontal, 60)    // align + room for the focus scale at the edges
         }
         .padding(.horizontal, -60)       // edge-to-edge so a focused card doesn't clip
     }

@@ -104,13 +104,21 @@ public final class AddFlowStore {
 
     /// Load a season's episodes; clears any in-flight episode selection. Also spins up the
     /// whole-season download engine and starts finding the best full-season pack in the background.
+    ///
+    /// Re-entrant by design: the tvOS season pills switch on FOCUS, so gliding across them fires
+    /// overlapping calls. Episodes clear immediately (the row shows skeletons, not the old
+    /// season's cards), and a fetch that comes back after a newer pick was made is discarded —
+    /// otherwise whichever season's TMDB response landed LAST won, regardless of the selection.
     public func selectSeason(_ season: Int) async {
         selectedSeason = season
         selectedEpisode = nil
         add = nil
+        episodes = []
         let pack = makeAddStore(kind: .series(season: season, episode: 1), seasonPack: season)
         seasonAdd = pack
-        episodes = (try? await details.seasonEpisodes(tvID: hit.result.id, season: season)) ?? []
+        let fetched = (try? await details.seasonEpisodes(tvID: hit.result.id, season: season)) ?? []
+        guard selectedSeason == season else { return }   // superseded mid-flight → discard
+        episodes = fetched
         await pack.loadStreams()
     }
 

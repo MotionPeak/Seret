@@ -21,6 +21,34 @@ private final class FakeDetails: MediaDetailsProviding {
     }
 }
 
+/// Per-season gates so a test can dictate which in-flight season fetch completes first.
+private actor SeasonGates {
+    private var waiters: [Int: CheckedContinuation<Void, Never>] = [:]
+    private var opened: Set<Int> = []
+    func wait(_ season: Int) async {
+        if opened.contains(season) { return }
+        await withCheckedContinuation { waiters[season] = $0 }
+    }
+    func open(_ season: Int) {
+        opened.insert(season)
+        waiters.removeValue(forKey: season)?.resume()
+    }
+}
+
+/// Details provider whose season fetches park on `gates` until the test opens them.
+private final class GatedDetails: MediaDetailsProviding, Sendable {
+    let gates = SeasonGates()
+    private let tv: TMDBTVDetails
+    init(tv: TMDBTVDetails) { self.tv = tv }
+    func movieDetails(tmdbID: Int) async throws -> TMDBMovieDetails { throw FakeError.boom }
+    func tvDetails(tmdbID: Int) async throws -> TMDBTVDetails { tv }
+    func seasonEpisodes(tvID: Int, season: Int) async throws -> [TMDBEpisodeDetails] {
+        await gates.wait(season)
+        return [TMDBEpisodeDetails(episodeNumber: 1, name: "S\(season)E1", overview: nil,
+                                   stillPath: nil, runtime: nil, airDate: nil)]
+    }
+}
+
 private final class FakeStreamSource: StreamSource {
     let result: Result<[CachedStream], FakeError>
     init(_ result: Result<[CachedStream], FakeError>) { self.result = result }
@@ -145,6 +173,35 @@ private func showHit() -> SearchHit {
         #expect(request?.label == "Movie")
         #expect(request?.source.restrictedLink == "https://rd/d/X")
         #expect(request?.item.tmdbID == 11)
+    }
+
+    @Test func selectSeasonRaceKeepsTheSelectedSeasonsEpisodes() async {
+        // tvOS season pills switch on FOCUS — gliding 1→3 fires overlapping selectSeason calls.
+        // Whichever TMDB fetch lands LAST must not overwrite the selected season's episodes.
+        let details = GatedDetails(tv: tvDetails(imdb: "tt9", seasons: 3))
+        await details.gates.open(1)                       // resolve()'s auto-select finishes normally
+        let f = AddFlowStore(hit: showHit(), details: details,
+                             streamSource: FakeStreamSource(.success([])), add: FakeAdd())
+        await f.resolve()
+        #expect(f.selectedSeason == 1)
+        #expect(f.episodes.first?.name == "S1E1")
+
+        let t2 = Task { await f.selectSeason(2) }         // in flight, parked on its gate
+        try? await Task.sleep(nanoseconds: 20_000_000)
+        let t3 = Task { await f.selectSeason(3) }         // the season the user settled on
+        try? await Task.sleep(nanoseconds: 20_000_000)
+        #expect(f.selectedSeason == 3)
+        #expect(f.episodes.isEmpty)                       // loading → skeletons, not season 1's cards
+
+        await details.gates.open(3)                       // the CURRENT season lands first…
+        try? await Task.sleep(nanoseconds: 40_000_000)
+        #expect(f.episodes.first?.name == "S3E1")
+
+        await details.gates.open(2)                       // …then the STALE fetch finishes last
+        _ = await t2.value
+        _ = await t3.value
+        #expect(f.selectedSeason == 3)
+        #expect(f.episodes.first?.name == "S3E1")         // stale season 2 must NOT overwrite
     }
 
     @Test func selectingASeasonPreparesAndDownloadsTheSeasonPack() async {
