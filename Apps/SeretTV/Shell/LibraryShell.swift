@@ -23,16 +23,21 @@ struct LibraryShell: View {
             NavigationStack(path: $path) {
                 pages
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    // Browse/Search posters + the Search pill push ONE value type (stable link
+                    // identity — see BrowseTile). The bare SearchHit/MediaItem destinations stay
+                    // registered for the other pushers (Home rails, My Library, episode rows).
+                    .navigationDestination(for: BrowseDestination.self) { dest in
+                        switch dest {
+                        case .detail(let item): detailDestination(item)
+                        case .add(let hit): AddScreen(hit: hit)
+                        case .search(let kind): SearchScreen(kind: kind)
+                        }
+                    }
                     .navigationDestination(for: SearchHit.self) { hit in
                         AddScreen(hit: hit)
                     }
                     .navigationDestination(for: MediaItem.self) { item in
-                        if let details = session.detailsProvider {
-                            DetailView(item: item, details: details, watch: session.watchStore,
-                                       profileID: session.activeProfileID,
-                                       myList: session.myListStore,
-                                       ratings: session.ratingsProvider)
-                        }
+                        detailDestination(item)
                     }
                     .navigationDestination(for: PlaybackRequest.self) { request in
                         let engine = VLCKitVideoPlayerEngine(preferences: session.subtitleSettings.preferences)
@@ -58,6 +63,16 @@ struct LibraryShell: View {
         .onChange(of: path.isEmpty) { _, empty in if empty { Task { await session.refreshHome() } } }
         .fullScreenCover(isPresented: $showingProfiles) {
             WhoIsWatchingScreen(onPicked: { showingProfiles = false }).environment(session)
+        }
+    }
+
+    /// The library Detail for a pushed item (shared by the MediaItem and BrowseDestination routes).
+    @ViewBuilder private func detailDestination(_ item: MediaItem) -> some View {
+        if let details = session.detailsProvider {
+            DetailView(item: item, details: details, watch: session.watchStore,
+                       profileID: session.activeProfileID,
+                       myList: session.myListStore,
+                       ratings: session.ratingsProvider)
         }
     }
 
