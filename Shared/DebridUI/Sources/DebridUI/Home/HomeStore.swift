@@ -2,12 +2,30 @@ import Foundation
 import Observation
 import DebridCore
 
-/// One Continue-Watching entry: the title plus its resume progress and a subtitle (episode label).
+/// One Continue-Watching entry: the title plus its resume progress and a subtitle (episode label),
+/// PLUS the exact source/episode/position needed to resume playback directly from Home (no detour
+/// through the Detail screen). `source` is nil only when the file can't be resolved — then the UI
+/// falls back to opening Detail.
 public struct HomeItem: Identifiable, Sendable, Equatable {
     public let item: MediaItem
     public let fraction: Double
     public let subtitle: String
+    public let episode: Episode?        // the exact episode to resume (nil for a movie)
+    public let source: MediaSource?     // the file to play (nil = unresolved → not directly resumable)
+    public let contentKey: String       // WatchKey the player records progress under
+    public let resumeAt: Double?        // saved position hint (nil = start from 0 / finished)
     public var id: String { item.id + "|" + subtitle }
+
+    /// True when Home can start playback directly (the file resolved).
+    public var isResumable: Bool { source != nil }
+
+    /// Build the request that resumes this entry, or nil if the source couldn't be resolved.
+    public func playbackRequest() -> PlaybackRequest? {
+        guard let source else { return nil }
+        let label = episode.map { "\(item.title) — S\($0.season)\u{00B7}E\($0.number)" } ?? item.title
+        return PlaybackRequest(item: item, source: source, resumeAt: resumeAt, label: label,
+                               contentKey: contentKey, episode: episode, fromStart: false)
+    }
 }
 
 /// Composes the Home tab's two rails from the library + watch progress. No persistence of its own.
@@ -39,12 +57,19 @@ public final class HomeStore {
 
     static func resolve(_ s: WatchState, movies: [MediaItem], shows: [MediaItem]) -> HomeItem? {
         let fraction = s.durationSeconds > 0 ? min(1, s.positionSeconds / s.durationSeconds) : 0
+        // Resume hint: only when there's real, unfinished progress to jump back to.
+        let resume: Double? = (!s.finished && s.positionSeconds > 0) ? s.positionSeconds : nil
         if let movie = movies.first(where: { $0.id == s.contentKey }) {
-            return HomeItem(item: movie, fraction: fraction, subtitle: "")
+            return HomeItem(item: movie, fraction: fraction, subtitle: "",
+                            episode: nil, source: movie.sources.best,
+                            contentKey: s.contentKey, resumeAt: resume)
         }
         if let show = shows.first(where: { s.contentKey.hasPrefix($0.id + ":") }) {
-            let epKey = String(s.contentKey.dropFirst(show.id.count + 1))
-            return HomeItem(item: show, fraction: fraction, subtitle: Self.formatEpisodeKey(epKey))
+            let epID = String(s.contentKey.dropFirst(show.id.count + 1))
+            let episode = show.seasons.flatMap(\.episodes).first { $0.id == epID }
+            return HomeItem(item: show, fraction: fraction, subtitle: Self.formatEpisodeKey(epID),
+                            episode: episode, source: episode?.source,
+                            contentKey: s.contentKey, resumeAt: resume)
         }
         return nil
     }

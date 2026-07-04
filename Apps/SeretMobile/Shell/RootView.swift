@@ -35,6 +35,18 @@ struct RootView: View {
         .fullScreenCover(item: Binding(get: { router.addHit }, set: { router.addHit = $0 })) { hit in
             AddScreen(hit: hit)
         }
+        // Direct playback from a rail (Home's Resume) — same build recipe as DetailScreen's player
+        // cover; presented here so it survives rotation. The closure runs once per presentation.
+        .fullScreenCover(item: Binding(get: { router.playback }, set: { router.playback = $0 })) { presented in
+            let engine = VLCKitVideoPlayerEngine(preferences: session.subtitleSettings.preferences)
+            if let model = session.makePlayer(for: presented.request, engine: engine) {
+                PlayerView(model: model, engine: engine,
+                           backdropURL: TMDBClient.imageURL(path: presented.request.item.backdropPath, size: "w1280"),
+                           onExit: { router.playback = nil })
+            } else {
+                PlayerPlaceholder(request: presented.request)
+            }
+        }
         .onChange(of: session.state) { oldValue, newValue in
             // Replay the branded intro right after a fresh sign-in, over the first library load.
             if newValue == .signedIn, oldValue == .signedOut { showSplash = true }

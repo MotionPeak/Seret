@@ -48,6 +48,9 @@ struct HomeScreen: View {
         .onChange(of: session.activeProfileID) { _, _ in Task { await rebuild() } }
         // Re-enter the Home tab (e.g. after watching something) → refresh Continue Watching.
         .onAppear { Task { await rebuild() } }
+        // The player is presented above the shell, so dismissing it doesn't fire onAppear here —
+        // rebuild when it closes so the resume position / Continue Watching order update.
+        .onChange(of: router.playback == nil) { _, closed in if closed { Task { await rebuild() } } }
     }
 
     @ViewBuilder private var content: some View {
@@ -61,7 +64,7 @@ struct HomeScreen: View {
                         if !home.continueWatching.isEmpty {
                             Rail(title: "Continue Watching") {
                                 ForEach(home.continueWatching) { hi in
-                                    Button { router.detail = hi.item } label: {
+                                    Button { resume(hi) } label: {
                                         LandscapeProgressCard(title: hi.item.title, subtitle: hi.subtitle,
                                                               imageURL: backdropURL(hi.item),
                                                               fraction: hi.fraction, width: landW)
@@ -90,23 +93,36 @@ struct HomeScreen: View {
 
     @ViewBuilder private func hero(_ home: HomeStore) -> some View {
         if let f = home.featured {
-            Button { router.detail = f.item } label: {
-                HeroBackdrop(imageURL: backdropURL(f.item), height: heroH) {
-                    VStack(alignment: .leading, spacing: Theme.Space.sm) {
-                        Text(f.subtitle.isEmpty ? "Continue Watching" : "Continue · \(f.subtitle)")
-                            .font(Theme.Typo.label()).tracking(1.5).foregroundStyle(Theme.Palette.gold)
-                        Text(f.item.title).font(Theme.Typo.titleXL())
-                            .foregroundStyle(Theme.Palette.textPrimary).lineLimit(2)
+            HeroBackdrop(imageURL: backdropURL(f.item), height: heroH) {
+                VStack(alignment: .leading, spacing: Theme.Space.sm) {
+                    Text(f.subtitle.isEmpty ? "Continue Watching" : "Continue · \(f.subtitle)")
+                        .font(Theme.Typo.label()).tracking(1.5).foregroundStyle(Theme.Palette.gold)
+                    Text(f.item.title).font(Theme.Typo.titleXL())
+                        .foregroundStyle(Theme.Palette.textPrimary).lineLimit(2)
+                    // The pill resumes playback directly; tapping the hero art (below) opens Detail.
+                    Button { resume(f) } label: {
                         HStack(spacing: 6) { Image(systemName: "play.fill"); Text("Resume") }
                             .font(Theme.Typo.headline()).foregroundStyle(Color(hex: 0x1A1400))
                             .padding(.vertical, 9).padding(.horizontal, Theme.Space.xl)
                             .background(Theme.Palette.goldGradient, in: Capsule())
                             .goldGlow(12, opacity: 0.4).padding(.top, 2)
                     }
+                    .buttonStyle(.plain)
                 }
             }
-            .buttonStyle(.plain)
+            .contentShape(Rectangle())
+            .onTapGesture { router.detail = f.item }
             .padding(.horizontal, Theme.Space.lg)
+        }
+    }
+
+    /// Resume playback straight from a rail. Falls back to the Detail page only if the file can't be
+    /// resolved (e.g. the version was removed since it was last watched).
+    private func resume(_ hi: HomeItem) {
+        if let request = hi.playbackRequest() {
+            router.playback = PlaybackPresentation(request: request)
+        } else {
+            router.detail = hi.item
         }
     }
 

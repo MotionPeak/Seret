@@ -32,6 +32,42 @@ private struct FakeWatch: WatchProgressProviding {
         #expect(store.continueWatching[1].subtitle == "S3 · E4")
     }
 
+    @MainActor @Test func resumeFromHomeResolvesTheExactEpisodeSourceAndPosition() async {
+        let src = MediaSource(torrentID: "t9", fileID: 3, restrictedLink: "rd://ep",
+                              parsed: ParsedRelease(title: "Invincible", season: 4, episode: 1, resolution: "2160p"))
+        let episode = Episode(season: 4, number: 1, source: src)
+        let show = MediaItem(id: "show:inv", kind: .show, title: "Invincible", year: 2021,
+                             sources: [], seasons: [Season(number: 4, episodes: [episode])])
+        let states = [WatchState(contentKey: "show:inv:s4e1", sourceKey: "t9#3",
+                                 positionSeconds: 353, durationSeconds: 3000, finished: false, updatedAt: Date())]
+        let store = HomeStore(watch: FakeWatch(states: states))
+        store.activeProfileID = "p1"
+        await store.rebuild(movies: [], shows: [show])
+
+        let hi = store.continueWatching[0]
+        #expect(hi.isResumable)
+        let req = hi.playbackRequest()
+        #expect(req?.source == src)                       // the exact episode file, not the show's first
+        #expect(req?.episode == episode)
+        #expect(req?.contentKey == "show:inv:s4e1")        // progress keys back to the same episode
+        #expect(req?.resumeAt == 353)                      // resumes where it left off
+        #expect(req?.fromStart == false)
+        #expect(req?.label == "Invincible — S4·E1")
+    }
+
+    @MainActor @Test func finishedOrUnresolvedEntriesAreNotDirectlyResumable() async {
+        // A show whose watched episode is no longer in the library (version removed) → no source.
+        let show = MediaItem(id: "show:x", kind: .show, title: "X", year: nil, sources: [], seasons: [])
+        let states = [WatchState(contentKey: "show:x:s1e1", sourceKey: "t#f",
+                                 positionSeconds: 10, durationSeconds: 100, finished: false, updatedAt: Date())]
+        let store = HomeStore(watch: FakeWatch(states: states))
+        store.activeProfileID = "p1"
+        await store.rebuild(movies: [], shows: [show])
+        let hi = store.continueWatching[0]
+        #expect(!hi.isResumable)                           // unresolved → UI falls back to Detail
+        #expect(hi.playbackRequest() == nil)
+    }
+
     @MainActor @Test func recentlyAddedSortsDescAndSkipsNil() async {
         let older = MediaItem(id: "a", kind: .movie, title: "A", year: nil, sources: [], seasons: [], addedAt: Date(timeIntervalSince1970: 1000))
         let newer = MediaItem(id: "b", kind: .movie, title: "B", year: nil, sources: [], seasons: [], addedAt: Date(timeIntervalSince1970: 2000))
