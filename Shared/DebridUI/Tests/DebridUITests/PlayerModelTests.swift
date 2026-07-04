@@ -92,15 +92,17 @@ import DebridCore
         guard case .failed = model.phase else { Issue.record("expected .failed, got \(model.phase)"); return }
     }
 
-    @Test func savesAtMostEveryFiveSeconds() async {
+    @Test func savesAboutEverySecond() async {
+        // Progress is persisted ~every 1s so cross-device resume stays fresh; sub-second ticks in
+        // between are throttled out.
         let engine = FakeVideoPlayerEngine()
         var saves: [(Double, Double)] = []
         let model = makeModel(request: Fixture.request(), engine: engine, recorded: { _, _, p, d in saves.append((p, d)) })
         model.start(); await model.waitForIdleForTesting()
         engine.emit(.time(.init(position: 1, duration: 100))); await model.waitForIdleForTesting()
-        engine.emit(.time(.init(position: 3, duration: 100))); await model.waitForIdleForTesting()
-        engine.emit(.time(.init(position: 6, duration: 100))); await model.waitForIdleForTesting()
-        #expect(saves.map(\.0) == [1, 6])
+        engine.emit(.time(.init(position: 1.4, duration: 100))); await model.waitForIdleForTesting()   // <1s since last save → skipped
+        engine.emit(.time(.init(position: 2.2, duration: 100))); await model.waitForIdleForTesting()   // ≥1s → saved
+        #expect(saves.map(\.0) == [1, 2.2])
     }
 
     @Test func endedSavesFinalAndRequestsDismiss() async {
@@ -355,6 +357,59 @@ import DebridCore
         engine.emit(.time(.init(position: 95, duration: 100))); await model.waitForIdleForTesting()
         model.skip(50)
         #expect(model.position == 100)           // clamped at duration
+    }
+
+    @Test func skipFeedbackAccumulatesAcrossABurstEvenAsSeeksLand() async {
+        let engine = FakeVideoPlayerEngine()
+        let model = makeModel(request: Fixture.request(), engine: engine)
+        model.start(); await model.waitForIdleForTesting()
+        engine.emit(.time(.init(position: 100, duration: 1000))); await model.waitForIdleForTesting()
+
+        model.skip(10)
+        #expect(model.skipFeedback?.seconds == 10)
+        let firstID = model.skipFeedback?.id
+        model.skip(10)
+        #expect(model.skipFeedback?.seconds == 20)        // accumulates 10 → 20
+        #expect(model.skipFeedback?.id != firstID)        // id bumps so the digits roll
+
+        // A seek LANDS mid-burst. The counter must keep climbing (the old bug popped it back to 10),
+        // because accumulation is tied to the on-screen badge, not the seek origin.
+        engine.emit(.time(.init(position: 120, duration: 1000))); await model.waitForIdleForTesting()
+        model.skip(10)
+        #expect(model.skipFeedback?.seconds == 30)        // → 30, not reset
+        model.skip(10)
+        #expect(model.skipFeedback?.seconds == 40)        // → 40
+    }
+
+    @Test func skipFeedbackShowsTheClampedJumpAtTheEnds() async {
+        let engine = FakeVideoPlayerEngine()
+        let model = makeModel(request: Fixture.request(), engine: engine)
+        model.start(); await model.waitForIdleForTesting()
+        engine.emit(.time(.init(position: 95, duration: 100))); await model.waitForIdleForTesting()
+        model.skip(10)                                    // only 5s of runway left
+        #expect(model.skipFeedback?.seconds == 5)         // indicator shows the truthful 5, not 10
+    }
+
+    @Test func setVolumeClampsToBoostRangeAndDrivesTheEngine() async {
+        let engine = FakeVideoPlayerEngine()
+        let model = makeModel(request: Fixture.request(), engine: engine)
+        model.setVolume(150)
+        #expect(model.volumePercent == 150)
+        #expect(engine.volumesSet.last == 150)
+        model.setVolume(500)                              // above the 200 boost ceiling
+        #expect(model.volumePercent == 200)
+        #expect(engine.volumesSet.last == 200)
+    }
+
+    @Test func aVolumeBoostIsReAssertedWhenTracksRefresh() async {
+        let engine = FakeVideoPlayerEngine()
+        let model = makeModel(request: Fixture.request(), engine: engine)
+        model.start(); await model.waitForIdleForTesting()
+        model.setVolume(150)                              // one apply so far → [150]
+        engine.audioTracks = [MediaTrack(id: "audio/0", kind: .audio, name: "English", language: "en")]
+        engine.emit(.tracksChanged); await model.waitForIdleForTesting()
+        // Re-asserted on the refresh → 150 applied at least twice (survives episode swap / async tracks).
+        #expect(engine.volumesSet.filter { $0 == 150 }.count >= 2)
     }
 
     @Test func seekHoldsTargetThroughStalePreSeekTicks() async {

@@ -19,6 +19,9 @@ public protocol VideoPlayerEngine: AnyObject {
     func seek(to seconds: Double)
     /// Playback speed multiplier (1.0 = normal). Engines that don't support varispeed should no-op.
     func setRate(_ rate: Double)
+    /// Output volume as a percentage. 100 = unity; values above 100 amplify (VLCKit supports up to
+    /// 200%, like VLC's boost). Engines without software gain should no-op — hence the default below.
+    func setVolume(_ percent: Int)
 
     var audioTracks: [MediaTrack] { get }
     var subtitleTracks: [MediaTrack] { get }
@@ -28,4 +31,10 @@ public protocol VideoPlayerEngine: AnyObject {
 
     /// Time + state updates as the engine produces them.
     var events: AsyncStream<PlaybackEvent> { get }
+}
+
+public extension VideoPlayerEngine {
+    /// Default: engines without software volume gain ignore the request (also keeps existing test
+    /// fakes source-compatible without a stub).
+    func setVolume(_ percent: Int) {}
 }

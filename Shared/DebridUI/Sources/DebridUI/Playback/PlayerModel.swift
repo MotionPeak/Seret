@@ -56,6 +56,20 @@ public final class PlayerModel {
     public private(set) var selectedAudioID: String?
     public private(set) var selectedSubtitleID: String?   // nil = Off
 
+    /// Transient feedback for the on-screen skip indicator. `seconds` is the SIGNED accumulated jump
+    /// of the current skip burst (e.g. −20, +30 — repeated taps within a burst grow it); `id` bumps
+    /// each skip so the view re-triggers its pop animation. Auto-clears ~0.8s after the last skip.
+    public private(set) var skipFeedback: SkipFeedback?
+    public struct SkipFeedback: Equatable, Sendable {
+        public let seconds: Double      // signed: negative = rewind, positive = forward
+        public var id: Int              // monotonically bumped so equal amounts still re-animate
+    }
+    private var skipFeedbackClearTask: Task<Void, Never>?
+
+    /// Output volume as a percentage (100 = unity, up to 200 = VLC-style boost). Re-applied on every
+    /// track refresh so a boost survives episode swaps and VLCKit's async audio-object creation.
+    public private(set) var volumePercent: Int = 100
+
     /// A finished subtitle download waiting for VLCKit to actually attach the slave track — it
     /// appears asynchronously via `.tracksChanged`, not synchronously after `addExternalSubtitle`.
     /// `before` is the text-track id set captured just before the attach, so the freshly-appeared
@@ -156,7 +170,9 @@ public final class PlayerModel {
     /// media can emit a late `.ended` during that window; this flag makes `finish()` swallow it so a
     /// stale end can't auto-advance/exit a second time (the "it keeps jumping/restarting" bug).
     private var isSwitching = false
-    private let saveInterval: Double = 5
+    /// Persist the resume point every second of playback so Continue Watching / cross-device resume
+    /// is never more than ~1s stale (SwiftData writes are cheap and CloudKit coalesces the sync).
+    private let saveInterval: Double = 1
     private let autoHideDelay: Double
     private let scrubBarDwell: Double = 5      // bar stays visible for 5s after the last interaction
 
@@ -491,6 +507,7 @@ public final class PlayerModel {
         subtitleTracks = engine.subtitleTracks
         attachPendingSubtitleIfReady()
         applyTrackPreferencesIfNeeded()
+        if volumePercent != 100 { engine.setVolume(volumePercent) }   // re-assert a boost post-swap
     }
 
     /// Auto-apply the user's persisted audio/subtitle language once this source's tracks have been
@@ -609,6 +626,7 @@ public final class PlayerModel {
     }
 
     public func skip(_ delta: Double) {
+        let before = position
         let origin = pendingSeek?.from ?? position   // a burst keeps the ORIGINAL pre-seek origin
         let target = clamp(position + delta)
         position = target            // optimistic: the scrub bar jumps to the new time immediately
@@ -616,8 +634,25 @@ public final class PlayerModel {
         lastTickPosition = target    // re-arm advance detection past the target
         pendingSeek = target != origin ? (from: origin, to: target) : nil   // hold the bar through stale ticks
         scheduleCoalescedSeek(to: target)
+        accumulateSkipFeedback(target - before)         // this tap's real jump feeds the indicator
     }
     public func scrub(to seconds: Double) { engine.seek(to: clamp(seconds)) }
+
+    /// Grow the on-screen skip indicator by this tap's ACTUAL jump, so ONE badge counts up across a
+    /// rapid burst (10 → 20 → 30 → 1:10…). The running total resets only after ~0.8s without another
+    /// tap — NOT when a seek lands — so fast repeats keep climbing instead of popping back to 10.
+    private func accumulateSkipFeedback(_ applied: Double) {
+        guard applied != 0 else { return }              // a no-op tap at an edge leaves the badge alone
+        let total = (skipFeedback?.seconds ?? 0) + applied
+        skipFeedback = total == 0 ? nil : SkipFeedback(seconds: total, id: (skipFeedback?.id ?? 0) &+ 1)
+        skipFeedbackClearTask?.cancel()
+        guard skipFeedback != nil else { return }
+        skipFeedbackClearTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(0.8))
+            guard !Task.isCancelled else { return }
+            skipFeedback = nil
+        }
+    }
 
     /// See `seekCoalesceWindow`: leading seek fires immediately, skips landing inside the open
     /// window only retarget, and one trailing seek issues the final target when it closes.
@@ -657,6 +692,13 @@ public final class PlayerModel {
     public func setPlaybackSpeed(_ rate: Double) {
         playbackSpeed = rate
         engine.setRate(rate)
+    }
+
+    /// Set output volume (100 = unity, up to 200 = boost). Clamped; applied immediately and re-asserted
+    /// by `refreshTracks()` so it sticks across track changes and episode swaps.
+    public func setVolume(_ percent: Int) {
+        volumePercent = min(200, max(0, percent))
+        engine.setVolume(volumePercent)
     }
 
     // MARK: - Swipe-scrub (Step 2)

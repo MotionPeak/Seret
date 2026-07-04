@@ -48,6 +48,16 @@ struct PlayerSettingsSheet: View {
                             }
                         }
                     }
+
+                    section("Volume", "speaker.wave.3.fill") {
+                        FlowLayout {
+                            ForEach(volumes, id: \.self) { pct in
+                                chip("\(pct)%", selected: model.volumePercent == pct) {
+                                    model.setVolume(pct)
+                                }
+                            }
+                        }
+                    }
                 }
                 .padding(Theme.Space.lg)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -137,6 +147,9 @@ struct PlayerSettingsSheet: View {
     private var speeds: [(label: String, value: Double)] {
         [("0.5×", 0.5), ("0.75×", 0.75), ("Normal", 1.0), ("1.25×", 1.25), ("1.5×", 1.5)]
     }
+
+    /// 100 = unity; up to 200 = VLC-style boost for quiet mixes.
+    private var volumes: [Int] { [100, 125, 150, 175, 200] }
 
     /// De-duplicated language naming: "[German]" → "German", "German 2".
     private func labeled(_ tracks: [MediaTrack]) -> [(track: MediaTrack, label: String)] {

@@ -11,6 +11,8 @@ final class FakeVideoPlayerEngine: VideoPlayerEngine {
     /// Every seek in order — coalescing tests assert on the full history, not just the last.
     private(set) var seeks: [Double] = []
     private(set) var rateSet: Double = 1
+    /// Every volume set in order — re-application tests assert on the full history.
+    private(set) var volumesSet: [Int] = []
     private(set) var playCalled = false
     private(set) var stopCalled = false
     private(set) var addedSubtitles: [URL] = []
@@ -35,6 +37,7 @@ final class FakeVideoPlayerEngine: VideoPlayerEngine {
     func stop() { stopCalled = true; continuation.finish() }
     func seek(to seconds: Double) { seekedTo = seconds; seeks.append(seconds) }
     func setRate(_ rate: Double) { rateSet = rate }
+    func setVolume(_ percent: Int) { volumesSet.append(percent) }
     func selectAudioTrack(id: String?) { selectedAudioID = id }
     func selectSubtitleTrack(id: String?) { selectedSubtitleID = id }
     func addExternalSubtitle(url: URL) {

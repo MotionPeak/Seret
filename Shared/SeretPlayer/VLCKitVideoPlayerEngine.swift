@@ -95,6 +95,8 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
     func pause() { player.pause() }
     func seek(to seconds: Double) { player.time = VLCTime(int: Int32(seconds * 1000)) }
     func setRate(_ rate: Double) { player.rate = Float(rate) }
+    /// VLCKit's audio volume is 0…200 (100 = unity, >100 amplifies — VLC's boost). Clamp defensively.
+    func setVolume(_ percent: Int) { player.audio?.volume = Int32(min(200, max(0, percent))) }
     func stop()  { player.stop(); continuation.finish() }
 
     func addExternalSubtitle(url: URL) {

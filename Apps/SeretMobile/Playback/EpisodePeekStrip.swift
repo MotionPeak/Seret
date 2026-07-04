@@ -58,6 +58,8 @@ struct EpisodePeekStrip: View {
                 }
                 .padding(.vertical, 2)
             }
+            .frame(height: 124)      // pin the row's height — a horizontal ScrollView is otherwise
+                                     // vertically greedy and would eat the transport's Spacers
         }
         .padding(.top, 6)
         .highPriorityGesture(DragGesture(minimumDistance: 14).onEnded { v in

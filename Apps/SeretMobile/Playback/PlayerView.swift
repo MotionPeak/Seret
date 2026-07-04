@@ -43,7 +43,14 @@ struct PlayerView: View {
                     transport                                 // floating controls (only buttons capture taps)
                 }
             }
+
+            if let fb = model.skipFeedback {                  // ride above controls; never eat a tap
+                skipIndicator(fb)
+                    .transition(.opacity.combined(with: .scale(scale: 0.8)))
+                    .allowsHitTesting(false)
+            }
         }
+        .animation(.easeOut(duration: 0.18), value: model.skipFeedback)
         // Pull down to exit: the whole player follows the finger and shrinks slightly, like other
         // fullscreen players. Released past the threshold it dismisses (in pullToDismiss).
         .scaleEffect(1 - min(max(dragOffset, 0), 240) / 1600)
@@ -106,6 +113,31 @@ struct PlayerView: View {
             .ignoresSafeArea()
     }
 
+    /// YouTube-style seek badge on the half you double-tapped, showing the burst's accumulated jump
+    /// (10s → 20s → 30s → 1:10…). It stays put and the number rolls in place as you keep tapping,
+    /// rather than re-popping each tap.
+    private func skipIndicator(_ fb: PlayerModel.SkipFeedback) -> some View {
+        let forward = fb.seconds > 0
+        return HStack(spacing: 8) {
+            Image(systemName: forward ? "goforward" : "gobackward").font(.system(size: 26, weight: .semibold))
+            Text(Self.skipLabel(fb.seconds))
+                .font(.system(size: 20, weight: .bold)).monospacedDigit()
+                .contentTransition(.numericText(value: abs(fb.seconds)))   // digits roll, not pop
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 22).padding(.vertical, 16)
+        .background(.black.opacity(0.55), in: Capsule())
+        .overlay(Capsule().strokeBorder(.white.opacity(0.12)))
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: forward ? .trailing : .leading)
+        .padding(forward ? .trailing : .leading, 56)
+    }
+
+    /// "45s" under a minute; "1:10", "2:00" at or above it.
+    static func skipLabel(_ seconds: Double) -> String {
+        let s = Int(abs(seconds).rounded())
+        return s < 60 ? "\(s)s" : String(format: "%d:%02d", s / 60, s % 60)
+    }
+
     /// Netflix-style "Up Next" bar near content-end: a countdown that auto-advances, Play Now to
     /// skip the wait, and Dismiss to keep watching (e.g. the credits).
     private func upNextBar(_ next: Episode) -> some View {
@@ -134,14 +166,14 @@ struct PlayerView: View {
         .padding(.bottom, 92)        // sit above the scrub bar when controls are up
     }
 
+    /// Three independently-anchored layers so expanding the episode strip only grows the bottom
+    /// cluster upward — it never yanks the centered play controls or the top bar around (the old
+    /// single-VStack shared its Spacers with the strip, which made the whole thing jump).
     private var transport: some View {
-        VStack(spacing: 0) {
-            topBar
-            Spacer()
-            centerControls
-            Spacer()
-            scrubber
-            EpisodePeekStrip(model: model)
+        ZStack {
+            VStack(spacing: 0) { topBar; Spacer(minLength: 0) }              // top bar pinned to top
+            centerControls                                                  // stays dead-center
+            VStack(spacing: 0) { Spacer(minLength: 0); scrubber; EpisodePeekStrip(model: model) }
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 16)
