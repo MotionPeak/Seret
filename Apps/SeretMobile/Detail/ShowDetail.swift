@@ -16,6 +16,7 @@ struct ShowDetail: View {
     var onSeasonAdded: () -> Void = {}
     @State private var seasonStore: AddStore?
     @State private var downloadingEpisodeID: String?
+    @State private var episodeError: String?
     private var item: MediaItem { store.item }
 
     /// Re-keys the season-pack lookup whenever the resolved imdbID or selected season changes.
@@ -49,6 +50,12 @@ struct ShowDetail: View {
         .background(CanvasBackground())
         .navigationTitle(item.title)
         .navigationBarTitleDisplayMode(.inline)
+        .alert("Couldn\u{2019}t Play Episode", isPresented: Binding(
+            get: { episodeError != nil }, set: { if !$0 { episodeError = nil } })) {
+            Button("OK", role: .cancel) { episodeError = nil }
+        } message: {
+            Text(episodeError ?? "")
+        }
         .task(id: seasonDownloadKey) {
             guard let imdb = store.imdbID else { return }
             let s = makeSeasonDownload(imdb, store.selectedSeason, store.originalLanguage)
@@ -121,12 +128,15 @@ struct ShowDetail: View {
               let add = makeEpisodeDownload(imdb, row.season, row.number, store.originalLanguage) else { return }
         downloadingEpisodeID = row.id
         Task {
+            await add.loadStreams()   // MUST run first: addBest() is a no-op on an empty `ranked` list
             await add.addBest()
             downloadingEpisodeID = nil
             if case let .added(info) = add.state,
                let req = store.playRequest(forAdded: info, season: row.season, number: row.number) {
                 onSeasonAdded()       // refresh the library so the episode now appears as downloaded
                 onPlay(req)
+            } else {
+                episodeError = "Couldn't find a cached version of this episode to download."
             }
         }
     }
