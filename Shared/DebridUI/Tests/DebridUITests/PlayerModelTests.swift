@@ -677,6 +677,43 @@ import DebridCore
         #expect(model.selectedAudioID == "audio/1")
     }
 
+    @Test func automaticAudioDefaultsToEnglishWhenAvailable() async {
+        let engine = FakeVideoPlayerEngine()
+        let prefs = FakeTrackPreferences(audio: .automatic)   // no manual pick recorded yet
+        let model = makeModel(request: Fixture.request(), engine: engine, trackPreferences: prefs)
+        model.start(); await model.waitForIdleForTesting()
+        engine.audioTracks = audioPair()                      // [English audio/0, Hebrew audio/1]
+        engine.emit(.tracksChanged); await model.waitForIdleForTesting()
+        #expect(engine.selectedAudioID == .some("audio/0"))   // English chosen by default
+        #expect(model.selectedAudioID == "audio/0")
+    }
+
+    @Test func automaticAudioKeepsOriginalLanguageWhenNoEnglish() async {
+        let engine = FakeVideoPlayerEngine()
+        let prefs = FakeTrackPreferences(audio: .automatic)
+        let model = makeModel(request: Fixture.request(), engine: engine, trackPreferences: prefs)
+        model.start(); await model.waitForIdleForTesting()
+        // A foreign film with no English track: leave VLCKit's default (the original language).
+        engine.audioTracks = [MediaTrack(id: "audio/0", kind: .audio, name: "French", language: "fr"),
+                              MediaTrack(id: "audio/1", kind: .audio, name: "Spanish", language: "es")]
+        engine.emit(.tracksChanged); await model.waitForIdleForTesting()
+        #expect(engine.selectedAudioID == nil)                // no explicit selection → original plays
+        #expect(model.selectedAudioID == nil)
+    }
+
+    @Test func automaticAudioDetectsEnglishFromThreeLetterCode() async {
+        let engine = FakeVideoPlayerEngine()
+        let prefs = FakeTrackPreferences(audio: .automatic)
+        let model = makeModel(request: Fixture.request(), engine: engine, trackPreferences: prefs)
+        model.start(); await model.waitForIdleForTesting()
+        // VLCKit may report ISO 639-2 codes ("fra"/"eng") rather than 2-letter ones.
+        engine.audioTracks = [MediaTrack(id: "audio/0", kind: .audio, name: "French", language: "fra"),
+                              MediaTrack(id: "audio/1", kind: .audio, name: "English", language: "eng")]
+        engine.emit(.tracksChanged); await model.waitForIdleForTesting()
+        #expect(engine.selectedAudioID == .some("audio/1"))   // "eng" recognized as English
+        #expect(model.selectedAudioID == "audio/1")
+    }
+
     @Test func autoAppliesSubtitleOffWhenPreferred() async {
         let engine = FakeVideoPlayerEngine()
         let prefs = FakeTrackPreferences(subtitle: .off)

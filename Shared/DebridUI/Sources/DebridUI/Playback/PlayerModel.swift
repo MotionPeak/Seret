@@ -520,10 +520,22 @@ public final class PlayerModel {
         guard let prefs = trackPreferences, !trackPrefsApplied, !audioTracks.isEmpty else { return }
         trackPrefsApplied = true
 
-        if case .language(let lang) = prefs.preferredAudio,
-           let match = audioTracks.first(where: { $0.language == lang }) {
-            engine.selectAudioTrack(id: match.id)
-            selectedAudioID = match.id
+        switch prefs.preferredAudio {
+        case .language(let lang):
+            if let match = audioTracks.first(where: { $0.language == lang }) {
+                engine.selectAudioTrack(id: match.id)
+                selectedAudioID = match.id
+            }
+        case .automatic:
+            // Default: English audio when the release has it; otherwise leave VLCKit's default,
+            // which is the file's first/original-language track — so a foreign film or show plays
+            // in its original language instead of a wrong dub.
+            if let english = audioTracks.first(where: { Self.isEnglishLanguage($0.language) }) {
+                engine.selectAudioTrack(id: english.id)
+                selectedAudioID = english.id
+            }
+        case .off:
+            break   // "off" isn't meaningful for audio — keep the default track
         }
 
         switch prefs.preferredSubtitle {
@@ -541,6 +553,14 @@ public final class PlayerModel {
                 Task { await self.requestSubtitle(language: lang) }
             }
         }
+    }
+
+    /// Whether a track's language tag denotes English. VLCKit reports whatever libvlc parsed from the
+    /// container — 2-letter ("en"), 3-letter ("eng"), or descriptive ("English", "en-US") — so match
+    /// them all. An untagged (`nil`) track is never treated as English.
+    private static func isEnglishLanguage(_ language: String?) -> Bool {
+        guard let l = language?.lowercased() else { return false }
+        return l == "en" || l.hasPrefix("en-") || l.hasPrefix("eng")
     }
 
     /// First frames are on screen. Clears the loading state so the overlay/spinner hide.
