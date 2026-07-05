@@ -74,19 +74,25 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
     }
 
     func load(url: URL, headers: [String: String]) {
-        let media = VLCMedia(url: url)
-        for (k, v) in headers { media?.addOption(":http-\(k.lowercased())=\(v)") } // unused for RD CDN
+        // `VLCMedia(url:)` is failable (nullable initWithURL:). A malformed/empty URL yields nil;
+        // without this guard `media` stays nil, `play()` no-ops, VLCKit emits no `.error`, and the
+        // model would spin on the loading overlay forever. Surface a failure so it offers Retry.
+        guard let media = VLCMedia(url: url) else {
+            continuation.yield(.state(.failed("Could not open the media URL.")))
+            return
+        }
+        for (k, v) in headers { media.addOption(":http-\(k.lowercased())=\(v)") } // unused for RD CDN
         // network-caching is the pre-roll VLC fills before playback starts AND after every seek —
         // it is the floor on start latency and skip latency. The RD CDN sustains high-bitrate
         // remuxes easily, so iOS runs a 1.5s pipeline for snappy starts/skips; tvOS keeps the
         // deeper 3s buffer that fixed its stalls (unchanged behavior there).
         #if os(tvOS)
-        media?.addOption(":network-caching=3000")
+        media.addOption(":network-caching=3000")
         #else
-        media?.addOption(":network-caching=1500")
+        media.addOption(":network-caching=1500")
         #endif
-        media?.addOption(":input-fast-seek")   // land on the nearest keyframe — skips respond fast
-        media?.addOption(":http-reconnect")    // transparently re-open a dropped CDN connection
+        media.addOption(":input-fast-seek")   // land on the nearest keyframe — skips respond fast
+        media.addOption(":http-reconnect")    // transparently re-open a dropped CDN connection
         player.media = media
         player.currentSubTitleFontScale = subtitleScale   // global size preference (1.0 = VLCKit default)
     }
