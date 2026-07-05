@@ -62,5 +62,16 @@ extension MockTests {
             #expect(s.sizeBytes == 5_340_000_000)             // parsed "💾 5.34 GB"
             #expect(s.fileIdx == 0)
         }
+
+        @Test func parseSizeReturnsNilForOversizedGarbageInsteadOfTrapping() {
+            // A malformed/garbage size from the untrusted public feed must not crash the app.
+            // Before the guard, `Int(value * 1e9)` trapped (SIGABRT) when the product exceeded Int.max.
+            #expect(TorrentioStreamSource.parseSize("Some.Release 99999999999.5 GB [x265]") == nil)
+            #expect(TorrentioStreamSource.parseSize("💾 9999999999999 GB") == nil)
+            // Normal values still parse.
+            #expect(TorrentioStreamSource.parseSize("💾 5.34 GB") == 5_340_000_000)
+            #expect(TorrentioStreamSource.parseSize("💾 700 MB") == 700_000_000)
+            #expect(TorrentioStreamSource.parseSize("no size here") == nil)
+        }
     }
 }

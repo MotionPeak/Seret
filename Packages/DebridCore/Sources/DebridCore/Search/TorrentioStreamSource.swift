@@ -80,7 +80,11 @@ public struct TorrentioStreamSource: StreamSource {
               let numR = Range(m.range(at: 1), in: text), let unitR = Range(m.range(at: 2), in: text),
               let value = Double(text[numR]) else { return nil }
         let unit = text[unitR].uppercased()
-        return Int(value * (unit == "GB" ? 1_000_000_000 : 1_000_000))
+        // `value` comes from an untrusted third-party title; a huge/garbage digit run can make the
+        // product exceed Int.max, and `Int(Double)` TRAPS (crashes) out of range — guard before converting.
+        let product = value * (unit == "GB" ? 1_000_000_000.0 : 1_000_000.0)
+        guard product.isFinite, product >= 0, product < Double(Int.max) else { return nil }
+        return Int(product)
     }
 }
 
