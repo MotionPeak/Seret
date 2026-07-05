@@ -83,9 +83,25 @@ public actor RealDebridSession {
         }
         refreshTask = task
         defer { refreshTask = nil }
-        let updated = try await task.value
-        cached = updated
-        return updated
+        do {
+            let updated = try await task.value
+            cached = updated
+            return updated
+        } catch HTTPError.status(let code, let body)
+            where (400...403).contains(code) || body.contains("invalid_grant") {
+            // The refresh token is definitively rejected (spent / rotated by another device /
+            // revoked). RD's OAuth token endpoint returns this as HTTP 400 `invalid_grant` (per
+            // OAuth2 RFC 6749 §5.2 — the same endpoint whose 400 the device-code poll already
+            // treats as an OAuth grant state), NOT 401/403 — so match the 4xx grant-error range and
+            // the `invalid_grant` marker. Clear the poisoned session so every later
+            // validAccessToken() stops re-firing a doomed refresh (which would otherwise fail every
+            // action AND hammer RD's token endpoint — itself a throttle risk); the next launch then
+            // routes cleanly to sign-in. Transient/transport errors (network blip, 5xx) fall through
+            // untouched, so a refresh stays retryable and a flaky connection never signs the user out.
+            try? store.clear()
+            cached = nil
+            throw RealDebridSessionError.notSignedIn
+        }
     }
 
     private func currentCredentials() throws -> StoredCredentials? {

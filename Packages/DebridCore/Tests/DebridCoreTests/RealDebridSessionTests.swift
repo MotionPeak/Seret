@@ -65,19 +65,40 @@ extension MockTests {
             #expect(token == "AT-NEW")
         }
 
-        @Test func refreshFailureLeavesStoredCredentialsIntact() async throws {
+        @Test func refreshRejectionClearsSessionAndReportsNotSignedIn() async throws {
+            // A definitive auth rejection — RD's OAuth token endpoint returns a spent/rotated/revoked
+            // refresh token as HTTP 400 `invalid_grant` (OAuth2 RFC 6749 §5.2), NOT 401 — must clear
+            // the poisoned session and report notSignedIn, so callers stop re-firing a doomed refresh
+            // on every action and the next launch routes to sign-in.
             let store = InMemoryTokenStore()
             let t0 = Date(timeIntervalSince1970: 1_000_000)
             try store.save(creds(expiresIn: 3600, obtainedAt: t0))
-            MockURLProtocol.stub(status: 401, json: #"{"error":"invalid_grant"}"#)
+            MockURLProtocol.stub(status: 400, json: #"{"error":"invalid_grant"}"#)
             let session = RealDebridSession(
                 auth: RealDebridAuthClient(http: HTTPClient(session: .mock)),
                 store: store,
                 now: { t0.addingTimeInterval(3600) })  // expired
-            await #expect(throws: HTTPError.self) {
+            await #expect(throws: RealDebridSessionError.notSignedIn) {
                 _ = try await session.validAccessToken()
             }
-            #expect(try store.load()?.token.refreshToken == "RT")  // unchanged after failed refresh
+            #expect(try store.load() == nil)   // poisoned creds purged — no doomed-refresh storm
+        }
+
+        @Test func transientRefreshFailureKeepsCredentialsForRetry() async throws {
+            // A transient failure (5xx / network blip) must NOT sign the user out — the creds stay
+            // so a later refresh can succeed when connectivity/RD recovers.
+            let store = InMemoryTokenStore()
+            let t0 = Date(timeIntervalSince1970: 1_000_000)
+            try store.save(creds(expiresIn: 3600, obtainedAt: t0))
+            MockURLProtocol.stub(status: 503, json: #"{"error":"temporarily_unavailable"}"#)
+            let session = RealDebridSession(
+                auth: RealDebridAuthClient(http: HTTPClient(session: .mock)),
+                store: store,
+                now: { t0.addingTimeInterval(3600) })  // expired
+            await #expect(throws: HTTPError.self) {     // surfaced, not swallowed
+                _ = try await session.validAccessToken()
+            }
+            #expect(try store.load()?.token.refreshToken == "RT")  // unchanged — still retryable
         }
     }
 }
