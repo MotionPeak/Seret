@@ -412,7 +412,14 @@ public final class PlayerModel {
         // VLCKit has parsed the media and will now honor it. The loading overlay stays up until
         // the playhead actually reaches the point, so the bar never flashes 0 and jumps.
         if resumeTarget > 0 {
-            if t.position >= resumeTarget - 5 {        // arrived (keyframe slack) → resume complete
+            if duration > 0, resumeTarget >= duration {
+                // The saved point can be at/beyond THIS source's length — a shorter re-encode of the
+                // same title shares the contentKey. Seeking to/past EOF lands at the end (instant
+                // "ended" or a stuck buffer). Drop it and start from 0. NO slack band here: a
+                // legitimate resume a few seconds before the real end must still be honored (VLCKit
+                // can report a slightly-low early duration estimate, and a band would false-drop it).
+                resumeTarget = 0
+            } else if t.position >= resumeTarget - 5 {  // arrived (keyframe slack) → resume complete
                 lastTickPosition = t.position
                 resumeTarget = 0
             } else if !resumeSeekIssued {
@@ -645,10 +652,26 @@ public final class PlayerModel {
         }
     }
 
+    /// Shared bookkeeping for a deliberate user-initiated seek (skip / scrub commit / direct scrub):
+    /// (1) supersede any still-in-flight resume so tick()'s resume branch can't drag the playhead back
+    ///     to the resume point (or freeze the displayed position), and (2) if the seek lands the
+    ///     playhead back before the Up Next threshold, cancel the auto-advance countdown so it can't
+    ///     yank the viewer to the next episode mid-scene.
+    private func handleUserSeek(to target: Double) {
+        if resumeTarget > 0 { resumeTarget = 0; resumeSeekIssued = true }
+        if upNextVisible, let threshold = upNextThreshold, target < threshold {
+            upNextTask?.cancel()
+            upNextVisible = false
+            upNextSecondsRemaining = 0
+            // leave upNextDismissed untouched; re-crossing the threshold re-arms via maybeShowUpNext()
+        }
+    }
+
     public func skip(_ delta: Double) {
         let before = position
         let origin = pendingSeek?.from ?? position   // a burst keeps the ORIGINAL pre-seek origin
         let target = clamp(position + delta)
+        handleUserSeek(to: target)
         position = target            // optimistic: the scrub bar jumps to the new time immediately
         isBuffering = true           // …and shows the loading hint while the seek rebuffers
         lastTickPosition = target    // re-arm advance detection past the target
@@ -656,7 +679,11 @@ public final class PlayerModel {
         scheduleCoalescedSeek(to: target)
         accumulateSkipFeedback(target - before)         // this tap's real jump feeds the indicator
     }
-    public func scrub(to seconds: Double) { engine.seek(to: clamp(seconds)) }
+    public func scrub(to seconds: Double) {
+        let target = clamp(seconds)
+        handleUserSeek(to: target)
+        engine.seek(to: target)
+    }
 
     /// Grow the on-screen skip indicator by this tap's ACTUAL jump, so ONE badge counts up across a
     /// rapid burst (10 → 20 → 30 → 1:10…). The running total resets only after ~0.8s without another
@@ -747,6 +774,7 @@ public final class PlayerModel {
         guard isScrubbing else { return }
         isScrubbing = false
         let from = position
+        handleUserSeek(to: scrubTarget)
         position = scrubTarget
         lastTickPosition = scrubTarget
         isBuffering = true                     // loading hint while the seek rebuffers

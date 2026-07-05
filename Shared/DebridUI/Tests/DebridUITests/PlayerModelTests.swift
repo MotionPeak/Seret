@@ -634,6 +634,64 @@ import DebridCore
         #expect(model.upNextVisible == true)
     }
 
+    @Test func rewindingBelowThresholdCancelsTheUpNextCountdown() async {
+        // Bug #3: the Up Next auto-advance countdown must be cancelled when the viewer rewinds back
+        // below the threshold — otherwise it yanks them to the next episode mid-scene.
+        let engine = FakeVideoPlayerEngine()
+        let model = makeModel(request: Fixture.showRequest(playingEpisode: 1), engine: engine)
+        model.start(); await model.waitForIdleForTesting()
+        engine.emit(.state(.playing)); await model.waitForIdleForTesting()
+        engine.emit(.time(.init(position: 1375, duration: 1400))); await model.waitForIdleForTesting()
+        #expect(model.upNextVisible == true)
+        #expect(model.upNextSecondsRemaining == 10)
+        model.skip(-800)                                   // 1375 → 575, well below the 1370 threshold
+        await model.waitForIdleForTesting()
+        #expect(model.upNextVisible == false)              // bar dismissed
+        #expect(model.upNextSecondsRemaining == 0)         // countdown cancelled
+        #expect(model.label == "The Show — S1·E1")         // still on the same episode
+    }
+
+    @Test func skipDuringInFlightResumeSupersedesTheResumeSeek() async {
+        // Bug #4: a deliberate skip while the resume seek is still in flight must WIN — tick()'s
+        // resume branch must not drag the playhead back to the resume point nor freeze the position.
+        let engine = FakeVideoPlayerEngine()
+        let model = makeModel(request: Fixture.request(resumeAt: 3600), engine: engine)
+        model.start(); await model.waitForIdleForTesting()
+        #expect(engine.seeks == [3600])                    // load-time resume seek, not yet landed
+        model.skip(1000)                                   // user seeks to ~1000 mid-resume
+        await model.waitForIdleForTesting()
+        #expect(engine.seeks == [3600, 1000])
+        engine.emit(.time(.init(position: 1000.3, duration: 7200))); await model.waitForIdleForTesting()
+        #expect(engine.seeks == [3600, 1000])              // NO snap-back seek to 3600
+        #expect(model.position > 1000)                     // live tracking resumed (not frozen at 1000)
+    }
+
+    @Test func resumeBeyondShorterSourceDurationStartsFromZero() async {
+        // Bug #5: the saved position (from a longer version sharing the contentKey) exceeds THIS
+        // source's duration; seeking there lands past EOF (instant "ended"/stuck). Drop the resume.
+        let engine = FakeVideoPlayerEngine()
+        let model = makeModel(request: Fixture.request(resumeAt: 6000), engine: engine)  // saved 6000s
+        model.start(); await model.waitForIdleForTesting()
+        #expect(engine.seeks == [6000])                    // load-time best-effort seek (duration unknown yet)
+        engine.emit(.time(.init(position: 0.4, duration: 5400))); await model.waitForIdleForTesting()
+        #expect(engine.seeks == [6000])                    // NO deferred seek to 6000 (past this file's EOF)
+        engine.emit(.time(.init(position: 1.0, duration: 5400))); await model.waitForIdleForTesting()
+        #expect(model.position > 0 && model.position < 100)  // near the start, not stuck/past-end
+        #expect(model.phase != .ended)
+    }
+
+    @Test func resumeNearTheEndWithinDurationIsHonoredNotDropped() async {
+        // Regression guard for the tick duration-clamp: a legitimate resume a few seconds before the
+        // real end (a same-length source) must be HONORED — only a point AT/PAST this source's end is
+        // dropped. A slack band (>= duration - 5) would wrongly discard this valid near-end resume.
+        let engine = FakeVideoPlayerEngine()
+        let model = makeModel(request: Fixture.request(resumeAt: 5398), engine: engine)  // 2s before end
+        model.start(); await model.waitForIdleForTesting()
+        #expect(engine.seeks == [5398])                    // load-time best-effort seek
+        engine.emit(.time(.init(position: 0.3, duration: 5400))); await model.waitForIdleForTesting()
+        #expect(engine.seeks == [5398, 5398])              // deferred seek fired — resume honored, NOT dropped
+    }
+
     // MARK: - Track preferences (persist audio/subtitle choice by language)
 
     private func audioPair() -> [MediaTrack] {
