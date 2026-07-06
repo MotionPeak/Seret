@@ -120,7 +120,7 @@ struct PlayerView: View {
         let forward = fb.seconds > 0
         return HStack(spacing: 8) {
             Image(systemName: forward ? "goforward" : "gobackward").font(.system(size: 26, weight: .semibold))
-            Text(Self.skipLabel(fb.seconds))
+            Text(fb.label)
                 .font(.system(size: 20, weight: .bold)).monospacedDigit()
                 .contentTransition(.numericText(value: abs(fb.seconds)))   // digits roll, not pop
         }
@@ -130,12 +130,6 @@ struct PlayerView: View {
         .overlay(Capsule().strokeBorder(.white.opacity(0.12)))
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: forward ? .trailing : .leading)
         .padding(forward ? .trailing : .leading, 56)
-    }
-
-    /// "45s" under a minute; "1:10", "2:00" at or above it.
-    static func skipLabel(_ seconds: Double) -> String {
-        let s = Int(abs(seconds).rounded())
-        return s < 60 ? "\(s)s" : String(format: "%d:%02d", s / 60, s % 60)
     }
 
     /// Netflix-style "Up Next" bar near content-end: a countdown that auto-advances, Play Now to

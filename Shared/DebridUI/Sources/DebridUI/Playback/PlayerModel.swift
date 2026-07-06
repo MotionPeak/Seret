@@ -63,6 +63,12 @@ public final class PlayerModel {
     public struct SkipFeedback: Equatable, Sendable {
         public let seconds: Double      // signed: negative = rewind, positive = forward
         public var id: Int              // monotonically bumped so equal amounts still re-animate
+
+        /// "45s" under a minute; "1:10", "2:00" at or above it — the accumulated jump's magnitude.
+        public var label: String {
+            let s = Int(abs(seconds).rounded())
+            return s < 60 ? "\(s)s" : String(format: "%d:%02d", s / 60, s % 60)
+        }
     }
     private var skipFeedbackClearTask: Task<Void, Never>?
 
