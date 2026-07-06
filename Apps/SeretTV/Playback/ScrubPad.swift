@@ -75,13 +75,10 @@ final class ScrubInteractionView: UIView {
         pan.addTarget(self, action: #selector(handlePan(_:)))
         pan.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.indirect.rawValue)]  // Siri remote
         addGestureRecognizer(pan)
-        // Older remotes' side-clicks fire .leftArrow / .rightArrow presses directly. Catch those too.
-        let back = UITapGestureRecognizer(target: self, action: #selector(skipBackward))
-        back.allowedPressTypes = [NSNumber(value: UIPress.PressType.leftArrow.rawValue)]
-        addGestureRecognizer(back)
-        let fwd  = UITapGestureRecognizer(target: self, action: #selector(skipForward))
-        fwd.allowedPressTypes = [NSNumber(value: UIPress.PressType.rightArrow.rawValue)]
-        addGestureRecognizer(fwd)
+        // Side-clicks (.leftArrow / .rightArrow) are handled directly in `pressesBegan` — a press-type
+        // UITapGestureRecognizer gets starved by the focus engine on 2nd-gen remotes, which is why the
+        // old recognizer path did nothing. The responder-chain press path is reliable (same path the
+        // center `.select` click already used successfully).
         // D-pad UP / DOWN clicks — a discrete affordance for the same pull-up (reveal bar) and
         // pull-down (episodes for a show, else settings) the trackpad swipe does, so the episode
         // strip isn't hidden behind a swipe-only gesture.
@@ -110,21 +107,31 @@ final class ScrubInteractionView: UIView {
         // keep `lastTouchX` so a click immediately after lift still routes correctly
     }
 
-    /// A center `.select` press: route by trackpad-third (left = -10s, right = +10s, center = play/pause).
+    /// All remote clicks route here (the reliable path — press-type gesture recognizers get starved by
+    /// the focus engine). Left/right clickpad clicks skip ±10s directly; a center `.select` is routed
+    /// by which third of the trackpad the thumb rested on.
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
-        guard isInteractive, let model, presses.contains(where: { $0.type == .select }) else {
-            super.pressesBegan(presses, with: event); return
+        guard isInteractive, let model else { super.pressesBegan(presses, with: event); return }
+        var handled = false
+        for press in presses {
+            switch press.type {
+            case .leftArrow:
+                model.skip(-10); handled = true
+            case .rightArrow:
+                model.skip(10); handled = true
+            case .select:
+                switch RemoteSkipZone.classify(touchX: lastTouchX.map(Double.init), width: Double(bounds.width)) {
+                case .back:      model.skip(-10)
+                case .forward:   model.skip(10)
+                case .playPause: model.togglePlayPause()
+                }
+                handled = true
+            default:
+                break
+            }
         }
-        let leftEdge  = bounds.width * 0.30
-        let rightEdge = bounds.width * 0.70
-        if let x = lastTouchX, x < leftEdge {
-            model.skip(-10)
-        } else if let x = lastTouchX, x > rightEdge {
-            model.skip(10)
-        } else {
-            model.togglePlayPause()
-        }
-        model.revealScrubBar()
+        if handled { model.revealScrubBar() }
+        else { super.pressesBegan(presses, with: event) }
     }
 
     @objc private func pressUp() {
@@ -134,15 +141,6 @@ final class ScrubInteractionView: UIView {
     @objc private func pressDown() {
         guard isInteractive else { return }
         onShowSettings?()        // episodes (a show, bar up) or the settings panel
-    }
-
-    @objc private func skipBackward() {
-        guard isInteractive, let model else { return }
-        model.skip(-10); model.revealScrubBar()
-    }
-    @objc private func skipForward() {
-        guard isInteractive, let model else { return }
-        model.skip(10); model.revealScrubBar()
     }
 
     @objc private func handlePan(_ pan: UIPanGestureRecognizer) {
