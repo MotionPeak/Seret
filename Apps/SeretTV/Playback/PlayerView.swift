@@ -65,6 +65,12 @@ struct PlayerView: View {
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
 
+            if let fb = model.skipFeedback {          // ride above everything; never eat remote input
+                skipIndicator(fb)
+                    .transition(.opacity.combined(with: .scale(scale: 0.85)))
+                    .allowsHitTesting(false)
+            }
+
             if model.upNextVisible, let next = model.nextEpisode {
                 UpNextBar(model: model, next: next)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -73,6 +79,7 @@ struct PlayerView: View {
         .animation(.easeInOut(duration: 0.25), value: showSettings)
         .animation(.easeInOut(duration: 0.25), value: showEpisodes)
         .animation(.easeInOut(duration: 0.25), value: model.upNextVisible)
+        .animation(.easeOut(duration: 0.18), value: model.skipFeedback)
         .onPlayPauseCommand {
             if model.isScrubbing { model.commitScrub() } else { model.togglePlayPause() }
         }
@@ -92,6 +99,26 @@ struct PlayerView: View {
         }
         .onChange(of: model.shouldDismiss) { _, dismissNow in if dismissNow { dismiss() } }
         .onDisappear { Task { await model.teardown() } }
+    }
+
+    /// The accumulating ±seconds badge on the side you skipped toward (10s → 20s → 1:10…). Sized for
+    /// the 10-foot UI; the number rolls in place via `.numericText`. Driven by the shared
+    /// `PlayerModel.skipFeedback` — the same state the iPad badge uses.
+    private func skipIndicator(_ fb: PlayerModel.SkipFeedback) -> some View {
+        let forward = fb.seconds > 0
+        return HStack(spacing: 12) {
+            Image(systemName: forward ? "goforward" : "gobackward")
+                .font(.system(size: 44, weight: .semibold))
+            Text(fb.label)
+                .font(.system(size: 34, weight: .bold)).monospacedDigit()
+                .contentTransition(.numericText(value: abs(fb.seconds)))
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 36).padding(.vertical, 26)
+        .background(.black.opacity(0.55), in: Capsule())
+        .overlay(Capsule().strokeBorder(.white.opacity(0.12)))
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: forward ? .trailing : .leading)
+        .padding(forward ? .trailing : .leading, 120)
     }
 }
 
