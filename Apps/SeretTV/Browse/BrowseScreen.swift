@@ -69,10 +69,11 @@ struct BrowseScreen<Leading: View>: View {
         }
     }
 
-    /// Search button + For You / Trending / New / Popular / Top Rated selector. The pills switch the
-    /// section instantly as focus moves across them (no press); Search is an explicit button so the
-    /// keyboard never opens just from navigating. Value-based like every other push — a
-    /// view-destination link inside the shell's path-bound NavigationStack bypasses `path`, so
+    /// Search button + For You / Trending / New / Popular / Top Rated selector. Commit-on-press: moving
+    /// focus across the pills only highlights them; a click on a pill switches the section — consistent
+    /// with the top nav bar, so gliding the remote never reloads a rail set by accident. Search is an
+    /// explicit button so the keyboard never opens just from navigating. Value-based like every other
+    /// push — a view-destination link inside the shell's path-bound NavigationStack bypasses `path`, so
     /// `path.isEmpty` (which drives the tab bar) stops reflecting reality.
     private func segmentPicker(_ browse: DiscoverStore) -> some View {
         HStack(spacing: 16) {
@@ -84,9 +85,6 @@ struct BrowseScreen<Leading: View>: View {
                     .buttonStyle(SeretPillStyle(selected: seg == browse.selectedSegment))
                     .focused($focusedSegment, equals: seg)
             }
-        }
-        .onChange(of: focusedSegment) { _, new in
-            if let new, new != browse.selectedSegment { browse.select(new) }
         }
     }
 

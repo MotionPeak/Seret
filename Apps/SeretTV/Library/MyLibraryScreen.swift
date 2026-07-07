@@ -40,7 +40,8 @@ struct MyLibraryScreen: View {
                 }
             }
             .padding(.top, 30)
-            .onChange(of: focusedKind) { _, new in if let new { kind = new } }
+            // Commit-on-press: focus glides across the pills without switching; a click switches the
+            // kind — consistent with the nav bar and the Find segments.
             .task {
                 mineOnly = hasProfiles
                 myKeys = Set((try? await session.myListStore?.contentKeys(
