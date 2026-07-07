@@ -66,57 +66,56 @@ struct MovieDetailView: View {
     @ViewBuilder private var actions: some View {
         HStack(spacing: 16) {
             if let best = store.bestSource {
-                if let resume = resumeSeconds {
-                    NavigationLink(value: store.playRequest(source: best, episode: nil, label: item.title)) {
-                        Label("Resume \(Timecode.format(resume))", systemImage: "play.fill")
-                    }
-                    .buttonStyle(SeretActionButtonStyle(prominent: true))
-                    .focused($initialFocus, equals: .play)
+                NavigationLink(value: store.playRequest(source: best, episode: nil, label: item.title)) {
+                    Label(resumeSeconds != nil ? "Resume \(Timecode.format(resumeSeconds!))" : "Play",
+                          systemImage: "play.fill")
+                }
+                .buttonStyle(SeretActionButtonStyle(prominent: true))
+                .focused($initialFocus, equals: .play)
+
+                if resumeSeconds != nil {
                     NavigationLink(value: store.playRequest(source: best, episode: nil,
                                                             label: item.title, fromStart: true)) {
-                        Label("Play from Start", systemImage: "gobackward")
+                        Label("From Start", systemImage: "gobackward")
                     }
                     .buttonStyle(SeretActionButtonStyle())
-                } else {
-                    NavigationLink(value: store.playRequest(source: best, episode: nil, label: item.title)) {
-                        Label("Play", systemImage: "play.fill")
+                }
+            }
+
+            // Everything rare or destructive lives here — off the primary path so it can't be mis-hit.
+            Menu {
+                Button {
+                    Task {
+                        await store.setWatched(!isWatched, contentKey: contentKey,
+                                               source: store.bestSource ?? item.sources[0])
                     }
-                    .buttonStyle(SeretActionButtonStyle(prominent: true))
-                    .focused($initialFocus, equals: .play)
+                } label: {
+                    Label(isWatched ? "Mark Unwatched" : "Mark Watched",
+                          systemImage: isWatched ? "checkmark.circle.fill" : "checkmark.circle")
                 }
-            }
-            Button {
-                Task {
-                    await store.setWatched(!isWatched, contentKey: contentKey,
-                                           source: store.bestSource ?? item.sources[0])
+                .disabled(item.sources.isEmpty)
+
+                Button {
+                    Task { await store.toggleMyList(contentKey: item.id) }
+                } label: {
+                    Label(store.inMyList ? "In My List" : "Add to My List",
+                          systemImage: store.inMyList ? "checkmark" : "plus")
+                }
+
+                if trailerURL != nil {
+                    Button { expandTrailer = true } label: {
+                        Label("Trailer", systemImage: "play.rectangle.fill")
+                    }
+                }
+
+                Button(role: .destructive) { onRemove() } label: {
+                    Label("Remove from Library", systemImage: "trash")
                 }
             } label: {
-                Label(isWatched ? "Mark Unwatched" : "Mark Watched",
-                      systemImage: isWatched ? "checkmark.circle.fill" : "checkmark.circle")
+                Label("More", systemImage: "ellipsis")
             }
             .buttonStyle(SeretActionButtonStyle())
-            .disabled(item.sources.isEmpty)
-            Button {
-                Task { await store.toggleMyList(contentKey: item.id) }
-            } label: {
-                Label(store.inMyList ? "In My List" : "Add to My List",
-                      systemImage: store.inMyList ? "checkmark" : "plus")
-            }
-            .buttonStyle(SeretActionButtonStyle())
-            if trailerURL != nil {
-                Button { expandTrailer = true } label: {
-                    Label("Trailer", systemImage: "play.rectangle.fill")
-                }
-                .buttonStyle(SeretActionButtonStyle())
-            }
-            Button(role: .destructive) { onRemove() } label: {
-                Label("Remove from Library", systemImage: "trash")
-            }
-            .buttonStyle(SeretActionButtonStyle(destructive: true))
         }
-        // A focusable Trailer button (above) opens the full-screen trailer. We do NOT use
-        // `.onMoveCommand` here — on tvOS it captures directional input for the focused subtree and
-        // blocks the focus engine, which trapped focus on this row (couldn't reach the versions).
     }
 
     private var resumeSeconds: Double? {

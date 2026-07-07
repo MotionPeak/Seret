@@ -100,20 +100,22 @@ struct ShowDetailView: View {
                 .buttonStyle(SeretActionButtonStyle(prominent: true))
                 .focused($initialFocus, equals: .play)
             }
-            if trailerURL != nil {
-                Button { expandTrailer = true } label: {
-                    Label("Trailer", systemImage: "play.rectangle.fill")
+
+            // Trailer + destructive Remove tucked off the primary path.
+            Menu {
+                if trailerURL != nil {
+                    Button { expandTrailer = true } label: {
+                        Label("Trailer", systemImage: "play.rectangle.fill")
+                    }
                 }
-                .buttonStyle(SeretActionButtonStyle())
+                Button(role: .destructive) { onRemove() } label: {
+                    Label("Remove from Library", systemImage: "trash")
+                }
+            } label: {
+                Label("More", systemImage: "ellipsis")
             }
-            Button(role: .destructive) { onRemove() } label: {
-                Label("Remove from Library", systemImage: "trash")
-            }
-            .buttonStyle(SeretActionButtonStyle(destructive: true))
+            .buttonStyle(SeretActionButtonStyle())
         }
-        // A focusable Trailer button (above) opens the full-screen trailer. We do NOT use
-        // `.onMoveCommand` here — on tvOS it captures directional input for the focused subtree and
-        // blocks the focus engine, which trapped focus on this row (couldn't reach the episodes).
     }
 
     @ViewBuilder private var seasonPicker: some View {
