@@ -63,12 +63,12 @@ struct PlayerView: View {
         .sheet(isPresented: $showSettings) { PlayerSettingsSheet(model: model) }
         .animation(.easeInOut(duration: 0.2), value: model.controlsVisible)
         .animation(.easeInOut(duration: 0.25), value: model.upNextVisible)
-        .onAppear { model.start() }
+        .onAppear { model.start(); OrientationGate.setPlayerActive(true) }
         .task(id: model.currentEpisode?.season) {
             if model.isEpisode { await model.loadSeasonEpisodes() }
         }
         .onChange(of: model.shouldDismiss) { _, done in if done { onExit() } }
-        .onDisappear { Task { await model.teardown() } }
+        .onDisappear { OrientationGate.setPlayerActive(false); Task { await model.teardown() } }
     }
 
     // MARK: - Gestures (Balanced)

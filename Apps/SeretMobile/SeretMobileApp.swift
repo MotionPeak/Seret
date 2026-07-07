@@ -4,6 +4,7 @@ import SwiftUI
 
 @main
 struct SeretMobileApp: App {
+    @UIApplicationDelegateAdaptor(SeretAppDelegate.self) private var appDelegate
     @State private var session = AppSession(
         realDebrid: RealDebridSession(store: KeychainTokenStore()))
 
