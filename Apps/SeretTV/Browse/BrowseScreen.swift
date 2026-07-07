@@ -6,8 +6,12 @@ import SwiftUI
 /// a SEPARATE full-screen screen opened by the Search button, so navigating the rows never pops the
 /// keyboard. Owned titles get an "In Library" badge and push their library Detail; new titles push
 /// the Add flow. (Destinations are registered by the shell.)
-struct BrowseScreen: View {
+struct BrowseScreen<Leading: View>: View {
     let kind: MediaKind
+    /// Extra pills rendered at the START of the segment row (e.g. Find's Movies/Shows filter), so the
+    /// filter shares the one reachable row with search + the discover segments instead of a row above
+    /// that the focus engine skips when you press Down from the nav bar.
+    @ViewBuilder var leading: () -> Leading
 
     @Environment(AppSession.self) private var session
     /// Which segment pill has focus — moving across them switches the section live (no press).
@@ -27,8 +31,12 @@ struct BrowseScreen: View {
                 segmentPicker(browse).padding(.leading, 60).padding(.bottom, 8)
                 segmentContent(browse)
             }
-            // Load the selected segment whenever it changes (and on first show). Lazy + cached.
-            .task(id: browse.selectedSegment) { await browse.loadSegment(browse.selectedSegment) }
+            // Load the selected segment whenever it changes (and on first show). Keyed on kind TOO,
+            // so Find's Movies→Shows flip re-fires the load even when both stores sit on the same
+            // segment (else the id wouldn't change and the new kind's rails would stay stuck loading).
+            .task(id: "\(kind.rawValue)/\(browse.selectedSegment.rawValue)") {
+                await browse.loadSegment(browse.selectedSegment)
+            }
         } else {
             SeretLoader()
         }
@@ -68,6 +76,7 @@ struct BrowseScreen: View {
     /// `path.isEmpty` (which drives the tab bar) stops reflecting reality.
     private func segmentPicker(_ browse: DiscoverStore) -> some View {
         HStack(spacing: 16) {
+            leading()
             NavigationLink(value: BrowseDestination.search(kind)) { Image(systemName: "magnifyingglass") }
                 .buttonStyle(SeretPillStyle(selected: false))
             ForEach(DiscoverStore.Segment.allCases) { seg in

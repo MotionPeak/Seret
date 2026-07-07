@@ -9,23 +9,16 @@ struct FindScreen: View {
     @State private var kind: MediaKind = .movie
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            kindFilter
-                .padding(.leading, 60)
-                .padding(.top, 8)
-                .padding(.bottom, 4)
-            BrowseScreen(kind: kind)   // search + discover segments + rails, keyed to the kind
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(CanvasBackground())
-    }
-
-    private var kindFilter: some View {
-        HStack(spacing: 12) {
+        // The Movies/Shows filter rides at the START of BrowseScreen's search + segment row, so the
+        // whole control set is one reachable row (the search pill + For You / Trending / … + rails
+        // key off the selected kind).
+        BrowseScreen(kind: kind) {
             Button("Movies") { kind = .movie }
                 .buttonStyle(SeretPillStyle(selected: kind == .movie))
             Button("Shows") { kind = .show }
                 .buttonStyle(SeretPillStyle(selected: kind == .show))
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(CanvasBackground())
     }
 }
