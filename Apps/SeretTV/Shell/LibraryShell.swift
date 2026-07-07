@@ -2,8 +2,8 @@ import DebridCore
 import DebridUI
 import SwiftUI
 
-/// The signed-in root: a custom Gold Glass top tab bar (Home · Movies · TV · My Library ·
-/// Settings) over the switched content. The tab bar switches ON PRESS (focus a pill, click to
+/// The signed-in root: a custom Gold Glass top tab bar (Home · Find · My Library, with Settings
+/// behind the gear) over the switched content. The tab bar switches ON PRESS (focus a pill, click to
 /// select — moving focus never changes the page, so you can't skid past a section by accident).
 /// One root NavigationStack OUTSIDE the content so Detail / the player still cover everything cleanly.
 struct LibraryShell: View {
@@ -11,6 +11,7 @@ struct LibraryShell: View {
     @State private var tab: ShellTab = .home
     @State private var path = NavigationPath()
     @State private var showingProfiles = false
+    @State private var showingSettings = false
     @FocusState private var focusedTab: ShellTab?
 
     var body: some View {
@@ -64,6 +65,11 @@ struct LibraryShell: View {
         .fullScreenCover(isPresented: $showingProfiles) {
             WhoIsWatchingScreen(onPicked: { showingProfiles = false }).environment(session)
         }
+        .fullScreenCover(isPresented: $showingSettings) {
+            SettingsView()
+                .environment(session)
+                .onExitCommand { showingSettings = false }   // Menu closes Settings
+        }
     }
 
     /// The library Detail for a pushed item (shared by the MediaItem and BrowseDestination routes).
@@ -99,21 +105,27 @@ struct LibraryShell: View {
         }
         .padding(.top, 28).padding(.bottom, 12)
         .frame(maxWidth: .infinity)
-        .overlay(alignment: .trailing) { profileButton.padding(.trailing, 50).padding(.top, 16) }
+        .overlay(alignment: .trailing) {
+            // Settings + profile sit off to the right — one step away, never in the primary row.
+            HStack(spacing: 24) {
+                Button { showingSettings = true } label: { Image(systemName: "gearshape") }
+                    .buttonStyle(SeretPillStyle(selected: false))
+                profileButton
+            }
+            .padding(.trailing, 50).padding(.top, 16)
+        }
     }
 
-    /// Pages stay alive across switches (instant, no rebuild → snappy). Home/Library/Settings are
-    /// kept in the tree (hidden + disabled when inactive). Movies/TV share ONE BrowseScreen whose
-    /// `kind` follows the tab (so Movies↔TV is an instant content swap, not a rebuild) — it only
-    /// exists while active so its `.searchable` bar never leaks onto the other tabs. The swap is
+    /// Pages stay alive across switches (instant, no rebuild → snappy). Home/Library are kept in the
+    /// tree (hidden + disabled when inactive). Find exists only while active (it owns the Movies/Shows
+    /// filter + browse); recreating it on entry keeps its search flow self-contained. The swap is
     /// INSTANT on purpose: crossfading the heavy poster grids read as a sluggish in-between.
     @ViewBuilder private var pages: some View {
         ZStack {
             keptAlive(tab == .home) { HomeScreen() }
             keptAlive(tab == .library) { MyLibraryScreen() }
-            keptAlive(tab == .settings) { SettingsView() }
-            if tab == .movies || tab == .tv {
-                BrowseScreen(kind: tab == .tv ? .show : .movie)
+            if tab == .find {
+                FindScreen()
             }
         }
     }
@@ -129,24 +141,20 @@ struct LibraryShell: View {
 
 /// The shell's tabs, in bar order.
 private enum ShellTab: String, CaseIterable, Identifiable {
-    case home, movies, tv, library, settings
+    case home, find, library
     var id: String { rawValue }
     var title: String {
         switch self {
         case .home: return "Home"
-        case .movies: return "Movies"
-        case .tv: return "TV"
+        case .find: return "Find"
         case .library: return "My Library"
-        case .settings: return "Settings"
         }
     }
     var icon: String {
         switch self {
         case .home: return "house"
-        case .movies: return "film"
-        case .tv: return "tv"
+        case .find: return "magnifyingglass"
         case .library: return "rectangle.stack"
-        case .settings: return "gearshape"
         }
     }
 }
