@@ -33,15 +33,6 @@ struct MyLibraryScreen: View {
                 .padding(.horizontal, Theme.Space.lg)
                 .padding(.top, Theme.Space.sm)
 
-                if hasProfiles {
-                    Picker("Scope", selection: $mineOnly) {
-                        Text("All").tag(false)
-                        Text("Mine").tag(true)
-                    }
-                    .pickerStyle(.segmented)
-                    .padding(.horizontal, Theme.Space.lg)
-                }
-
                 if let tiles = session.downloadStore?.activeTiles, !tiles.isEmpty {
                     DownloadingStrip(tiles: tiles)
                 }
@@ -89,6 +80,24 @@ struct MyLibraryScreen: View {
             }
         }
         .navigationTitle("My Library")
+        .toolbar {
+            // The profile scope (everyone's content vs just mine) is a filter tucked in the nav bar —
+            // shown only with multiple profiles — so the grid keeps a single, uncluttered kind picker.
+            if hasProfiles {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Picker("Show", selection: $mineOnly) {
+                            Text("Everyone's library").tag(false)
+                            Text("Only mine").tag(true)
+                        }
+                    } label: {
+                        Image(systemName: mineOnly ? "person.crop.circle" : "person.2")
+                            .tint(Theme.Palette.gold)
+                    }
+                    .accessibilityLabel("Library scope")
+                }
+            }
+        }
     }
 }
 
