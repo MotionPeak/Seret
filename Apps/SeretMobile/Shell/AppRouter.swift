@@ -19,4 +19,10 @@ final class AppRouter {
     /// A playback request presented full-screen straight from a rail (Home's Resume) — no Detail
     /// detour. Presented by RootView above the shell so the player survives rotation, like Detail.
     var playback: PlaybackPresentation?
+
+    /// Which shell section is showing. Lives here — above the adaptive shell — so it survives a
+    /// size-class flip (rotation / iPad multitasking) instead of resetting: the iPhone TabView and
+    /// the iPad sidebar are otherwise two separate selection stores, so crossing the boundary drops
+    /// you to Home. Both layouts read/write this one value.
+    var selectedSection: MainShell.Section = .home
 }

@@ -8,7 +8,7 @@ import SwiftUI
 struct MainShell: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(AppSession.self) private var session
-    @State private var sidebarSelection: Section = .home
+    @Environment(AppRouter.self) private var router
     @State private var showingProfiles = false
     /// Persisted across launches. Collapsed shows an icon-only rail; expanded shows labels.
     @AppStorage("seret.ipad.sidebarExpanded") private var sidebarExpanded = true
@@ -32,10 +32,11 @@ struct MainShell: View {
     // MARK: iPhone — tab bar
 
     private var tabBar: some View {
-        TabView {
+        TabView(selection: Binding(get: { router.selectedSection }, set: { router.selectedSection = $0 })) {
             ForEach(Section.allCases) { section in
                 screen(for: section)
                     .tabItem { Label(section.title, systemImage: section.icon) }
+                    .tag(section)
             }
         }
         .tint(Theme.Palette.gold)
@@ -54,7 +55,7 @@ struct MainShell: View {
                 .fill(Theme.Palette.hairline)
                 .frame(width: 1)
                 .ignoresSafeArea()
-            screen(for: sidebarSelection)
+            screen(for: router.selectedSection)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .tint(Theme.Palette.gold)
@@ -138,8 +139,8 @@ struct MainShell: View {
     }
 
     private func sidebarRow(_ section: Section) -> some View {
-        let selected = section == sidebarSelection
-        return Button { sidebarSelection = section } label: {
+        let selected = section == router.selectedSection
+        return Button { router.selectedSection = section } label: {
             HStack(spacing: Theme.Space.md) {
                 Image(systemName: selected ? section.filledIcon : section.icon)
                     .font(.system(size: 17, weight: .semibold))
