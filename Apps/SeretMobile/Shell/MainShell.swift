@@ -10,6 +10,7 @@ struct MainShell: View {
     @Environment(AppSession.self) private var session
     @Environment(AppRouter.self) private var router
     @State private var showingProfiles = false
+    @State private var showingSettings = false
     /// Persisted across launches. Collapsed shows an icon-only rail; expanded shows labels.
     @AppStorage("seret.ipad.sidebarExpanded") private var sidebarExpanded = true
 
@@ -26,6 +27,17 @@ struct MainShell: View {
         }
         .fullScreenCover(isPresented: $showingProfiles) {
             WhoIsWatchingScreen(onPicked: { showingProfiles = false }).environment(session)
+        }
+        .sheet(isPresented: $showingSettings) {
+            NavigationStack {
+                SettingsView()
+                    .environment(session)
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button("Done") { showingSettings = false }.tint(Theme.Palette.gold)
+                        }
+                    }
+            }
         }
     }
 
@@ -64,10 +76,8 @@ struct MainShell: View {
     @ViewBuilder private func screen(for section: Section) -> some View {
         switch section {
         case .home:    HomeScreen()
-        case .movies:  NavigationStack { BrowseScreen(kind: .movie) }
-        case .tv:      NavigationStack { BrowseScreen(kind: .show) }
+        case .find:    NavigationStack { FindScreen() }
         case .library: NavigationStack { MyLibraryScreen() }
-        case .settings: NavigationStack { SettingsView() }
         }
     }
 
@@ -81,6 +91,7 @@ struct MainShell: View {
                 sidebarRow(section)
             }
             Spacer()
+            settingsRow
             profileRow
         }
         .padding(Theme.Space.sm)
@@ -112,6 +123,29 @@ struct MainShell: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(sidebarExpanded ? "Collapse sidebar" : "Expand sidebar")
+    }
+
+    /// Settings sits just above the profile chip at the bottom of the rail — tucked to the side,
+    /// never a primary nav row.
+    private var settingsRow: some View {
+        Button { showingSettings = true } label: {
+            HStack(spacing: Theme.Space.md) {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 17, weight: .semibold))
+                    .frame(width: 26)
+                if sidebarExpanded {
+                    Text("Settings").font(.system(size: 17, weight: .semibold)).lineLimit(1)
+                    Spacer(minLength: 0)
+                }
+            }
+            .foregroundStyle(Theme.Palette.textSecondary)
+            .padding(.vertical, Theme.Space.md)
+            .padding(.horizontal, sidebarExpanded ? Theme.Space.md : 0)
+            .frame(maxWidth: .infinity, alignment: sidebarExpanded ? .leading : .center)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Settings")
     }
 
     private var activeProfile: ProfileDTO? { session.activeProfiles?.activeProfile }
@@ -165,33 +199,27 @@ struct MainShell: View {
     }
 
     enum Section: Hashable, CaseIterable, Identifiable {
-        case home, movies, tv, library, settings
+        case home, find, library
         var id: Self { self }
         var title: String {
             switch self {
             case .home: "Home"
-            case .movies: "Movies"
-            case .tv: "TV Shows"
+            case .find: "Find"
             case .library: "My Library"
-            case .settings: "Settings"
             }
         }
         var icon: String {
             switch self {
             case .home: "house"
-            case .movies: "film"
-            case .tv: "tv"
+            case .find: "magnifyingglass"
             case .library: "rectangle.stack"
-            case .settings: "gearshape"
             }
         }
         var filledIcon: String {
             switch self {
             case .home: "house.fill"
-            case .movies: "film.fill"
-            case .tv: "tv.fill"
+            case .find: "magnifyingglass"
             case .library: "rectangle.stack.fill"
-            case .settings: "gearshape.fill"
             }
         }
     }

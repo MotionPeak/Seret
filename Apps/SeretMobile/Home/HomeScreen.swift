@@ -9,6 +9,7 @@ struct HomeScreen: View {
     @Environment(\.horizontalSizeClass) private var hSize
     @Environment(AppRouter.self) private var router
     @State private var showingProfiles = false
+    @State private var showingSettings = false
 
     private var isRegular: Bool { hSize == .regular }
     private var posterW: CGFloat { isRegular ? 150 : 112 }
@@ -23,8 +24,13 @@ struct HomeScreen: View {
             }
             .navigationTitle("Home")
             .toolbar {
-                // iPhone: a profile avatar in the nav bar for quick switching (iPad uses the sidebar).
+                // iPhone: profile avatar + Settings gear in the nav bar (iPad uses the sidebar).
                 if !isRegular {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button { showingSettings = true } label: {
+                            Image(systemName: "gearshape").tint(Theme.Palette.textPrimary)
+                        }
+                    }
                     ToolbarItem(placement: .topBarTrailing) {
                         Button { showingProfiles = true } label: {
                             ProfileAvatarImage(token: session.activeProfiles?.activeProfile?.avatar ?? "",
@@ -37,6 +43,17 @@ struct HomeScreen: View {
         }
         .fullScreenCover(isPresented: $showingProfiles) {
             WhoIsWatchingScreen(onPicked: { showingProfiles = false }).environment(session)
+        }
+        .sheet(isPresented: $showingSettings) {
+            NavigationStack {
+                SettingsView()
+                    .environment(session)
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button("Done") { showingSettings = false }.tint(Theme.Palette.gold)
+                        }
+                    }
+            }
         }
         .task {
             await session.libraryStore?.load()

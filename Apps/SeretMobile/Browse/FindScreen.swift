@@ -2,11 +2,12 @@ import DebridCore
 import DebridUI
 import SwiftUI
 
-/// A browse tab (Movies or TV): a gold-glass search field scoped to the kind, over the kind's
-/// `DiscoverStore` rails when idle, search results when typing. Posters already in the library
-/// get an "In Library" badge and open their library Detail; new titles open the Add flow.
-struct BrowseScreen: View {
-    let kind: MediaKind
+/// The single "get new content" surface: a Movies/Shows filter + a gold-glass search field over the
+/// selected kind's `DiscoverStore` rails (when idle) or search results (when typing). Folds the old
+/// Movies + TV browse tabs into one. Posters already in the library get an "In Library" badge and
+/// open their library Detail; new titles open the Add flow.
+struct FindScreen: View {
+    @State private var kind: MediaKind = .movie
 
     @Environment(AppSession.self) private var session
     @Environment(AppRouter.self) private var router
@@ -14,7 +15,6 @@ struct BrowseScreen: View {
     @State private var query = ""
 
     private var browse: DiscoverStore? { kind == .movie ? session.moviesBrowse : session.showsBrowse }
-    private var title: String { kind == .movie ? "Movies" : "TV Shows" }
 
     private var columns: [GridItem] {
         let minW: CGFloat = hSize == .regular ? 158 : 110
@@ -26,13 +26,15 @@ struct BrowseScreen: View {
         ZStack {
             CanvasBackground()
             VStack(alignment: .leading, spacing: Theme.Space.md) {
-                Text(title).font(.system(size: 34, weight: .bold))
+                Text("Find").font(.system(size: 34, weight: .bold))
                     .foregroundStyle(Theme.Palette.textPrimary)
                     .padding(.horizontal, Theme.Space.lg)
+                kindFilter
                 searchField
                 if let search = session.searchStore {
                     content(search)
-                        .task(id: query) {
+                        // Keyed on kind TOO, so switching Movies/Shows re-runs the search for the new kind.
+                        .task(id: "\(kind.rawValue)/\(query)") {
                             try? await Task.sleep(for: .milliseconds(350))
                             guard !Task.isCancelled else { return }
                             await search.search(query: query, kind: kind)
@@ -48,6 +50,16 @@ struct BrowseScreen: View {
         }
         .navigationTitle("")                       // we render our own inset title above
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    /// The light movie/show filter — a single control, not a second top-level destination.
+    private var kindFilter: some View {
+        Picker("Kind", selection: $kind) {
+            Text("Movies").tag(MediaKind.movie)
+            Text("Shows").tag(MediaKind.show)
+        }
+        .pickerStyle(.segmented)
+        .padding(.horizontal, Theme.Space.lg)
     }
 
     private var searchField: some View {
@@ -92,10 +104,15 @@ struct BrowseScreen: View {
                     segmentPicker(browse)
                     segmentContent(browse)
                 }
-                .task(id: browse.selectedSegment) { await browse.loadSegment(browse.selectedSegment) }
+                // Keyed on kind AND segment so a Movies→Shows flip re-fires the load even when both
+                // stores sit on the same segment (else the id wouldn't change and the new kind's rails
+                // would stay stuck on the spinner).
+                .task(id: "\(kind.rawValue)/\(browse.selectedSegment.rawValue)") {
+                    await browse.loadSegment(browse.selectedSegment)
+                }
                 // Warm the first screenful of rail posters as rails land (the id re-fires per new
                 // rail). First few rails only — prefetching a whole segment is cellular-hostile.
-                .task(id: "prefetch-\(browse.selectedSegment)-\(browse.rows.count)") {
+                .task(id: "prefetch-\(kind.rawValue)-\(browse.selectedSegment.rawValue)-\(browse.rows.count)") {
                     ImageMemoryCache.prefetch(browse.rows.prefix(3).flatMap(\.hits).compactMap {
                         TMDBClient.imageURL(path: $0.result.posterPath, size: "w342")
                     })
@@ -109,7 +126,7 @@ struct BrowseScreen: View {
         case .idle, .loading:
             loadingView
         case .failed:
-            message("Couldn't load \(title.lowercased())", systemImage: "exclamationmark.triangle")
+            message("Couldn't load", systemImage: "exclamationmark.triangle")
         case .loaded:
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: Theme.Space.lg) {
