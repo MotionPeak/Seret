@@ -46,7 +46,10 @@ struct MyLibraryScreen: View {
                         onSelect: { router.detail = $0 },
                         onRemove: { pendingRemoval = $0 })
                         .task(id: store.attempt) { await store.load() }
-                        .task {
+                        // Keyed on the active profile so "Only mine" reloads THIS profile's My List
+                        // when you switch profiles (an id-less .task runs once and would leave the
+                        // previous profile's keys, filtering the grid to the wrong titles).
+                        .task(id: session.activeProfileID) {
                             mineOnly = hasProfiles
                             myKeys = Set((try? await session.myListStore?.contentKeys(
                                 forProfile: session.activeProfileID ?? "")) ?? [])

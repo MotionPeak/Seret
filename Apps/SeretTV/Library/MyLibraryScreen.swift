@@ -11,7 +11,8 @@ struct MyLibraryScreen: View {
     @State private var removeErrorMessage: String?
     @State private var mineOnly = false
     @State private var myKeys: Set<String> = []
-    /// Which filter pill has focus — moving between them switches the list live (no press).
+    /// Which filter pill has focus. Focus only highlights; a Select press switches the kind
+    /// (commit-on-press).
     @FocusState private var focusedKind: MediaKind?
 
     /// Show the All/Mine filter only when more than one profile exists.

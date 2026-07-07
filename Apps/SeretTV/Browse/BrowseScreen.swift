@@ -14,7 +14,8 @@ struct BrowseScreen<Leading: View>: View {
     @ViewBuilder var leading: () -> Leading
 
     @Environment(AppSession.self) private var session
-    /// Which segment pill has focus — moving across them switches the section live (no press).
+    /// Which segment pill has focus. Focus only highlights; a Select press switches the section
+    /// (commit-on-press — see `segmentPicker`).
     @FocusState private var focusedSegment: DiscoverStore.Segment?
 
     private var browse: DiscoverStore? { kind == .movie ? session.moviesBrowse : session.showsBrowse }
