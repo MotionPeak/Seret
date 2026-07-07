@@ -3,9 +3,9 @@ import DebridUI
 import SwiftUI
 
 /// The signed-in root: a custom Gold Glass top tab bar (Home · Movies · TV · My Library ·
-/// Settings) over the switched content. The tab bar switches ON FOCUS (move-to-switch, no press
-/// needed) — same proven pattern as the in-player SettingsPanel. One root NavigationStack OUTSIDE
-/// the content so Detail / the player still cover everything cleanly.
+/// Settings) over the switched content. The tab bar switches ON PRESS (focus a pill, click to
+/// select — moving focus never changes the page, so you can't skid past a section by accident).
+/// One root NavigationStack OUTSIDE the content so Detail / the player still cover everything cleanly.
 struct LibraryShell: View {
     @Environment(AppSession.self) private var session
     @State private var tab: ShellTab = .home
@@ -85,11 +85,11 @@ struct LibraryShell: View {
         .buttonStyle(.plain)
     }
 
-    /// A focusable pill row. Moving focus across the pills switches the page live (onChange),
-    /// so you never have to click a tab — exactly what the SettingsPanel tab bar does.
+    /// A focusable pill row. Moving focus across the pills only HIGHLIGHTS them; a Select press on a
+    /// pill switches the page (commit-on-press — no accidental section changes when the remote glides).
     private var tabBar: some View {
-        // Free pills using the exact same SeretPillStyle as the Browse segment pills — switch on
-        // focus (no press), with the same subtle gold fill + scale animation.
+        // Free pills using the exact same SeretPillStyle as the Browse segment pills — the focused
+        // pill gets the gold fill + scale; a click on it commits the switch.
         HStack(spacing: 12) {
             ForEach(ShellTab.allCases) { t in
                 Button { tab = t } label: { Label(t.title, systemImage: t.icon) }
@@ -100,11 +100,6 @@ struct LibraryShell: View {
         .padding(.top, 28).padding(.bottom, 12)
         .frame(maxWidth: .infinity)
         .overlay(alignment: .trailing) { profileButton.padding(.trailing, 50).padding(.top, 16) }
-        .onChange(of: focusedTab) { _, new in
-            // Switch the page as focus moves across the bar (no press needed). The swap is INSTANT
-            // (pages are kept alive); crossfading the heavy grids read as sluggish, so we don't.
-            if let new { tab = new }
-        }
     }
 
     /// Pages stay alive across switches (instant, no rebuild → snappy). Home/Library/Settings are
