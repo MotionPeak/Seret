@@ -83,11 +83,15 @@ struct ShowDetail: View {
     @ViewBuilder private var heroAction: some View {
         HStack(spacing: Theme.Space.md) {
             if let next = store.nextEpisode() {
+                let resume = store.watchState(forKey: WatchKey.content(forShow: item, episode: next))
+                    .flatMap { (!$0.finished && $0.positionSeconds > 0) ? $0.positionSeconds : nil }
                 Button {
                     onPlay(store.playRequest(source: next.source, episode: next,
                                              label: "\(item.title) — S\(next.season)·E\(next.number)"))
                 } label: {
-                    Label("Play S\(next.season)·E\(next.number)", systemImage: "play.fill")
+                    Label(resume != nil ? "Resume S\(next.season)·E\(next.number)"
+                                        : "Play S\(next.season)·E\(next.number)",
+                          systemImage: "play.fill")
                 }
                 .buttonStyle(GoldButtonStyle())
             }
