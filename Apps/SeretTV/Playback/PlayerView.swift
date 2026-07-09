@@ -2,11 +2,21 @@ import SwiftUI
 import DebridUI
 import DebridCore
 
+/// Which player control currently owns focus. `.stage` is the invisible full-screen surface the
+/// player rests on while watching; the rest are the on-screen transport buttons that appear with the
+/// scrub bar. Only ONE set is focusable at a time (see `controlsMode`) so directional input never
+/// races between "skip" and "move focus to a button".
+enum PlayerFocus: Hashable { case stage, back, playPause, forward, episodes }
+
 struct PlayerView: View {
     @State private var model: PlayerModel
     @State private var engine: VLCKitVideoPlayerEngine
     @State private var showSettings = false
     @State private var showEpisodes = false
+    /// false → the invisible stage owns focus (watching: side-clicks skip, up reveals controls);
+    /// true → the on-screen transport buttons own focus (navigate + click to skip / play / episodes).
+    @State private var controlsMode = false
+    @FocusState private var focus: PlayerFocus?
     @Environment(\.dismiss) private var dismiss
     let backdropURL: URL?
 
@@ -32,32 +42,37 @@ struct PlayerView: View {
                 LoadingOverlay(caption: model.phase == .preparing ? "Preparing…" : "Buffering…",
                                title: model.label, backdropURL: backdropURL)
             } else {
-                // Clean by default. The focusable ScrubPad covers the screen invisibly to receive
-                // remote gestures: horizontal swipe → scrub, swipe down → show settings, click →
-                // play/pause. While the settings panel is open it goes inert so swipes navigate the
-                // panel instead of starting a scrub.
-                ScrubPad(model: model, isInteractive: !showSettings && !showEpisodes,
-                         onShowSettings: {
-                             // Swipe DOWN: collapse the episode strip if it's open, else open settings.
-                             if showEpisodes { showEpisodes = false }
-                             else { showSettings = true }
-                         },
-                         onPullUp: {
-                             // Swipe UP: first reveals the scrub bar; a SECOND swipe up (bar already
-                             // showing, on a show) lifts the episode strip — up-then-up, no direction
-                             // change, which reads more naturally than up-then-down.
-                             if model.scrubBarVisible && model.isEpisode && !model.seasonEpisodes.isEmpty {
-                                 showEpisodes = true
-                                 Task { await model.loadSeasonEpisodes() }
-                             } else {
-                                 model.revealScrubBar()
-                             }
-                         })
-                // One bottom-anchored column: the thin scrub bar on top, the episode strip beneath
-                // it (a dimmed peek, or — on swipe-down — the full selectable strip). Stacking them
-                // means the bar AUTOMATICALLY rides up as the strip grows: it can never overlap the
-                // bar or float to the middle.
-                PlayerBottomBar(model: model, showEpisodes: $showEpisodes)
+                // The invisible focus stage owns the remote while watching. `.onMoveCommand` is the
+                // RELIABLE directional channel on real hardware: it's the focus engine's own signal,
+                // unlike raw `.leftArrow`/`.rightArrow` UIPresses, which the focus engine swallows
+                // before they ever reach a UIView on 2nd-gen Siri remotes (why side-clicks did nothing).
+                //   • left / right  → skip ∓10s (a burst / swipe repeats → the badge accumulates)
+                //   • up            → reveal the scrub bar + hand focus to the transport buttons
+                //   • down          → episodes (a show, bar up) or the settings panel
+                //   • click(.select)→ play / pause
+                Color.clear
+                    .contentShape(Rectangle())
+                    .focusable(!showSettings && !showEpisodes && !controlsMode)
+                    .focused($focus, equals: .stage)
+                    .onMoveCommand { direction in
+                        switch direction {
+                        case .left:  model.skip(-10); model.revealScrubBar()
+                        case .right: model.skip(10);  model.revealScrubBar()
+                        case .up:    enterControls()
+                        case .down:  openSettingsOrEpisodes()
+                        default: break
+                        }
+                    }
+                    .onTapGesture { model.togglePlayPause() }   // clickpad center press
+                    .ignoresSafeArea()
+
+                // One bottom-anchored column: transport buttons + thin scrub bar on top, the episode
+                // strip beneath. Stacking them means the bar AUTOMATICALLY rides up as the strip grows.
+                PlayerBottomBar(model: model, showEpisodes: $showEpisodes, controlsMode: controlsMode,
+                                focus: $focus,
+                                onSkip: { model.skip($0); model.revealScrubBar() },
+                                onTogglePlay: { model.togglePlayPause() },
+                                onEpisodes: { openEpisodes() })
             }
 
             if showSettings {
@@ -76,18 +91,18 @@ struct PlayerView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
+        .defaultFocus($focus, .stage)
         .animation(.easeInOut(duration: 0.25), value: showSettings)
         .animation(.easeInOut(duration: 0.25), value: showEpisodes)
+        .animation(.easeInOut(duration: 0.2), value: controlsMode)
         .animation(.easeInOut(duration: 0.25), value: model.upNextVisible)
         .animation(.easeOut(duration: 0.18), value: model.skipFeedback)
-        .onPlayPauseCommand {
-            if model.isScrubbing { model.commitScrub() } else { model.togglePlayPause() }
-        }
+        .onPlayPauseCommand { model.togglePlayPause() }
         .onExitCommand {
             if model.upNextVisible { model.dismissUpNext() }   // Menu keeps watching (credits)
             else if showSettings { showSettings = false }
             else if showEpisodes { showEpisodes = false }
-            else if model.isScrubbing { model.cancelScrub() }
+            else if controlsMode { exitControls() }            // Menu backs out of the transport
             else { dismiss() }
         }
         .onAppear {
@@ -97,8 +112,40 @@ struct PlayerView: View {
         .task(id: model.currentEpisode?.season) {
             if model.isEpisode { await model.loadSeasonEpisodes() }   // so the peek has thumbnails
         }
+        // A closing panel hands focus back to the invisible stage so the remote keeps working.
+        .onChange(of: showSettings) { _, open in if !open { exitControls() } }
+        .onChange(of: showEpisodes) { _, open in if !open { exitControls() } }
         .onChange(of: model.shouldDismiss) { _, dismissNow in if dismissNow { dismiss() } }
         .onDisappear { Task { await model.teardown() } }
+    }
+
+    // MARK: - Control-focus transitions
+
+    /// Reveal the scrub bar and move focus onto the transport buttons (Play highlighted). Entered by a
+    /// d-pad UP; left/right then navigates the buttons, Menu backs out. Kept as a discrete mode so a
+    /// left/right SKIP burst on the stage never accidentally slides focus onto a button mid-accumulate.
+    private func enterControls() {
+        model.revealScrubBar()
+        controlsMode = true
+        DispatchQueue.main.async { focus = .playPause }   // one tick so the buttons exist to receive it
+    }
+
+    private func exitControls() {
+        controlsMode = false
+        DispatchQueue.main.async { focus = .stage }
+    }
+
+    /// Down from the stage: collapse the episode strip if it's open, else open the settings panel.
+    private func openSettingsOrEpisodes() {
+        if showEpisodes { showEpisodes = false }
+        else { showSettings = true }
+    }
+
+    /// The Episodes transport button (shows only): lift the full selectable strip.
+    private func openEpisodes() {
+        guard model.isEpisode, !model.seasonEpisodes.isEmpty else { return }
+        showEpisodes = true
+        Task { await model.loadSeasonEpisodes() }
     }
 
     /// The accumulating ±seconds badge on the side you skipped toward (10s → 20s → 1:10…). Sized for
@@ -119,6 +166,34 @@ struct PlayerView: View {
         .overlay(Capsule().strokeBorder(.white.opacity(0.12)))
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: forward ? .trailing : .leading)
         .padding(forward ? .trailing : .leading, 120)
+    }
+}
+
+/// A focusable circular transport button (skip / play-pause / episodes). Manual focus styling —
+/// reading `focus.wrappedValue` — because a plain tvOS Button gives icon buttons almost no focus
+/// affordance at 10 feet.
+private struct TransportButton: View {
+    let system: String
+    var focus: FocusState<PlayerFocus?>.Binding
+    let tag: PlayerFocus
+    let action: () -> Void
+
+    private var isFocused: Bool { focus.wrappedValue == tag }
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: system)
+                .font(.system(size: 34, weight: .semibold))
+                .frame(width: 84, height: 84)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.white)
+        .background(.white.opacity(isFocused ? 0.30 : 0.14), in: Circle())
+        .overlay(Circle().strokeBorder(.white.opacity(isFocused ? 0.9 : 0.15),
+                                       lineWidth: isFocused ? 3 : 1))
+        .scaleEffect(isFocused ? 1.12 : 1.0)
+        .focused(focus, equals: tag)
+        .animation(.easeOut(duration: 0.15), value: isFocused)
     }
 }
 
@@ -155,18 +230,36 @@ private struct UpNextBar: View {
     }
 }
 
-/// The bottom-anchored player cluster: scrub bar on TOP, episode strip BENEATH it. Because they're
-/// stacked in one bottom-pinned column, the bar automatically rides up as the strip grows — it can
-/// never overlap the bar or float to the middle of the screen.
+/// The bottom-anchored player cluster: transport buttons + scrub bar on TOP, episode strip BENEATH.
+/// Because they're stacked in one bottom-pinned column, the bar automatically rides up as the strip
+/// grows — it can never overlap the bar or float to the middle of the screen.
 private struct PlayerBottomBar: View {
     @Bindable var model: PlayerModel
     @Binding var showEpisodes: Bool
+    let controlsMode: Bool
+    var focus: FocusState<PlayerFocus?>.Binding
+    let onSkip: (Double) -> Void
+    let onTogglePlay: () -> Void
+    let onEpisodes: () -> Void
 
-    private var barShown: Bool { model.scrubBarVisible || model.isBuffering || showEpisodes }
+    // The bar is up while watching-controls are engaged, mid-buffer, or the strip is open.
+    private var barShown: Bool { model.scrubBarVisible || model.isBuffering || showEpisodes || controlsMode }
 
     var body: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 16) {
             Spacer()
+            if controlsMode {
+                HStack(spacing: 44) {
+                    TransportButton(system: "gobackward.10", focus: focus, tag: .back) { onSkip(-10) }
+                    TransportButton(system: model.phase == .playing ? "pause.fill" : "play.fill",
+                                    focus: focus, tag: .playPause) { onTogglePlay() }
+                    TransportButton(system: "goforward.10", focus: focus, tag: .forward) { onSkip(10) }
+                    if model.isEpisode && !model.seasonEpisodes.isEmpty {
+                        TransportButton(system: "rectangle.stack", focus: focus, tag: .episodes) { onEpisodes() }
+                    }
+                }
+                .transition(.opacity.combined(with: .offset(y: 12)))
+            }
             if barShown {
                 ScrubBarRow(model: model, buffering: model.isBuffering)
                     .allowsHitTesting(false)
@@ -177,7 +270,7 @@ private struct PlayerBottomBar: View {
                     EpisodeStripExpanded(model: model, onPlay: { showEpisodes = false })
                         .transition(.opacity)
                 } else if barShown {
-                    EpisodePeek(model: model)
+                    EpisodePeek()
                         .allowsHitTesting(false)
                         .transition(.opacity)
                 }
@@ -192,7 +285,7 @@ private struct PlayerBottomBar: View {
         // A soft bottom scrim so the bar + episode stills/labels stay readable over bright scenes.
         .background(alignment: .bottom) {
             LinearGradient(colors: [.clear, .black.opacity(0.8)], startPoint: .top, endPoint: .bottom)
-                .frame(height: showEpisodes ? 360 : 210)
+                .frame(height: showEpisodes ? 360 : 240)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                 .opacity(barShown ? 1 : 0)
                 .ignoresSafeArea()
@@ -244,13 +337,10 @@ private struct ScrubBarRow: View {
     }
 }
 
-/// Resting hint: a dimmed, vertically-cropped, edge-faded sliver of the season's stills, sitting
-/// just under the scrub bar. Swipe down (handled by the ScrubPad) opens the full strip.
+/// Resting hint: a chevron + "Episodes" sitting just under the scrub bar. Press UP (opens the
+/// transport) then the Episodes button, or open the full strip from there.
 private struct EpisodePeek: View {
-    let model: PlayerModel
     var body: some View {
-        // Just a clean hint — no cropped thumbnail sliver (it read as stretched + thin under the bar).
-        // Swipe up again opens the full strip.
         HStack(spacing: 6) {
             Image(systemName: "chevron.compact.up")
             Text("Episodes").font(.callout.weight(.semibold))
