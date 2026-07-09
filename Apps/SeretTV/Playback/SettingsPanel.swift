@@ -33,8 +33,8 @@ private struct PlaybackColumns: View {
     /// Seeds focus to the "Subtitles → Off" row when the panel opens, so the arrows navigate the
     /// options immediately — no extra click to "enter" the menu. Uses the same `@FocusState` +
     /// `.onAppear` seed as the sibling overlays (`UpNextBar`, `EpisodesPanel`) — reliable across the
-    /// player-stage → panel focus handoff, unlike the `.defaultFocus`/`.focusScope` combo it replaces
-    /// (which stranded focus and left the panel uncontrollable).
+    /// UIKit `ScrubPad` → SwiftUI focus handoff, unlike the `.defaultFocus`/`.focusScope` combo it
+    /// replaces (which stranded focus and left the panel uncontrollable).
     @FocusState private var landingFocused: Bool
 
     var body: some View {
