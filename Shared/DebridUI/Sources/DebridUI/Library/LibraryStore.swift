@@ -15,18 +15,27 @@ public final class LibraryStore {
     /// Bumped by `retry()`; drives the shell's `.task(id:)` so a retry re-runs `load()`.
     public private(set) var attempt = 0
     public private(set) var removal: Removal = .idle
+    /// Watched state for the library's MOVIES, keyed by `WatchKey.content(forMovie:)` — drives the
+    /// grid's watched badge. Shows aren't tracked here (a series isn't one watchable unit; its
+    /// episodes are marked inside Detail).
+    public private(set) var watchByKey: [String: WatchState] = [:]
 
     private let library: LibraryProviding
     private let watch: WatchProgressProviding?
+    /// The active profile whose progress the badges reflect — a closure (not a stored id) because
+    /// the store is long-lived across profile switches (see `reloadWatchStates()`).
+    private let profileID: @MainActor () -> String?
 
     /// Fired after the library's contents change (currently: a successful removal) so dependent
     /// UI — e.g. the Home rails — can recompute immediately instead of waiting for its next
     /// `.task`. Wired by the composition root (`AppSession`); `nil` in isolation/tests by default.
     public var onContentChanged: (@MainActor () async -> Void)?
 
-    public init(library: LibraryProviding, watch: WatchProgressProviding? = nil) {
+    public init(library: LibraryProviding, watch: WatchProgressProviding? = nil,
+                profileID: @escaping @MainActor () -> String? = { nil }) {
         self.library = library
         self.watch = watch
+        self.profileID = profileID
     }
 
     #if DEBUG
@@ -35,11 +44,12 @@ public final class LibraryStore {
     #endif
 
     public func load() async {
-        if let cached = library.loadCached() { apply(cached) } else { state = .loading }
+        if let cached = library.loadCached() { apply(cached); await reloadWatchStates() } else { state = .loading }
         do {
             let items = try await library.refresh()
             try Task.checkCancellation()   // a retry cancels the old task — don't apply a stale result
             apply(items)
+            await reloadWatchStates()
         } catch is CancellationError {
             // Superseded by a newer load(); leave state for the new task to set.
         } catch {
@@ -118,6 +128,39 @@ public final class LibraryStore {
     /// The library item for a TMDB id, if owned — so a Browse poster can open its Detail.
     public func ownedItem(tmdbID: Int) -> MediaItem? {
         (movies + shows).first { $0.tmdbID == tmdbID }
+    }
+
+    // MARK: - Watch state (movies only)
+
+    /// The id progress is read/written under — mirrors `DetailStore.watchProfileID` (a nil active
+    /// profile falls back to "", the same key `AppSession.makePlayer` saves under).
+    private var watchProfileID: String { profileID() ?? "" }
+
+    /// Watched state for a library item — MOVIES only (a show poster isn't one watchable unit).
+    public func watchState(for item: MediaItem) -> WatchState? {
+        guard item.kind == .movie else { return nil }
+        return watchByKey[WatchKey.content(forMovie: item)]
+    }
+
+    /// Re-read every movie's watched state in one batched call. Called at the end of `load()` and by
+    /// the grid screens on a profile switch (the store outlives a switch, so the map must be rebuilt
+    /// for the newly-active profile). Degrades to empty with no watch seam.
+    public func reloadWatchStates() async {
+        guard let watch else { watchByKey = [:]; return }
+        let keys = movies.map { WatchKey.content(forMovie: $0) }
+        guard !keys.isEmpty else { watchByKey = [:]; return }
+        watchByKey = (try? await watch.progress(forContentKeys: keys, profileID: watchProfileID)) ?? [:]
+    }
+
+    /// Mark a MOVIE watched/unwatched from the grid (long-press / hold). No-op for a show (mark its
+    /// episodes inside Detail) or a movie with no source. Refreshes just that key and notifies
+    /// dependents so Continue Watching drops a now-finished title.
+    public func setWatched(_ watched: Bool, for item: MediaItem) async {
+        guard let watch, item.kind == .movie, let source = item.sources.best else { return }
+        let key = WatchKey.content(forMovie: item)
+        await watch.setWatched(watched, contentKey: key, source: source, profileID: watchProfileID)
+        watchByKey[key] = try? await watch.progress(forContentKey: key, profileID: watchProfileID)
+        await onContentChanged?()
     }
 
     private func apply(_ items: [MediaItem]) {

@@ -166,11 +166,7 @@ public final class DetailStore {
     /// Mark a movie or episode watched/unwatched. `source` records the exact file (sourceKey).
     public func setWatched(_ watched: Bool, contentKey: String, source: MediaSource) async {
         guard let watch else { return }
-        // A manual mark has no playback position — `finished` drives the UI (full bar / ✓);
-        // live playback progress (position) is written later by the 7c player.
-        try? await watch.record(contentKey: contentKey, sourceKey: WatchKey.source(source),
-                                positionSeconds: 0, durationSeconds: 0, finished: watched,
-                                profileID: watchProfileID)
+        await watch.setWatched(watched, contentKey: contentKey, source: source, profileID: watchProfileID)
         await refreshWatch(contentKey)
     }
 

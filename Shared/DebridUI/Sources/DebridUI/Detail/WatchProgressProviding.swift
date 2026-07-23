@@ -28,6 +28,16 @@ extension WatchProgressProviding {
         }
         return out
     }
+
+    /// Manually mark a movie/episode watched or unwatched. A manual mark carries no playback
+    /// position — `finished` alone drives the UI (full bar / ✓); live position is written later by
+    /// the player. Shared by `DetailStore` (per-title) and `LibraryStore` (grid long-press) so the
+    /// record shape stays in one place.
+    public func setWatched(_ watched: Bool, contentKey: String, source: MediaSource,
+                           profileID: String) async {
+        try? await record(contentKey: contentKey, sourceKey: WatchKey.source(source),
+                          positionSeconds: 0, durationSeconds: 0, finished: watched, profileID: profileID)
+    }
 }
 
 extension WatchProgressStore: WatchProgressProviding {
