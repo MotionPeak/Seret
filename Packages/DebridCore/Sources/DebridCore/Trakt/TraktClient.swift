@@ -90,3 +90,18 @@ public struct TraktClient: Sendable {
                             headers: baseHeaders)
     }
 }
+
+// MARK: - Scrobble
+
+public enum ScrobbleAction: String, Sendable { case start, pause, stop }
+
+private struct ScrobbleResponse: Decodable { let action: String?; let progress: Double? }
+
+extension TraktClient {
+    public func scrobble(_ action: ScrobbleAction, ref: TraktMediaRef, progress: Double) async throws {
+        let body = ref.scrobbleBody(progress: progress)
+        let _: ScrobbleResponse = try await http.post(
+            Self.base.appending(path: "scrobble/\(action.rawValue)"),
+            json: body, headers: try await authedHeaders())
+    }
+}
