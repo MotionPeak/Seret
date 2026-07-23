@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(Security)
+import Security
+#endif
 
 /// Stores a single opaque secret blob. Implementations key it however they like.
 public protocol SecretStore: Sendable {
@@ -7,6 +10,7 @@ public protocol SecretStore: Sendable {
     func clear() throws
 }
 
+#if canImport(Security)
 /// Keychain-backed generic-password store, keyed by `service` + `account`.
 /// Mirrors `KeychainTokenStore`; verified on device (Keychain needs a host app).
 public struct KeychainSecretStore: SecretStore {
@@ -54,6 +58,7 @@ public struct KeychainSecretStore: SecretStore {
     }
 
 }
+#endif
 
 /// In-memory store for tests and previews.
 public final class InMemorySecretStore: SecretStore, @unchecked Sendable {

@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking   // URLSession/URLRequest/URLResponse live here on Linux, not in Foundation
+#endif
 
 public struct HTTPClient: Sendable {
     private let session: URLSession

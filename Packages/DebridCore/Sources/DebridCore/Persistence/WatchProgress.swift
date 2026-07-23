@@ -1,4 +1,5 @@
 import Foundation
+#if canImport(SwiftData)
 import SwiftData
 
 /// Per-title playback position. CloudKit-ready (every property defaulted, no unique
@@ -29,6 +30,7 @@ public final class WatchProgress {
         self.profileID = profileID
     }
 }
+#endif
 
 /// A `Sendable` snapshot of a `WatchProgress` row — what the store hands back, so callers and
 /// tests never touch the (non-`Sendable`) `@Model` class directly.
@@ -50,11 +52,13 @@ public struct WatchState: Sendable, Equatable {
         self.updatedAt = updatedAt
     }
 
+    #if canImport(SwiftData)
     public init(_ m: WatchProgress) {
         self.init(contentKey: m.contentKey, sourceKey: m.sourceKey,
                   positionSeconds: m.positionSeconds, durationSeconds: m.durationSeconds,
                   finished: m.finished, updatedAt: m.updatedAt)
     }
+    #endif
 }
 
 /// Derives the stable keys used to store/look up watch progress.

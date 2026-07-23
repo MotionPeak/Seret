@@ -1,3 +1,4 @@
+#if canImport(SwiftData)
 import Foundation
 
 /// Bridges playback to `WatchProgressStore`: where to resume a title, and saving progress as it
@@ -34,3 +35,4 @@ public struct PlaybackCoordinator: Sendable {
                                 finished: finished, profileID: profileID)
     }
 }
+#endif

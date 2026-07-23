@@ -1,3 +1,4 @@
+#if canImport(SwiftData)
 import Foundation
 import SwiftData
 
@@ -94,3 +95,4 @@ public actor WatchProgressStore {
         return survivor
     }
 }
+#endif

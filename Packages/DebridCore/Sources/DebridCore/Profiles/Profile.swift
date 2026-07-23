@@ -1,3 +1,4 @@
+#if canImport(SwiftData)
 import Foundation
 import SwiftData
 
@@ -50,3 +51,4 @@ public struct ProfileDTO: Sendable, Equatable, Identifiable {
         self.init(id: m.id, name: m.name, colorTag: m.colorTag, avatar: m.avatar, createdAt: m.createdAt)
     }
 }
+#endif

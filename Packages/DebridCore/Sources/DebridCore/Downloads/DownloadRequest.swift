@@ -1,3 +1,4 @@
+#if canImport(SwiftData)
 import Foundation
 import SwiftData
 
@@ -47,3 +48,4 @@ public struct DownloadRequestData: Sendable, Equatable, Identifiable {
                   posterPath: m.posterPath, requestedAt: m.requestedAt)
     }
 }
+#endif
