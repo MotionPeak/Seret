@@ -5,7 +5,7 @@
 # or build this same Dockerfile natively ON the DS920+ (amd64, fast). See README.
 
 # ---------- build ----------
-FROM swift:6.0-jammy AS build
+FROM swift:6.3-jammy AS build
 WORKDIR /src
 # Copy only what the build needs — never the host .build (wrong arch + huge).
 COPY Packages/DebridCore/Package.swift    Packages/DebridCore/Package.swift
@@ -20,7 +20,7 @@ RUN swift build -c release
 RUN cp "$(swift build -c release --show-bin-path)/SeretServer" /usr/local/bin/SeretServer
 
 # ---------- runtime ----------
-FROM swift:6.0-jammy-slim
+FROM swift:6.3-jammy-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ffmpeg intel-media-va-driver-non-free libva2 libva-drm2 vainfo \
       ca-certificates tzdata \

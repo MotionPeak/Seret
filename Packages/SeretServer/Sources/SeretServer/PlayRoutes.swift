@@ -24,7 +24,7 @@ func registerPlayRoutes(_ app: Application) {
               FileManager.default.fileExists(atPath: url.path) else {
             throw Abort(.notFound)
         }
-        return req.fileio.streamFile(at: url.path)
+        return try await req.fileio.asyncStreamFile(at: url.path)
     }
 
     app.post("api", "play", ":session", "stop") { req async throws -> HTTPStatus in
