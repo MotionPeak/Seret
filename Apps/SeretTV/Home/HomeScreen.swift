@@ -44,8 +44,20 @@ struct HomeScreen: View {
                     if !home.recentlyAdded.isEmpty {
                         HomeRail(title: "Recently Added") {
                             ForEach(home.recentlyAdded) { item in
-                                NavigationLink(value: item) { posterCard(item) }
+                                let isWatched = item.kind == .movie
+                                    && session.libraryStore?.watchState(for: item)?.finished == true
+                                NavigationLink(value: item) { posterCard(item, watched: isWatched) }
                                     .buttonStyle(.card)
+                                    .contextMenu {
+                                        // Press-and-hold a recently-added MOVIE to mark it watched
+                                        // (reuses LibraryStore — recentlyAdded movies are library movies).
+                                        if item.kind == .movie, let store = session.libraryStore {
+                                            Button(isWatched ? "Mark Unwatched" : "Mark Watched",
+                                                   systemImage: isWatched ? "checkmark.circle.fill" : "checkmark.circle") {
+                                                Task { await store.setWatched(!isWatched, for: item) }
+                                            }
+                                        }
+                                    }
                             }
                         }
                     }
@@ -86,11 +98,20 @@ struct HomeScreen: View {
         }
     }
 
-    private func posterCard(_ item: MediaItem) -> some View {
+    private func posterCard(_ item: MediaItem, watched: Bool = false) -> some View {
         // No title label — posters already carry their title in the artwork.
         RemoteImage(url: TMDBClient.imageURL(path: item.posterPath, size: "w500"))
             .frame(width: 220, height: 330)
+            .overlay { if watched { Color.black.opacity(0.45) } }   // dim a watched movie
             .clipShape(RoundedRectangle(cornerRadius: Theme.Layout.posterCorner, style: .continuous))
+            .overlay(alignment: .topTrailing) {
+                if watched {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 34)).foregroundStyle(Theme.Palette.gold)
+                        .background(Circle().fill(.black.opacity(0.55))).padding(12)
+                        .accessibilityLabel("Watched")
+                }
+            }
     }
 
     private var empty: some View {

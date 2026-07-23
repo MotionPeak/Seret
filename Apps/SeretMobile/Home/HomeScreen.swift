@@ -92,10 +92,23 @@ struct HomeScreen: View {
                         if !home.recentlyAdded.isEmpty {
                             Rail(title: "Recently Added") {
                                 ForEach(home.recentlyAdded) { item in
+                                    let isWatched = item.kind == .movie
+                                        && session.libraryStore?.watchState(for: item)?.finished == true
                                     Button { router.detail = item } label: {
-                                        PosterCard(title: item.title,
-                                                   posterURL: posterURL(item), width: posterW)
-                                    }.pressable()
+                                        PosterCard(title: item.title, posterURL: posterURL(item),
+                                                   width: posterW, watched: isWatched)
+                                    }
+                                    .pressable()
+                                    .contextMenu {
+                                        // Long-press a recently-added MOVIE to mark it watched
+                                        // (reuses LibraryStore — recentlyAdded movies are library movies).
+                                        if item.kind == .movie, let store = session.libraryStore {
+                                            Button(isWatched ? "Mark Unwatched" : "Mark Watched",
+                                                   systemImage: isWatched ? "checkmark.circle.fill" : "checkmark.circle") {
+                                                Task { await store.setWatched(!isWatched, for: item) }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
