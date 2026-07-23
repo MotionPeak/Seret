@@ -58,6 +58,7 @@ public struct TraktToken: Codable, Sendable, Equatable {
 public struct TraktIDs: Decodable, Sendable, Equatable {
     public let tmdb: Int?
     public let trakt: Int?
+    public init(tmdb: Int?, trakt: Int?) { self.tmdb = tmdb; self.trakt = trakt }
 }
 
 public struct TraktMovieRef: Decodable, Sendable, Equatable {
@@ -103,6 +104,7 @@ public struct TraktPlaybackItem: Decodable, Sendable, Equatable {
 public struct TraktWatchedMovie: Decodable, Sendable, Equatable {
     public let plays: Int
     public let movie: TraktMovieRef
+    public init(plays: Int, movie: TraktMovieRef) { self.plays = plays; self.movie = movie }
 }
 
 /// `/sync/watched/shows` collapses to the set of (showTmdb, season, number) watched.
