@@ -130,6 +130,27 @@ private actor FakeMyList: MyListProviding {
         #expect(store.episodeMeta[1]?[1]?.name == "Pilot")
     }
 
+    @Test func markSeasonWatchedMarksEveryEpisodeAndTogglesBack() async {
+        let eps = [episode(1, 1, "t1"), episode(1, 2, "t2"), episode(1, 3, "t3")]
+        let sh = show("9", seasons: [Season(number: 1, episodes: eps)])
+        let watch = FakeWatch()
+        let store = DetailStore(item: sh, details: FakeDetails(), watch: watch, profileID: "p")
+        await store.selectSeason(1)
+        #expect(store.hasOwnedEpisodes(inSeason: 1))
+        #expect(store.isSeasonWatched(1) == false)
+
+        await store.setSeasonWatched(true, season: 1)
+        #expect(store.isSeasonWatched(1) == true)          // every episode now finished
+        for ep in eps {
+            let key = WatchKey.content(forShow: sh, episode: ep)
+            let state = (try? await watch.progress(forContentKey: key, profileID: "p")) ?? nil
+            #expect(state?.finished == true)
+        }
+
+        await store.setSeasonWatched(false, season: 1)
+        #expect(store.isSeasonWatched(1) == false)          // and cleanly un-marks the whole season
+    }
+
     @Test func toggleMyListClaimsThenUnclaims() async {
         let m = movie("1", sources: [source("t", "1080p")])
         let key = WatchKey.content(forMovie: m)

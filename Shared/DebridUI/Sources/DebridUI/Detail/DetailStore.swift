@@ -170,6 +170,32 @@ public final class DetailStore {
         await refreshWatch(contentKey)
     }
 
+    /// Mark EVERY downloaded episode in a season watched/unwatched at once, then refresh that
+    /// season's checkmarks. No-op for a season with no downloaded episodes.
+    public func setSeasonWatched(_ watched: Bool, season n: Int) async {
+        guard let watch, let season = item.seasons.first(where: { $0.number == n }) else { return }
+        for ep in season.episodes {
+            await watch.setWatched(watched, contentKey: WatchKey.content(forShow: item, episode: ep),
+                                   source: ep.source, profileID: watchProfileID)
+        }
+        await loadWatchForSeason(n)
+    }
+
+    /// Whether the season has any downloaded episodes to mark — gates the "Mark Season" control.
+    public func hasOwnedEpisodes(inSeason n: Int) -> Bool {
+        !(item.seasons.first(where: { $0.number == n })?.episodes.isEmpty ?? true)
+    }
+
+    /// True when every downloaded episode of the season is finished — drives the toggle label.
+    /// Reads whatever watch state is currently loaded (the selected season is loaded on entry).
+    public func isSeasonWatched(_ n: Int) -> Bool {
+        guard let season = item.seasons.first(where: { $0.number == n }), !season.episodes.isEmpty
+        else { return false }
+        return season.episodes.allSatisfy {
+            watchByKey[WatchKey.content(forShow: item, episode: $0)]?.finished == true
+        }
+    }
+
     /// Build a playback request for a movie source or an episode.
     public func playRequest(source: MediaSource, episode: Episode?, label: String,
                      fromStart: Bool = false) -> PlaybackRequest {
