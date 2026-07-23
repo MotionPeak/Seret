@@ -21,6 +21,11 @@ struct MyLibraryScreen: View {
         return (mineOnly && hasProfiles) ? all.filter { myKeys.contains($0.id) } : all
     }
 
+    /// Finished-movie ids for the ✓ badge (movies only; a movie's content key IS its id).
+    private func watchedMovieIDs(_ store: LibraryStore) -> Set<String> {
+        Set(store.watchByKey.filter { $0.value.finished }.map(\.key))
+    }
+
     var body: some View {
         ZStack {
             CanvasBackground()
@@ -44,15 +49,21 @@ struct MyLibraryScreen: View {
                         state: store.state,
                         onRetry: { store.retry() },
                         onSelect: { router.detail = $0 },
-                        onRemove: { pendingRemoval = $0 })
+                        onRemove: { pendingRemoval = $0 },
+                        watchedMovieIDs: watchedMovieIDs(store),
+                        onToggleWatched: { item in
+                            let isWatched = store.watchByKey[item.id]?.finished == true
+                            Task { await store.setWatched(!isWatched, for: item) }
+                        })
                         .task(id: store.attempt) { await store.load() }
                         // Keyed on the active profile so "Only mine" reloads THIS profile's My List
-                        // when you switch profiles (an id-less .task runs once and would leave the
-                        // previous profile's keys, filtering the grid to the wrong titles).
+                        // AND the watched badges when you switch profiles (an id-less .task runs once
+                        // and would leave the previous profile's keys, filtering the grid wrongly).
                         .task(id: session.activeProfileID) {
                             mineOnly = hasProfiles
                             myKeys = Set((try? await session.myListStore?.contentKeys(
                                 forProfile: session.activeProfileID ?? "")) ?? [])
+                            await store.reloadWatchStates()
                         }
                         .confirmationDialog(
                             "Remove \u{201C}\(pendingRemoval?.title ?? "")\u{201D} from your library?",

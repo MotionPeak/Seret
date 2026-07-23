@@ -12,6 +12,10 @@ struct LibraryGrid: View {
     let onRetry: () -> Void
     let onSelect: (MediaItem) -> Void
     let onRemove: (MediaItem) -> Void
+    /// Movie ids the active profile has finished — drives the ✓ badge + the menu's toggle label.
+    var watchedMovieIDs: Set<String> = []
+    /// Long-press → mark a movie watched/unwatched (movies only; shows are marked per-episode).
+    var onToggleWatched: (MediaItem) -> Void = { _ in }
     @Environment(\.horizontalSizeClass) private var hSize
 
     private var columns: [GridItem] {
@@ -43,13 +47,20 @@ struct LibraryGrid: View {
                 ScrollView {
                     LazyVGrid(columns: columns, spacing: Theme.Space.xl) {
                         ForEach(items) { item in
+                            let isWatched = item.kind == .movie && watchedMovieIDs.contains(item.id)
                             Button { onSelect(item) } label: {
                                 PosterCard(title: item.title,
                                            posterURL: TMDBClient.imageURL(path: item.posterPath, size: "w500"),
-                                           width: nil)
+                                           width: nil, watched: isWatched)
                             }
                             .pressable()
                             .contextMenu {
+                                if item.kind == .movie {
+                                    Button(isWatched ? "Mark Unwatched" : "Mark Watched",
+                                           systemImage: isWatched ? "checkmark.circle.fill" : "checkmark.circle") {
+                                        onToggleWatched(item)
+                                    }
+                                }
                                 Button("Remove from Library", systemImage: "trash", role: .destructive) {
                                     onRemove(item)
                                 }

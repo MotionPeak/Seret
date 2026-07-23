@@ -159,6 +159,7 @@ struct EpisodeRowView: View {
         row.ownedEpisode.map { WatchKey.content(forShow: store.item, episode: $0) }
     }
     private var watch: WatchState? { contentKey.flatMap { store.watchState(forKey: $0) } }
+    private var isWatched: Bool { watch?.finished == true }
 
     var body: some View {
         Button {
@@ -196,6 +197,16 @@ struct EpisodeRowView: View {
         }
         .buttonStyle(.plain)
         .disabled(isDownloading)
+        // Long-press a downloaded episode to mark it watched/unwatched. Empty (no menu) for a
+        // not-yet-downloaded episode — there's nothing to record against.
+        .contextMenu {
+            if let key = contentKey, let src = row.ownedSource {
+                Button(isWatched ? "Mark Unwatched" : "Mark Watched",
+                       systemImage: isWatched ? "checkmark.circle.fill" : "checkmark.circle") {
+                    Task { await store.setWatched(!isWatched, contentKey: key, source: src) }
+                }
+            }
+        }
     }
 
     @ViewBuilder private var trailingIcon: some View {
