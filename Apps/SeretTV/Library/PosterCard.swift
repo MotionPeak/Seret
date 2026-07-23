@@ -6,7 +6,11 @@ import SwiftUI
 /// sits *below* the card as plain text — no grey caption box — so the grid reads cleanly.
 struct PosterCard: View {
     let item: MediaItem
+    /// A finished MOVIE — dims the poster + shows a ✓ badge, and flips the menu's toggle label.
+    var watched: Bool = false
     var onRemove: (MediaItem) -> Void = { _ in }
+    /// Press-and-hold → mark a movie watched/unwatched (movies only; shows are marked per-episode).
+    var onToggleWatched: (MediaItem) -> Void = { _ in }
 
     private let width: CGFloat = 220
     private let height: CGFloat = 330
@@ -18,6 +22,12 @@ struct PosterCard: View {
                 .buttonStyle(.card)
                 .focused($focused)
                 .contextMenu {
+                    if item.kind == .movie {
+                        Button(watched ? "Mark Unwatched" : "Mark Watched",
+                               systemImage: watched ? "checkmark.circle.fill" : "checkmark.circle") {
+                            onToggleWatched(item)
+                        }
+                    }
                     Button("Remove from Library", systemImage: "trash", role: .destructive) {
                         onRemove(item)
                     }
@@ -42,7 +52,18 @@ struct PosterCard: View {
             }
         }
         .frame(width: width, height: height)
+        .overlay { if watched { Color.black.opacity(0.45) } }   // dim a watched movie
         .clipShape(RoundedRectangle(cornerRadius: Theme.Layout.posterCorner, style: .continuous))
+        .overlay(alignment: .topTrailing) {
+            if watched {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 34))
+                    .foregroundStyle(Theme.Palette.gold)
+                    .background(Circle().fill(.black.opacity(0.55)))
+                    .padding(12)
+                    .accessibilityLabel("Watched")
+            }
+        }
     }
 
     /// No artwork available — fall back to the title on a palette surface (not a raw grey block).

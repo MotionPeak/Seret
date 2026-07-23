@@ -23,6 +23,11 @@ struct MyLibraryScreen: View {
         return (mineOnly && hasProfiles) ? all.filter { myKeys.contains($0.id) } : all
     }
 
+    /// Finished-movie ids for the ✓ badge (movies only; a movie's content key IS its id).
+    private func watchedMovieIDs(_ store: LibraryStore) -> Set<String> {
+        Set(store.watchByKey.filter { $0.value.finished }.map(\.key))
+    }
+
     var body: some View {
         VStack(spacing: 24) {
             HStack(spacing: 24) {
@@ -59,7 +64,13 @@ struct MyLibraryScreen: View {
                     items: items(store),
                     state: store.state,
                     onRetry: { store.retry() },
-                    onRemove: { pendingRemoval = $0 })
+                    watchedMovieIDs: watchedMovieIDs(store),
+                    onRemove: { pendingRemoval = $0 },
+                    onToggleWatched: { item in
+                        let isWatched = store.watchByKey[item.id]?.finished == true
+                        Task { await store.setWatched(!isWatched, for: item) }
+                    })
+                    .task(id: session.activeProfileID) { await store.reloadWatchStates() }
                     .alert("Remove \u{201C}\(pendingRemoval?.title ?? "")\u{201D}?",
                            isPresented: Binding(get: { pendingRemoval != nil },
                                                 set: { if !$0 { pendingRemoval = nil } })) {
