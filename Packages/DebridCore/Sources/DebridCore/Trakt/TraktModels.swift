@@ -52,3 +52,74 @@ public struct TraktToken: Codable, Sendable, Equatable {
         case scope
     }
 }
+
+// MARK: - Sync DTOs (playback / watched / ratings)
+
+public struct TraktIDs: Decodable, Sendable, Equatable {
+    public let tmdb: Int?
+    public let trakt: Int?
+}
+
+public struct TraktMovieRef: Decodable, Sendable, Equatable {
+    public let ids: TraktIDs
+    public init(ids: TraktIDs) { self.ids = ids }
+}
+
+public struct TraktShowRef: Decodable, Sendable, Equatable {
+    public let ids: TraktIDs
+    public init(ids: TraktIDs) { self.ids = ids }
+}
+
+public struct TraktEpisodeRef: Decodable, Sendable, Equatable {
+    public let season: Int
+    public let number: Int
+    public let ids: TraktIDs
+    public init(season: Int, number: Int, ids: TraktIDs) {
+        self.season = season; self.number = number; self.ids = ids
+    }
+}
+
+/// One paused item from `/sync/playback/{movies,episodes}`.
+public struct TraktPlaybackItem: Decodable, Sendable, Equatable {
+    public let progress: Double
+    public let pausedAt: String
+    public let type: String
+    public let movie: TraktMovieRef?
+    public let show: TraktShowRef?
+    public let episode: TraktEpisodeRef?
+
+    public init(progress: Double, pausedAt: String, type: String,
+                movie: TraktMovieRef?, show: TraktShowRef?, episode: TraktEpisodeRef?) {
+        self.progress = progress; self.pausedAt = pausedAt; self.type = type
+        self.movie = movie; self.show = show; self.episode = episode
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case progress, type, movie, show, episode
+        case pausedAt = "paused_at"
+    }
+}
+
+public struct TraktWatchedMovie: Decodable, Sendable, Equatable {
+    public let plays: Int
+    public let movie: TraktMovieRef
+}
+
+/// `/sync/watched/shows` collapses to the set of (showTmdb, season, number) watched.
+public struct TraktWatchedShow: Decodable, Sendable, Equatable {
+    public struct Season: Decodable, Sendable, Equatable {
+        public struct Ep: Decodable, Sendable, Equatable { public let number: Int; public let plays: Int }
+        public let number: Int
+        public let episodes: [Ep]
+    }
+    public let show: TraktShowRef
+    public let seasons: [Season]
+}
+
+public struct TraktRatingItem: Decodable, Sendable, Equatable {
+    public let rating: Int
+    public let type: String
+    public let movie: TraktMovieRef?
+    public let show: TraktShowRef?
+    public let episode: TraktEpisodeRef?
+}
