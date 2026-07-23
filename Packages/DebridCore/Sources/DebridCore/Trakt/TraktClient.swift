@@ -105,3 +105,73 @@ extension TraktClient {
             json: body, headers: try await authedHeaders())
     }
 }
+
+// MARK: - Sync reads + writes
+
+private struct AckResponse: Decodable {}
+
+extension TraktClient {
+    // Reads
+    public func playbackMovies() async throws -> [TraktPlaybackItem] {
+        try await http.get(Self.base.appending(path: "sync/playback/movies"),
+                           headers: try await authedHeaders())
+    }
+    public func playbackEpisodes() async throws -> [TraktPlaybackItem] {
+        try await http.get(Self.base.appending(path: "sync/playback/episodes"),
+                           headers: try await authedHeaders())
+    }
+    public func watchedMovies() async throws -> [TraktWatchedMovie] {
+        try await http.get(Self.base.appending(path: "sync/watched/movies"),
+                           headers: try await authedHeaders())
+    }
+    public func watchedShows() async throws -> [TraktWatchedShow] {
+        try await http.get(Self.base.appending(path: "sync/watched/shows"),
+                           headers: try await authedHeaders())
+    }
+    public func ratedMovies() async throws -> [TraktRatingItem] {
+        try await http.get(Self.base.appending(path: "sync/ratings/movies"),
+                           headers: try await authedHeaders())
+    }
+    public func ratedEpisodes() async throws -> [TraktRatingItem] {
+        try await http.get(Self.base.appending(path: "sync/ratings/episodes"),
+                           headers: try await authedHeaders())
+    }
+
+    // Writes
+    private struct SyncBody: Encodable {
+        let movies: [TraktMediaRef.SyncItem]
+        let shows: [TraktMediaRef.SyncItem]
+    }
+
+    private func groupedBody(_ refs: [TraktMediaRef], rating: Int? = nil) -> SyncBody {
+        var movies: [TraktMediaRef.SyncItem] = []
+        var shows: [TraktMediaRef.SyncItem] = []
+        for ref in refs {
+            let item = ref.syncItem(rating: rating)
+            if item.movie != nil { movies.append(item) } else { shows.append(item) }
+        }
+        return SyncBody(movies: movies, shows: shows)
+    }
+
+    public func addToHistory(_ refs: [TraktMediaRef]) async throws {
+        let _: AckResponse = try await http.post(Self.base.appending(path: "sync/history"),
+            json: groupedBody(refs), headers: try await authedHeaders())
+    }
+    public func removeFromHistory(_ refs: [TraktMediaRef]) async throws {
+        let _: AckResponse = try await http.post(Self.base.appending(path: "sync/history/remove"),
+            json: groupedBody(refs), headers: try await authedHeaders())
+    }
+    public func removeFromPlayback(ids: [Int]) async throws {
+        struct Body: Encodable { let ids: [Int] }
+        let _: AckResponse = try await http.post(Self.base.appending(path: "sync/playback/remove"),
+            json: Body(ids: ids), headers: try await authedHeaders())
+    }
+    public func rate(_ ref: TraktMediaRef, rating: Int) async throws {
+        let _: AckResponse = try await http.post(Self.base.appending(path: "sync/ratings"),
+            json: groupedBody([ref], rating: rating), headers: try await authedHeaders())
+    }
+    public func removeRating(_ ref: TraktMediaRef) async throws {
+        let _: AckResponse = try await http.post(Self.base.appending(path: "sync/ratings/remove"),
+            json: groupedBody([ref]), headers: try await authedHeaders())
+    }
+}
