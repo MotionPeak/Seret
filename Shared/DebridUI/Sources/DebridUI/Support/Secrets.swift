@@ -21,4 +21,18 @@ public enum Secrets {
     public static var omdbAPIKey: String {
         (Bundle.main.object(forInfoDictionaryKey: "OMDBAPIKey") as? String) ?? ""
     }
+
+    /// Trakt client id: `TRAKT_CLIENT_ID` (Secrets.xcconfig) → `TraktClientID` (Info.plist) → here.
+    /// Empty string when unset — callers treat empty as "Trakt unavailable."
+    public static var traktClientID: String {
+        (Bundle.main.object(forInfoDictionaryKey: "TraktClientID") as? String) ?? ""
+    }
+
+    /// Trakt client secret: `TRAKT_CLIENT_SECRET` (Secrets.xcconfig) → `TraktClientSecret` (Info.plist) → here.
+    public static var traktClientSecret: String {
+        (Bundle.main.object(forInfoDictionaryKey: "TraktClientSecret") as? String) ?? ""
+    }
+
+    /// Whether a Trakt app is configured at all.
+    public static var traktConfigured: Bool { !traktClientID.isEmpty }
 }
