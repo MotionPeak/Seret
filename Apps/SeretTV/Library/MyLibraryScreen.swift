@@ -9,18 +9,14 @@ struct MyLibraryScreen: View {
     @State private var kind: MediaKind = .movie
     @State private var pendingRemoval: MediaItem?
     @State private var removeErrorMessage: String?
-    @State private var mineOnly = false
-    @State private var myKeys: Set<String> = []
-    /// Which filter pill has focus. Focus only highlights; a Select press switches the kind
+    /// Which kind pill has focus. Focus only highlights; a Select press switches the kind
     /// (commit-on-press).
     @FocusState private var focusedKind: MediaKind?
 
-    /// Show the All/Mine filter only when more than one profile exists.
-    private var hasProfiles: Bool { (session.activeProfiles?.roster.count ?? 0) > 1 }
-
+    /// My Library shows the whole Real-Debrid library (every title you've added) — the Movies/TV
+    /// selector is the only filter.
     private func items(_ store: LibraryStore) -> [MediaItem] {
-        let all = kind == .movie ? store.movies : store.shows
-        return (mineOnly && hasProfiles) ? all.filter { myKeys.contains($0.id) } : all
+        kind == .movie ? store.movies : store.shows
     }
 
     /// Finished-movie ids for the ✓ badge (movies only; a movie's content key IS its id).
@@ -37,22 +33,8 @@ struct MyLibraryScreen: View {
                 Button("TV Shows") { kind = .show }
                     .buttonStyle(SeretPillStyle(selected: kind == .show))
                     .focused($focusedKind, equals: .show)
-                if hasProfiles {
-                    Divider().frame(height: 40)
-                    Button("All") { mineOnly = false }
-                        .buttonStyle(SeretPillStyle(selected: !mineOnly))
-                    Button("Mine") { mineOnly = true }
-                        .buttonStyle(SeretPillStyle(selected: mineOnly))
-                }
             }
             .padding(.top, 30)
-            // Commit-on-press: focus glides across the pills without switching; a click switches the
-            // kind — consistent with the nav bar and the Find segments.
-            .task {
-                mineOnly = hasProfiles
-                myKeys = Set((try? await session.myListStore?.contentKeys(
-                    forProfile: session.activeProfileID ?? "")) ?? [])
-            }
 
             if let tiles = session.downloadStore?.activeTiles, !tiles.isEmpty {
                 DownloadingStrip(tiles: tiles)
