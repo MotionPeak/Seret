@@ -11,4 +11,5 @@ func configure(_ app: Application, config: ServerConfig) async throws {
     app.get("health") { _ in "ok" }
     registerTorrentsRoutes(app)
     registerPlayRoutes(app)
+    registerPlayerPages(app)
 }
