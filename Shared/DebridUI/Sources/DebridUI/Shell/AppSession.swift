@@ -306,10 +306,15 @@ public final class AppSession {
         if traktLinked { Task { await refreshTraktThenHome() } }
     }
 
-    /// Pull the Trakt caches, then rebuild Home so Continue Watching reflects them.
+    /// Pull the Trakt caches, then refresh everything that reads them.
+    ///
+    /// Linking Trakt mid-session has to repaint more than Home: the library grid's watched ✓ comes
+    /// from `LibraryStore.watchByKey`, which is loaded separately and would otherwise stay empty
+    /// until the next library load (looking exactly like "my watch state didn't come back").
     private func refreshTraktThenHome() async {
         await migrateLocalProgressIfNeeded()
         try? await traktProvider?.refresh()
+        await libraryStore?.reloadWatchStates()
         await rebuildHome()
     }
 
