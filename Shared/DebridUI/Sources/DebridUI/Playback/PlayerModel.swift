@@ -1097,6 +1097,75 @@ public final class PlayerModel {
         reload()
     }
 
+    // MARK: - Subtitle browser
+
+    public enum SubtitleSearchState: Equatable {
+        case idle, searching, loaded, failed
+    }
+
+    /// Subtitle tracks muxed into the media.
+    public var embeddedTracks: [MediaTrack] { subtitleTracks.filter { !$0.isExternal } }
+    /// Subtitle tracks attached from a downloaded file this session.
+    public var downloadedTracks: [MediaTrack] { subtitleTracks.filter(\.isExternal) }
+
+    public private(set) var subtitleSearchState: SubtitleSearchState = .idle
+    public private(set) var subtitleSearchResults: [SubtitleMatch.Ranked] = []
+    /// The language whose results are currently shown.
+    public private(set) var subtitleSearchLanguage: String?
+    /// The moviehash of the playing file, resolved lazily on the first browser search and reused.
+    private var currentMoviehash: String?
+    private var moviehashResolved = false
+
+    /// Search every subtitle for a language and rank them against the file actually playing. The
+    /// moviehash is resolved once per source — two small range requests — turning a filename
+    /// heuristic into a perfect-sync guarantee.
+    public func searchSubtitles(language: String) async {
+        guard let subtitles else { subtitleSearchState = .failed; return }
+        subtitleSearchLanguage = language
+        subtitleSearchState = .searching
+        subtitleSearchResults = []
+        await resolveMoviehashIfNeeded()
+        var query = episode.map { SubtitleQuery.episode(show: item, episode: $0) }
+            ?? SubtitleQuery.movie(item)
+        query.moviehash = currentMoviehash
+        do {
+            let results = try await subtitles.search(query, languages: [language])
+            subtitleSearchResults = SubtitleMatch.rank(results,
+                                                       against: currentSource.releaseNameForMatching,
+                                                       videoFPS: nil)
+            subtitleSearchState = .loaded
+        } catch {
+            subtitleSearchState = .failed
+        }
+    }
+
+    /// Download a chosen search result and attach it, reusing the same pending-attach handshake as
+    /// the language rows (VLCKit surfaces a slave asynchronously via `.tracksChanged`).
+    public func useSubtitle(_ ranked: SubtitleMatch.Ranked) async {
+        guard let subtitles else { return }
+        do {
+            let url = try await subtitles.download(ranked.result)
+            if let text = (try? String(contentsOf: url, encoding: .utf8))
+                ?? (try? String(contentsOf: url, encoding: .isoLatin1)) {
+                contentEndTime = SubtitleTiming.lastCueEndSeconds(in: text)
+            }
+            let before = Set(engine.subtitleTracks.map(\.id))
+            engine.addExternalSubtitle(url: url)
+            pendingSubtitleAttach = (ranked.result.language, before)
+            refreshTracks()
+            scheduleSubtitleAttachTimeout(language: ranked.result.language)
+        } catch {
+            subtitleSearchState = .failed
+        }
+    }
+
+    private func resolveMoviehashIfNeeded() async {
+        guard !moviehashResolved else { return }
+        moviehashResolved = true
+        guard let url = try? await unrestrict(currentSource.restrictedLink) else { return }
+        currentMoviehash = await MovieHash.remote(url: url)
+    }
+
     // MARK: - Subtitles
 
     public func requestSubtitle(language: String) async {
