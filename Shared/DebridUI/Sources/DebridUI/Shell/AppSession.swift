@@ -308,8 +308,36 @@ public final class AppSession {
 
     /// Pull the Trakt caches, then rebuild Home so Continue Watching reflects them.
     private func refreshTraktThenHome() async {
+        await migrateLocalProgressIfNeeded()
         try? await traktProvider?.refresh()
         await rebuildHome()
+    }
+
+    /// Key for the once-per-device flag guarding the legacy-progress hand-off.
+    private static let migratedKey = "trakt.migratedLocalProgress"
+
+    /// One-time hand-off: push watch progress recorded before Trakt to the linked account, so
+    /// existing resume points and watched titles survive the switch. Runs at most once per device
+    /// (and only while linked); entirely best-effort — a failure must never block sign-in, and the
+    /// flag is only set on success so a failed attempt retries next launch.
+    private func migrateLocalProgressIfNeeded() async {
+        guard traktLinked, let client = traktClient, let legacy = watchProgressStore else { return }
+        guard !UserDefaults.standard.bool(forKey: Self.migratedKey) else { return }
+        guard let states = try? await legacy.allStates(), !states.isEmpty else {
+            UserDefaults.standard.set(true, forKey: Self.migratedKey)   // nothing to carry over
+            return
+        }
+        let rows = TraktMigration.rows(from: states)
+        guard !rows.isEmpty else {
+            UserDefaults.standard.set(true, forKey: Self.migratedKey)
+            return
+        }
+        do {
+            try await TraktMigration.push(rows, to: client)
+            UserDefaults.standard.set(true, forKey: Self.migratedKey)
+        } catch {
+            // Leave the flag unset so the next launch tries again.
+        }
     }
 
     /// A `TraktAuthModel` for the Settings "Link Trakt" flow (nil when unconfigured/signed out).

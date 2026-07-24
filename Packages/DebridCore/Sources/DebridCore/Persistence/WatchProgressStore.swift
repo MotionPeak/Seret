@@ -80,6 +80,14 @@ public actor WatchProgressStore {
         try modelContext.fetchCount(FetchDescriptor<WatchProgress>())
     }
 
+    /// Every stored row, newest first, across all profiles. Exists for the one-time migration that
+    /// pushes locally-recorded progress to Trakt before this store is retired; nothing in the live
+    /// app reads watch state from here anymore.
+    public func allStates() throws -> [WatchState] {
+        try modelContext.fetch(FetchDescriptor<WatchProgress>(
+            sortBy: [SortDescriptor(\.updatedAt, order: .reverse)])).map(WatchState.init)
+    }
+
     /// Newest row for (`key`, `profileID`). If CloudKit merged duplicates, keep the newest
     /// (`updatedAt`) and delete the rest so the store converges to one row per key+profile.
     private func fetchOne(contentKey key: String, profileID: String) throws -> WatchProgress? {
