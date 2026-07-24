@@ -80,4 +80,45 @@ import DebridCore
         #expect(model.hasRenderedFrame == true)     // grace expired → accepted, overlay cleared
         #expect(model.position > 570)               // and the bar tracks the real playhead
     }
+
+    @Test func anEndBeforeAnyFrameIsAFailureNotAnEndOfFile() async {
+        // VLCKit maps a failed open AND a real EOF to .stopped → .ended. Treating a failed open
+        // as EOF records progress at 0 and silently binges forward to the next episode.
+        let engine = FakeVideoPlayerEngine()
+        var advancedTo: [String] = []
+        let model = PlayerModel(request: Fixture.showRequest(playingEpisode: 1), engine: engine,
+                                unrestrict: { link in advancedTo.append(link)
+                                              return URL(string: "https://cdn/x.mkv")! },
+                                recordProgress: { _, _, _, _ in }, subtitles: nil)
+        model.start()
+        await model.waitForIdleForTesting()
+        #expect(advancedTo == ["rd://e1"])
+
+        engine.emit(.state(.ended))                    // never rendered, position still 0
+        await model.waitForIdleForTesting()
+
+        #expect(model.phase == .failed("The stream stopped before it started. The Real-Debrid link may have expired."))
+        #expect(advancedTo == ["rd://e1"])             // did NOT auto-advance
+        #expect(model.shouldDismiss == false)
+    }
+
+    @Test func anEndAfterRealPlaybackStillAdvances() async {
+        let engine = FakeVideoPlayerEngine()
+        var advancedTo: [String] = []
+        let model = PlayerModel(request: Fixture.showRequest(playingEpisode: 1), engine: engine,
+                                unrestrict: { link in advancedTo.append(link)
+                                              return URL(string: "https://cdn/x.mkv")! },
+                                recordProgress: { _, _, _, _ in }, subtitles: nil)
+        model.start()
+        await model.waitForIdleForTesting()
+        engine.emit(.time(.init(position: 100, duration: 120)))
+        engine.emit(.time(.init(position: 119, duration: 120)))
+        await model.waitForIdleForTesting()
+        #expect(model.hasRenderedFrame == true)
+
+        engine.emit(.state(.ended))
+        await model.waitForIdleForTesting()
+
+        #expect(advancedTo == ["rd://e1", "rd://e2"])  // real EOF → binge advance, unchanged
+    }
 }

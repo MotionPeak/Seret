@@ -123,9 +123,15 @@ import DebridCore
         let model = makeModel(request: Fixture.request(), engine: engine,
                               recorded: { _, _, p, d in saves.append((p, d)) })
         model.start(); await model.waitForIdleForTesting()
+        // Play to near the end first. `.ended` straight after start() is indistinguishable from a
+        // stream that failed to open, and finish() now treats that as a failure rather than
+        // silently recording progress at 0 and dismissing.
+        engine.emit(.time(.init(position: 95, duration: 100))); await model.waitForIdleForTesting()
+        engine.emit(.time(.init(position: 99, duration: 100))); await model.waitForIdleForTesting()
+        let savesBeforeEnd = saves.count
         engine.emit(.state(.ended)); await model.waitForIdleForTesting()
         engine.emit(.state(.ended)); await model.waitForIdleForTesting()
-        #expect(saves.count == 1)              // finish() guarded against the second .ended
+        #expect(saves.count == savesBeforeEnd + 1)   // finish() guarded against the second .ended
         #expect(model.shouldDismiss == true)
     }
 
@@ -539,6 +545,10 @@ import DebridCore
         let engine = FakeVideoPlayerEngine()
         let model = makeModel(request: Fixture.showRequest(playingEpisode: 2), engine: engine)
         model.start(); await model.waitForIdleForTesting()
+        // Play through first: a bare `.ended` after start() is what a FAILED OPEN looks like, and
+        // finish() now distinguishes the two rather than dismissing on a dead link.
+        engine.emit(.time(.init(position: 1390, duration: 1400))); await model.waitForIdleForTesting()
+        engine.emit(.time(.init(position: 1399, duration: 1400))); await model.waitForIdleForTesting()
         engine.emit(.state(.ended)); await model.waitForIdleForTesting()
         #expect(model.phase == .ended)
         #expect(model.shouldDismiss == true)             // no next episode → dismiss

@@ -654,6 +654,14 @@ public final class PlayerModel {
     private func finish() async {
         guard phase != .ended else { return }   // VLCKit can emit .stopped + .ended; finish once
         guard !isSwitching else { return }      // ignore the OLD media's late `.ended` mid-swap
+        // VLCKit maps BOTH end-of-file and a failed open to `.stopped`/`.stopping` → `.ended`.
+        // A media that never rendered a frame and never moved the playhead did not END — it never
+        // STARTED. Treating that as EOF records progress at 0 and silently auto-advances to the
+        // next episode with no error and no Retry.
+        if !hasRenderedFrame, position < 1 {
+            phase = .failed("The stream stopped before it started. The Real-Debrid link may have expired.")
+            return
+        }
         // Binge: a finished episode records its tail, then auto-advances to the next one in-place
         // (same player/engine) — unless the viewer dismissed the Up Next bar to watch the credits,
         // in which case the real file end exits. A movie or last episode records and dismisses.
