@@ -209,6 +209,12 @@ public final class PlayerModel {
     private var seekDispatchTask: Task<Void, Never>?
     private var coalescedSeekTarget: Double?
     private var dispatchedSeekTarget: Double?
+    /// Bumped for every coalescing window opened or cancelled. A window task only clears
+    /// `seekDispatchTask` when its own generation is still current — a cancelled task's cleanup
+    /// runs at its next suspension point, by which time a LIVE successor may already own the slot.
+    /// Nulling it there made the next skip open a fresh window and seek eagerly instead of
+    /// coalescing, which is the burst-rebuffering the coalescer exists to prevent.
+    private var seekGeneration: UInt64 = 0
 
     // MARK: - Up Next (binge)
     /// Last subtitle cue (seconds), when a sub was downloaded. A FLOOR for the Up Next bar — it
@@ -513,6 +519,7 @@ public final class PlayerModel {
         if let seek = pendingSeek {
             guard abs(t.position - seek.to) < abs(t.position - seek.from) else { return }
             pendingSeek = nil                           // landed → resume live tracking
+            isBuffering = false                         // …and the loading hint comes down
         }
 
         position = t.position
@@ -802,10 +809,14 @@ public final class PlayerModel {
         guard seekDispatchTask == nil else { return }   // window open → the trailing pass handles it
         engine.seek(to: target)
         dispatchedSeekTarget = target
+        seekGeneration &+= 1
+        let generation = seekGeneration
         seekDispatchTask = Task { @MainActor in
-            defer { seekDispatchTask = nil }
+            // Only this window may clear the slot, and only while it is still the current one —
+            // a cancelled predecessor's cleanup must not evict a live successor.
+            defer { if seekGeneration == generation { seekDispatchTask = nil } }
             try? await Task.sleep(for: .seconds(seekCoalesceWindow))
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, seekGeneration == generation else { return }
             if let final = coalescedSeekTarget, final != dispatchedSeekTarget {
                 engine.seek(to: final)
             }
@@ -818,6 +829,7 @@ public final class PlayerModel {
     private func cancelCoalescedSeek() {
         seekDispatchTask?.cancel()
         seekDispatchTask = nil
+        seekGeneration &+= 1                            // orphan the cancelled task's cleanup
         coalescedSeekTarget = nil
         dispatchedSeekTarget = nil
     }
@@ -1050,5 +1062,12 @@ public final class PlayerModel {
     public func waitForIdleForTesting() async {
         await Task.yield()
         try? await Task.sleep(nanoseconds: 20_000_000)
+    }
+
+    /// Test seam: perform a full scrub cycle to `seconds` in one call.
+    func commitScrubForTesting(to seconds: Double) {
+        beginScrub()
+        updateScrub(by: seconds - scrubTarget)
+        commitScrub()
     }
 }
