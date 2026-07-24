@@ -39,6 +39,8 @@ struct SettingsView: View {
                 .padding(40)
                 .background(Theme.Palette.surface1, in: RoundedRectangle(cornerRadius: 24))
 
+                TraktLinkSection()
+
                 VStack(alignment: .leading, spacing: 16) {
                     Label("Subtitles", systemImage: "textformat.size")
                         .font(.title3.bold()).foregroundStyle(Theme.Palette.gold)
