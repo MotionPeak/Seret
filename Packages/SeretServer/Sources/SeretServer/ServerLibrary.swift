@@ -21,11 +21,15 @@ actor ServerLibrary {
     var isEmpty: Bool { cache.isEmpty }
     func item(id: String) -> MediaItem? { cache.first { $0.id == id } }
 
+    /// Both fan-outs run with concurrency 1 on purpose. swift-corelibs-foundation's URLSession is
+    /// far less robust than Apple's under parallel requests, and concurrent RD/TMDB calls trapped
+    /// on an unnamed (libcurl worker) thread here. The library is built once and cached, so the
+    /// serial cost is irrelevant.
     @discardableResult
     func refresh() async throws -> [MediaItem] {
-        let infos = try await torrents.allTorrentInfos()
+        let infos = try await torrents.allTorrentInfos(maxConcurrent: 1)
         let grouped = builder.group(infos)
-        let enriched = await enricher.enrich(grouped)
+        let enriched = await enricher.enrich(grouped, maxConcurrent: 1)
         cache = Self.mergeDuplicates(enriched)
         return cache
     }

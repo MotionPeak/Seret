@@ -26,7 +26,8 @@ func configure(_ app: Application, config: ServerConfig) async throws {
     registerPlayRoutes(app)
     registerPlayerPages(app)
 
-    // Warm the library at boot so the first page load isn't paying for the whole RD+TMDB pass.
-    let library = app.library
-    Task { try? await library.refresh() }
+    // NOTE: deliberately no boot-time warm-up. Building the library at startup means any failure
+    // in that path kills the process before it can serve anything, and `--restart unless-stopped`
+    // turns that into an endless crash-loop with no way to reach /health or read the error. The
+    // library builds lazily on the first /api/library request instead.
 }
