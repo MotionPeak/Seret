@@ -136,6 +136,16 @@ public final class PlayerModel {
     /// not-yet-loaded (tap Play right after Detail opens) or stale (immediate re-play) when the
     /// request was built. Also what lets retry/try-another-version resume where playback failed.
     private let resolveResume: ((String) async -> Double?)?
+    /// Resume lookup for backends that store progress as a FRACTION of the runtime (Trakt stores a
+    /// percentage, not seconds). Resolved at load time, but converted to a seek target only once the
+    /// media reports its duration — at load `duration` is still 0, so seconds aren't computable yet.
+    /// Takes precedence over `resolveResume` when both are wired.
+    private let resolveResumeFraction: ((String) async -> Double?)?
+    /// Scrobble lifecycle hooks (fraction 0…1 of the runtime). Optional: nil keeps the pre-Trakt
+    /// behavior exactly, which is what every existing caller and unit test relies on.
+    private let onScrobbleStart: ((Double) async -> Void)?
+    private let onScrobblePause: ((Double) async -> Void)?
+    private let onScrobbleStop: ((Double) async -> Void)?
     /// Fire-and-forget unrestrict warm-up (PlayableLinkCache.prefetch) — called for the next
     /// episode's link when the Up Next bar appears, so a binge auto-advance starts instantly.
     private let prefetchLink: ((String) -> Void)?
@@ -168,6 +178,9 @@ public final class PlayerModel {
     /// deferred seek (not a load-time start-time) keeps the whole timeline seekable.
     private var resumeTarget: Double = 0
     private var resumeSeekIssued: Bool = false
+    /// A pending fractional resume (0…1) awaiting a known duration — converted to `resumeTarget`
+    /// on the first tick that reports one, then cleared.
+    private var resumeFraction: Double = 0
     /// A manual seek (skip/commitScrub) in flight: `to` is the optimistic target the bar already
     /// shows, `from` the pre-seek playhead. While set, `tick()` ignores VLCKit's stale pre-seek
     /// time echoes (which would snap the bar back) until a tick arrives nearer `to` than `from`.
@@ -292,6 +305,10 @@ public final class PlayerModel {
          details: MediaDetailsProviding? = nil,
          trackPreferences: TrackPreferenceStoring? = nil,
          resolveResume: ((String) async -> Double?)? = nil,
+         resolveResumeFraction: ((String) async -> Double?)? = nil,
+         onScrobbleStart: ((Double) async -> Void)? = nil,
+         onScrobblePause: ((Double) async -> Void)? = nil,
+         onScrobbleStop: ((Double) async -> Void)? = nil,
          prefetchLink: ((String) -> Void)? = nil,
          autoHideDelay: Double = 4,
          seekCoalesceWindow: Double = 0.35) {
@@ -300,6 +317,10 @@ public final class PlayerModel {
         self.details = details
         self.trackPreferences = trackPreferences
         self.resolveResume = resolveResume
+        self.resolveResumeFraction = resolveResumeFraction
+        self.onScrobbleStart = onScrobbleStart
+        self.onScrobblePause = onScrobblePause
+        self.onScrobbleStop = onScrobbleStop
         self.prefetchLink = prefetchLink
         self.fromStart = request.fromStart
         self.item = request.item
@@ -351,6 +372,7 @@ public final class PlayerModel {
         // screen's watch-state load or go stale after a previous playback.
         resumeTarget = fromStart ? 0 : max(resumeAt ?? 0, 0)
         resumeSeekIssued = false
+        resumeFraction = 0
         pendingSeek = nil
         cancelCoalescedSeek()
         trackPrefsApplied = false
@@ -363,7 +385,13 @@ public final class PlayerModel {
         do {
             // The resume lookup first (a local store read, single-digit ms), then unrestrict —
             // which is instant anyway when the link was prefetched (PlayableLinkCache).
-            if !fromStart, let resolveResume {
+            if !fromStart, let resolveResumeFraction {
+                // Fractional backend (Trakt): stash the fraction; tick() turns it into a seek
+                // target as soon as the media reports a duration (it's 0 here).
+                let f = await resolveResumeFraction(contentKey) ?? 0
+                resumeFraction = (f > 0 && f < 1) ? f : 0
+                resumeTarget = 0
+            } else if !fromStart, let resolveResume {
                 let saved = await resolveResume(contentKey) ?? 0
                 resumeTarget = saved > 0 ? saved : 0     // authoritative: overrides the UI hint
             }
@@ -397,11 +425,19 @@ public final class PlayerModel {
             markRendered()
             refreshTracks()
             armAutoHide()
+            if let onScrobbleStart {
+                let f = currentFraction
+                Task { await onScrobbleStart(f) }   // the scrobbler dedups repeat starts
+            }
         case .paused:
             phase = .paused
             isBuffering = false
             controlsVisible = true            // a paused viewer is looking — keep controls up
             hideControlsTask?.cancel()
+            if let onScrobblePause {
+                let f = currentFraction
+                Task { await onScrobblePause(f) }
+            }
         case .ended:
             Task { await finish() }
         case .failed(let reason):
@@ -411,6 +447,14 @@ public final class PlayerModel {
 
     private func tick(_ t: PlaybackTime) async {
         duration = t.duration
+
+        // A fractional resume (Trakt stores a percentage) becomes a real seek target the moment the
+        // media reports its length — this is the earliest point seconds are computable. From here the
+        // existing resumeTarget path below owns the seek/arrival handling unchanged.
+        if resumeFraction > 0, t.duration > 0 {
+            resumeTarget = resumeFraction * t.duration
+            resumeFraction = 0
+        }
 
         // Resume: the load path already issued a best-effort seek. Arrival is checked FIRST so
         // that when VLC honored it (first ticks land at the point) no second seek fires; when it
@@ -598,8 +642,20 @@ public final class PlayerModel {
         shouldDismiss = true
     }
 
+    /// Progress through the current media as a 0…1 fraction (0 when the length isn't known yet).
+    private var currentFraction: Double {
+        duration > 0 ? max(0, min(1, position / duration)) : 0
+    }
+
+    /// Called at every playback end-point: teardown, finish, and episode switches. With a scrobble
+    /// backend wired this is the `stop` event (Trakt finalizes the resume point / marks watched off
+    /// it); otherwise it falls back to the original progress write.
     private func recordCurrentProgress() async {
-        await recordProgress(contentKey, WatchKey.source(currentSource), position, duration)
+        if let onScrobbleStop {
+            await onScrobbleStop(currentFraction)
+        } else {
+            await recordProgress(contentKey, WatchKey.source(currentSource), position, duration)
+        }
     }
 
     /// Manually skip to the next episode (the transport "Next Episode" button). Records the current
