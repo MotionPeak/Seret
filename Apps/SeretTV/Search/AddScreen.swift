@@ -288,6 +288,7 @@ private struct AddActions: View {
                 }
                 addStatus
             }
+            pickedDownloadStatus                     // progress/error for a version picked below
             if showAll { expandedVersionList }      // the version list drops BELOW the row
         }
         .alert("Replace existing version?",
@@ -408,6 +409,33 @@ private struct AddActions: View {
             Label(msg, systemImage: "exclamationmark.triangle").font(.title3).foregroundStyle(.orange)
         default:
             EmptyView()
+        }
+    }
+
+    /// Live progress (or failure) for a download started by picking an uncached version from
+    /// "Show all versions". `DownloadSection` only shows in `.noStreams`; when a cached best also
+    /// exists the pick had no visible feedback — RD-blocked/new titles looked like a dead tap.
+    @ViewBuilder private var pickedDownloadStatus: some View {
+        if case .noStreams = add.state {
+            EmptyView()   // DownloadSection already surfaces progress in that state
+        } else if let status = session.downloadStore?.status(forTMDB: flow.tmdbID) {
+            switch status.phase {
+            case .queued:
+                ProgressView("Starting download…").font(.title3)
+            case .downloading:
+                let pct = Int(status.fraction * 100)
+                Label("Downloading \(pct)% to Real‑Debrid…", systemImage: "arrow.down.circle.fill")
+                    .font(.title3).foregroundStyle(.yellow)
+                ProgressView(value: status.fraction).tint(.yellow).frame(maxWidth: 700)
+                Text("It'll appear in your library when it's ready.").font(.callout).foregroundStyle(.secondary)
+                Button(role: .destructive) {
+                    Task { await session.downloadStore?.cancel(tmdbID: flow.tmdbID) }
+                } label: { Label("Cancel download", systemImage: "xmark.circle") }.font(.title3)
+            case .failed(let reason):
+                Label(reason, systemImage: "exclamationmark.triangle").font(.title3).foregroundStyle(.orange)
+            case .ready:
+                EmptyView()
+            }
         }
     }
 

@@ -257,6 +257,7 @@ private struct AddActionsView: View {
             default:
                 actions
             }
+            pickedDownloadStatus                      // progress/error for a version picked below
             if showAllAvailable { showAllVersions }
         }
         .confirmationDialog(
@@ -394,6 +395,36 @@ private struct AddActionsView: View {
                 .font(Theme.Typo.body()).foregroundStyle(.orange)
         default:
             EmptyView()
+        }
+    }
+
+    /// Live progress (or failure) for a download started by picking an uncached version from
+    /// "Show all versions". `DownloadSection` only shows in `.noStreams`; when a cached best also
+    /// exists the pick had no visible feedback — RD-blocked/new titles looked like a dead tap.
+    @ViewBuilder private var pickedDownloadStatus: some View {
+        if case .noStreams = add.state {
+            EmptyView()   // DownloadSection already surfaces progress in that state
+        } else if let status = session.downloadStore?.status(forTMDB: flow.tmdbID) {
+            switch status.phase {
+            case .queued:
+                ProgressView("Starting download…").tint(Theme.Palette.gold)
+            case .downloading:
+                let pct = Int(status.fraction * 100)
+                Label("Downloading \(pct)% to Real‑Debrid…", systemImage: "arrow.down.circle.fill")
+                    .font(Theme.Typo.body()).foregroundStyle(Theme.Palette.gold)
+                ProgressView(value: status.fraction).tint(Theme.Palette.gold)
+                Text("It'll appear in your library when it's ready.")
+                    .font(Theme.Typo.caption()).foregroundStyle(Theme.Palette.textTertiary)
+                Button(role: .destructive) {
+                    Task { await session.downloadStore?.cancel(tmdbID: flow.tmdbID) }
+                } label: { Label("Cancel download", systemImage: "xmark.circle") }
+                    .buttonStyle(GhostButtonStyle())
+            case .failed(let reason):
+                Label(reason, systemImage: "exclamationmark.triangle")
+                    .font(Theme.Typo.body()).foregroundStyle(.orange)
+            case .ready:
+                EmptyView()
+            }
         }
     }
 

@@ -398,7 +398,8 @@ public final class AppSession {
         profileStore = stores?.profiles
         myListStore = stores?.myList
         profileStoreMode = stores?.mode ?? "none"
-        libraryStore = LibraryStore(library: service, watch: watchStore)
+        libraryStore = LibraryStore(library: service, watch: watchStore,
+                                    profileID: { [weak self] in self?.activeProfileID })
         searchStore = SearchStore(search: TMDBSearchService(client: tmdb))
         let discover = TMDBDiscoverService(client: tmdb)
         let seedService = RecommendationSeedService(

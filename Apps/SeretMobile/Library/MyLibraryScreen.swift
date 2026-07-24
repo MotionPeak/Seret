@@ -10,15 +10,16 @@ struct MyLibraryScreen: View {
     @State private var kind: MediaKind = .movie
     @State private var pendingRemoval: MediaItem?
     @State private var removeErrorMessage: String?
-    @State private var mineOnly = false
-    @State private var myKeys: Set<String> = []
 
-    /// Show the All/Mine filter only when more than one profile exists.
-    private var hasProfiles: Bool { (session.activeProfiles?.roster.count ?? 0) > 1 }
-
+    /// My Library shows the whole Real-Debrid library (every title you've added) — the Movies/TV
+    /// picker is the only filter.
     private func items(_ store: LibraryStore) -> [MediaItem] {
-        let all = kind == .movie ? store.movies : store.shows
-        return (mineOnly && hasProfiles) ? all.filter { myKeys.contains($0.id) } : all
+        kind == .movie ? store.movies : store.shows
+    }
+
+    /// Finished-movie ids for the ✓ badge (movies only; a movie's content key IS its id).
+    private func watchedMovieIDs(_ store: LibraryStore) -> Set<String> {
+        Set(store.watchByKey.filter { $0.value.finished }.map(\.key))
     }
 
     var body: some View {
@@ -44,16 +45,16 @@ struct MyLibraryScreen: View {
                         state: store.state,
                         onRetry: { store.retry() },
                         onSelect: { router.detail = $0 },
-                        onRemove: { pendingRemoval = $0 })
+                        onRemove: { pendingRemoval = $0 },
+                        watchedMovieIDs: watchedMovieIDs(store),
+                        onToggleWatched: { item in
+                            let isWatched = store.watchByKey[item.id]?.finished == true
+                            Task { await store.setWatched(!isWatched, for: item) }
+                        })
                         .task(id: store.attempt) { await store.load() }
-                        // Keyed on the active profile so "Only mine" reloads THIS profile's My List
-                        // when you switch profiles (an id-less .task runs once and would leave the
-                        // previous profile's keys, filtering the grid to the wrong titles).
-                        .task(id: session.activeProfileID) {
-                            mineOnly = hasProfiles
-                            myKeys = Set((try? await session.myListStore?.contentKeys(
-                                forProfile: session.activeProfileID ?? "")) ?? [])
-                        }
+                        // Watch state is per-profile — reload the ✓ badges when the active profile
+                        // changes (an id-less .task would keep the previous profile's badges).
+                        .task(id: session.activeProfileID) { await store.reloadWatchStates() }
                         .confirmationDialog(
                             "Remove \u{201C}\(pendingRemoval?.title ?? "")\u{201D} from your library?",
                             isPresented: Binding(get: { pendingRemoval != nil },
@@ -83,24 +84,6 @@ struct MyLibraryScreen: View {
             }
         }
         .navigationTitle("My Library")
-        .toolbar {
-            // The profile scope (everyone's content vs just mine) is a filter tucked in the nav bar —
-            // shown only with multiple profiles — so the grid keeps a single, uncluttered kind picker.
-            if hasProfiles {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Picker("Show", selection: $mineOnly) {
-                            Text("Everyone's library").tag(false)
-                            Text("Only mine").tag(true)
-                        }
-                    } label: {
-                        Image(systemName: mineOnly ? "person.crop.circle" : "person.2")
-                            .tint(Theme.Palette.gold)
-                    }
-                    .accessibilityLabel("Library scope")
-                }
-            }
-        }
     }
 }
 

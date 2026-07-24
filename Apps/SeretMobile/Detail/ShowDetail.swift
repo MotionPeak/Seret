@@ -38,6 +38,7 @@ struct ShowDetail: View {
                 heroAction
                 UserRatingRow(store: store)
                 seasonPicker
+                markSeasonButton
                 SeasonDownloadButton(store: seasonStore, onAdded: onSeasonAdded)
                 episodeList
             }
@@ -117,6 +118,21 @@ struct ShowDetail: View {
         }
     }
 
+    /// One tap to mark the whole selected season watched/unwatched (its downloaded episodes).
+    /// Hidden when the season has no downloaded episodes to mark.
+    @ViewBuilder private var markSeasonButton: some View {
+        if store.hasOwnedEpisodes(inSeason: store.selectedSeason) {
+            let watched = store.isSeasonWatched(store.selectedSeason)
+            Button {
+                Task { await store.setSeasonWatched(!watched, season: store.selectedSeason) }
+            } label: {
+                Label(watched ? "Mark Season Unwatched" : "Mark Season Watched",
+                      systemImage: watched ? "checkmark.circle.fill" : "checkmark.circle")
+            }
+            .buttonStyle(GhostButtonStyle())
+        }
+    }
+
     private var episodeList: some View {
         VStack(spacing: 0) {
             ForEach(store.episodes(forSeason: store.selectedSeason)) { row in
@@ -160,6 +176,7 @@ struct EpisodeRowView: View {
         row.ownedEpisode.map { WatchKey.content(forShow: store.item, episode: $0) }
     }
     private var watch: WatchState? { contentKey.flatMap { store.watchState(forKey: $0) } }
+    private var isWatched: Bool { watch?.finished == true }
 
     var body: some View {
         Button {
@@ -197,6 +214,16 @@ struct EpisodeRowView: View {
         }
         .buttonStyle(.plain)
         .disabled(isDownloading)
+        // Long-press a downloaded episode to mark it watched/unwatched. Empty (no menu) for a
+        // not-yet-downloaded episode — there's nothing to record against.
+        .contextMenu {
+            if let key = contentKey, let src = row.ownedSource {
+                Button(isWatched ? "Mark Unwatched" : "Mark Watched",
+                       systemImage: isWatched ? "checkmark.circle.fill" : "checkmark.circle") {
+                    Task { await store.setWatched(!isWatched, contentKey: key, source: src) }
+                }
+            }
+        }
     }
 
     @ViewBuilder private var trailingIcon: some View {

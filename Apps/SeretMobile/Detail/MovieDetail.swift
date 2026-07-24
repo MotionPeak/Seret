@@ -12,6 +12,7 @@ struct MovieDetail: View {
     private var item: MediaItem { store.item }
     private var contentKey: String { WatchKey.content(forMovie: item) }
     private var watch: WatchState? { store.watchState(forKey: contentKey) }
+    private var isWatched: Bool { watch?.finished == true }
     @State private var pendingVersionRemoval: MediaSource?
 
     var body: some View {
@@ -85,8 +86,28 @@ struct MovieDetail: View {
                         Label("Play", systemImage: "play.fill")
                     }.buttonStyle(GoldButtonStyle())
                 }
+                Spacer(minLength: 0)
+                watchedMenu(best: best)
             }
         }
+    }
+
+    /// A trailing "…" menu holding Mark Watched/Unwatched — off the primary Play path (mirrors the
+    /// tvOS Detail's More menu). Only shown when there's a source to record against.
+    private func watchedMenu(best: MediaSource) -> some View {
+        Menu {
+            Button {
+                Task { await store.setWatched(!isWatched, contentKey: contentKey, source: best) }
+            } label: {
+                Label(isWatched ? "Mark Unwatched" : "Mark Watched",
+                      systemImage: isWatched ? "checkmark.circle.fill" : "checkmark.circle")
+            }
+        } label: {
+            Image(systemName: "ellipsis.circle")
+                .font(.title2).foregroundStyle(Theme.Palette.gold)
+                .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+        }
+        .accessibilityLabel("More options")
     }
 
     private var versionsSection: some View {

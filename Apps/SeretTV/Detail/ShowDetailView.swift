@@ -38,6 +38,7 @@ struct ShowDetailView: View {
                 VStack(alignment: .leading, spacing: 32) {
                     hero.frame(maxWidth: .infinity, alignment: .leading)
                     seasonPicker
+                    markSeasonButton
                     SeasonDownloadButton(store: seasonStore, onAdded: onSeasonAdded)
                     episodeList
                 }
@@ -136,6 +137,21 @@ struct ShowDetailView: View {
             .onChange(of: focusedSeason) { _, new in
                 if let new, new != store.selectedSeason { Task { await store.selectSeason(new) } }
             }
+        }
+    }
+
+    /// One press to mark the whole selected season watched/unwatched (its downloaded episodes).
+    /// Hidden when the season has no downloaded episodes to mark.
+    @ViewBuilder private var markSeasonButton: some View {
+        if store.hasOwnedEpisodes(inSeason: store.selectedSeason) {
+            let watched = store.isSeasonWatched(store.selectedSeason)
+            Button {
+                Task { await store.setSeasonWatched(!watched, season: store.selectedSeason) }
+            } label: {
+                Label(watched ? "Mark Season Unwatched" : "Mark Season Watched",
+                      systemImage: watched ? "checkmark.circle.fill" : "checkmark.circle")
+            }
+            .buttonStyle(SeretActionButtonStyle())
         }
     }
 
