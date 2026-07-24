@@ -434,6 +434,12 @@ public final class PlayerModel {
             isBuffering = false
             controlsVisible = true            // a paused viewer is looking — keep controls up
             hideControlsTask?.cancel()
+            // A `.paused` means the media is OPEN and a frame is on screen — VLCKit renders the
+            // first frame when it pauses. Without this the full-screen overlay stays up over a
+            // ready video and the only escape is the hardware Play button (the reported bug).
+            // Guarded on `isSwitching` so the OUTGOING media's late `.paused` during an episode
+            // swap can't clear the swap guard early and let a stale `.ended` auto-advance.
+            if !isSwitching { markRendered() }
             if let onScrobblePause {
                 let f = currentFraction
                 Task { await onScrobblePause(f) }
