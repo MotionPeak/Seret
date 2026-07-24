@@ -345,8 +345,33 @@ public final class AppSession {
             let counts = await provider.cacheCounts()
             traktSyncState = .succeeded(ratings: counts.ratings, watched: counts.watched)
         } catch {
-            traktSyncState = .failed("Couldn’t reach Trakt. Check your connection.")
+            traktSyncState = .failed(Self.syncMessage(for: error))
         }
+    }
+
+    /// Say what actually went wrong. A blanket "check your connection" is worse than useless here:
+    /// an expired token, a revoked grant and a dead network all look identical, and the failure is
+    /// otherwise silent (reads swallow it and just render empty).
+    static func syncMessage(for error: Error) -> String {
+        if error is TraktSessionError {
+            return "Trakt sign-in expired. Unlink and link again."
+        }
+        if let http = error as? HTTPError {
+            switch http {
+            case let .status(code, _):
+                switch code {
+                case 401: return "Trakt rejected the sign-in (401). Unlink and link again."
+                case 403: return "Trakt refused access (403). Unlink and link again."
+                case 420, 429: return "Trakt is rate-limiting (\(code)). Wait a minute and retry."
+                default: return "Trakt returned HTTP \(code)."
+                }
+            case let .transport(detail):
+                return "Couldn’t reach Trakt: \(detail)"
+            case let .decoding(detail):
+                return "Trakt sent something unexpected: \(detail)"
+            }
+        }
+        return "Sync failed: \(error)"
     }
 
     /// Key for the once-per-device flag guarding the legacy-progress hand-off.

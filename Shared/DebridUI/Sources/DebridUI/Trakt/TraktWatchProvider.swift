@@ -80,8 +80,8 @@ public actor TraktWatchProvider: WatchProgressProviding {
         for m in try await wMovies { if let k = Self.key(movie: m.movie) { watched.insert(k) } }
         for s in try await wShows {
             guard let show = s.show.ids.tmdb else { continue }
-            for season in s.seasons {
-                for ep in season.episodes {
+            for season in s.seasons ?? [] {
+                for ep in season.episodes ?? [] {
                     watched.insert(TraktMapping.episodeContentKey(showTmdb: show, season: season.number, number: ep.number))
                 }
             }

@@ -47,6 +47,30 @@ import Foundation
         #expect(items[0].movie.ids.tmdb == 27205)
     }
 
+    /// Regression: Trakt returned a watched show with NO `seasons` key. `seasons` was non-optional,
+    /// so decoding threw — and since refresh() fetches six endpoints together, that one entry wiped
+    /// the entire sync (ratings, watched and resume all silently empty). Partial payloads must
+    /// degrade to less data, never to no data.
+    @Test func decodesWatchedShowMissingSeasons() throws {
+        let json = #"[{"plays":3,"show":{"ids":{"tmdb":1399}}}]"#
+        let items = try JSONDecoder().decode([TraktWatchedShow].self, from: Data(json.utf8))
+        #expect(items[0].show.ids.tmdb == 1399)
+        #expect(items[0].seasons == nil)
+    }
+
+    @Test func decodesWatchedShowMissingEpisodesAndPlays() throws {
+        let json = #"[{"show":{"ids":{"tmdb":1}},"seasons":[{"number":1}]}]"#
+        let items = try JSONDecoder().decode([TraktWatchedShow].self, from: Data(json.utf8))
+        #expect(items[0].seasons?.first?.episodes == nil)
+    }
+
+    @Test func decodesWatchedMovieMissingPlays() throws {
+        let json = #"[{"movie":{"ids":{"tmdb":27205}}}]"#
+        let items = try JSONDecoder().decode([TraktWatchedMovie].self, from: Data(json.utf8))
+        #expect(items[0].movie.ids.tmdb == 27205)
+        #expect(items[0].plays == nil)
+    }
+
     @Test func decodesWatchedShows() throws {
         let json = #"""
         [{"show":{"ids":{"tmdb":1399}},
@@ -54,6 +78,6 @@ import Foundation
         """#
         let items = try JSONDecoder().decode([TraktWatchedShow].self, from: Data(json.utf8))
         #expect(items[0].show.ids.tmdb == 1399)
-        #expect(items[0].seasons[0].episodes.count == 2)
+        #expect(items[0].seasons?[0].episodes?.count == 2)
     }
 }
