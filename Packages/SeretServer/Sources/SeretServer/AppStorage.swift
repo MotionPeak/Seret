@@ -15,6 +15,20 @@ extension Application {
     }
 }
 
+private struct ServerLibraryKey: StorageKey { typealias Value = ServerLibrary }
+
+extension Application {
+    var library: ServerLibrary {
+        get {
+            guard let l = storage[ServerLibraryKey.self] else {
+                fatalError("ServerLibrary not configured")
+            }
+            return l
+        }
+        set { storage[ServerLibraryKey.self] = newValue }
+    }
+}
+
 private struct TranscodeManagerKey: StorageKey { typealias Value = TranscodeManager }
 
 extension Application {
