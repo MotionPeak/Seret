@@ -75,7 +75,7 @@ struct PlayerView: View {
                 ErrorOverlay(reason: reason, canTryAnother: model.canTryAnotherVersion, backdropURL: backdropURL,
                              onRetry: { model.retry() }, onTryAnother: { model.tryAnotherVersion() },
                              onBack: { dismiss() })
-                    .transition(.opacity)
+                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
             } else if model.isColdOpen {
                 LoadingOverlay(caption: model.phase == .preparing ? "Preparing…" : "Buffering…",
                                title: model.label, backdropURL: backdropURL)
@@ -105,6 +105,10 @@ struct PlayerView: View {
         .animation(Theme.Anim.pageFade, value: showEpisodes)
         .animation(Theme.Anim.pageFade, value: model.upNextVisible)
         .animation(Theme.Anim.pageFade, value: model.isColdOpen)
+        // The error overlay is gated on `phase`; without animating that value it would pop in
+        // rather than fade. Only the ErrorOverlay enters/leaves on a phase change, so this can't
+        // animate anything else in the stack.
+        .animation(Theme.Anim.pageFade, value: model.phase)
         .animation(Theme.Anim.focus, value: model.skipFeedback)
         .onPlayPauseCommand { model.togglePlayPause() }
         .onExitCommand {
@@ -298,9 +302,8 @@ private struct EpisodeStripExpanded: View {
     private func card(_ ep: PlayerModel.PlayerEpisode) -> some View {
         let isCurrent = ep.season == model.currentEpisode?.season && ep.number == model.currentEpisode?.number
         return VStack(alignment: .leading, spacing: 6) {
-            AsyncImage(url: TMDBClient.imageURL(path: ep.stillPath, size: "w300")) {
-                $0.resizable().aspectRatio(contentMode: .fill)
-            } placeholder: { Rectangle().fill(.white.opacity(0.08)) }
+            RemoteImage(url: TMDBClient.imageURL(path: ep.stillPath, size: "w300"),
+                        contentMode: .fill) { Rectangle().fill(.white.opacity(0.08)) }
                 .frame(width: 200, height: 112)
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .overlay(alignment: .topLeading) {
