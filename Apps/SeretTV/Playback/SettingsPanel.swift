@@ -31,10 +31,10 @@ private struct PlaybackColumns: View {
     @Bindable var model: PlayerModel
     let onPick: () -> Void
     /// Seeds focus to the "Subtitles → Off" row when the panel opens, so the arrows navigate the
-    /// options immediately — no extra click to "enter" the menu. Uses the same `@FocusState` +
-    /// `.onAppear` seed as the sibling overlays (`UpNextBar`, `EpisodesPanel`) — reliable across the
-    /// UIKit `ScrubPad` → SwiftUI focus handoff, unlike the `.defaultFocus`/`.focusScope` combo it
-    /// replaces (which stranded focus and left the panel uncontrollable).
+    /// options immediately — no extra click to "enter" the menu. `@FocusState` + `.onAppear` is the
+    /// reliable seed HERE; `.defaultFocus`/`.focusScope` stranded focus and left the panel
+    /// uncontrollable. (The opposite holds for the Detail screen's off-screen CTA, which NEEDS
+    /// `.defaultFocus` — don't generalize either rule.)
     @FocusState private var landingFocused: Bool
 
     var body: some View {
