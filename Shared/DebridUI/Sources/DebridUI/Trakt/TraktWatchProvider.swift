@@ -99,6 +99,24 @@ public actor TraktWatchProvider: WatchProgressProviding {
         loaded = true
     }
 
+    /// What the cache currently holds. Surfaced in Settings after a sync so "nothing showed up"
+    /// can be told apart from "nothing was fetched" without attaching a debugger.
+    public func cacheCounts() -> (ratings: Int, watched: Int, paused: Int) {
+        (ratings.count, watchedKeys.count, playback.count)
+    }
+
+    /// Re-read everything from Trakt, ignoring the once-per-launch latch.
+    ///
+    /// Reads only fetch once per launch (see `ensureLoaded`), which is right for a cold start but
+    /// means anything changed on Trakt afterwards — rated on the website, watched on another
+    /// device, a bulk import — stays invisible until relaunch. This is the escape hatch behind
+    /// Settings ▸ Sync Now. Throws so the caller can report failure.
+    public func forceRefresh() async throws {
+        if let task = loadTask { await task.value }   // let an in-flight fill settle first
+        loaded = false
+        try await refresh()
+    }
+
     /// Fill the cache once if nothing has yet, coalescing concurrent callers onto one fetch. A
     /// failure leaves `loaded` false so the next read retries rather than caching an empty answer.
     private func ensureLoaded() async {

@@ -22,9 +22,18 @@ struct TraktLinkSection: View {
                 Label("Linked — your watch history, resume points, and ratings sync with Trakt.",
                       systemImage: "checkmark.circle.fill")
                     .font(.callout).foregroundStyle(Theme.Palette.textSecondary)
-                Button("Unlink Trakt", role: .destructive) {
-                    Task { await session.unlinkTrakt() }
+                // Reads fetch once per launch, so anything changed on Trakt since (rated on the
+                // web, watched on another device) needs an explicit re-read.
+                HStack(spacing: 20) {
+                    Button(syncing ? "Syncing…" : "Sync Now") {
+                        Task { await session.syncTraktNow() }
+                    }
+                    .disabled(syncing)
+                    Button("Unlink Trakt", role: .destructive) {
+                        Task { await session.unlinkTrakt() }
+                    }
                 }
+                syncStatus
             } else if let model {
                 switch model.phase {
                 case .awaiting(let code):
@@ -53,6 +62,23 @@ struct TraktLinkSection: View {
         .task(id: model?.attempt) {
             guard let model else { return }
             await model.run()
+        }
+    }
+
+    private var syncing: Bool { session.traktSyncState == .syncing }
+
+    /// The counts distinguish "Trakt returned nothing" from "it returned plenty but a screen still
+    /// looks empty" — otherwise that's pure guesswork from the couch.
+    @ViewBuilder private var syncStatus: some View {
+        switch session.traktSyncState {
+        case .idle, .syncing:
+            EmptyView()
+        case let .succeeded(ratings, watched):
+            Label("\(ratings) ratings · \(watched) watched", systemImage: "checkmark.circle")
+                .font(.callout).foregroundStyle(Theme.Palette.textSecondary)
+        case let .failed(message):
+            Label(message, systemImage: "exclamationmark.triangle")
+                .font(.callout).foregroundStyle(Theme.Palette.textSecondary)
         }
     }
 

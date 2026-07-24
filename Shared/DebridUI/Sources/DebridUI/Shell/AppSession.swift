@@ -318,6 +318,37 @@ public final class AppSession {
         await rebuildHome()
     }
 
+    /// Outcome of the most recent manual Trakt sync, for the Settings row to display.
+    public enum SyncState: Equatable {
+        case idle
+        case syncing
+        case succeeded(ratings: Int, watched: Int)
+        case failed(String)
+    }
+
+    public private(set) var traktSyncState: SyncState = .idle
+
+    /// Manual "Sync Now": re-read Trakt ignoring the once-per-launch cache latch, then repaint
+    /// everything that reads it. Exists because reads otherwise fetch only once per launch, so
+    /// anything changed on Trakt mid-session (rated on the web, watched elsewhere, a bulk import)
+    /// would stay invisible until relaunch.
+    public func syncTraktNow() async {
+        guard let provider = traktProvider, traktLinked else {
+            traktSyncState = .failed("Trakt isn’t linked.")
+            return
+        }
+        traktSyncState = .syncing
+        do {
+            try await provider.forceRefresh()
+            await libraryStore?.reloadWatchStates()
+            await rebuildHome()
+            let counts = await provider.cacheCounts()
+            traktSyncState = .succeeded(ratings: counts.ratings, watched: counts.watched)
+        } catch {
+            traktSyncState = .failed("Couldn’t reach Trakt. Check your connection.")
+        }
+    }
+
     /// Key for the once-per-device flag guarding the legacy-progress hand-off.
     private static let migratedKey = "trakt.migratedLocalProgress"
 
