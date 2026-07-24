@@ -27,9 +27,13 @@ extension MockTests {
             let client = TraktClient(clientID: "c", clientSecret: "s",
                                      http: HTTPClient(session: .mock), token: { "AT" })
             try await client.addToHistory([.movie(tmdb: 27205)])
-            let sent = String(decoding: box.request?.httpBodyStreamData() ?? Data(), as: UTF8.self)
-            #expect(sent.contains("\"movies\""))
-            #expect(sent.contains("\"tmdb\":27205"))
+            // Decode the real structure — a substring check passes even when the entry is wrongly
+            // wrapped as {"movies":[{"movie":{…}}]}, which Trakt accepts but silently ignores.
+            let sent = box.request?.httpBodyStreamData() ?? Data()
+            let obj = try JSONSerialization.jsonObject(with: sent) as! [String: Any]
+            let movies = obj["movies"] as! [[String: Any]]
+            #expect(movies[0]["movie"] == nil)
+            #expect((movies[0]["ids"] as! [String: Any])["tmdb"] as! Int == 27205)
         }
 
         @Test func rateSendsRating() async throws {
@@ -42,8 +46,11 @@ extension MockTests {
             let client = TraktClient(clientID: "c", clientSecret: "s",
                                      http: HTTPClient(session: .mock), token: { "AT" })
             try await client.rate(.movie(tmdb: 27205), rating: 8)
-            let sent = String(decoding: box.request?.httpBodyStreamData() ?? Data(), as: UTF8.self)
-            #expect(sent.contains("\"rating\":8"))
+            let sent = box.request?.httpBodyStreamData() ?? Data()
+            let obj = try JSONSerialization.jsonObject(with: sent) as! [String: Any]
+            let movies = obj["movies"] as! [[String: Any]]
+            #expect(movies[0]["rating"] as! Int == 8)
+            #expect((movies[0]["ids"] as! [String: Any])["tmdb"] as! Int == 27205)
         }
     }
 }

@@ -163,6 +163,33 @@ public final class DetailStore {
     /// what was loaded when the screen opened.
     public func reloadWatch() async { await loadWatch() }
 
+    // MARK: - Personal rating (Trakt)
+
+    /// The viewer's own 1–10 rating, or nil when unrated / unavailable. Distinct from `ratings`,
+    /// which holds the aggregate public scores (IMDb / RT / Metacritic).
+    public private(set) var userRating: Int?
+
+    /// Ratings ride on the same object that supplies watch state (the Trakt provider implements
+    /// both), so nothing extra has to be injected. nil for fakes and non-Trakt backends.
+    private var ratingSync: WatchRatingProviding? { watch as? WatchRatingProviding }
+
+    /// True when this title can carry a personal rating. Movies only for now — a show-level Trakt
+    /// rating needs a show-scoped identity, which the content-key scheme doesn't encode yet.
+    public var canRate: Bool { ratingSync != nil && item.kind == .movie }
+
+    public func loadUserRating() async {
+        guard canRate, let ratingSync else { return }
+        userRating = await ratingSync.rating(forContentKey: WatchKey.content(forMovie: item))
+    }
+
+    /// Set (or clear, with nil) the viewer's rating. Optimistic: the UI updates immediately and the
+    /// write is best-effort, matching how Mark Watched behaves.
+    public func rate(_ value: Int?) async {
+        guard canRate, let ratingSync else { return }
+        userRating = value
+        await ratingSync.setRating(value, forContentKey: WatchKey.content(forMovie: item))
+    }
+
     /// Mark a movie or episode watched/unwatched. `source` records the exact file (sourceKey).
     public func setWatched(_ watched: Bool, contentKey: String, source: MediaSource) async {
         guard let watch else { return }

@@ -25,6 +25,7 @@ struct MovieDetail: View {
                 if let best = store.bestSource { QualityChipRow(parsed: best.parsed) }
                 RatingsRow(ratings: store.ratings)
                 actions
+                UserRatingRow(store: store)
                 if store.bestSource == nil, let tmdb = item.tmdbID {
                     MovieDownloadSection(tmdbID: tmdb, title: item.title, posterPath: item.posterPath,
                                          imdbID: store.imdbID, originalLanguage: store.originalLanguage)

@@ -138,19 +138,57 @@ extension TraktClient {
     }
 
     // Writes
-    private struct SyncBody: Encodable {
-        let movies: [TraktMediaRef.SyncItem]
-        let shows: [TraktMediaRef.SyncItem]
+    //
+    // Trakt's /sync/{history,ratings} schema: `movies` holds the movie objects FLAT (ids + optional
+    // rating), and episodes are addressed by nesting under `shows` → `seasons` → `episodes` (we key
+    // episodes by show TMDB id + season/episode number, not an episode id).
+    //   {"movies":[{"ids":{"tmdb":1},"rating":9}],
+    //    "shows":[{"ids":{"tmdb":2},"seasons":[{"number":1,"episodes":[{"number":3,"rating":9}]}]}]}
+    struct SyncBody: Encodable, Equatable {
+        struct IDs: Encodable, Equatable { let tmdb: Int }
+        struct MovieItem: Encodable, Equatable { let ids: IDs; var rating: Int? }
+        struct EpisodeItem: Encodable, Equatable { let number: Int; var rating: Int? }
+        struct SeasonItem: Encodable, Equatable { let number: Int; let episodes: [EpisodeItem] }
+        struct ShowItem: Encodable, Equatable { let ids: IDs; let seasons: [SeasonItem] }
+        var movies: [MovieItem] = []
+        var shows: [ShowItem] = []
+    }
+
+    /// Group refs into Trakt's body shape, collapsing episodes of the same show/season together so a
+    /// batch (e.g. the one-time migration) sends one entry per show rather than one per episode.
+    static func groupedBody(_ refs: [TraktMediaRef], rating: Int? = nil) -> SyncBody {
+        var body = SyncBody()
+        // showTmdb -> season -> episode numbers, preserving first-seen order.
+        var showOrder: [Int] = []
+        var byShow: [Int: [(season: Int, number: Int)]] = [:]
+        for ref in refs {
+            switch ref {
+            case let .movie(tmdb):
+                body.movies.append(.init(ids: .init(tmdb: tmdb), rating: rating))
+            case let .episode(showTmdb, season, number):
+                if byShow[showTmdb] == nil { showOrder.append(showTmdb) }
+                byShow[showTmdb, default: []].append((season, number))
+            }
+        }
+        for showTmdb in showOrder {
+            let eps = byShow[showTmdb] ?? []
+            var seasonOrder: [Int] = []
+            var bySeason: [Int: [Int]] = [:]
+            for ep in eps {
+                if bySeason[ep.season] == nil { seasonOrder.append(ep.season) }
+                bySeason[ep.season, default: []].append(ep.number)
+            }
+            let seasons = seasonOrder.map { s in
+                SyncBody.SeasonItem(number: s,
+                                    episodes: (bySeason[s] ?? []).map { .init(number: $0, rating: rating) })
+            }
+            body.shows.append(.init(ids: .init(tmdb: showTmdb), seasons: seasons))
+        }
+        return body
     }
 
     private func groupedBody(_ refs: [TraktMediaRef], rating: Int? = nil) -> SyncBody {
-        var movies: [TraktMediaRef.SyncItem] = []
-        var shows: [TraktMediaRef.SyncItem] = []
-        for ref in refs {
-            let item = ref.syncItem(rating: rating)
-            if item.movie != nil { movies.append(item) } else { shows.append(item) }
-        }
-        return SyncBody(movies: movies, shows: shows)
+        Self.groupedBody(refs, rating: rating)
     }
 
     public func addToHistory(_ refs: [TraktMediaRef]) async throws {

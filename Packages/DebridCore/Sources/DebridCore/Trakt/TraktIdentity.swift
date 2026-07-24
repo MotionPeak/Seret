@@ -33,23 +33,4 @@ extension TraktMediaRef {
         return String(decoding: data, as: UTF8.self)
     }
 
-    /// The `/sync/history` and `/sync/ratings` item shape (no progress). `rating` optional.
-    struct SyncItem: Encodable {
-        struct IDs: Encodable { let tmdb: Int }
-        struct Item: Encodable { let ids: IDs; var rating: Int? }
-        struct Episode: Encodable { let season: Int; let number: Int; var rating: Int? }
-        var movie: Item?
-        var show: Item?
-        var episode: Episode?
-    }
-
-    func syncItem(rating: Int? = nil) -> SyncItem {
-        switch self {
-        case let .movie(tmdb):
-            return SyncItem(movie: .init(ids: .init(tmdb: tmdb), rating: rating))
-        case let .episode(showTmdb, season, number):
-            return SyncItem(show: .init(ids: .init(tmdb: showTmdb), rating: nil),
-                            episode: .init(season: season, number: number, rating: rating))
-        }
-    }
 }
