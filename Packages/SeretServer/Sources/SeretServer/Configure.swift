@@ -13,7 +13,14 @@ func configure(_ app: Application, config: ServerConfig) async throws {
         torrents: app.torrents,
         enricher: MetadataEnricher(tmdb: TMDBClient(apiKey: config.tmdbAPIKey)))
 
+    let sessions = SessionStore()
+    app.middleware.use(AuthMiddleware(password: config.webPassword, sessions: sessions))
+    if config.webPassword.isEmpty {
+        app.logger.warning("SERET_WEB_PASSWORD is empty — the API is unauthenticated (LAN/Tailscale only!)")
+    }
+
     app.get("health") { _ in "ok" }
+    registerAuthRoutes(app, password: config.webPassword, sessions: sessions)
     registerTorrentsRoutes(app)
     registerLibraryRoutes(app)
     registerPlayRoutes(app)
