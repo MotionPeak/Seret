@@ -71,6 +71,8 @@ public final class PlayerModel {
         }
     }
     private var skipFeedbackClearTask: Task<Void, Never>?
+    /// Hold-to-scan repeat loop (see `beginScan`).
+    private var scanTask: Task<Void, Never>?
 
     /// Output volume as a percentage (100 = unity, up to 200 = VLC-style boost). Re-applied on every
     /// track refresh so a boost survives episode swaps and VLCKit's async audio-object creation.
@@ -791,6 +793,34 @@ public final class PlayerModel {
         revealScrubBar()
     }
 
+    /// Hold-to-scan: holding left/right travels through the film at an accelerating rate.
+    ///
+    /// Implemented as accelerating repeated SKIPS rather than a negative playback rate, because
+    /// libvlc has no reliable reverse playback — a negative rate simply does nothing backwards,
+    /// so the two directions would behave differently. Repeated seeks are symmetric, and they
+    /// reuse the existing coalescing and the accumulating on-screen badge, so a hold reads as one
+    /// growing jump instead of a stutter of separate ones.
+    public func beginScan(direction: Double) {
+        scanTask?.cancel()
+        revealScrubBar()
+        scanTask = Task { @MainActor [weak self] in
+            var step = 10.0
+            while !Task.isCancelled {
+                guard let self else { return }
+                self.skip(direction >= 0 ? step : -step)
+                try? await Task.sleep(for: .seconds(0.5))
+                step = min(step * 1.6, 120)      // 10 → 16 → 26 → 41 … capped at two minutes
+            }
+        }
+    }
+
+    /// Release the scan.
+    public func endScan() {
+        scanTask?.cancel()
+        scanTask = nil
+        revealScrubBar()
+    }
+
     /// Declare our transport to the system. This is what makes the iPhone Remote app render its
     /// +/-10s buttons and scrubber; it also enables Siri, Control Center and CEC TV remotes.
     private func activateNowPlaying() {
@@ -1051,6 +1081,7 @@ public final class PlayerModel {
         upNextTask?.cancel()
         seekDispatchTask?.cancel()
         loadWatchdog?.cancel()
+        scanTask?.cancel()
         nowPlaying?.deactivate()
         await recordCurrentProgress()
         engine.stop()

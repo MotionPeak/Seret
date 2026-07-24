@@ -77,4 +77,37 @@ import DebridCore
         await model.waitForIdleForTesting()
         #expect(engine.seeks == [110.5, 500, 510, 540]) // one trailing seek at the final target
     }
+
+    @Test func holdingToScanRepeatedlySkipsAndAccelerates() async {
+        // Hold-to-scan is implemented as accelerating repeated SKIPS, not a negative playback
+        // rate: libvlc has no reliable reverse playback, so a negative rate would simply do
+        // nothing backwards. Repeated seeks behave identically in both directions.
+        let engine = FakeVideoPlayerEngine()
+        let model = makeModel(engine: engine, seekCoalesceWindow: 0.01)
+        await warmUp(model, engine, to: 1000)
+        let before = engine.seeks.count
+
+        model.beginScan(direction: 1)
+        try? await Task.sleep(for: .seconds(1.4))
+        model.endScan()
+        let during = engine.seeks.count - before
+        #expect(during >= 2)                       // it kept going while held
+        #expect(model.position > 1000)             // …and moved forward
+
+        let afterRelease = engine.seeks.count
+        try? await Task.sleep(for: .seconds(0.8))
+        #expect(engine.seeks.count == afterRelease) // release stops it
+    }
+
+    @Test func scanningBackwardMovesBackward() async {
+        let engine = FakeVideoPlayerEngine()
+        let model = makeModel(engine: engine, seekCoalesceWindow: 0.01)
+        await warmUp(model, engine, to: 1000)
+
+        model.beginScan(direction: -1)
+        try? await Task.sleep(for: .seconds(1.4))
+        model.endScan()
+
+        #expect(model.position < 1000)
+    }
 }
