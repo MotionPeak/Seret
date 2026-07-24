@@ -51,4 +51,33 @@ import DebridCore
         await model.waitForIdleForTesting()
         #expect(model.hasRenderedFrame == false)       // still guarded
     }
+
+    @Test func aResumeSeekThatLandsShortStillClearsTheOverlay() async {
+        // :input-fast-seek lands on the nearest keyframe, which can be far more than the 5s
+        // arrival slack before the target. Arrival then never registers and the resume branch
+        // returns on every tick forever — the loading overlay never clears. After a grace
+        // period the model must accept the playhead where it actually is.
+        let engine = FakeVideoPlayerEngine()
+        let model = PlayerModel(request: Fixture.request(resumeAt: 600), engine: engine,
+                                unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
+                                recordProgress: { _, _, _, _ in }, subtitles: nil)
+        model.start()
+        await model.waitForIdleForTesting()
+        #expect(engine.seeks == [600])
+
+        // Ticks start near zero → the deferred seek fires.
+        engine.emit(.time(.init(position: 0.3, duration: 3600)))
+        await model.waitForIdleForTesting()
+        #expect(engine.seeks == [600, 600])
+
+        // The seek lands at 570 — 30s short, outside the 5s slack. It advances normally from
+        // there but can never satisfy `position >= 595`.
+        for i in 0..<20 {
+            engine.emit(.time(.init(position: 570 + Double(i) * 0.5, duration: 3600)))
+            await model.waitForIdleForTesting()
+        }
+
+        #expect(model.hasRenderedFrame == true)     // grace expired → accepted, overlay cleared
+        #expect(model.position > 570)               // and the bar tracks the real playhead
+    }
 }

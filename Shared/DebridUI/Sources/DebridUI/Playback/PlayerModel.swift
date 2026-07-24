@@ -178,6 +178,12 @@ public final class PlayerModel {
     /// deferred seek (not a load-time start-time) keeps the whole timeline seekable.
     private var resumeTarget: Double = 0
     private var resumeSeekIssued: Bool = false
+    /// Ticks seen since the deferred resume seek was issued. `:input-fast-seek` lands on the
+    /// nearest keyframe, which can be well outside the 5s arrival slack — arrival then never
+    /// registers, the resume branch returns on every tick, and the path to `markRendered()` stays
+    /// shut forever. After this many ticks we accept the playhead wherever it actually is.
+    private var resumeTicksSinceSeek = 0
+    private let resumeArrivalGraceTicks = 12
     /// A pending fractional resume (0…1) awaiting a known duration — converted to `resumeTarget`
     /// on the first tick that reports one, then cleared.
     private var resumeFraction: Double = 0
@@ -372,6 +378,7 @@ public final class PlayerModel {
         // screen's watch-state load or go stale after a previous playback.
         resumeTarget = fromStart ? 0 : max(resumeAt ?? 0, 0)
         resumeSeekIssued = false
+        resumeTicksSinceSeek = 0
         resumeFraction = 0
         pendingSeek = nil
         cancelCoalescedSeek()
@@ -481,6 +488,17 @@ public final class PlayerModel {
             } else if !resumeSeekIssued {
                 engine.seek(to: resumeTarget)
                 resumeSeekIssued = true
+                resumeTicksSinceSeek = 0
+            } else {
+                resumeTicksSinceSeek += 1
+                if resumeTicksSinceSeek >= resumeArrivalGraceTicks {
+                    // The seek landed short of the slack band and will never "arrive". Accept the
+                    // playhead where it is so the overlay can clear — a resume a few seconds early
+                    // is fine; a permanently-black screen is not.
+                    lastTickPosition = t.position
+                    resumeTarget = 0
+                    return
+                }
             }
             return                                      // overlay stays; no promote/save while seeking
         }
