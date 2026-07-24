@@ -33,8 +33,12 @@ func registerPlayerPages(_ app: Application) {
           fetch('/api/play?id='+encodeURIComponent(id), {method:'POST'})
             .then(r=>r.json()).then(({url})=>{
               const v=document.getElementById('v'); document.getElementById('msg').innerText='';
-              if (v.canPlayType('application/vnd.apple.mpegurl')) { v.src=url; }
-              else if (window.Hls && Hls.isSupported()) { const h=new Hls(); h.loadSource(url); h.attachMedia(v); }
+              // hls.js FIRST. Chrome returns a truthy "maybe" from canPlayType(vnd.apple.mpegurl)
+              // despite having no native HLS, so probing that first sent <video src> at the .m3u8
+              // and Chrome died with DEMUXER_ERROR_COULD_NOT_PARSE. Native HLS is the Safari-only
+              // fallback. (Verified live against the NAS: hls.js path plays, native path does not.)
+              if (window.Hls && Hls.isSupported()) { const h=new Hls(); h.loadSource(url); h.attachMedia(v); }
+              else if (v.canPlayType('application/vnd.apple.mpegurl')) { v.src=url; }
               else { document.getElementById('msg').innerText='HLS not supported in this browser'; }
             }).catch(e=>{document.getElementById('msg').innerText='error: '+e});
         </script>
