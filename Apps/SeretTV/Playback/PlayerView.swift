@@ -212,7 +212,7 @@ private struct PlayerBottomBar: View {
         VStack(spacing: 16) {
             Spacer()
             if barShown {
-                ScrubBarRow(model: model, buffering: model.isBuffering)
+                ScrubBar(model: model, buffering: model.isBuffering)
                     .allowsHitTesting(false)
                     .transition(.opacity)
             }
@@ -227,7 +227,7 @@ private struct PlayerBottomBar: View {
                 }
             }
         }
-        // A clean side margin (the bar now genuinely respects this — see ScrubBarRow). Also keeps the
+        // A clean side margin (the bar genuinely respects this — see ScrubBar). Also keeps the
         // bar + timecodes inside the tvOS title-safe area.
         .padding(.horizontal, 90)
         // Collapsed (just the bar / a movie) the bar would sit in the TV's overscan and clip; lift it
@@ -247,46 +247,6 @@ private struct PlayerBottomBar: View {
     }
 }
 
-/// The thin scrub bar's content (no bottom anchoring of its own — `PlayerBottomBar` stacks it).
-private struct ScrubBarRow: View {
-    @Bindable var model: PlayerModel
-    let buffering: Bool
-
-    var body: some View {
-        let shown = model.isScrubbing ? model.scrubTarget : model.position
-        let frac = model.duration > 0 ? min(1, max(0, shown / model.duration)) : 0
-        VStack(spacing: 8) {
-            ZStack(alignment: .leading) {
-                // A plain Capsule (NOT the GeometryReader) sets the bar's width, so it respects the
-                // cluster's horizontal padding. The GeometryReader is nested INSIDE and reads this
-                // already-padded width. Previously the GeometryReader was the outer view and stretched
-                // the bar edge-to-edge, ignoring the padding (why bumping the inset never moved it).
-                Capsule().fill(.white.opacity(0.25)).frame(height: 6)
-                GeometryReader { geo in
-                    let headX = min(geo.size.width, max(0, geo.size.width * frac))
-                    Capsule().fill(.white).frame(width: headX, height: 6)
-                        .frame(maxHeight: .infinity, alignment: .center)
-                    Circle().fill(.white).frame(width: 16, height: 16)
-                        .position(x: min(geo.size.width - 8, max(8, headX)), y: geo.size.height / 2)
-                }
-            }
-            .frame(height: 22)
-            HStack {
-                Text(Timecode.format(shown)).font(.body.monospacedDigit().weight(.semibold))
-                Spacer()
-                Text("-" + Timecode.format(max(0, model.duration - shown)))
-                    .font(.body.monospacedDigit()).foregroundStyle(.secondary)
-            }
-            if buffering {
-                HStack(spacing: 10) {
-                    ProgressView().controlSize(.small).tint(.white)
-                    Text("Loading…").font(.caption).foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, alignment: .center)
-            }
-        }
-    }
-}
 
 /// Resting hint: a chevron + "Episodes" sitting just under the scrub bar. Press UP (opens the
 /// transport) then the Episodes button, or open the full strip from there.
