@@ -45,10 +45,9 @@ echo "==> waiting for the server to come up"
 for _ in $(seq 1 30); do
   if curl -fsS localhost:8080/health >/dev/null 2>&1; then
     echo "==> healthy"
-    COUNT="$(curl -fsS localhost:8080/api/library 2>/dev/null | grep -o '"id"' | wc -l | tr -d ' ')"
-    echo "==> /api/library returned ${COUNT:-0} titles"
     echo
     echo "    open http://192.168.1.179:8080/"
+    echo "    (the library builds on the first request - give the grid a few moments to fill in)"
     exit 0
   fi
   sleep 2
