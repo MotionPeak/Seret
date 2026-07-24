@@ -48,6 +48,7 @@ struct MovieDetailView: View {
                 Text(overview).bodyText().frame(maxWidth: 1100, alignment: .leading).lineLimit(4)
             }
             actions
+            UserRatingRow(store: store)
             if store.bestSource == nil, let tmdb = item.tmdbID {
                 MovieDownloadSection(tmdbID: tmdb, title: item.title, posterPath: item.posterPath,
                                      imdbID: store.imdbID, originalLanguage: store.originalLanguage)

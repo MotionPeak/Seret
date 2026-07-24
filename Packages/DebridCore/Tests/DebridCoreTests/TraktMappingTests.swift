@@ -38,7 +38,17 @@ import Foundation
 
     @Test func refFromContentKeyRoundTrips() throws {
         #expect(TraktMapping.ref(forContentKey: "movie:tmdb:27205") == .movie(tmdb: 27205))
+        #expect(TraktMapping.ref(forContentKey: "show:tmdb:1399") == .show(tmdb: 1399))
         #expect(TraktMapping.ref(forContentKey: "show:tmdb:1399:s2e5") == .episode(showTmdb: 1399, season: 2, number: 5))
         #expect(TraktMapping.ref(forContentKey: "movie:dune:2024") == nil)  // unenriched → no tmdb
+    }
+
+    @Test func wholeSeriesRefAndKey() throws {
+        let s = show(tmdb: 1399)
+        #expect(TraktMapping.ref(forShow: s) == .show(tmdb: 1399))
+        #expect(TraktMapping.contentKey(for: .show(tmdb: 1399)) == "show:tmdb:1399")
+        // The series content key IS the item id, so Detail can rate a show off `item.id`.
+        #expect(TraktMapping.contentKey(for: .show(tmdb: 1399)) == s.id)
+        #expect(TraktMapping.ref(forShow: show(tmdb: nil)) == nil)
     }
 }

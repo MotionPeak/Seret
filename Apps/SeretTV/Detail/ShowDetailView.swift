@@ -73,6 +73,7 @@ struct ShowDetailView: View {
                 Text(overview).bodyText().frame(maxWidth: 1100, alignment: .leading).lineLimit(4)
             }
             heroActions
+            UserRatingRow(store: store)
         }
     }
 

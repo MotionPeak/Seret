@@ -15,7 +15,14 @@ public enum TraktMapping {
         show.tmdbID.map { .episode(showTmdb: $0, season: episode.season, number: episode.number) }
     }
 
+    /// The series as a whole (for a show-level rating), not a specific episode.
+    public static func ref(forShow show: MediaItem) -> TraktMediaRef? {
+        show.tmdbID.map { .show(tmdb: $0) }
+    }
+
     public static func movieContentKey(tmdb: Int) -> String { "movie:tmdb:\(tmdb)" }
+
+    public static func showContentKey(tmdb: Int) -> String { "show:tmdb:\(tmdb)" }
 
     public static func episodeContentKey(showTmdb: Int, season: Int, number: Int) -> String {
         "show:tmdb:\(showTmdb):s\(season)e\(number)"
@@ -25,6 +32,7 @@ public enum TraktMapping {
     public static func contentKey(for ref: TraktMediaRef) -> String {
         switch ref {
         case let .movie(tmdb): return movieContentKey(tmdb: tmdb)
+        case let .show(tmdb): return showContentKey(tmdb: tmdb)
         case let .episode(showTmdb, season, number):
             return episodeContentKey(showTmdb: showTmdb, season: season, number: number)
         }
@@ -35,6 +43,10 @@ public enum TraktMapping {
         let parts = key.split(separator: ":", omittingEmptySubsequences: false).map(String.init)
         if parts.count == 3, parts[0] == "movie", parts[1] == "tmdb", let id = Int(parts[2]) {
             return .movie(tmdb: id)
+        }
+        // A 3-part show key is the series itself ("show:tmdb:1399"); 4 parts adds the episode.
+        if parts.count == 3, parts[0] == "show", parts[1] == "tmdb", let id = Int(parts[2]) {
+            return .show(tmdb: id)
         }
         if parts.count == 4, parts[0] == "show", parts[1] == "tmdb", let id = Int(parts[2]),
            let se = parseSeasonEpisode(parts[3]) {

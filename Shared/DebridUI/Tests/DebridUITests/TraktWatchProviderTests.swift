@@ -19,8 +19,11 @@ import DebridCore
         func playbackEpisodes() async throws -> [TraktPlaybackItem] { playbackEpisodesResult }
         func watchedMovies() async throws -> [TraktWatchedMovie] { watchedMoviesResult }
         func watchedShows() async throws -> [TraktWatchedShow] { watchedShowsResult }
+        var ratedShowsResult: [TraktRatingItem] = []
         func ratedMovies() async throws -> [TraktRatingItem] { ratedMoviesResult }
         func ratedEpisodes() async throws -> [TraktRatingItem] { ratedEpisodesResult }
+        func ratedShows() async throws -> [TraktRatingItem] { ratedShowsResult }
+        func setRatedShows(_ v: [TraktRatingItem]) { ratedShowsResult = v }
         func addToHistory(_ refs: [TraktMediaRef]) async throws { history.append(contentsOf: refs) }
         func removeFromHistory(_ refs: [TraktMediaRef]) async throws { removedHistory.append(contentsOf: refs) }
         func scrobble(_ a: ScrobbleAction, ref: TraktMediaRef, progress: Double) async throws {}
@@ -68,6 +71,17 @@ import DebridCore
 
     // DetailStore/LibraryStore mark watched by calling `record(...finished:)` directly (their own
     // `setWatched` helper). These assert the provider routes that to Trakt history.
+    @Test func showLevelRatingIsCachedUnderTheSeriesKey() async throws {
+        let api = FakeTraktAPI()
+        await api.setRatedShows([
+            .init(rating: 10, type: "show", movie: nil,
+                  show: .init(ids: .init(tmdb: 1399, trakt: 1)), episode: nil)
+        ])
+        let provider = TraktWatchProvider(api: api)
+        try await provider.refresh()
+        #expect(await provider.rating(forContentKey: "show:tmdb:1399") == 10)
+    }
+
     @Test func recordFinishedAddsToHistory() async throws {
         let api = FakeTraktAPI()
         let provider = TraktWatchProvider(api: api)

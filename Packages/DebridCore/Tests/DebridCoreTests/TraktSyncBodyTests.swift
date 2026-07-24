@@ -62,6 +62,23 @@ import Foundation
         #expect((got[1]["episodes"] as! [[String: Any]]).count == 1)
     }
 
+    @Test func showLevelRatingIsFlatWithNoSeasons() throws {
+        let obj = try json([.show(tmdb: 1399)], rating: 10)
+        let shows = obj["shows"] as! [[String: Any]]
+        #expect(shows.count == 1)
+        #expect((shows[0]["ids"] as! [String: Any])["tmdb"] as! Int == 1399)
+        #expect(shows[0]["rating"] as! Int == 10)
+        #expect(shows[0]["seasons"] == nil)      // whole-series entry carries no seasons
+    }
+
+    @Test func episodeEntryCarriesNoShowLevelRating() throws {
+        let obj = try json([.episode(showTmdb: 1399, season: 1, number: 1)], rating: 7)
+        let shows = obj["shows"] as! [[String: Any]]
+        #expect(shows[0]["rating"] == nil)       // the rating belongs to the episode, not the show
+        let eps = (shows[0]["seasons"] as! [[String: Any]])[0]["episodes"] as! [[String: Any]]
+        #expect(eps[0]["rating"] as! Int == 7)
+    }
+
     @Test func mixedMoviesAndEpisodesSplitCorrectly() throws {
         let obj = try json([.movie(tmdb: 1), .episode(showTmdb: 2, season: 1, number: 1), .movie(tmdb: 3)])
         #expect((obj["movies"] as! [[String: Any]]).count == 2)

@@ -78,8 +78,20 @@ import DebridCore
         #expect(store.userRating == nil)      // no backend → no-op
     }
 
-    @Test func showsCannotBeRatedYet() async {
-        let store = DetailStore(item: show(), details: PreviewDetailsStub(), watch: FakeWatchWithRatings())
+    @Test func showsRateAgainstTheSeriesKey() async {
+        let watch = FakeWatchWithRatings()
+        let store = DetailStore(item: show(), details: PreviewDetailsStub(), watch: watch)
+        #expect(store.canRate)
+        await store.rate(10)
+        #expect(store.userRating == 10)
+        #expect(watch.writes[0].0 == "show:tmdb:1399")   // the series itself, not an episode
+    }
+
+    @Test func unenrichedTitleCannotBeRated() async {
+        // No tmdbID → no Trakt identity → the control stays hidden.
+        let item = MediaItem(id: "movie:dune:2024", kind: .movie, title: "Dune", year: 2024,
+                             sources: [], seasons: [], tmdbID: nil)
+        let store = DetailStore(item: item, details: PreviewDetailsStub(), watch: FakeWatchWithRatings())
         #expect(store.canRate == false)
     }
 }

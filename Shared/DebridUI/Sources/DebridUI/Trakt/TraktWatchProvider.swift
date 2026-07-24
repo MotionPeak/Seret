@@ -9,6 +9,7 @@ public protocol TraktWatchAPI: Sendable {
     func watchedShows() async throws -> [TraktWatchedShow]
     func ratedMovies() async throws -> [TraktRatingItem]
     func ratedEpisodes() async throws -> [TraktRatingItem]
+    func ratedShows() async throws -> [TraktRatingItem]
     func addToHistory(_ refs: [TraktMediaRef]) async throws
     func removeFromHistory(_ refs: [TraktMediaRef]) async throws
     func scrobble(_ action: ScrobbleAction, ref: TraktMediaRef, progress: Double) async throws
@@ -58,6 +59,7 @@ public actor TraktWatchProvider: WatchProgressProviding {
         async let wShows = api.watchedShows()
         async let rMovies = api.ratedMovies()
         async let rEpisodes = api.ratedEpisodes()
+        async let rShows = api.ratedShows()
 
         var pb: [String: (Double, Date)] = [:]
         for item in try await movies + (try await episodes) {
@@ -83,6 +85,10 @@ public actor TraktWatchProvider: WatchProgressProviding {
         var rate: [String: Int] = [:]
         for r in try await rMovies { if let k = Self.key(movie: r.movie) { rate[k] = r.rating } }
         for r in try await rEpisodes { if let k = Self.key(show: r.show, episode: r.episode) { rate[k] = r.rating } }
+        // Show-level ratings key off the series itself ("show:tmdb:…"), not an episode.
+        for r in try await rShows {
+            if let tmdb = r.show?.ids.tmdb { rate[TraktMapping.showContentKey(tmdb: tmdb)] = r.rating }
+        }
         ratings = rate
     }
 

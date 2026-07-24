@@ -124,4 +124,10 @@ public struct TraktRatingItem: Decodable, Sendable, Equatable {
     public let movie: TraktMovieRef?
     public let show: TraktShowRef?
     public let episode: TraktEpisodeRef?
+
+    public init(rating: Int, type: String, movie: TraktMovieRef?,
+                show: TraktShowRef?, episode: TraktEpisodeRef?) {
+        self.rating = rating; self.type = type
+        self.movie = movie; self.show = show; self.episode = episode
+    }
 }

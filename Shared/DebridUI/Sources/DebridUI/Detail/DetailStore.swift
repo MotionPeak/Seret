@@ -173,13 +173,17 @@ public final class DetailStore {
     /// both), so nothing extra has to be injected. nil for fakes and non-Trakt backends.
     private var ratingSync: WatchRatingProviding? { watch as? WatchRatingProviding }
 
-    /// True when this title can carry a personal rating. Movies only for now — a show-level Trakt
-    /// rating needs a show-scoped identity, which the content-key scheme doesn't encode yet.
-    public var canRate: Bool { ratingSync != nil && item.kind == .movie }
+    /// The key a title's personal rating hangs off: the item id, which is already the enricher's
+    /// `movie:tmdb:…` / `show:tmdb:…` identity — the same string both kinds of rating use.
+    private var ratingKey: String { item.id }
+
+    /// True when this title can carry a personal rating — a movie or a whole series. Ratings need a
+    /// TMDB identity, so titles enrichment never matched can't be rated.
+    public var canRate: Bool { ratingSync != nil && item.tmdbID != nil }
 
     public func loadUserRating() async {
         guard canRate, let ratingSync else { return }
-        userRating = await ratingSync.rating(forContentKey: WatchKey.content(forMovie: item))
+        userRating = await ratingSync.rating(forContentKey: ratingKey)
     }
 
     /// Set (or clear, with nil) the viewer's rating. Optimistic: the UI updates immediately and the
@@ -187,7 +191,7 @@ public final class DetailStore {
     public func rate(_ value: Int?) async {
         guard canRate, let ratingSync else { return }
         userRating = value
-        await ratingSync.setRating(value, forContentKey: WatchKey.content(forMovie: item))
+        await ratingSync.setRating(value, forContentKey: ratingKey)
     }
 
     /// Mark a movie or episode watched/unwatched. `source` records the exact file (sourceKey).

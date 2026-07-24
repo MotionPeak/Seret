@@ -36,6 +36,7 @@ struct ShowDetail: View {
                         .foregroundStyle(Theme.Palette.textSecondary).lineLimit(4)
                 }
                 heroAction
+                UserRatingRow(store: store)
                 seasonPicker
                 SeasonDownloadButton(store: seasonStore, onAdded: onSeasonAdded)
                 episodeList

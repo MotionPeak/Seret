@@ -136,6 +136,10 @@ extension TraktClient {
         try await http.get(Self.base.appending(path: "sync/ratings/episodes"),
                            headers: try await authedHeaders())
     }
+    public func ratedShows() async throws -> [TraktRatingItem] {
+        try await http.get(Self.base.appending(path: "sync/ratings/shows"),
+                           headers: try await authedHeaders())
+    }
 
     // Writes
     //
@@ -149,7 +153,13 @@ extension TraktClient {
         struct MovieItem: Encodable, Equatable { let ids: IDs; var rating: Int? }
         struct EpisodeItem: Encodable, Equatable { let number: Int; var rating: Int? }
         struct SeasonItem: Encodable, Equatable { let number: Int; let episodes: [EpisodeItem] }
-        struct ShowItem: Encodable, Equatable { let ids: IDs; let seasons: [SeasonItem] }
+        /// A show entry is either whole-series (`rating`, no `seasons` — used for a show-level
+        /// rating) or a set of episodes addressed by season/number. `nil` fields are omitted.
+        struct ShowItem: Encodable, Equatable {
+            let ids: IDs
+            var rating: Int?
+            var seasons: [SeasonItem]?
+        }
         var movies: [MovieItem] = []
         var shows: [ShowItem] = []
     }
@@ -165,6 +175,9 @@ extension TraktClient {
             switch ref {
             case let .movie(tmdb):
                 body.movies.append(.init(ids: .init(tmdb: tmdb), rating: rating))
+            case let .show(tmdb):
+                // Whole-series entry: rating only, no seasons.
+                body.shows.append(.init(ids: .init(tmdb: tmdb), rating: rating, seasons: nil))
             case let .episode(showTmdb, season, number):
                 if byShow[showTmdb] == nil { showOrder.append(showTmdb) }
                 byShow[showTmdb, default: []].append((season, number))
@@ -182,7 +195,7 @@ extension TraktClient {
                 SyncBody.SeasonItem(number: s,
                                     episodes: (bySeason[s] ?? []).map { .init(number: $0, rating: rating) })
             }
-            body.shows.append(.init(ids: .init(tmdb: showTmdb), seasons: seasons))
+            body.shows.append(.init(ids: .init(tmdb: showTmdb), rating: nil, seasons: seasons))
         }
         return body
     }

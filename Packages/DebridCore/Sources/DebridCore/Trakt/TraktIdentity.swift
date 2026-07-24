@@ -1,8 +1,12 @@
 import Foundation
 
 /// A Trakt content reference, keyed by TMDB ids (the ids Seret already holds).
+///
+/// `.show` addresses a series as a whole. It is only valid for rating/history-style calls — a show
+/// is never scrobbled (playback always scrobbles a concrete `.episode`).
 public enum TraktMediaRef: Sendable, Equatable, Hashable {
     case movie(tmdb: Int)
+    case show(tmdb: Int)
     case episode(showTmdb: Int, season: Int, number: Int)
 }
 
@@ -22,6 +26,10 @@ extension TraktMediaRef {
         switch self {
         case let .movie(tmdb):
             return ScrobbleBody(movie: .init(ids: .init(tmdb: tmdb)), progress: progress)
+        case let .show(tmdb):
+            // Not a real scrobble target — playback always scrobbles a concrete episode. Encoded
+            // for totality only; `AppSession.traktRef(for:)` never produces `.show` for playback.
+            return ScrobbleBody(show: .init(ids: .init(tmdb: tmdb)), progress: progress)
         case let .episode(showTmdb, season, number):
             return ScrobbleBody(show: .init(ids: .init(tmdb: showTmdb)),
                                 episode: .init(season: season, number: number), progress: progress)
