@@ -161,6 +161,9 @@ public final class PlayerModel {
     /// contentKey + sourceKey so next-episode advances record under the right keys.
     private let recordProgress: (_ contentKey: String, _ sourceKey: String, _ position: Double, _ duration: Double) async -> Void
     private let subtitles: SubtitleProvider?
+    /// The system Now Playing surface (iPhone Remote app, Control Center, Siri, CEC). Optional —
+    /// nil keeps the pre-Now-Playing behavior exactly, which every existing unit test relies on.
+    private let nowPlaying: NowPlayingControlling?
     /// On-demand TMDB episode metadata (names + stills) for the in-player episode strip. Optional —
     /// when nil (or for a movie) the strip simply carries no names/thumbnails.
     private let details: MediaDetailsProviding?
@@ -332,6 +335,7 @@ public final class PlayerModel {
          onScrobblePause: ((Double) async -> Void)? = nil,
          onScrobbleStop: ((Double) async -> Void)? = nil,
          prefetchLink: ((String) -> Void)? = nil,
+         nowPlaying: NowPlayingControlling? = nil,
          autoHideDelay: Double = 4,
          loadTimeout: Double = 30,
          seekCoalesceWindow: Double = 0.35) {
@@ -358,6 +362,7 @@ public final class PlayerModel {
         self.unrestrict = unrestrict
         self.recordProgress = recordProgress
         self.subtitles = subtitles
+        self.nowPlaying = nowPlaying
         let initial: SubtitleRowState = subtitles == nil ? .noAccount : .idle
         self.subtitleRows = ["he", "en"].map { SubtitleRow(language: $0, state: initial) }
     }
@@ -371,6 +376,7 @@ public final class PlayerModel {
     public func start() {
         eventTask?.cancel()
         eventTask = Task { await self.consumeEvents() }
+        activateNowPlaying()
         reload()
     }
 
@@ -554,6 +560,7 @@ public final class PlayerModel {
             await recordProgress(contentKey, WatchKey.source(currentSource), position, duration)
         }
         maybeShowUpNext()
+        pushNowPlaying()
     }
 
     /// Reveal the "Up Next" bar once playback passes the content-end threshold (last subtitle cue,
@@ -766,6 +773,50 @@ public final class PlayerModel {
     public func togglePlayPause() {
         if phase == .playing { engine.pause() } else { engine.play() }
         revealScrubBar()
+    }
+
+    /// Resume. Distinct from `togglePlayPause` because the system Now Playing surface sends
+    /// DISCRETE play and pause commands — a toggle does the wrong thing whenever that surface's
+    /// idea of the state disagrees with ours.
+    public func play() {
+        guard phase != .playing else { return }
+        engine.play()
+        revealScrubBar()
+    }
+
+    /// Pause. See `play()` for why this is not a toggle.
+    public func pause() {
+        guard phase == .playing else { return }
+        engine.pause()
+        revealScrubBar()
+    }
+
+    /// Declare our transport to the system. This is what makes the iPhone Remote app render its
+    /// +/-10s buttons and scrubber; it also enables Siri, Control Center and CEC TV remotes.
+    private func activateNowPlaying() {
+        guard let nowPlaying else { return }
+        nowPlaying.activate(NowPlayingHandlers(
+            play: { [weak self] in self?.play() },
+            pause: { [weak self] in self?.pause() },
+            togglePlayPause: { [weak self] in self?.togglePlayPause() },
+            skip: { [weak self] delta in self?.skip(delta) },
+            seek: { [weak self] target in self?.scrub(to: target) },
+            setRate: { [weak self] rate in self?.setPlaybackSpeed(rate) },
+            nextTrack: hasNextEpisode ? { [weak self] in self?.playNextNow() } : nil
+        ))
+    }
+
+    /// Push the current metadata + playhead to the system surface.
+    private func pushNowPlaying() {
+        guard let nowPlaying else { return }
+        nowPlaying.update(NowPlayingInfo(
+            title: label,
+            showName: episode != nil ? item.title : nil,
+            duration: duration,
+            position: position,
+            rate: phase == .playing ? playbackSpeed : 0,
+            artworkURL: TMDBClient.imageURL(path: item.posterPath, size: "w500")
+        ))
     }
 
     /// Reveal the thin scrub bar and re-arm a 5s sticky timer. Called on every player interaction
@@ -1000,6 +1051,7 @@ public final class PlayerModel {
         upNextTask?.cancel()
         seekDispatchTask?.cancel()
         loadWatchdog?.cancel()
+        nowPlaying?.deactivate()
         await recordCurrentProgress()
         engine.stop()
     }

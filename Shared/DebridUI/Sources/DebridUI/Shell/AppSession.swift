@@ -624,7 +624,21 @@ public final class AppSession {
             prefetchLink: { link in
                 guard let cache else { return }
                 Task { await cache.prefetch(link) }
-            })
+            },
+            // Declares our transport to the system: the iPhone Remote app's ±10s buttons and
+            // scrubber, Control Center, Siri and HDMI-CEC TV remotes. Unavailable on macOS, where
+            // this package only builds to run `swift test`.
+            nowPlaying: Self.makeNowPlayingCenter())
+    }
+
+    /// The system Now Playing surface, when the platform has MediaPlayer + UIKit (iOS/tvOS).
+    /// nil on macOS so `swift test` keeps building.
+    private static func makeNowPlayingCenter() -> NowPlayingControlling? {
+        #if canImport(MediaPlayer) && canImport(UIKit)
+        return NowPlayingCenter()
+        #else
+        return nil
+        #endif
     }
 
     /// The Trakt identity for a playback request — show+episode when playing an episode, else the
