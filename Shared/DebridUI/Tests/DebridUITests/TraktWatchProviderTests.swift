@@ -20,7 +20,12 @@ import DebridCore
         func watchedMovies() async throws -> [TraktWatchedMovie] { watchedMoviesResult }
         func watchedShows() async throws -> [TraktWatchedShow] { watchedShowsResult }
         var ratedShowsResult: [TraktRatingItem] = []
-        func ratedMovies() async throws -> [TraktRatingItem] { ratedMoviesResult }
+        private(set) var ratedMoviesCallCount = 0
+        func setRatedMovies(_ v: [TraktRatingItem]) { ratedMoviesResult = v }
+        func ratedMovies() async throws -> [TraktRatingItem] {
+            ratedMoviesCallCount += 1
+            return ratedMoviesResult
+        }
         func ratedEpisodes() async throws -> [TraktRatingItem] { ratedEpisodesResult }
         func ratedShows() async throws -> [TraktRatingItem] { ratedShowsResult }
         func setRatedShows(_ v: [TraktRatingItem]) { ratedShowsResult = v }
@@ -71,6 +76,37 @@ import DebridCore
 
     // DetailStore/LibraryStore mark watched by calling `record(...finished:)` directly (their own
     // `setWatched` helper). These assert the provider routes that to Trakt history.
+    /// Regression: the sign-in refresh is fire-and-forget, so a screen opened before it lands used
+    /// to read an empty cache, show "no rating", and never re-read — a rating looked like it hadn't
+    /// persisted across a relaunch. Reads must lazily warm the cache themselves.
+    @Test func readsWarmTheCacheWithoutAnExplicitRefresh() async throws {
+        let api = FakeTraktAPI()
+        await api.setRatedMovies([
+            .init(rating: 9, type: "movie",
+                  movie: .init(ids: .init(tmdb: 1417, trakt: 1)), show: nil, episode: nil)
+        ])
+        await api.setPlaybackMovies([playbackMovie(tmdb: 27205, progress: 50, at: "2026-07-24T10:00:00.000Z")])
+        let provider = TraktWatchProvider(api: api)
+        // NOTE: no refresh() call — exactly what a Detail screen opened right after launch does.
+        #expect(await provider.rating(forContentKey: "movie:tmdb:1417") == 9)
+        #expect(await provider.fraction(forContentKey: "movie:tmdb:27205") == 0.5)
+        #expect(try await provider.recentlyWatched(limit: 5, profileID: "").count == 1)
+    }
+
+    @Test func concurrentColdReadsFetchOnlyOnce() async throws {
+        let api = FakeTraktAPI()
+        await api.setRatedMovies([
+            .init(rating: 7, type: "movie",
+                  movie: .init(ids: .init(tmdb: 1, trakt: 1)), show: nil, episode: nil)
+        ])
+        let provider = TraktWatchProvider(api: api)
+        async let a = provider.rating(forContentKey: "movie:tmdb:1")
+        async let b = provider.rating(forContentKey: "movie:tmdb:1")
+        async let c = provider.rating(forContentKey: "movie:tmdb:1")
+        #expect(await [a, b, c] == [7, 7, 7])
+        #expect(await api.ratedMoviesCallCount == 1)      // coalesced, not three fetches
+    }
+
     @Test func showLevelRatingIsCachedUnderTheSeriesKey() async throws {
         let api = FakeTraktAPI()
         await api.setRatedShows([

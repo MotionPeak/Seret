@@ -27,6 +27,12 @@ public actor TraktWatchProvider: WatchProgressProviding {
     private var order: [String] = []              // contentKeys, newest pausedAt first
     private var watchedKeys: Set<String> = []
     private var ratings: [String: Int] = [:]      // contentKey -> 1…10
+    /// Whether the cache has been filled from Trakt at least once, plus the in-flight fill. Reads
+    /// lazily warm the cache instead of returning an empty answer: the sign-in refresh is
+    /// fire-and-forget, so a screen opened before it lands would otherwise see "no rating" /
+    /// "no progress" and never re-read (the bug where a rating vanished on relaunch).
+    private var loaded = false
+    private var loadTask: Task<Void, Never>?
     // Actor-isolated (ISO8601DateFormatter isn't Sendable, so it can't be a shared static).
     private let iso: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
@@ -90,13 +96,31 @@ public actor TraktWatchProvider: WatchProgressProviding {
             if let tmdb = r.show?.ids.tmdb { rate[TraktMapping.showContentKey(tmdb: tmdb)] = r.rating }
         }
         ratings = rate
+        loaded = true
+    }
+
+    /// Fill the cache once if nothing has yet, coalescing concurrent callers onto one fetch. A
+    /// failure leaves `loaded` false so the next read retries rather than caching an empty answer.
+    private func ensureLoaded() async {
+        if loaded { return }
+        if let task = loadTask { await task.value; return }
+        let task = Task { _ = try? await self.refresh() }
+        loadTask = task
+        await task.value
+        loadTask = nil
     }
 
     /// Fraction (0…1) for a paused key, for the player to convert to seconds via its known duration.
-    public func fraction(forContentKey key: String) -> Double? { playback[key]?.fraction }
+    public func fraction(forContentKey key: String) async -> Double? {
+        await ensureLoaded()
+        return playback[key]?.fraction
+    }
 
     /// This user's 1…10 Trakt rating for a title, if any.
-    public func rating(forContentKey key: String) -> Int? { ratings[key] }
+    public func rating(forContentKey key: String) async -> Int? {
+        await ensureLoaded()
+        return ratings[key]
+    }
 
     /// Set (or clear with nil) this user's Trakt rating and update the cache.
     public func setRating(_ value: Int?, forContentKey key: String) async {
@@ -113,6 +137,7 @@ public actor TraktWatchProvider: WatchProgressProviding {
     // MARK: WatchProgressProviding
 
     public func progress(forContentKey key: String, profileID: String) async throws -> WatchState? {
+        await ensureLoaded()
         if watchedKeys.contains(key) {
             return WatchState(contentKey: key, sourceKey: "", positionSeconds: 0,
                               durationSeconds: 0, finished: true, updatedAt: .distantPast)
@@ -143,7 +168,8 @@ public actor TraktWatchProvider: WatchProgressProviding {
     }
 
     public func recentlyWatched(limit: Int, profileID: String) async throws -> [WatchState] {
-        order.prefix(limit).compactMap { k in
+        await ensureLoaded()
+        return order.prefix(limit).compactMap { k in
             guard let pb = playback[k] else { return nil }
             return WatchState(contentKey: k, sourceKey: "", positionSeconds: 0, durationSeconds: 0,
                               finished: false, updatedAt: pb.pausedAt)
