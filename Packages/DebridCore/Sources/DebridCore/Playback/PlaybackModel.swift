@@ -26,11 +26,16 @@ public struct MediaTrack: Sendable, Equatable, Identifiable {
     public let kind: TrackKind
     public let name: String
     public let language: String?
-    public init(id: String, kind: TrackKind, name: String, language: String? = nil) {
+    /// True for a track attached from a downloaded subtitle file rather than one muxed into the
+    /// media. Lets the picker group "in this file" apart from "downloaded".
+    public let isExternal: Bool
+    public init(id: String, kind: TrackKind, name: String, language: String? = nil,
+                isExternal: Bool = false) {
         self.id = id
         self.kind = kind
         self.name = name
         self.language = language
+        self.isExternal = isExternal
     }
 }
 
