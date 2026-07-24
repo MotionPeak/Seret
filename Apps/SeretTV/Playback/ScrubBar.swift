@@ -12,9 +12,14 @@ struct ScrubBar: View {
     @Bindable var model: PlayerModel
     let buffering: Bool
 
-    private var shownTime: Double { model.isScrubbing ? model.scrubTarget : model.position }
-    private var fraction: Double {
-        model.duration > 0 ? min(1, max(0, shownTime / model.duration)) : 0
+    /// The flanking timecodes always show the LIVE playhead — where you are, and where you return
+    /// to if you cancel a scrub. The scrub TARGET is shown only in the floating bubble over the
+    /// handle, so the two never duplicate each other.
+    private var flankTime: Double { model.position }
+    /// The fill and handle sit at the scrub target while scrubbing, the playhead otherwise.
+    private var headTime: Double { model.isScrubbing ? model.scrubTarget : model.position }
+    private var headFraction: Double {
+        model.duration > 0 ? min(1, max(0, headTime / model.duration)) : 0
     }
     private var trackHeight: CGFloat { model.isScrubbing ? 8 : 3 }
     private var timeFont: Font {
@@ -27,10 +32,10 @@ struct ScrubBar: View {
     var body: some View {
         VStack(spacing: 10) {
             HStack(spacing: 18) {
-                Text(Timecode.format(shownTime))
+                Text(Timecode.format(flankTime))
                     .font(timeFont).monospacedDigit().foregroundStyle(timeColor)
                 track
-                Text("-" + Timecode.format(max(0, model.duration - shownTime)))
+                Text("-" + Timecode.format(max(0, model.duration - flankTime)))
                     .font(timeFont).monospacedDigit().foregroundStyle(timeColor)
             }
             if buffering {
@@ -61,23 +66,27 @@ struct ScrubBar: View {
         ZStack(alignment: .leading) {
             Capsule().fill(.white.opacity(0.16)).frame(height: trackHeight)
             GeometryReader { geo in
-                let headX = min(geo.size.width, max(0, geo.size.width * fraction))
-                let originX = model.duration > 0
+                let headX = min(geo.size.width, max(0, geo.size.width * headFraction))
+                let playheadX = model.duration > 0
                     ? geo.size.width * min(1, max(0, model.position / model.duration))
                     : 0
 
-                // Where the playhead was when the scrub started — so the viewer can see how far
-                // they have travelled, and Menu-to-cancel has a visible meaning.
-                if model.isScrubbing {
-                    Capsule()
-                        .fill(Theme.Palette.gold.opacity(0.30))
-                        .frame(width: max(originX, headX), height: trackHeight)
-                        .frame(maxHeight: .infinity, alignment: .center)
-                }
                 Capsule()
                     .fill(Theme.Palette.gold)
                     .frame(width: headX, height: trackHeight)
                     .frame(maxHeight: .infinity, alignment: .center)
+
+                // A distinct tick at the LIVE playhead so, while scrubbing, "where you are" (and the
+                // return point if you cancel) is always visible — regardless of which way you drag.
+                // The old dimmed band was max(origin, target), so scrubbing FORWARD it coincided
+                // with the fill and vanished.
+                if model.isScrubbing {
+                    Capsule()
+                        .fill(.white)
+                        .frame(width: 3, height: trackHeight + 8)
+                        .position(x: min(geo.size.width - 2, max(2, playheadX)),
+                                  y: geo.size.height / 2)
+                }
                 handle
                     .position(x: min(geo.size.width - 10, max(10, headX)), y: geo.size.height / 2)
             }
