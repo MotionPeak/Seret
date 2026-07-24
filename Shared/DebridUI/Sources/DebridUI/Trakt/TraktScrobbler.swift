@@ -11,17 +11,25 @@ extension TraktClient: TraktScrobbleAPI {}
 public actor TraktScrobbler {
     private let api: TraktScrobbleAPI
     private let ref: TraktMediaRef
+    private let heartbeatInterval: Double            // seconds between heartbeat scrobbles
+    private let now: @Sendable () -> Double           // monotonic seconds
     private enum State { case idle, playing, paused, stopped }
     private var state: State = .idle
+    private var lastHeartbeat: Double = -.infinity
 
-    public init(api: TraktScrobbleAPI, ref: TraktMediaRef) {
+    public init(api: TraktScrobbleAPI, ref: TraktMediaRef,
+                heartbeatInterval: Double = 60,
+                now: @escaping @Sendable () -> Double = { ProcessInfo.processInfo.systemUptime }) {
         self.api = api
         self.ref = ref
+        self.heartbeatInterval = heartbeatInterval
+        self.now = now
     }
 
     public func start(fraction: Double) async {
         guard state != .playing else { return }
         state = .playing
+        lastHeartbeat = now()                          // don't heartbeat right after a start
         await send(.start, fraction)
     }
 
@@ -37,10 +45,14 @@ public actor TraktScrobbler {
         await send(.stop, fraction)
     }
 
-    /// Heartbeat: a pause scrobble that leaves a fresh resume point if the app is killed. Keeps
-    /// the internal state `.playing` so real lifecycle transitions still fire.
+    /// Heartbeat: a throttled pause scrobble that leaves a fresh resume point if the app is killed.
+    /// PlayerModel calls this every ~1s; it only actually scrobbles every `heartbeatInterval` s.
+    /// Keeps the internal state `.playing` so real lifecycle transitions still fire.
     public func heartbeat(fraction: Double) async {
         guard state == .playing else { return }
+        let t = now()
+        guard t - lastHeartbeat >= heartbeatInterval else { return }
+        lastHeartbeat = t
         await send(.pause, fraction)
     }
 

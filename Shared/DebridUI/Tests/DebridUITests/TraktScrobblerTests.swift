@@ -51,11 +51,36 @@ import DebridCore
         #expect(await rec.calls.map(\.action) == [.start, .pause])
     }
 
-    @Test func heartbeatSendsPauseWhilePlaying() async throws {
-        let rec = Recorder()
-        let s = TraktScrobbler(api: rec, ref: .movie(tmdb: 1))
+    /// A controllable monotonic clock so heartbeat throttling is deterministic.
+    final class Clock: @unchecked Sendable {
+        var t: Double = 0
+        func read() -> Double { t }
+    }
+
+    @Test func heartbeatThrottledToInterval() async throws {
+        let rec = Recorder(); let clock = Clock()
+        let s = TraktScrobbler(api: rec, ref: .movie(tmdb: 1), heartbeatInterval: 60,
+                               now: { clock.read() })
         await s.start(fraction: 0.1)
-        await s.heartbeat(fraction: 0.3)
+        // PlayerModel ticks ~1s apart: none of these should scrobble.
+        for i in 1...59 { clock.t = Double(i); await s.heartbeat(fraction: 0.2) }
+        #expect(await rec.calls.map(\.action) == [.start])
+        // Crossing the interval sends exactly one pause.
+        clock.t = 60; await s.heartbeat(fraction: 0.3)
         #expect(await rec.calls.map(\.action) == [.start, .pause])
+        // ...and the window resets.
+        clock.t = 61; await s.heartbeat(fraction: 0.31)
+        #expect(await rec.calls.map(\.action) == [.start, .pause])
+        clock.t = 120; await s.heartbeat(fraction: 0.5)
+        #expect(await rec.calls.map(\.action) == [.start, .pause, .pause])
+    }
+
+    @Test func heartbeatIgnoredWhenNotPlaying() async throws {
+        let rec = Recorder(); let clock = Clock()
+        let s = TraktScrobbler(api: rec, ref: .movie(tmdb: 1), heartbeatInterval: 60,
+                               now: { clock.read() })
+        clock.t = 1000
+        await s.heartbeat(fraction: 0.3)      // never started
+        #expect(await rec.calls.isEmpty)
     }
 }
