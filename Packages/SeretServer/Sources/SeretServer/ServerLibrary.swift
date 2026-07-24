@@ -21,15 +21,27 @@ actor ServerLibrary {
     var isEmpty: Bool { cache.isEmpty }
     func item(id: String) -> MediaItem? { cache.first { $0.id == id } }
 
-    /// Both fan-outs run with concurrency 1 on purpose. swift-corelibs-foundation's URLSession is
-    /// far less robust than Apple's under parallel requests, and concurrent RD/TMDB calls trapped
-    /// on an unnamed (libcurl worker) thread here. The library is built once and cached, so the
-    /// serial cost is irrelevant.
+    /// Built serially on purpose, and deliberately NOT via `MetadataEnricher.enrich(_:maxConcurrent:)`.
+    ///
+    /// That batch helper declares a local `func add(_:)` which captures the `TaskGroup`. `TaskGroup`
+    /// is non-escapable, so capturing it in a nested function and calling it later from the
+    /// `for await` loop is unsafe: it happens to work on Darwin, but on Linux/Swift 6.3 it corrupts
+    /// the group's bookkeeping and traps inside `out[index] = enriched`
+    /// (`Array.subscript.modify`, MetadataEnricher.swift:71) — confirmed from a container backtrace.
+    /// The single-item `enrich(_:)` has no task group and is safe. The library is cached, so paying
+    /// for a serial pass once is irrelevant.
     @discardableResult
     func refresh() async throws -> [MediaItem] {
         let infos = try await torrents.allTorrentInfos(maxConcurrent: 1)
         let grouped = builder.group(infos)
-        let enriched = await enricher.enrich(grouped, maxConcurrent: 1)
+
+        var enriched: [MediaItem] = []
+        enriched.reserveCapacity(grouped.count)
+        for item in grouped {
+            // A per-item lookup failure must never fail the whole library.
+            enriched.append((try? await enricher.enrich(item)) ?? item)
+        }
+
         cache = Self.mergeDuplicates(enriched)
         return cache
     }
