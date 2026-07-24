@@ -22,9 +22,11 @@ struct SeretTVApp: App {
                 // The app launches as the unit-test host; don't drive the live
                 // (network-firing) sign-in UI during tests.
                 Color.clear
-            } else if Self.uiPreview == "scrubbar" {
+            } else if let preview = Self.uiPreview {
                 #if DEBUG
-                PlayerUIPreview()   // -uiPreview scrubbar — DEBUG-only bar harness
+                PlayerUIPreview(target: preview)   // -uiPreview <scrubbar|settings|subtitles>
+                #else
+                RootView().environment(session)
                 #endif
             } else {
                 RootView()

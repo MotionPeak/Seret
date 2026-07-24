@@ -12,6 +12,7 @@ struct PlayerView: View {
     @State private var engine: VLCKitVideoPlayerEngine
     @State private var showSettings = false
     @State private var showEpisodes = false
+    @State private var showSubtitleBrowser = false
     /// The playhead when the current scrub gesture started — scrub displacement is relative to it.
     @State private var scrubOrigin: Double = 0
     @FocusState private var focus: PlayerFocus?
@@ -35,7 +36,7 @@ struct PlayerView: View {
             // not exist. Swapping the focused view's identity mid-playback is also the exact
             // anti-pattern that cost this app its Browse-tile focus (see CLAUDE.md).
             PlayerInputSurface(
-                isActive: !showSettings && !showEpisodes && !model.upNextVisible,
+                isActive: !showSettings && !showEpisodes && !model.upNextVisible && !showSubtitleBrowser,
                 onTouchDown: { model.revealScrubBar() },
                 onTouchUp: {},
                 onScrubBegan: { model.beginScrub() },
@@ -97,11 +98,20 @@ struct PlayerView: View {
             // Last, so it sits above the skip badge and the Up Next bar — they used to render
             // over the panel.
             if showSettings {
-                SettingsPanel(model: model, onClose: { showSettings = false })
+                SettingsPanel(model: model,
+                              onSearchSubtitles: { showSettings = false; showSubtitleBrowser = true },
+                              onClose: { showSettings = false })
                     .transition(.move(edge: .top).combined(with: .opacity))
+            }
+
+            // Above the panel: the full-screen subtitle browser. Owns its own Menu-to-close.
+            if showSubtitleBrowser {
+                SubtitleBrowser(model: model, onClose: { showSubtitleBrowser = false })
+                    .transition(.opacity)
             }
         }
         .animation(Theme.Anim.pageFade, value: showSettings)
+        .animation(Theme.Anim.pageFade, value: showSubtitleBrowser)
         .animation(Theme.Anim.pageFade, value: showEpisodes)
         .animation(Theme.Anim.pageFade, value: model.upNextVisible)
         .animation(Theme.Anim.pageFade, value: model.isColdOpen)
@@ -114,6 +124,7 @@ struct PlayerView: View {
         .onExitCommand {
             if model.isScrubbing { model.cancelScrub() }       // Menu abandons a scrub
             else if model.upNextVisible { model.dismissUpNext() }
+            else if showSubtitleBrowser { showSubtitleBrowser = false }   // fallback; the browser also self-closes
             else if showSettings { showSettings = false }
             else if showEpisodes { showEpisodes = false }
             else { dismiss() }
@@ -129,6 +140,7 @@ struct PlayerView: View {
         // `isActive`) and re-reveals the bar so there is something on screen to act on.
         .onChange(of: showSettings) { _, open in if !open { model.revealScrubBar() } }
         .onChange(of: showEpisodes) { _, open in if !open { model.revealScrubBar() } }
+        .onChange(of: showSubtitleBrowser) { _, open in if !open { model.revealScrubBar() } }
         .onChange(of: model.shouldDismiss) { _, dismissNow in if dismissNow { dismiss() } }
         .onDisappear { Task { await model.teardown() } }
     }
