@@ -56,7 +56,21 @@ public final class AppSession {
     /// Preferred audio/subtitle language, persisted and auto-applied to every playback; survives
     /// sign-out (a device preference). Recorded by `PlayerModel` when the user picks a track.
     public let trackPreferences = TrackPreferences()
-    private var watchProgressStore: WatchProgressStore?   // concrete ref for PlaybackCoordinator
+    /// Legacy local watch store. No longer the watch-state source of truth (Trakt is) — kept only so
+    /// the one-time "push existing progress to Trakt" migration can still read the old rows.
+    private var watchProgressStore: WatchProgressStore?
+
+    // MARK: Trakt (the watch-state source of truth: scrobbling, resume, watched, ratings)
+
+    /// Trakt-backed watch state — vended as `watchStore`, so Home/Detail/Library read it unchanged.
+    public private(set) var traktProvider: TraktWatchProvider?
+    private var traktClient: TraktClient?
+    private var traktSession: TraktSession?
+    private var traktTokenStore: TraktTokenStoring?
+    /// True when a Trakt account is linked on this device (a token is in the Keychain).
+    public private(set) var traktLinked = false
+    /// True when the build carries a Trakt API app (Secrets.xcconfig). False = Trakt disabled.
+    public var traktConfigured: Bool { Secrets.traktConfigured }
     /// Profile roster store (CRUD) — used by the Who's-Watching / profile-manager UI (later slice).
     public private(set) var profileStore: ProfileStore?
     /// Per-profile "My List" store — claimed-title membership (later slice wires claim on add/play).
@@ -148,6 +162,11 @@ public final class AppSession {
         watchStore = nil
         home = nil
         watchProgressStore = nil
+        traktProvider = nil
+        traktClient = nil
+        traktSession = nil
+        traktTokenStore = nil
+        traktLinked = false
         torrents = nil
         linkCache = nil
         trailerResolver = nil
@@ -264,6 +283,56 @@ public final class AppSession {
         }
     }
 
+    /// Compose the Trakt stack and make it the watch-state source of truth. Two clients: a
+    /// bootstrap one for the (unauthenticated) token refresh call, and the authed one everything
+    /// else uses. Safe to build even when unlinked/unconfigured — reads then just come back empty,
+    /// which is the designed "not linked" degradation (Play instead of Resume, empty rails).
+    private func makeTraktStack() {
+        let tokenStore = KeychainTraktTokenStore()
+        let bootClient = TraktClient(clientID: Secrets.traktClientID,
+                                     clientSecret: Secrets.traktClientSecret)
+        let session = TraktSession(store: tokenStore,
+                                   refresh: { token in try await bootClient.refresh(token) })
+        let client = TraktClient(clientID: Secrets.traktClientID,
+                                 clientSecret: Secrets.traktClientSecret,
+                                 token: session.tokenProvider())
+        let provider = TraktWatchProvider(api: client)
+        traktTokenStore = tokenStore
+        traktSession = session
+        traktClient = client
+        traktProvider = provider
+        traktLinked = ((try? tokenStore.load()) ?? nil) != nil
+        watchStore = provider
+        if traktLinked { Task { await refreshTraktThenHome() } }
+    }
+
+    /// Pull the Trakt caches, then rebuild Home so Continue Watching reflects them.
+    private func refreshTraktThenHome() async {
+        try? await traktProvider?.refresh()
+        await rebuildHome()
+    }
+
+    /// A `TraktAuthModel` for the Settings "Link Trakt" flow (nil when unconfigured/signed out).
+    /// On success it flips `traktLinked` and warms the caches.
+    public func makeTraktAuthModel() -> TraktAuthModel? {
+        guard traktConfigured, let traktClient, let traktSession else { return nil }
+        return TraktAuthModel(flow: LiveTraktAuthFlow(client: traktClient, session: traktSession),
+                              onLinked: { [weak self] in
+                                  guard let self else { return }
+                                  self.traktLinked = true
+                                  Task { await self.refreshTraktThenHome() }
+                              })
+    }
+
+    /// Unlink Trakt — drops the stored token and clears the cached watch state.
+    public func unlinkTrakt() async {
+        try? await traktSession?.signOut()
+        traktLinked = false
+        traktProvider = traktProvider.map { _ in TraktWatchProvider(api: traktClient!) }
+        watchStore = traktProvider
+        await rebuildHome()
+    }
+
     /// Re-run the profile load (owner migration + roster) and re-scope Home. Exposed so the
     /// Who's-Watching screen can offer a manual "Reload" while we diagnose.
     public func reloadProfiles() async {
@@ -294,8 +363,10 @@ public final class AppSession {
         Self.purgeLegacyDefaultStore()
         // Build the watch + profile + My-List stores from one dedicated container.
         let stores = Self.makeProfileStores()
-        watchProgressStore = stores?.watch
-        watchStore = stores?.watch as WatchProgressProviding?
+        watchProgressStore = stores?.watch      // legacy rows — migration source only
+        // Trakt is the watch-state source of truth; it vends `watchStore`, so LibraryStore /
+        // HomeStore / DetailStore / the seed service consume it through the same seam unchanged.
+        makeTraktStack()
         profileStore = stores?.profiles
         myListStore = stores?.myList
         profileStoreMode = stores?.mode ?? "none"
@@ -443,7 +514,7 @@ public final class AppSession {
     /// shared factory owns only the brain wiring (unrestrict / progress / subtitles).
     public func makePlayer(for request: PlaybackRequest,
                            engine: VideoPlayerEngine) -> PlayerModel? {
-        guard let torrents, let store = watchProgressStore else { return nil }
+        guard let torrents, let provider = traktProvider else { return nil }
         // Playing a title claims it into the active profile's My List (add-or-play, rule ii).
         // Keyed by the title's id (matches the Detail toggle + My Library filter), not the
         // episode-level contentKey.
@@ -451,7 +522,11 @@ public final class AppSession {
             let key = request.item.id
             Task { try? await myListStore.claim(profileID: pid, contentKey: key) }
         }
-        let coordinator = PlaybackCoordinator(store: store, profileID: activeProfileID ?? "")
+        // One scrobbler per played item. nil when the title has no TMDB id (unenriched) or Trakt
+        // isn't configured — playback then simply doesn't scrobble.
+        let scrobbler = traktClient.flatMap { client in
+            traktRef(for: request).map { TraktScrobbler(api: client, ref: $0) }
+        }
         let cache = linkCache
         return PlayerModel(
             request: request,
@@ -464,23 +539,41 @@ public final class AppSession {
                 guard let url = URL(string: unrestricted.download) else { throw URLError(.badURL) }
                 return url
             },
-            // PlayerModel supplies the live contentKey/sourceKey so a next-episode advance records
-            // against the new episode rather than the one playback started on.
-            recordProgress: { contentKey, sourceKey, position, duration in
-                await coordinator.record(contentKey: contentKey, sourceKey: sourceKey,
-                                         position: position, duration: duration)
+            // The 1s tick drives the Trakt heartbeat; the scrobbler coalesces it to one call a
+            // minute, so an app kill still leaves a recent resume point without spamming Trakt.
+            recordProgress: { _, _, position, duration in
+                guard let scrobbler, duration > 0 else { return }
+                await scrobbler.heartbeat(fraction: position / duration)
             },
             subtitles: subtitlesProvider,
             details: detailsProvider,
             trackPreferences: trackPreferences,
-            // Authoritative resume: the saved position is re-read from the store at load time,
-            // so playback can't race the screen's watch-state load or use a stale hint.
-            resolveResume: { key in await coordinator.resumePosition(contentKey: key) },
+            // Authoritative resume, Trakt-style: the paused percentage is re-read at load time (so
+            // playback can't race the screen's watch-state load), then turned into a seek target
+            // once the media reports its runtime.
+            resolveResumeFraction: { key in await provider.fraction(forContentKey: key) },
+            onScrobbleStart: { fraction in await scrobbler?.start(fraction: fraction) },
+            onScrobblePause: { fraction in await scrobbler?.pause(fraction: fraction) },
+            // Trakt finalizes here: at ≥80% it moves the title into watched history, below that it
+            // keeps it resumable. That 80% cutoff is Trakt's, which is why no local threshold remains.
+            onScrobbleStop: { fraction in
+                await scrobbler?.stop(fraction: fraction)
+                try? await provider.refresh()     // reflect the new watched/resume state in the UI
+            },
             // Up Next warm-up: resolve the next episode's link while the countdown runs.
             prefetchLink: { link in
                 guard let cache else { return }
                 Task { await cache.prefetch(link) }
             })
+    }
+
+    /// The Trakt identity for a playback request — show+episode when playing an episode, else the
+    /// movie. nil for titles TMDB enrichment never matched (no tmdbID), which simply don't scrobble.
+    private func traktRef(for request: PlaybackRequest) -> TraktMediaRef? {
+        if let episode = request.episode {
+            return TraktMapping.ref(forShow: request.item, episode: episode)
+        }
+        return TraktMapping.ref(forMovie: request.item)
     }
 
     /// Warm the RD `unrestrict` for a source the user is likely to play next (fire-and-forget).
