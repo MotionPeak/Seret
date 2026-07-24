@@ -1104,7 +1104,11 @@ public final class PlayerModel {
         guard subtitleRows.first(where: { $0.language == language })?.state != .downloading else { return }
         setRow(language, .downloading)
         do {
-            let query = SubtitleQuery.movie(item)
+            // A show must search by season + episode. This was `SubtitleQuery.movie(item)`
+            // unconditionally, so every episode searched as if it were a film — the episode
+            // builder existed and had never been called.
+            let query = episode.map { SubtitleQuery.episode(show: item, episode: $0) }
+                ?? SubtitleQuery.movie(item)
             let results = try await subtitles.search(query, languages: [language])
             guard let best = results.first else { setRow(language, .error); return }
             let url = try await subtitles.download(best)

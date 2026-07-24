@@ -68,9 +68,11 @@ final class FakeSubtitleProvider: SubtitleProvider, @unchecked Sendable {
     var downloadError: Error?
     var downloadedURL = URL(fileURLWithPath: "/tmp/sub.srt")
     private(set) var searchedLanguages: [[String]] = []
+    private(set) var searchedQueries: [SubtitleQuery] = []
 
     func search(_ query: SubtitleQuery, languages: [String]) async throws -> [SubtitleResult] {
         searchedLanguages.append(languages)
+        searchedQueries.append(query)
         if let searchError { throw searchError }
         return searchResults
     }
