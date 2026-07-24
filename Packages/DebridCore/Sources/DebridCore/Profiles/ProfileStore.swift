@@ -2,7 +2,7 @@ import Foundation
 import SwiftData
 
 /// SwiftData-backed roster of viewer `Profile`s. `@ModelActor` isolates its `ModelContext`. Its
-/// container also holds `MyListEntry` + `WatchProgress` so `delete` can cascade and the owner
+/// container also holds `MyListEntry` so `delete` can cascade and the owner
 /// migration can re-key existing progress.
 @ModelActor
 public actor ProfileStore {
@@ -41,23 +41,20 @@ public actor ProfileStore {
         try modelContext.save()
     }
 
-    /// Delete a profile and cascade to its My-List entries and watch progress.
+    /// Delete a profile and cascade to its My-List entries. Watch progress lives on Trakt now,
+    /// which is a single account for the whole app, so there is nothing per-profile to cascade to.
     public func delete(id: String) throws {
         if let p = try fetchOne(id: id) { modelContext.delete(p) }
         for entry in try modelContext.fetch(FetchDescriptor<MyListEntry>(
             predicate: #Predicate { $0.profileID == id })) {
             modelContext.delete(entry)
         }
-        for row in try modelContext.fetch(FetchDescriptor<WatchProgress>(
-            predicate: #Predicate { $0.profileID == id })) {
-            modelContext.delete(row)
-        }
         try modelContext.save()
     }
 
-    /// Idempotent first-launch migration: if any profile exists, return the earliest (the owner)
-    /// untouched. Otherwise create an owner profile and re-key every `profileID == nil`
-    /// `WatchProgress` row to it, so Phase-1 progress is preserved under the new profile model.
+    /// Idempotent first-launch setup: if any profile exists, return the earliest (the owner)
+    /// untouched. Otherwise create an owner profile. (This used to also re-key legacy local watch
+    /// rows onto the owner; watch state is Trakt's now, so there is nothing left to re-key.)
     @discardableResult
     public func ensureOwnerProfileAndMigrate(ownerName: String, colorTag: String, avatar: String = "",
                                              id: String = UUID().uuidString,
@@ -68,10 +65,6 @@ public actor ProfileStore {
 
         let owner = Profile(id: id, name: ownerName, colorTag: colorTag, avatar: avatar, createdAt: at)
         modelContext.insert(owner)
-        for row in try modelContext.fetch(FetchDescriptor<WatchProgress>(
-            predicate: #Predicate { $0.profileID == nil })) {
-            row.profileID = id
-        }
         try modelContext.save()
         return ProfileDTO(owner)
     }

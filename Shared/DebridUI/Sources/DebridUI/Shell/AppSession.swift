@@ -58,7 +58,6 @@ public final class AppSession {
     public let trackPreferences = TrackPreferences()
     /// Legacy local watch store. No longer the watch-state source of truth (Trakt is) — kept only so
     /// the one-time "push existing progress to Trakt" migration can still read the old rows.
-    private var watchProgressStore: WatchProgressStore?
 
     // MARK: Trakt (the watch-state source of truth: scrobbling, resume, watched, ratings)
 
@@ -161,7 +160,6 @@ public final class AppSession {
         ratingsProvider = nil
         watchStore = nil
         home = nil
-        watchProgressStore = nil
         traktProvider = nil
         traktClient = nil
         traktSession = nil
@@ -187,7 +185,6 @@ public final class AppSession {
     /// cascade-delete + owner migration work across them and they share a single private DB. Falls
     /// back to local-only if iCloud/CloudKit is unavailable so the app still works offline.
     private struct ProfileStores {
-        let watch: WatchProgressStore
         let profiles: ProfileStore
         let myList: MyListStore
         let mode: String
@@ -200,7 +197,7 @@ public final class AppSession {
     public var profilesSyncedViaICloud: Bool { profileStoreMode == "cloud" }
 
     private static func makeProfileStores() -> ProfileStores? {
-        let schema = Schema([WatchProgress.self, Profile.self, MyListEntry.self])
+        let schema = Schema([Profile.self, MyListEntry.self])
         // Only ask for CloudKit when an iCloud account is actually signed in (a CloudKit store fails
         // silently on a sim / no-account device). Otherwise local-only — sync engages on real
         // iCloud devices.
@@ -260,7 +257,7 @@ public final class AppSession {
     }
 
     private static func wrap(_ container: ModelContainer, mode: String) -> ProfileStores {
-        ProfileStores(watch: WatchProgressStore(modelContainer: container),
+        ProfileStores(
                       profiles: ProfileStore(modelContainer: container),
                       myList: MyListStore(modelContainer: container), mode: mode)
     }
@@ -312,7 +309,6 @@ public final class AppSession {
     /// from `LibraryStore.watchByKey`, which is loaded separately and would otherwise stay empty
     /// until the next library load (looking exactly like "my watch state didn't come back").
     private func refreshTraktThenHome() async {
-        await migrateLocalProgressIfNeeded()
         try? await traktProvider?.refresh()
         await libraryStore?.reloadWatchStates()
         await rebuildHome()
@@ -375,31 +371,6 @@ public final class AppSession {
     }
 
     /// Key for the once-per-device flag guarding the legacy-progress hand-off.
-    private static let migratedKey = "trakt.migratedLocalProgress"
-
-    /// One-time hand-off: push watch progress recorded before Trakt to the linked account, so
-    /// existing resume points and watched titles survive the switch. Runs at most once per device
-    /// (and only while linked); entirely best-effort — a failure must never block sign-in, and the
-    /// flag is only set on success so a failed attempt retries next launch.
-    private func migrateLocalProgressIfNeeded() async {
-        guard traktLinked, let client = traktClient, let legacy = watchProgressStore else { return }
-        guard !UserDefaults.standard.bool(forKey: Self.migratedKey) else { return }
-        guard let states = try? await legacy.allStates(), !states.isEmpty else {
-            UserDefaults.standard.set(true, forKey: Self.migratedKey)   // nothing to carry over
-            return
-        }
-        let rows = TraktMigration.rows(from: states)
-        guard !rows.isEmpty else {
-            UserDefaults.standard.set(true, forKey: Self.migratedKey)
-            return
-        }
-        do {
-            try await TraktMigration.push(rows, to: client)
-            UserDefaults.standard.set(true, forKey: Self.migratedKey)
-        } catch {
-            // Leave the flag unset so the next launch tries again.
-        }
-    }
 
     /// A `TraktAuthModel` for the Settings "Link Trakt" flow (nil when unconfigured/signed out).
     /// On success it flips `traktLinked` and warms the caches.
@@ -452,7 +423,6 @@ public final class AppSession {
         Self.purgeLegacyDefaultStore()
         // Build the watch + profile + My-List stores from one dedicated container.
         let stores = Self.makeProfileStores()
-        watchProgressStore = stores?.watch      // legacy rows — migration source only
         // Trakt is the watch-state source of truth; it vends `watchStore`, so LibraryStore /
         // HomeStore / DetailStore / the seed service consume it through the same seam unchanged.
         makeTraktStack()
