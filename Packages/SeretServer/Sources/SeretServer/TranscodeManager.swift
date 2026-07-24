@@ -28,7 +28,12 @@ actor TranscodeManager {
             "-hwaccel", "vaapi", "-hwaccel_device", renderNode,
             "-hwaccel_output_format", "vaapi",
             "-i", input,
-            "-vf", "scale_vaapi=w=-2:h=min(\(maxHeight)\\,ih)",
+            // format=nv12 is load-bearing. 10-bit HEVC (Main10) decodes to a P010 surface, but
+            // h264_vaapi on Gemini Lake only encodes 8-bit, so without this the encoder dies
+            // instantly with "No usable encoding profile found". Converting during the VAAPI
+            // scale keeps everything on the GPU. (HDR sources look flat until we add tone-mapping
+            // — playing beats not playing.)
+            "-vf", "scale_vaapi=w=-2:h=min(\(maxHeight)\\,ih):format=nv12",
             "-c:v", "h264_vaapi", "-b:v", "8M", "-maxrate", "10M",
             "-c:a", "aac", "-ac", "2", "-b:a", "192k",
             "-f", "hls", "-hls_time", "4",
