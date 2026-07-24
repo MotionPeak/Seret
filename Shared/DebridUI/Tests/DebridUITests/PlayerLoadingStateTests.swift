@@ -121,4 +121,59 @@ import DebridCore
 
         #expect(advancedTo == ["rd://e1", "rd://e2"])  // real EOF → binge advance, unchanged
     }
+
+    @Test func aLoadThatNeverRendersFailsAfterTheTimeout() async {
+        let engine = FakeVideoPlayerEngine()
+        let model = PlayerModel(request: Fixture.request(), engine: engine,
+                                unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
+                                recordProgress: { _, _, _, _ in }, subtitles: nil,
+                                loadTimeout: 0.1)
+        model.start()
+        await model.waitForIdleForTesting()
+        #expect(model.phase == .preparing)
+
+        try? await Task.sleep(for: .seconds(0.3))       // no frames ever arrive
+        await model.waitForIdleForTesting()
+
+        #expect(model.phase == .failed("This stream didn't start. The Real-Debrid link may have expired."))
+    }
+
+    @Test func aLoadThatRendersCancelsTheTimeout() async {
+        let engine = FakeVideoPlayerEngine()
+        let model = PlayerModel(request: Fixture.request(), engine: engine,
+                                unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
+                                recordProgress: { _, _, _, _ in }, subtitles: nil,
+                                loadTimeout: 0.1)
+        model.start()
+        await model.waitForIdleForTesting()
+        engine.emit(.state(.playing))
+        await model.waitForIdleForTesting()
+
+        try? await Task.sleep(for: .seconds(0.3))
+        await model.waitForIdleForTesting()
+
+        #expect(model.phase == .playing)                // the watchdog was disarmed
+    }
+
+    @Test func anEpisodeAdvanceDoesNotTakeOverTheScreen() async {
+        // reload() clears hasRenderedFrame, but the viewer is already watching — a binge advance
+        // must show the bar's inline spinner, not a full-screen overlay.
+        let engine = FakeVideoPlayerEngine()
+        let model = PlayerModel(request: Fixture.showRequest(playingEpisode: 1), engine: engine,
+                                unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
+                                recordProgress: { _, _, _, _ in }, subtitles: nil)
+        model.start()
+        await model.waitForIdleForTesting()
+        #expect(model.isColdOpen == true)                 // first open: overlay is right
+
+        engine.emit(.time(.init(position: 10, duration: 100)))
+        engine.emit(.time(.init(position: 11, duration: 100)))
+        await model.waitForIdleForTesting()
+        #expect(model.isColdOpen == false)
+
+        model.playNextNow()
+        await model.waitForIdleForTesting()
+        #expect(model.hasRenderedFrame == false)          // reloading…
+        #expect(model.isColdOpen == false)                // …but NOT a cold open
+    }
 }

@@ -114,6 +114,11 @@ public final class PlayerModel {
     /// `.playing`). Gates the full-screen loading overlay so it never hides over a still-black
     /// picture.
     public private(set) var hasRenderedFrame: Bool = false
+    /// True only for a COLD open — the first load of a player session, when the screen is still
+    /// black and a full-screen overlay is the right thing. An episode auto-advance reloads too
+    /// (clearing `hasRenderedFrame`), but the viewer is already watching, so it must show the
+    /// bar's inline spinner instead of taking the screen over.
+    public var isColdOpen: Bool { !hasRenderedFrame && !isSwitching }
     /// Waiting on frames — initial load, a skip/seek, or a mid-stream rebuffer. Drives the loading
     /// indicator (full overlay before the first frame; a small inline hint after).
     public private(set) var isBuffering: Bool = true
@@ -200,6 +205,11 @@ public final class PlayerModel {
     private let saveInterval: Double = 1
     private let autoHideDelay: Double
     private let scrubBarDwell: Double = 5      // bar stays visible for 5s after the last interaction
+    /// How long a load may sit without producing a first frame before it is called a failure.
+    /// There was previously NO timeout anywhere in the load path, so a stalled open showed the
+    /// overlay forever with no Retry.
+    private let loadTimeout: Double
+    private var loadWatchdog: Task<Void, Never>?
 
     /// Engine-seek coalescing for skip bursts: the first skip seeks immediately (instant
     /// response); further skips inside the window only move the target and ONE trailing seek
@@ -323,8 +333,10 @@ public final class PlayerModel {
          onScrobbleStop: ((Double) async -> Void)? = nil,
          prefetchLink: ((String) -> Void)? = nil,
          autoHideDelay: Double = 4,
+         loadTimeout: Double = 30,
          seekCoalesceWindow: Double = 0.35) {
         self.autoHideDelay = autoHideDelay
+        self.loadTimeout = loadTimeout
         self.seekCoalesceWindow = seekCoalesceWindow
         self.details = details
         self.trackPreferences = trackPreferences
@@ -412,6 +424,7 @@ public final class PlayerModel {
             guard !Task.isCancelled else { return }   // superseded by a newer reload()
             engine.load(url: url, headers: [:])
             engine.play()
+            armLoadWatchdog()
             // Resume: a best-effort seek right at load — when VLC honors it while opening, the
             // stream starts AT the point (no pre-roll at 0, no double buffer). If it's dropped,
             // tick() issues the deferred seek exactly as before. Never a load-time start-time:
@@ -651,10 +664,24 @@ public final class PlayerModel {
         return l == "en" || l.hasPrefix("en-") || l.hasPrefix("eng")
     }
 
+    /// Arm the load watchdog. Disarmed by `markRendered()` (first frame) and `teardown()`.
+    private func armLoadWatchdog() {
+        loadWatchdog?.cancel()
+        loadWatchdog = Task { @MainActor [weak self] in
+            guard let timeout = self?.loadTimeout else { return }
+            try? await Task.sleep(for: .seconds(timeout))
+            guard !Task.isCancelled, let self, !self.hasRenderedFrame else { return }
+            if case .failed = self.phase { return }     // already failed for a better reason
+            self.phase = .failed("This stream didn't start. The Real-Debrid link may have expired.")
+        }
+    }
+
     /// First frames are on screen. Clears the loading state so the overlay/spinner hide.
     private func markRendered() {
         hasRenderedFrame = true
         isBuffering = false
+        loadWatchdog?.cancel()     // the load succeeded — disarm the timeout
+        loadWatchdog = nil
         isSwitching = false        // the new episode's media is on screen → end events are real again
     }
 
@@ -972,6 +999,7 @@ public final class PlayerModel {
         scrubBarHideTask?.cancel()
         upNextTask?.cancel()
         seekDispatchTask?.cancel()
+        loadWatchdog?.cancel()
         await recordCurrentProgress()
         engine.stop()
     }
