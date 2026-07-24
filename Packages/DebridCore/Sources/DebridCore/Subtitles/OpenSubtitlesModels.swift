@@ -15,12 +15,26 @@ struct OSAttributes: Decodable {
     let language: String?
     let release: String?
     let downloadCount: Int?
+    let fps: Double?
+    let hearingImpaired: Bool?
+    let fromTrusted: Bool?
+    let aiTranslated: Bool?
+    let moviehashMatch: Bool?
+    let uploader: OSUploader?
     let files: [OSFile]
 
     enum CodingKeys: String, CodingKey {
-        case language, release, files
+        case language, release, fps, uploader, files
         case downloadCount = "download_count"
+        case hearingImpaired = "hearing_impaired"
+        case fromTrusted = "from_trusted"
+        case aiTranslated = "ai_translated"
+        case moviehashMatch = "moviehash_match"
     }
+}
+
+struct OSUploader: Decodable {
+    let name: String?
 }
 
 struct OSFile: Decodable {

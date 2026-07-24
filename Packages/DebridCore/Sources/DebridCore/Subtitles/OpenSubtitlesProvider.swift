@@ -53,6 +53,7 @@ public actor OpenSubtitlesProvider: SubtitleProvider {
         }
         if let s = query.season { items.append(URLQueryItem(name: "season_number", value: String(s))) }
         if let e = query.episode { items.append(URLQueryItem(name: "episode_number", value: String(e))) }
+        if let hash = query.moviehash { items.append(URLQueryItem(name: "moviehash", value: hash)) }
 
         var comps = URLComponents(url: Self.base.appending(path: "subtitles"), resolvingAgainstBaseURL: false)!
         comps.queryItems = items
@@ -63,7 +64,13 @@ public actor OpenSubtitlesProvider: SubtitleProvider {
                                   language: sub.attributes.language ?? "",
                                   release: sub.attributes.release,
                                   fileName: file.fileName,
-                                  downloadCount: sub.attributes.downloadCount)
+                                  downloadCount: sub.attributes.downloadCount,
+                                  fps: sub.attributes.fps,
+                                  hearingImpaired: sub.attributes.hearingImpaired,
+                                  trusted: sub.attributes.fromTrusted,
+                                  aiTranslated: sub.attributes.aiTranslated,
+                                  moviehashMatch: sub.attributes.moviehashMatch,
+                                  uploader: sub.attributes.uploader?.name)
         }
     }
 

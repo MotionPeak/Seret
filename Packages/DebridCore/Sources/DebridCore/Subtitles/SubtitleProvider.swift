@@ -8,14 +8,18 @@ public struct SubtitleQuery: Sendable, Equatable {
     public var year: Int?
     public var season: Int?
     public var episode: Int?
+    /// OpenSubtitles movie hash of the file being played. When present the API flags exact-file
+    /// matches with `moviehash_match`, the strongest sync signal available.
+    public var moviehash: String?
 
     public init(tmdbID: Int? = nil, title: String, year: Int? = nil,
-                season: Int? = nil, episode: Int? = nil) {
+                season: Int? = nil, episode: Int? = nil, moviehash: String? = nil) {
         self.tmdbID = tmdbID
         self.title = title
         self.year = year
         self.season = season
         self.episode = episode
+        self.moviehash = moviehash
     }
 
     public static func movie(_ item: MediaItem) -> SubtitleQuery {
@@ -28,21 +32,40 @@ public struct SubtitleQuery: Sendable, Equatable {
     }
 }
 
-/// One subtitle search hit. `fileID` is what `download` needs.
+/// One subtitle search hit. `fileID` is what `download` needs; the rest feeds `SubtitleMatch`
+/// ranking and the browser's badges.
 public struct SubtitleResult: Sendable, Equatable {
     public let fileID: Int
     public let language: String
     public let release: String?
     public let fileName: String?
     public let downloadCount: Int?
+    /// Frames per second the subtitle was timed against. A mismatch against the video's rate is a
+    /// classic source of progressive drift.
+    public let fps: Double?
+    public let hearingImpaired: Bool?
+    public let trusted: Bool?
+    public let aiTranslated: Bool?
+    /// Set by OpenSubtitles when the search carried a `moviehash` and this subtitle was uploaded
+    /// against that exact file — a perfect-sync guarantee, not a heuristic.
+    public let moviehashMatch: Bool?
+    public let uploader: String?
 
     public init(fileID: Int, language: String, release: String? = nil,
-                fileName: String? = nil, downloadCount: Int? = nil) {
+                fileName: String? = nil, downloadCount: Int? = nil,
+                fps: Double? = nil, hearingImpaired: Bool? = nil, trusted: Bool? = nil,
+                aiTranslated: Bool? = nil, moviehashMatch: Bool? = nil, uploader: String? = nil) {
         self.fileID = fileID
         self.language = language
         self.release = release
         self.fileName = fileName
         self.downloadCount = downloadCount
+        self.fps = fps
+        self.hearingImpaired = hearingImpaired
+        self.trusted = trusted
+        self.aiTranslated = aiTranslated
+        self.moviehashMatch = moviehashMatch
+        self.uploader = uploader
     }
 }
 
