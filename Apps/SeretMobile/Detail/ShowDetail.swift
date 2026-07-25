@@ -14,6 +14,10 @@ struct ShowDetail: View {
     /// Builds a single-episode download engine for (imdbID, season, episode, originalLanguage).
     var makeEpisodeDownload: (String, Int, Int, String?) -> AddStore? = { _, _, _, _ in nil }
     var onSeasonAdded: () -> Void = {}
+    /// A "More Like This" poster was tapped — owned opens its Detail, new opens the Add flow.
+    /// The parent presents (see `SimilarRail`).
+    var onOpenTitle: (MediaItem) -> Void = { _ in }
+    var onAddTitle: (SearchHit) -> Void = { _ in }
     @State private var seasonStore: AddStore?
     @State private var downloadingEpisodeID: String?
     @State private var episodeError: String?
@@ -30,17 +34,26 @@ struct ShowDetail: View {
                 VStack(alignment: .leading, spacing: Theme.Space.lg) {
                 Text(item.title).font(Theme.Typo.titleXL()).foregroundStyle(Theme.Palette.textPrimary)
                 Text(metaLine).font(Theme.Typo.body()).foregroundStyle(Theme.Palette.textSecondary)
-                RatingsRow(ratings: store.ratings)
+                RatingsRow(ratings: store.ratings, community: store.communityScore)
                 if let overview = store.overview {
                     Text(overview).font(Theme.Typo.body())
                         .foregroundStyle(Theme.Palette.textSecondary).lineLimit(4)
                 }
                 heroAction
                 UserRatingRow(store: store)
+                WatchDatesLine(summary: store.watchSummary, since: store.historySince)
+                    .task { await store.loadWatchSummary() }
                 seasonPicker
                 markSeasonButton
                 SeasonDownloadButton(store: seasonStore, onAdded: onSeasonAdded)
                 episodeList
+                // Gated on non-empty: the rails only appear once TMDB credits land, and they append
+                // BELOW everything else, so they never resize content already on screen.
+                if !store.cast.isEmpty { CastRail(cast: store.cast) }
+                if !store.similar.isEmpty {
+                    SimilarRail(titles: store.similar, parentKind: .show,
+                                onOpenOwned: onOpenTitle, onAddNew: onAddTitle)
+                }
             }
             .frame(maxWidth: 700, alignment: .leading)
             .frame(maxWidth: .infinity)            // center the readable column (no left-edge cropping on iPad)
@@ -79,6 +92,7 @@ struct ShowDetail: View {
         if !store.genres.isEmpty { parts.append(store.genres.prefix(3).joined(separator: " · ")) }
         let n = store.allSeasons.count
         parts.append("\(n) Season\(n == 1 ? "" : "s")")
+        if !store.creators.isEmpty { parts.append("By \(store.creators.joined(separator: ", "))") }
         return parts.joined(separator: "  ·  ")
     }
 
