@@ -19,6 +19,7 @@ struct LibraryItemDTO: Content, Equatable {
     let posterPath: String?
     let backdropPath: String?
     let overview: String?
+    let addedAt: Double?   // epoch seconds; drives the "Recently Added" rail
     let versions: [VersionDTO]
 
     init(_ item: MediaItem) {
@@ -30,6 +31,7 @@ struct LibraryItemDTO: Content, Equatable {
         self.posterPath = item.posterPath
         self.backdropPath = item.backdropPath
         self.overview = item.overview
+        self.addedAt = item.addedAt.map { $0.timeIntervalSince1970 }
         self.versions = item.sources.enumerated().map { index, media in
             let p = media.parsed
             let parts = [p.resolution, p.source, p.videoCodec].compactMap { $0 }
