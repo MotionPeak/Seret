@@ -47,5 +47,34 @@ extension MockTests {
             #expect(details.originalLanguage == "ja")
             #expect(details.imdbID == nil)
         }
+
+        @Test func movieDetailsRequestsCreditsAndSimilar() async throws {
+            var capturedURL: URL?
+            MockURLProtocol.handler = { request in
+                capturedURL = request.url
+                let response = HTTPURLResponse(url: request.url!, statusCode: 200,
+                                               httpVersion: nil, headerFields: nil)!
+                return (response, Data(#"{"id":1,"title":"X","genres":[]}"#.utf8))
+            }
+            let client = TMDBClient(apiKey: "k", http: HTTPClient(session: .mock))
+            _ = try await client.movieDetails(id: 1)
+            let query = capturedURL?.query ?? ""
+            #expect(query.contains("append_to_response=credits,similar")
+                    || query.contains("append_to_response=credits%2Csimilar"))
+        }
+
+        @Test func tvDetailsStillRequestsExternalIDsFirst() async throws {
+            var capturedURL: URL?
+            MockURLProtocol.handler = { request in
+                capturedURL = request.url
+                let response = HTTPURLResponse(url: request.url!, statusCode: 200,
+                                               httpVersion: nil, headerFields: nil)!
+                return (response, Data(#"{"id":1,"name":"Y","genres":[]}"#.utf8))
+            }
+            let client = TMDBClient(apiKey: "k", http: HTTPClient(session: .mock))
+            _ = try await client.tvDetails(id: 1)
+            // external_ids must stay FIRST so the existing substring assertion still holds.
+            #expect(capturedURL?.query?.contains("append_to_response=external_ids") == true)
+        }
     }
 }
