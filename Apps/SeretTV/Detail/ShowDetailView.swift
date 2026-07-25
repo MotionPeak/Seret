@@ -44,6 +44,9 @@ struct ShowDetailView: View {
                     // Gated on non-empty: the rail only ever appears once TMDB credits land, and it
                     // appends BELOW everything else, so it never resizes content already on screen.
                     if !store.cast.isEmpty { CastRail(cast: store.cast) }
+                    if !store.similar.isEmpty {
+                        SimilarRail(titles: store.similar, parentKind: .show)
+                    }
                 }
                 .padding(60)
             }
