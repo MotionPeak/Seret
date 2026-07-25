@@ -83,6 +83,48 @@ public struct TMDBMovieDetails: Decodable, Sendable, Equatable, Identifiable {
     }
 }
 
+/// Cast + crew for a title (`/movie|tv/{id}/credits`). Powers the CAST rail and the director credit.
+public struct TMDBCredits: Decodable, Sendable, Equatable {
+    public let cast: [TMDBCastMember]
+    public let crew: [TMDBCrewMember]
+
+    /// The credited director — the first crew member whose job is "Director", if any.
+    public var director: String? { crew.first { $0.job == "Director" }?.name }
+
+    public init(cast: [TMDBCastMember], crew: [TMDBCrewMember]) {
+        self.cast = cast; self.crew = crew
+    }
+}
+
+public struct TMDBCastMember: Decodable, Sendable, Equatable, Identifiable {
+    public let id: Int
+    public let name: String
+    public let character: String?
+    public let profilePath: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, character
+        case profilePath = "profile_path"
+    }
+
+    public init(id: Int, name: String, character: String?, profilePath: String?) {
+        self.id = id; self.name = name; self.character = character; self.profilePath = profilePath
+    }
+}
+
+public struct TMDBCrewMember: Decodable, Sendable, Equatable, Identifiable {
+    public let id: Int
+    public let name: String
+    public let job: String?
+    public let department: String?
+
+    enum CodingKeys: String, CodingKey { case id, name, job, department }
+
+    public init(id: Int, name: String, job: String?, department: String? = nil) {
+        self.id = id; self.name = name; self.job = job; self.department = department
+    }
+}
+
 public struct TMDBTVDetails: Decodable, Sendable, Equatable, Identifiable {
     public let id: Int
     public let name: String
