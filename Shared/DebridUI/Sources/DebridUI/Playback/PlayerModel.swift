@@ -39,27 +39,27 @@ public final class PlayerModel {
 
     // MARK: - Published state
 
-    public private(set) var phase: Phase = .preparing
-    public private(set) var position: Double = 0
-    public private(set) var duration: Double = 0
-    public private(set) var controlsVisible: Bool = true
-    public private(set) var audioTracks: [MediaTrack] = []
-    public private(set) var subtitleTracks: [MediaTrack] = []
-    public private(set) var subtitleRows: [SubtitleRow]
-    public private(set) var shouldDismiss: Bool = false
+    public internal(set) var phase: Phase = .preparing
+    public internal(set) var position: Double = 0
+    public internal(set) var duration: Double = 0
+    public internal(set) var controlsVisible: Bool = true
+    public internal(set) var audioTracks: [MediaTrack] = []
+    public internal(set) var subtitleTracks: [MediaTrack] = []
+    public internal(set) var subtitleRows: [SubtitleRow]
+    public internal(set) var shouldDismiss: Bool = false
 
     /// "Up Next" bar state (shows near content-end for a show with another episode).
-    public private(set) var upNextVisible: Bool = false
-    public private(set) var upNextSecondsRemaining: Int = 0
+    public internal(set) var upNextVisible: Bool = false
+    public internal(set) var upNextSecondsRemaining: Int = 0
 
     /// Currently-selected track ids — drives the settings sheet's selection indicator.
-    public private(set) var selectedAudioID: String?
-    public private(set) var selectedSubtitleID: String?   // nil = Off
+    public internal(set) var selectedAudioID: String?
+    public internal(set) var selectedSubtitleID: String?   // nil = Off
 
     /// Transient feedback for the on-screen skip indicator. `seconds` is the SIGNED accumulated jump
     /// of the current skip burst (e.g. −20, +30 — repeated taps within a burst grow it); `id` bumps
     /// each skip so the view re-triggers its pop animation. Auto-clears ~0.8s after the last skip.
-    public private(set) var skipFeedback: SkipFeedback?
+    public internal(set) var skipFeedback: SkipFeedback?
     public struct SkipFeedback: Equatable, Sendable {
         public let seconds: Double      // signed: negative = rewind, positive = forward
         public var id: Int              // monotonically bumped so equal amounts still re-animate
@@ -70,19 +70,19 @@ public final class PlayerModel {
             return s < 60 ? "\(s)s" : String(format: "%d:%02d", s / 60, s % 60)
         }
     }
-    private var skipFeedbackClearTask: Task<Void, Never>?
+    var skipFeedbackClearTask: Task<Void, Never>?
     /// Hold-to-scan repeat loop (see `beginScan`).
-    private var scanTask: Task<Void, Never>?
+    var scanTask: Task<Void, Never>?
 
     /// Output volume as a percentage (100 = unity, up to 200 = VLC-style boost). Re-applied on every
     /// track refresh so a boost survives episode swaps and VLCKit's async audio-object creation.
-    public private(set) var volumePercent: Int = 100
+    public internal(set) var volumePercent: Int = 100
 
     /// A finished subtitle download waiting for VLCKit to actually attach the slave track — it
     /// appears asynchronously via `.tracksChanged`, not synchronously after `addExternalSubtitle`.
     /// `before` is the text-track id set captured just before the attach, so the freshly-appeared
     /// id is the one not in it. Resolved in `refreshTracks()`.
-    private var pendingSubtitleAttach: (language: String, before: Set<String>)?
+    var pendingSubtitleAttach: (language: String, before: Set<String>)?
 
     /// Subtitle tracks to show as plain pills — EXCLUDES on-demand downloads, which are
     /// represented by their language row instead. Without this, a downloaded "Hebrew" sub also
@@ -104,18 +104,18 @@ public final class PlayerModel {
 
     /// Continuous swipe-scrub (Step 2). While `isScrubbing`, the transport shows a preview marker at
     /// `scrubTarget` instead of the live playhead; the seek only happens on `commitScrub()`.
-    public private(set) var isScrubbing: Bool = false
-    public private(set) var scrubTarget: Double = 0
+    public internal(set) var isScrubbing: Bool = false
+    public internal(set) var scrubTarget: Double = 0
     /// Whether the (UIKit-focusable) scrub surface holds focus — drives the bar's focused look.
     public private(set) var scrubberFocused: Bool = false
     /// Whether the thin scrub bar should be on screen (sticky for `scrubBarDwell` seconds after the
     /// last interaction). Distinct from `isScrubbing` (mid-gesture only).
-    public private(set) var scrubBarVisible: Bool = false
+    public internal(set) var scrubBarVisible: Bool = false
 
     /// First real video frame has rendered for the current source (sustained time advance or a real
     /// `.playing`). Gates the full-screen loading overlay so it never hides over a still-black
     /// picture.
-    public private(set) var hasRenderedFrame: Bool = false
+    public internal(set) var hasRenderedFrame: Bool = false
     /// True only for a COLD open — the first load of a player session, when the screen is still
     /// black and a full-screen overlay is the right thing. An episode auto-advance reloads too
     /// (clearing `hasRenderedFrame`), but the viewer is already watching, so it must show the
@@ -123,122 +123,122 @@ public final class PlayerModel {
     public var isColdOpen: Bool { !hasRenderedFrame && !isSwitching }
     /// Waiting on frames — initial load, a skip/seek, or a mid-stream rebuffer. Drives the loading
     /// indicator (full overlay before the first frame; a small inline hint after).
-    public private(set) var isBuffering: Bool = true
+    public internal(set) var isBuffering: Bool = true
 
     // MARK: - Stored properties
 
-    private let item: MediaItem
-    private var sources: [MediaSource]
-    private var sourceIndex: Int = 0
-    private var resumeAt: Double?
-    public private(set) var label: String
+    let item: MediaItem
+    var sources: [MediaSource]
+    var sourceIndex: Int = 0
+    var resumeAt: Double?
+    public internal(set) var label: String
     /// The episode currently playing (shows only) and the WatchKey it records progress under.
     /// Both change when we advance to the next episode in-place.
-    private var episode: Episode?
-    private var contentKey: String
-    private let engine: VideoPlayerEngine
-    private let unrestrict: (String) async throws -> URL
+    var episode: Episode?
+    var contentKey: String
+    let engine: VideoPlayerEngine
+    let unrestrict: (String) async throws -> URL
     /// Authoritative resume lookup (contentKey → saved seconds, nil/0 = start). Resolved at LOAD
     /// time so playback always resumes from the store's truth — the screen's watch state can be
     /// not-yet-loaded (tap Play right after Detail opens) or stale (immediate re-play) when the
     /// request was built. Also what lets retry/try-another-version resume where playback failed.
-    private let resolveResume: ((String) async -> Double?)?
+    let resolveResume: ((String) async -> Double?)?
     /// Resume lookup for backends that store progress as a FRACTION of the runtime (Trakt stores a
     /// percentage, not seconds). Resolved at load time, but converted to a seek target only once the
     /// media reports its duration — at load `duration` is still 0, so seconds aren't computable yet.
     /// Takes precedence over `resolveResume` when both are wired.
-    private let resolveResumeFraction: ((String) async -> Double?)?
+    let resolveResumeFraction: ((String) async -> Double?)?
     /// Scrobble lifecycle hooks (fraction 0…1 of the runtime). Optional: nil keeps the pre-Trakt
     /// behavior exactly, which is what every existing caller and unit test relies on.
-    private let onScrobbleStart: ((Double) async -> Void)?
-    private let onScrobblePause: ((Double) async -> Void)?
-    private let onScrobbleStop: ((Double) async -> Void)?
+    let onScrobbleStart: ((Double) async -> Void)?
+    let onScrobblePause: ((Double) async -> Void)?
+    let onScrobbleStop: ((Double) async -> Void)?
     /// Fire-and-forget unrestrict warm-up (PlayableLinkCache.prefetch) — called for the next
     /// episode's link when the Up Next bar appears, so a binge auto-advance starts instantly.
-    private let prefetchLink: ((String) -> Void)?
+    let prefetchLink: ((String) -> Void)?
     /// "Start over" was explicitly chosen for the initial request — never resume it. Cleared on
     /// an episode switch (the provider decides for the new episode).
-    private var fromStart: Bool
+    var fromStart: Bool
     /// Records progress for the *currently playing* content — PlayerModel passes the live
     /// contentKey + sourceKey so next-episode advances record under the right keys.
-    private let recordProgress: (_ contentKey: String, _ sourceKey: String, _ position: Double, _ duration: Double) async -> Void
-    private let subtitles: SubtitleProvider?
+    let recordProgress: (_ contentKey: String, _ sourceKey: String, _ position: Double, _ duration: Double) async -> Void
+    let subtitles: SubtitleProvider?
     /// The system Now Playing surface (iPhone Remote app, Control Center, Siri, CEC). Optional —
     /// nil keeps the pre-Now-Playing behavior exactly, which every existing unit test relies on.
-    private let nowPlaying: NowPlayingControlling?
+    let nowPlaying: NowPlayingControlling?
     /// On-demand TMDB episode metadata (names + stills) for the in-player episode strip. Optional —
     /// when nil (or for a movie) the strip simply carries no names/thumbnails.
-    private let details: MediaDetailsProviding?
+    let details: MediaDetailsProviding?
     /// App-global preferred audio/subtitle language. Recorded on a manual pick and auto-applied once
     /// per loaded source. Optional — nil disables persistence (no preference recorded or applied).
-    private let trackPreferences: TrackPreferenceStoring?
+    let trackPreferences: TrackPreferenceStoring?
     /// Whether the preferred tracks have been auto-applied for the current source (reset on reload),
     /// so a later manual change isn't reverted by subsequent `.tracksChanged` events.
-    private var trackPrefsApplied = false
+    var trackPrefsApplied = false
 
-    private var eventTask: Task<Void, Never>?
-    private var loadTask: Task<Void, Never>?
-    private var hideControlsTask: Task<Void, Never>?
-    private var scrubBarHideTask: Task<Void, Never>?
-    private var lastSavedPosition: Double = -.infinity
+    var eventTask: Task<Void, Never>?
+    var loadTask: Task<Void, Never>?
+    var hideControlsTask: Task<Void, Never>?
+    var scrubBarHideTask: Task<Void, Never>?
+    var lastSavedPosition: Double = -.infinity
     /// Last engine-reported position — to detect *sustained* advance (real frames) vs a single
     /// echoed seek tick.
-    private var lastTickPosition: Double = 0
+    var lastTickPosition: Double = 0
     /// Resume: where to seek to once playback starts (0 = none) and whether that seek has fired. A
     /// deferred seek (not a load-time start-time) keeps the whole timeline seekable.
-    private var resumeTarget: Double = 0
-    private var resumeSeekIssued: Bool = false
+    var resumeTarget: Double = 0
+    var resumeSeekIssued: Bool = false
     /// Ticks seen since the deferred resume seek was issued. `:input-fast-seek` lands on the
     /// nearest keyframe, which can be well outside the 5s arrival slack — arrival then never
     /// registers, the resume branch returns on every tick, and the path to `markRendered()` stays
     /// shut forever. After this many ticks we accept the playhead wherever it actually is.
-    private var resumeTicksSinceSeek = 0
-    private let resumeArrivalGraceTicks = 12
+    var resumeTicksSinceSeek = 0
+    let resumeArrivalGraceTicks = 12
     /// A pending fractional resume (0…1) awaiting a known duration — converted to `resumeTarget`
     /// on the first tick that reports one, then cleared.
-    private var resumeFraction: Double = 0
+    var resumeFraction: Double = 0
     /// A manual seek (skip/commitScrub) in flight: `to` is the optimistic target the bar already
     /// shows, `from` the pre-seek playhead. While set, `tick()` ignores VLCKit's stale pre-seek
     /// time echoes (which would snap the bar back) until a tick arrives nearer `to` than `from`.
-    private var pendingSeek: (from: Double, to: Double)?
+    var pendingSeek: (from: Double, to: Double)?
     /// True from the moment we swap episodes until the new media renders its first frame. The OLD
     /// media can emit a late `.ended` during that window; this flag makes `finish()` swallow it so a
     /// stale end can't auto-advance/exit a second time (the "it keeps jumping/restarting" bug).
-    private var isSwitching = false
+    var isSwitching = false
     /// Persist the resume point every second of playback so Continue Watching / cross-device resume
     /// is never more than ~1s stale (SwiftData writes are cheap and CloudKit coalesces the sync).
-    private let saveInterval: Double = 1
-    private let autoHideDelay: Double
-    private let scrubBarDwell: Double = 5      // bar stays visible for 5s after the last interaction
+    let saveInterval: Double = 1
+    let autoHideDelay: Double
+    let scrubBarDwell: Double = 5      // bar stays visible for 5s after the last interaction
     /// How long a load may sit without producing a first frame before it is called a failure.
     /// There was previously NO timeout anywhere in the load path, so a stalled open showed the
     /// overlay forever with no Retry.
-    private let loadTimeout: Double
-    private var loadWatchdog: Task<Void, Never>?
+    let loadTimeout: Double
+    var loadWatchdog: Task<Void, Never>?
 
     /// Engine-seek coalescing for skip bursts: the first skip seeks immediately (instant
     /// response); further skips inside the window only move the target and ONE trailing seek
     /// fires at the final target — four fast double-taps become two engine seeks, not four
     /// full seek+rebuffer cycles.
-    private let seekCoalesceWindow: Double
-    private var seekDispatchTask: Task<Void, Never>?
-    private var coalescedSeekTarget: Double?
-    private var dispatchedSeekTarget: Double?
+    let seekCoalesceWindow: Double
+    var seekDispatchTask: Task<Void, Never>?
+    var coalescedSeekTarget: Double?
+    var dispatchedSeekTarget: Double?
     /// Bumped for every coalescing window opened or cancelled. A window task only clears
     /// `seekDispatchTask` when its own generation is still current — a cancelled task's cleanup
     /// runs at its next suspension point, by which time a LIVE successor may already own the slot.
     /// Nulling it there made the next skip open a fresh window and seek eagerly instead of
     /// coalescing, which is the burst-rebuffering the coalescer exists to prevent.
-    private var seekGeneration: UInt64 = 0
+    var seekGeneration: UInt64 = 0
 
     // MARK: - Up Next (binge)
     /// Last subtitle cue (seconds), when a sub was downloaded. A FLOOR for the Up Next bar — it
     /// won't fire while a line is still being spoken — but no longer triggers it directly (the last
     /// line is often well before the credits). nil → use the credits-lead estimate alone.
-    private var contentEndTime: Double?
-    private var upNextDismissed = false
-    private var upNextTask: Task<Void, Never>?
-    private let upNextCountdownStart = 10
+    var contentEndTime: Double?
+    var upNextDismissed = false
+    var upNextTask: Task<Void, Never>?
+    let upNextCountdownStart = 10
     /// The credits are roughly the last ~30s of the file. The countdown should roll DURING the
     /// credits, so the bar appears no earlier than this before the end — never at the last spoken
     /// line (which is often well before the credits) nor during dialogue that runs late.
@@ -247,7 +247,7 @@ public final class PlayerModel {
     /// When the "Up Next" bar should appear (nil → never, e.g. no next episode or a too-short file).
     /// The LATER of the last subtitle cue and a credits-length before the end — so it lands in the
     /// credits, not the final scene — clamped so the 10s countdown still finishes before the file end.
-    private var upNextThreshold: Double? {
+    var upNextThreshold: Double? {
         guard hasNextEpisode, duration > Double(upNextCountdownStart) + 6 else { return nil }
         let creditsStart = max(contentEndTime ?? 0, duration - upNextCreditsLead)
         return min(creditsStart, duration - Double(upNextCountdownStart) - 2)
@@ -288,39 +288,7 @@ public final class PlayerModel {
         public var isPlayable: Bool { owned != nil }
     }
     /// The current season's episodes for the strip (empty until `loadSeasonEpisodes()` runs).
-    public private(set) var seasonEpisodes: [PlayerEpisode] = []
-
-    /// Build the strip: the WHOLE current season from TMDB (so every episode shows, not just the
-    /// downloaded ones), each tagged with its owned/playable episode when in the library. Falls
-    /// back to owned-only if TMDB is unavailable. Shows only; no-op once loaded for this season.
-    public func loadSeasonEpisodes() async {
-        guard let episode else { return }
-        if let first = seasonEpisodes.first, first.season == episode.season { return }
-        let owned = item.seasons.first(where: { $0.number == episode.season })?.episodes ?? []
-        let ownedByNumber = Dictionary(owned.map { ($0.number, $0) }, uniquingKeysWith: { a, _ in a })
-
-        if let details, let tmdbID = item.tmdbID,
-           let eps = try? await details.seasonEpisodes(tvID: tmdbID, season: episode.season), !eps.isEmpty {
-            seasonEpisodes = eps.sorted { $0.episodeNumber < $1.episodeNumber }.map { e in
-                PlayerEpisode(season: episode.season, number: e.episodeNumber,
-                              name: e.name, stillPath: e.stillPath, owned: ownedByNumber[e.episodeNumber])
-            }
-        } else {
-            // No TMDB → show the downloaded episodes only.
-            seasonEpisodes = owned.sorted { $0.number < $1.number }.map {
-                PlayerEpisode(season: $0.season, number: $0.number, name: nil, stillPath: nil, owned: $0)
-            }
-        }
-    }
-
-    /// Switch playback to a chosen episode of the season, in-place (records the current episode's
-    /// progress first). No-op if it's already the one playing. Resumes from the episode's saved
-    /// position when partially watched (the resume provider decides); otherwise from the start.
-    public func play(_ ep: Episode) {
-        guard ep.season != episode?.season || ep.number != episode?.number else { return }
-        Task { await self.recordCurrentProgress() }
-        switchTo(ep, resumeAt: nil)
-    }
+    public internal(set) var seasonEpisodes: [PlayerEpisode] = []
 
     // MARK: - Init
 
@@ -371,366 +339,9 @@ public final class PlayerModel {
 
     // MARK: - Lifecycle
 
-    /// Called once when the player appears. Starts the long-lived event loop (the single consumer of
-    /// the engine's AsyncStream) and loads the first source. retry()/tryAnotherVersion() re-load
-    /// WITHOUT relaunching the loop, so the single VLCKit stream is consumed continuously across
-    /// source switches.
-    public func start() {
-        eventTask?.cancel()
-        eventTask = Task { await self.consumeEvents() }
-        activateNowPlaying()
-        reload()
-    }
-
-    private func consumeEvents() async {
-        for await event in engine.events {
-            switch event {
-            case .state(let s): handle(state: s)
-            case .time(let t): await tick(t)
-            case .tracksChanged: refreshTracks()
-            }
-        }
-    }
-
-    private func reload() {
-        phase = .preparing
-        position = 0
-        duration = 0
-        hasRenderedFrame = false
-        isBuffering = true
-        lastTickPosition = 0
-        // The request's resumeAt is only the FALLBACK — loadCurrentSource() re-resolves the
-        // saved position from the store (when a provider is wired) so resume can't race the
-        // screen's watch-state load or go stale after a previous playback.
-        resumeTarget = fromStart ? 0 : max(resumeAt ?? 0, 0)
-        resumeSeekIssued = false
-        resumeTicksSinceSeek = 0
-        resumeFraction = 0
-        pendingSeek = nil
-        cancelCoalescedSeek()
-        trackPrefsApplied = false
-        lastSavedPosition = -.infinity
-        loadTask?.cancel()
-        loadTask = Task { await self.loadCurrentSource() }
-    }
-
-    private func loadCurrentSource() async {
-        do {
-            // The resume lookup first (a local store read, single-digit ms), then unrestrict —
-            // which is instant anyway when the link was prefetched (PlayableLinkCache).
-            if !fromStart, let resolveResumeFraction {
-                // Fractional backend (Trakt): stash the fraction; tick() turns it into a seek
-                // target as soon as the media reports a duration (it's 0 here).
-                let f = await resolveResumeFraction(contentKey) ?? 0
-                resumeFraction = (f > 0 && f < 1) ? f : 0
-                resumeTarget = 0
-            } else if !fromStart, let resolveResume {
-                let saved = await resolveResume(contentKey) ?? 0
-                resumeTarget = saved > 0 ? saved : 0     // authoritative: overrides the UI hint
-            }
-            let url = try await unrestrict(currentSource.restrictedLink)
-            guard !Task.isCancelled else { return }   // superseded by a newer reload()
-            engine.load(url: url, headers: [:])
-            engine.play()
-            armLoadWatchdog()
-            // Resume: a best-effort seek right at load — when VLC honors it while opening, the
-            // stream starts AT the point (no pre-roll at 0, no double buffer). If it's dropped,
-            // tick() issues the deferred seek exactly as before. Never a load-time start-time:
-            // that clips the timeline so you can't rewind before the point.
-            if resumeTarget > 0 { engine.seek(to: resumeTarget) }
-        } catch is CancellationError {
-            return                                       // superseded; not a real failure
-        } catch {
-            phase = .failed("The Real-Debrid link could not be opened.")
-        }
-    }
-
-    private func handle(state: PlaybackState) {
-        switch state {
-        case .idle, .buffering:
-            // VLCKit emits .buffering even after playback has started; don't let it revert an
-            // active session's phase (that flashed the overlay over the video). It does mean we're
-            // waiting on frames — flag buffering so the UI shows a small inline hint (the full
-            // overlay only shows before the first frame).
-            isBuffering = true
-            if phase != .playing && phase != .paused { phase = .buffering }
-        case .playing:
-            phase = .playing
-            markRendered()
-            refreshTracks()
-            armAutoHide()
-            if let onScrobbleStart {
-                let f = currentFraction
-                Task { await onScrobbleStart(f) }   // the scrobbler dedups repeat starts
-            }
-        case .paused:
-            phase = .paused
-            isBuffering = false
-            controlsVisible = true            // a paused viewer is looking — keep controls up
-            hideControlsTask?.cancel()
-            // A `.paused` means the media is OPEN and a frame is on screen — VLCKit renders the
-            // first frame when it pauses. Without this the full-screen overlay stays up over a
-            // ready video and the only escape is the hardware Play button (the reported bug).
-            // Guarded on `isSwitching` so the OUTGOING media's late `.paused` during an episode
-            // swap can't clear the swap guard early and let a stale `.ended` auto-advance.
-            if !isSwitching { markRendered() }
-            if let onScrobblePause {
-                let f = currentFraction
-                Task { await onScrobblePause(f) }
-            }
-        case .ended:
-            Task { await finish() }
-        case .failed(let reason):
-            phase = .failed(reason)
-        }
-    }
-
-    private func tick(_ t: PlaybackTime) async {
-        duration = t.duration
-
-        // A fractional resume (Trakt stores a percentage) becomes a real seek target the moment the
-        // media reports its length — this is the earliest point seconds are computable. From here the
-        // existing resumeTarget path below owns the seek/arrival handling unchanged.
-        if resumeFraction > 0, t.duration > 0 {
-            resumeTarget = resumeFraction * t.duration
-            resumeFraction = 0
-        }
-
-        // Resume: the load path already issued a best-effort seek. Arrival is checked FIRST so
-        // that when VLC honored it (first ticks land at the point) no second seek fires; when it
-        // was dropped (ticks start near 0) the deferred seek is issued ONCE here — a tick means
-        // VLCKit has parsed the media and will now honor it. The loading overlay stays up until
-        // the playhead actually reaches the point, so the bar never flashes 0 and jumps.
-        if resumeTarget > 0 {
-            if duration > 0, resumeTarget >= duration {
-                // The saved point can be at/beyond THIS source's length — a shorter re-encode of the
-                // same title shares the contentKey. Seeking to/past EOF lands at the end (instant
-                // "ended" or a stuck buffer). Drop it and start from 0. NO slack band here: a
-                // legitimate resume a few seconds before the real end must still be honored (VLCKit
-                // can report a slightly-low early duration estimate, and a band would false-drop it).
-                resumeTarget = 0
-            } else if t.position >= resumeTarget - 5 {  // arrived (keyframe slack) → resume complete
-                lastTickPosition = t.position
-                resumeTarget = 0
-            } else if !resumeSeekIssued {
-                engine.seek(to: resumeTarget)
-                resumeSeekIssued = true
-                resumeTicksSinceSeek = 0
-            } else {
-                resumeTicksSinceSeek += 1
-                if resumeTicksSinceSeek >= resumeArrivalGraceTicks {
-                    // The seek landed short of the slack band and will never "arrive". Accept the
-                    // playhead where it is so the overlay can clear — a resume a few seconds early
-                    // is fine; a permanently-black screen is not.
-                    lastTickPosition = t.position
-                    resumeTarget = 0
-                    return
-                }
-            }
-            return                                      // overlay stays; no promote/save while seeking
-        }
-
-        // Manual seek settling (bug #4): skip()/commitScrub() already moved `position` to the target
-        // optimistically. VLCKit keeps echoing the PRE-seek time for a tick or two until the seek
-        // lands; accepting those would snap the scrub bar back to the old spot. Hold the displayed
-        // position at the target and drop ticks until one arrives that is decisively nearer the
-        // target than the pre-seek origin (works for both forward and backward seeks, any distance).
-        // `lastTickPosition` was set to the target when the seek was issued, so advance detection
-        // below still fires on the landing tick.
-        if let seek = pendingSeek {
-            guard abs(t.position - seek.to) < abs(t.position - seek.from) else { return }
-            pendingSeek = nil                           // landed → resume live tracking
-            isBuffering = false                         // …and the loading hint comes down
-        }
-
-        position = t.position
-
-        // Sustained advance past the last tick = the decoder is really producing frames. A single
-        // tick at the seek target is not advance, so the overlay stays until the picture is moving.
-        let advanced = t.position > lastTickPosition + 0.05
-        lastTickPosition = t.position
-        if advanced {
-            markRendered()
-            if phase == .buffering || phase == .preparing {
-                phase = .playing
-                refreshTracks()
-                armAutoHide()
-            }
-        }
-        if position - lastSavedPosition >= saveInterval {
-            lastSavedPosition = position
-            await recordProgress(contentKey, WatchKey.source(currentSource), position, duration)
-        }
-        maybeShowUpNext()
-        pushNowPlaying()
-    }
-
-    /// Reveal the "Up Next" bar once playback passes the content-end threshold (last subtitle cue,
-    /// or a tail fallback) for a show with another episode — unless the viewer dismissed it.
-    private func maybeShowUpNext() {
-        guard hasNextEpisode, !upNextDismissed, !upNextVisible, phase == .playing,
-              duration > 0, let threshold = upNextThreshold,
-              position >= threshold, position < duration else { return }
-        upNextVisible = true
-        // Warm the next episode's unrestrict now (fire-and-forget) — by the time the countdown
-        // auto-advances (or Play Now is tapped), the playable URL is already resolved.
-        if let next = nextEpisode { prefetchLink?(next.source.restrictedLink) }
-        upNextSecondsRemaining = upNextCountdownStart
-        upNextTask?.cancel()
-        upNextTask = Task { @MainActor in
-            while upNextSecondsRemaining > 0 {
-                try? await Task.sleep(for: .seconds(1))
-                if Task.isCancelled { return }
-                upNextSecondsRemaining -= 1
-            }
-            playNext()                      // countdown elapsed → advance
-        }
-    }
-
-    /// "Play Now" on the Up Next bar — advance immediately, skipping the countdown.
-    public func playNextNow() {
-        upNextTask?.cancel()
-        playNext()
-    }
-
-    /// Dismiss the Up Next bar and stop it from re-appearing for this episode (the viewer wants to
-    /// watch the credits). The file's real end then exits rather than auto-advancing.
-    public func dismissUpNext() {
-        upNextTask?.cancel()
-        upNextVisible = false
-        upNextDismissed = true
-    }
-
-    private func resetUpNext() {
-        upNextTask?.cancel()
-        upNextVisible = false
-        upNextDismissed = false
-        upNextSecondsRemaining = 0
-        contentEndTime = nil
-    }
-
-    /// Pull the engine's current track lists into the published state. Called when playback starts
-    /// and on every `.tracksChanged` event (VLCKit discovers elementary streams asynchronously, and
-    /// an on-demand external subtitle appears after load).
-    private func refreshTracks() {
-        audioTracks = engine.audioTracks
-        subtitleTracks = engine.subtitleTracks
-        attachPendingSubtitleIfReady()
-        applyTrackPreferencesIfNeeded()
-        if volumePercent != 100 { engine.setVolume(volumePercent) }   // re-assert a boost post-swap
-    }
-
-    /// Auto-apply the user's persisted audio/subtitle language once this source's tracks have been
-    /// discovered (audio is always present, so its arrival means parsing is far enough along). Runs
-    /// once per source (`reload()` re-arms it), so a later manual change isn't reverted by a
-    /// subsequent `.tracksChanged`. A preferred he/en subtitle that isn't embedded auto-downloads —
-    /// but only when its row is still `.idle`, so a daily-cap or in-flight download isn't re-hit
-    /// every episode of a binge.
-    private func applyTrackPreferencesIfNeeded() {
-        guard let prefs = trackPreferences, !trackPrefsApplied, !audioTracks.isEmpty else { return }
-        trackPrefsApplied = true
-
-        switch prefs.preferredAudio {
-        case .language(let lang):
-            if let match = audioTracks.first(where: { $0.language == lang }) {
-                engine.selectAudioTrack(id: match.id)
-                selectedAudioID = match.id
-            }
-        case .automatic:
-            // Default: English audio when the release has it; otherwise leave VLCKit's default,
-            // which is the file's first/original-language track — so a foreign film or show plays
-            // in its original language instead of a wrong dub.
-            if let english = audioTracks.first(where: { Self.isEnglishLanguage($0.language) }) {
-                engine.selectAudioTrack(id: english.id)
-                selectedAudioID = english.id
-            }
-        case .off:
-            break   // "off" isn't meaningful for audio — keep the default track
-        }
-
-        switch prefs.preferredSubtitle {
-        case .automatic:
-            break
-        case .off:
-            engine.selectSubtitleTrack(id: nil)
-            selectedSubtitleID = nil
-        case .language(let lang):
-            if let match = subtitleTracks.first(where: { $0.language == lang }) {
-                engine.selectSubtitleTrack(id: match.id)
-                selectedSubtitleID = match.id
-            } else if ["he", "en"].contains(lang),
-                      subtitleRows.first(where: { $0.language == lang })?.state == .idle {
-                Task { await self.requestSubtitle(language: lang) }
-            }
-        }
-    }
-
-    /// Whether a track's language tag denotes English. VLCKit reports whatever libvlc parsed from the
-    /// container — 2-letter ("en"), 3-letter ("eng"), or descriptive ("English", "en-US") — so match
-    /// them all. An untagged (`nil`) track is never treated as English.
-    private static func isEnglishLanguage(_ language: String?) -> Bool {
-        guard let l = language?.lowercased() else { return false }
-        return l == "en" || l.hasPrefix("en-") || l.hasPrefix("eng")
-    }
-
-    /// Arm the load watchdog. Disarmed by `markRendered()` (first frame) and `teardown()`.
-    private func armLoadWatchdog() {
-        loadWatchdog?.cancel()
-        loadWatchdog = Task { @MainActor [weak self] in
-            guard let timeout = self?.loadTimeout else { return }
-            try? await Task.sleep(for: .seconds(timeout))
-            guard !Task.isCancelled, let self, !self.hasRenderedFrame else { return }
-            if case .failed = self.phase { return }     // already failed for a better reason
-            self.phase = .failed("This stream didn't start. The Real-Debrid link may have expired.")
-        }
-    }
-
-    /// First frames are on screen. Clears the loading state so the overlay/spinner hide.
-    private func markRendered() {
-        hasRenderedFrame = true
-        isBuffering = false
-        loadWatchdog?.cancel()     // the load succeeded — disarm the timeout
-        loadWatchdog = nil
-        isSwitching = false        // the new episode's media is on screen → end events are real again
-    }
-
-    private func finish() async {
-        guard phase != .ended else { return }   // VLCKit can emit .stopped + .ended; finish once
-        guard !isSwitching else { return }      // ignore the OLD media's late `.ended` mid-swap
-        // VLCKit maps BOTH end-of-file and a failed open to `.stopped`/`.stopping` → `.ended`.
-        // A media that never rendered a frame and never moved the playhead did not END — it never
-        // STARTED. Treating that as EOF records progress at 0 and silently auto-advances to the
-        // next episode with no error and no Retry.
-        if !hasRenderedFrame, position < 1 {
-            phase = .failed("The stream stopped before it started. The Real-Debrid link may have expired.")
-            return
-        }
-        // Binge: a finished episode records its tail, then auto-advances to the next one in-place
-        // (same player/engine) — unless the viewer dismissed the Up Next bar to watch the credits,
-        // in which case the real file end exits. A movie or last episode records and dismisses.
-        await recordCurrentProgress()
-        if nextEpisode != nil, !upNextDismissed {
-            advanceToNextEpisode()
-            return
-        }
-        phase = .ended
-        shouldDismiss = true
-    }
-
     /// Progress through the current media as a 0…1 fraction (0 when the length isn't known yet).
-    private var currentFraction: Double {
+    var currentFraction: Double {
         duration > 0 ? max(0, min(1, position / duration)) : 0
-    }
-
-    /// Called at every playback end-point: teardown, finish, and episode switches. With a scrobble
-    /// backend wired this is the `stop` event (Trakt finalizes the resume point / marks watched off
-    /// it); otherwise it falls back to the original progress write.
-    private func recordCurrentProgress() async {
-        if let onScrobbleStop {
-            await onScrobbleStop(currentFraction)
-        } else {
-            await recordProgress(contentKey, WatchKey.source(currentSource), position, duration)
-        }
     }
 
     /// Manually skip to the next episode (the transport "Next Episode" button). Records the current
@@ -741,41 +352,7 @@ public final class PlayerModel {
         advanceToNextEpisode()
     }
 
-    /// Swap the playing episode to the next in series order and reload from the start, in-place (no
-    /// teardown/re-present, same engine + event loop). Subtitle state resets — externals are
-    /// per-episode. Caller is responsible for recording the outgoing episode's progress.
-    private func advanceToNextEpisode() {
-        guard let next = nextEpisode else { return }
-        switchTo(next, resumeAt: nil)
-    }
-
-    /// Swap the playing episode in-place (no teardown/re-present, same engine + event loop) and
-    /// reload. Subtitle/track selection resets — externals are per-episode. Caller records the
-    /// outgoing episode's progress.
-    private func switchTo(_ ep: Episode, resumeAt newResume: Double?) {
-        resetUpNext()                        // clear the bar/countdown + the old episode's content-end
-        isSwitching = true                   // swallow the old media's late `.ended` until E2 renders
-        episode = ep
-        sources = [ep.source]
-        sourceIndex = 0
-        contentKey = WatchKey.content(forShow: item, episode: ep)
-        label = "\(item.title) — S\(ep.season)·E\(ep.number)"
-        resumeAt = newResume
-        fromStart = false                    // the new episode resumes via the provider if mid-watched
-        selectedAudioID = nil
-        selectedSubtitleID = nil
-        pendingSubtitleAttach = nil
-        let initial: SubtitleRowState = subtitles == nil ? .noAccount : .idle
-        subtitleRows = ["he", "en"].map { SubtitleRow(language: $0, state: initial) }
-        reload()
-    }
-
     // MARK: - Transport controls
-
-    public func togglePlayPause() {
-        if phase == .playing { engine.pause() } else { engine.play() }
-        revealScrubBar()
-    }
 
     /// Resume. Distinct from `togglePlayPause` because the system Now Playing surface sends
     /// DISCRETE play and pause commands — a toggle does the wrong thing whenever that surface's
@@ -793,37 +370,9 @@ public final class PlayerModel {
         revealScrubBar()
     }
 
-    /// Hold-to-scan: holding left/right travels through the film at an accelerating rate.
-    ///
-    /// Implemented as accelerating repeated SKIPS rather than a negative playback rate, because
-    /// libvlc has no reliable reverse playback — a negative rate simply does nothing backwards,
-    /// so the two directions would behave differently. Repeated seeks are symmetric, and they
-    /// reuse the existing coalescing and the accumulating on-screen badge, so a hold reads as one
-    /// growing jump instead of a stutter of separate ones.
-    public func beginScan(direction: Double) {
-        scanTask?.cancel()
-        revealScrubBar()
-        scanTask = Task { @MainActor [weak self] in
-            var step = 10.0
-            while !Task.isCancelled {
-                guard let self else { return }
-                self.skip(direction >= 0 ? step : -step)
-                try? await Task.sleep(for: .seconds(0.5))
-                step = min(step * 1.6, 120)      // 10 → 16 → 26 → 41 … capped at two minutes
-            }
-        }
-    }
-
-    /// Release the scan.
-    public func endScan() {
-        scanTask?.cancel()
-        scanTask = nil
-        revealScrubBar()
-    }
-
     /// Declare our transport to the system. This is what makes the iPhone Remote app render its
     /// +/-10s buttons and scrubber; it also enables Siri, Control Center and CEC TV remotes.
-    private func activateNowPlaying() {
+    func activateNowPlaying() {
         guard let nowPlaying else { return }
         nowPlaying.activate(NowPlayingHandlers(
             play: { [weak self] in self?.play() },
@@ -837,7 +386,7 @@ public final class PlayerModel {
     }
 
     /// Push the current metadata + playhead to the system surface.
-    private func pushNowPlaying() {
+    func pushNowPlaying() {
         guard let nowPlaying else { return }
         nowPlaying.update(NowPlayingInfo(
             title: label,
@@ -849,105 +398,6 @@ public final class PlayerModel {
         ))
     }
 
-    /// Reveal the thin scrub bar and re-arm a 5s sticky timer. Called on every player interaction
-    /// (click, swipe, commit). Cancels any pending hide; PlayerView fades it in/out.
-    public func revealScrubBar() {
-        scrubBarVisible = true
-        scrubBarHideTask?.cancel()
-        scrubBarHideTask = Task { @MainActor in
-            try? await Task.sleep(for: .seconds(scrubBarDwell))
-            guard !Task.isCancelled, !isScrubbing else { return }
-            scrubBarVisible = false
-        }
-    }
-
-    /// Shared bookkeeping for a deliberate user-initiated seek (skip / scrub commit / direct scrub):
-    /// (1) supersede any still-in-flight resume so tick()'s resume branch can't drag the playhead back
-    ///     to the resume point (or freeze the displayed position), and (2) if the seek lands the
-    ///     playhead back before the Up Next threshold, cancel the auto-advance countdown so it can't
-    ///     yank the viewer to the next episode mid-scene.
-    private func handleUserSeek(to target: Double) {
-        if resumeTarget > 0 { resumeTarget = 0; resumeSeekIssued = true }
-        if upNextVisible, let threshold = upNextThreshold, target < threshold {
-            upNextTask?.cancel()
-            upNextVisible = false
-            upNextSecondsRemaining = 0
-            // leave upNextDismissed untouched; re-crossing the threshold re-arms via maybeShowUpNext()
-        }
-    }
-
-    public func skip(_ delta: Double) {
-        let before = position
-        let origin = pendingSeek?.from ?? position   // a burst keeps the ORIGINAL pre-seek origin
-        let target = clamp(position + delta)
-        handleUserSeek(to: target)
-        position = target            // optimistic: the scrub bar jumps to the new time immediately
-        isBuffering = true           // …and shows the loading hint while the seek rebuffers
-        lastTickPosition = target    // re-arm advance detection past the target
-        pendingSeek = target != origin ? (from: origin, to: target) : nil   // hold the bar through stale ticks
-        scheduleCoalescedSeek(to: target)
-        accumulateSkipFeedback(target - before)         // this tap's real jump feeds the indicator
-    }
-    public func scrub(to seconds: Double) {
-        let target = clamp(seconds)
-        handleUserSeek(to: target)
-        engine.seek(to: target)
-    }
-
-    /// Grow the on-screen skip indicator by this tap's ACTUAL jump, so ONE badge counts up across a
-    /// rapid burst (10 → 20 → 30 → 1:10…). The running total resets only after ~0.8s without another
-    /// tap — NOT when a seek lands — so fast repeats keep climbing instead of popping back to 10.
-    private func accumulateSkipFeedback(_ applied: Double) {
-        guard applied != 0 else { return }              // a no-op tap at an edge leaves the badge alone
-        let total = (skipFeedback?.seconds ?? 0) + applied
-        skipFeedback = total == 0 ? nil : SkipFeedback(seconds: total, id: (skipFeedback?.id ?? 0) &+ 1)
-        skipFeedbackClearTask?.cancel()
-        guard skipFeedback != nil else { return }
-        skipFeedbackClearTask = Task { @MainActor in
-            try? await Task.sleep(for: .seconds(0.8))
-            guard !Task.isCancelled else { return }
-            skipFeedback = nil
-        }
-    }
-
-    /// See `seekCoalesceWindow`: leading seek fires immediately, skips landing inside the open
-    /// window only retarget, and one trailing seek issues the final target when it closes.
-    private func scheduleCoalescedSeek(to target: Double) {
-        coalescedSeekTarget = target
-        guard seekDispatchTask == nil else { return }   // window open → the trailing pass handles it
-        engine.seek(to: target)
-        dispatchedSeekTarget = target
-        seekGeneration &+= 1
-        let generation = seekGeneration
-        seekDispatchTask = Task { @MainActor in
-            // Only this window may clear the slot, and only while it is still the current one —
-            // a cancelled predecessor's cleanup must not evict a live successor.
-            defer { if seekGeneration == generation { seekDispatchTask = nil } }
-            try? await Task.sleep(for: .seconds(seekCoalesceWindow))
-            guard !Task.isCancelled, seekGeneration == generation else { return }
-            if let final = coalescedSeekTarget, final != dispatchedSeekTarget {
-                engine.seek(to: final)
-            }
-            coalescedSeekTarget = nil
-            dispatchedSeekTarget = nil
-        }
-    }
-
-    /// Drop any open coalescing window (a direct seek — scrub commit / reload — supersedes it).
-    private func cancelCoalescedSeek() {
-        seekDispatchTask?.cancel()
-        seekDispatchTask = nil
-        seekGeneration &+= 1                            // orphan the cancelled task's cleanup
-        coalescedSeekTarget = nil
-        dispatchedSeekTarget = nil
-    }
-
-    /// Clamp a time to `[0, duration]` (duration may be 0 before it is known).
-    private func clamp(_ t: Double) -> Double {
-        let upper = duration > 0 ? duration : max(0, t)
-        return min(max(0, t), upper)
-    }
-
     /// Playback rate multiplier (1 = normal). Settings panel uses 0.5/0.75/1/1.25/1.5.
     public private(set) var playbackSpeed: Double = 1
     public func setPlaybackSpeed(_ rate: Double) {
@@ -955,64 +405,7 @@ public final class PlayerModel {
         engine.setRate(rate)
     }
 
-    /// Set output volume (100 = unity, up to 200 = boost). Clamped; applied immediately and re-asserted
-    /// by `refreshTracks()` so it sticks across track changes and episode swaps.
-    public func setVolume(_ percent: Int) {
-        volumePercent = min(200, max(0, percent))
-        engine.setVolume(volumePercent)
-    }
-
-    // MARK: - Swipe-scrub (Step 2)
-
-    /// Enter scrub mode (a select press on the focused bar). The preview marker starts at the
-    /// playhead; the user then swipes to glide it and presses again to seek. Controls stay up.
-    public func beginScrub() {
-        scrubTarget = position
-        isScrubbing = true
-        controlsVisible = true
-        hideControlsTask?.cancel()            // never auto-hide mid-scrub
-        scrubBarHideTask?.cancel()
-        scrubBarVisible = true
-    }
-
-    /// Move the preview marker by `deltaSeconds`, clamped to the media's bounds. No seek yet.
-    public func updateScrub(by deltaSeconds: Double) {
-        guard isScrubbing else { return }
-        let upper = duration > 0 ? duration : scrubTarget + max(0, deltaSeconds)
-        scrubTarget = min(max(0, scrubTarget + deltaSeconds), upper)
-    }
-
-    /// Seek to the preview marker and leave scrub mode. Optimistically advance the playhead so the
-    /// bar doesn't snap back to the old position before the engine reports the new time.
-    public func commitScrub() {
-        guard isScrubbing else { return }
-        isScrubbing = false
-        let from = position
-        handleUserSeek(to: scrubTarget)
-        position = scrubTarget
-        lastTickPosition = scrubTarget
-        isBuffering = true                     // loading hint while the seek rebuffers
-        pendingSeek = scrubTarget != from ? (from: from, to: scrubTarget) : nil   // hold through stale ticks
-        cancelCoalescedSeek()                  // a commit supersedes any open skip window
-        engine.seek(to: scrubTarget)
-        armAutoHide()
-        revealScrubBar()                       // sticky 5s after commit
-    }
-
-    /// Abandon scrub mode without seeking (the playhead is untouched).
-    public func cancelScrub() {
-        isScrubbing = false
-        armAutoHide()
-        revealScrubBar()
-    }
-
     // MARK: - Controls auto-hide
-
-    /// Reveal the transport and re-arm the auto-hide timer. Called on every user interaction.
-    public func showControls() {
-        controlsVisible = true
-        armAutoHide()
-    }
 
     /// Touch tap-to-toggle: hide the transport if it's up, else reveal it (and re-arm auto-hide).
     public func toggleControls() {
@@ -1030,73 +423,6 @@ public final class PlayerModel {
         if focused { showControls() }
     }
 
-    /// Hide the transport after `autoHideDelay` of no interaction — but only while actively playing
-    /// and not scrubbing (paused / buffering / error keep the controls up).
-    private func armAutoHide() {
-        hideControlsTask?.cancel()
-        guard autoHideDelay > 0 else { return }
-        hideControlsTask = Task { @MainActor in
-            try? await Task.sleep(for: .seconds(autoHideDelay))
-            guard !Task.isCancelled else { return }
-            if phase == .playing, !isScrubbing { controlsVisible = false }
-        }
-    }
-
-    public func selectSubtitle(id: String) {
-        selectedSubtitleID = id
-        engine.selectSubtitleTrack(id: id)
-        recordPreferredSubtitle(forTrackID: id)
-    }
-    public func selectSubtitleOff() {
-        selectedSubtitleID = nil
-        engine.selectSubtitleTrack(id: nil)
-        trackPreferences?.preferredSubtitle = .off
-    }
-    public func selectAudio(id: String) {
-        selectedAudioID = id
-        engine.selectAudioTrack(id: id)
-        if let lang = audioTracks.first(where: { $0.id == id })?.language {
-            trackPreferences?.preferredAudio = .language(lang)
-        }
-    }
-
-    /// Persist a manually-selected subtitle by language. A downloaded sub's engine track often has a
-    /// nil language, so resolve it from the owning language row first, then fall back to the track's
-    /// own language tag (embedded subs).
-    private func recordPreferredSubtitle(forTrackID id: String) {
-        if let row = subtitleRows.first(where: { attachedTrackID($0) == id }) {
-            trackPreferences?.preferredSubtitle = .language(row.language)
-        } else if let lang = subtitleTracks.first(where: { $0.id == id })?.language {
-            trackPreferences?.preferredSubtitle = .language(lang)
-        }
-    }
-
-    // MARK: - Teardown
-
-    public func teardown() async {
-        eventTask?.cancel()
-        loadTask?.cancel()
-        hideControlsTask?.cancel()
-        scrubBarHideTask?.cancel()
-        upNextTask?.cancel()
-        seekDispatchTask?.cancel()
-        loadWatchdog?.cancel()
-        scanTask?.cancel()
-        nowPlaying?.deactivate()
-        await recordCurrentProgress()
-        engine.stop()
-    }
-
-    // MARK: - Recovery
-
-    public func retry() { reload() }
-
-    public func tryAnotherVersion() {
-        guard sourceIndex + 1 < sources.count else { return }
-        sourceIndex += 1
-        reload()
-    }
-
     // MARK: - Subtitle browser
 
     public enum SubtitleSearchState: Equatable {
@@ -1108,136 +434,13 @@ public final class PlayerModel {
     /// Subtitle tracks attached from a downloaded file this session.
     public var downloadedTracks: [MediaTrack] { subtitleTracks.filter(\.isExternal) }
 
-    public private(set) var subtitleSearchState: SubtitleSearchState = .idle
-    public private(set) var subtitleSearchResults: [SubtitleMatch.Ranked] = []
+    public internal(set) var subtitleSearchState: SubtitleSearchState = .idle
+    public internal(set) var subtitleSearchResults: [SubtitleMatch.Ranked] = []
     /// The language whose results are currently shown.
-    public private(set) var subtitleSearchLanguage: String?
+    public internal(set) var subtitleSearchLanguage: String?
     /// The moviehash of the playing file, resolved lazily on the first browser search and reused.
-    private var currentMoviehash: String?
-    private var moviehashResolved = false
-
-    /// Search every subtitle for a language and rank them against the file actually playing. The
-    /// moviehash is resolved once per source — two small range requests — turning a filename
-    /// heuristic into a perfect-sync guarantee.
-    public func searchSubtitles(language: String) async {
-        guard let subtitles else { subtitleSearchState = .failed; return }
-        subtitleSearchLanguage = language
-        subtitleSearchState = .searching
-        subtitleSearchResults = []
-        await resolveMoviehashIfNeeded()
-        var query = episode.map { SubtitleQuery.episode(show: item, episode: $0) }
-            ?? SubtitleQuery.movie(item)
-        query.moviehash = currentMoviehash
-        do {
-            let results = try await subtitles.search(query, languages: [language])
-            subtitleSearchResults = SubtitleMatch.rank(results,
-                                                       against: currentSource.releaseNameForMatching,
-                                                       videoFPS: nil)
-            subtitleSearchState = .loaded
-        } catch {
-            subtitleSearchState = .failed
-        }
-    }
-
-    /// Download a chosen search result and attach it, reusing the same pending-attach handshake as
-    /// the language rows (VLCKit surfaces a slave asynchronously via `.tracksChanged`).
-    public func useSubtitle(_ ranked: SubtitleMatch.Ranked) async {
-        guard let subtitles else { return }
-        do {
-            let url = try await subtitles.download(ranked.result)
-            if let text = (try? String(contentsOf: url, encoding: .utf8))
-                ?? (try? String(contentsOf: url, encoding: .isoLatin1)) {
-                contentEndTime = SubtitleTiming.lastCueEndSeconds(in: text)
-            }
-            let before = Set(engine.subtitleTracks.map(\.id))
-            engine.addExternalSubtitle(url: url)
-            pendingSubtitleAttach = (ranked.result.language, before)
-            refreshTracks()
-            scheduleSubtitleAttachTimeout(language: ranked.result.language)
-        } catch {
-            subtitleSearchState = .failed
-        }
-    }
-
-    private func resolveMoviehashIfNeeded() async {
-        guard !moviehashResolved else { return }
-        moviehashResolved = true
-        guard let url = try? await unrestrict(currentSource.restrictedLink) else { return }
-        currentMoviehash = await MovieHash.remote(url: url)
-    }
-
-    // MARK: - Subtitles
-
-    public func requestSubtitle(language: String) async {
-        guard let subtitles else { setRow(language, .noAccount); return }
-        guard subtitleRows.first(where: { $0.language == language })?.state != .downloading else { return }
-        setRow(language, .downloading)
-        do {
-            // A show must search by season + episode. This was `SubtitleQuery.movie(item)`
-            // unconditionally, so every episode searched as if it were a film — the episode
-            // builder existed and had never been called.
-            let query = episode.map { SubtitleQuery.episode(show: item, episode: $0) }
-                ?? SubtitleQuery.movie(item)
-            let results = try await subtitles.search(query, languages: [language])
-            guard let best = results.first else { setRow(language, .error); return }
-            let url = try await subtitles.download(best)
-            // Requesting a language IS choosing it — make it sticky so the next episode/title
-            // auto-downloads the same language without re-picking.
-            trackPreferences?.preferredSubtitle = .language(language)
-            // The downloaded cues tell us when the dialogue ends → drives "Up Next" at content-end
-            // rather than the file end. Timestamps are ASCII, so isoLatin1 is a safe fallback decode
-            // for non-UTF-8 (e.g. windows-1255 Hebrew) files.
-            if let text = (try? String(contentsOf: url, encoding: .utf8))
-                ?? (try? String(contentsOf: url, encoding: .isoLatin1)) {
-                contentEndTime = SubtitleTiming.lastCueEndSeconds(in: text)
-            }
-            // VLCKit attaches the slave asynchronously and signals via `.tracksChanged`; the new
-            // track is usually NOT in the list yet. Remember the pending attach and finish it in
-            // `refreshTracks()` once the track appears — that auto-selects it and turns the engine's
-            // generic "Track N" into the language pill. Try once now in case it landed synchronously.
-            let before = Set(engine.subtitleTracks.map(\.id))
-            engine.addExternalSubtitle(url: url)
-            pendingSubtitleAttach = (language, before)
-            refreshTracks()
-            scheduleSubtitleAttachTimeout(language: language)
-        } catch let SubtitleError.dailyCapReached(reset) {
-            setRow(language, .capReached(reset))
-        } catch SubtitleError.notAuthenticated {
-            setRow(language, .noAccount)
-        } catch {
-            setRow(language, .error)
-        }
-    }
-
-    /// If a downloaded subtitle's slave track has appeared in the engine, select it, mark its
-    /// language row `.attached`, and clear the pending attach. Idempotent — safe to call on every
-    /// `.tracksChanged`. Marking the row attached also drops the engine's generic "Track N" pill:
-    /// `embeddedSubtitleTracks` excludes any id a language row now owns.
-    private func attachPendingSubtitleIfReady() {
-        guard let pending = pendingSubtitleAttach,
-              let newID = engine.subtitleTracks.first(where: { !pending.before.contains($0.id) })?.id
-        else { return }
-        engine.selectSubtitleTrack(id: newID)
-        selectedSubtitleID = newID
-        setRow(pending.language, .attached(newID))
-        pendingSubtitleAttach = nil
-    }
-
-    /// Fallback if VLCKit never attaches the slave (e.g. an unreadable file): clear the pending
-    /// download after a grace period so its row stops spinning and shows the retry-able error.
-    private func scheduleSubtitleAttachTimeout(language: String) {
-        Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(8))
-            guard let self, self.pendingSubtitleAttach?.language == language else { return }
-            self.pendingSubtitleAttach = nil
-            self.setRow(language, .error)
-        }
-    }
-
-    private func setRow(_ language: String, _ state: SubtitleRowState) {
-        guard let i = subtitleRows.firstIndex(where: { $0.language == language }) else { return }
-        subtitleRows[i].state = state
-    }
+    var currentMoviehash: String?
+    var moviehashResolved = false
 
     // MARK: - Test hook
 
