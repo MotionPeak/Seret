@@ -105,6 +105,11 @@ struct LibraryShell: View {
         }
         .padding(.top, 28).padding(.bottom, 12)
         .frame(maxWidth: .infinity)
+        // The pills are CENTERED but content runs edge to edge, so without a section anything in
+        // the outer ~600pt of every screen has nothing above it and UP is a dead press. A section
+        // makes the whole full-width frame one target. (`.focusSection()` widens a target; it does
+        // NOT trap focus.)
+        .focusSection()
         .overlay(alignment: .trailing) {
             // Settings + profile sit off to the right — one step away, never in the primary row.
             HStack(spacing: 24) {
@@ -113,6 +118,9 @@ struct LibraryShell: View {
                 profileButton
             }
             .padding(.trailing, 50).padding(.top, 16)
+            // An overlay is off the HStack's focus path, so it needs its own section to be
+            // reachable from the pills and from content below.
+            .focusSection()
         }
     }
 
