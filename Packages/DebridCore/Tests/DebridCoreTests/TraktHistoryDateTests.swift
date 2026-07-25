@@ -74,5 +74,50 @@ extension MockTests {
             let date = try await client.firstHistoryDate(type: "movies", traktID: 1)
             #expect(date == nil)
         }
+
+        // Trakt omits the pagination header → we cannot know whether this row is the
+        // oldest, so we must decline. Reporting page 1's row would present the NEWEST
+        // watch as the oldest — a confidently wrong "in your history since <date>".
+        @Test func missingPaginationHeaderReturnsNilRatherThanTheNewestDate() async throws {
+            MockURLProtocol.handler = { request in
+                // No X-Pagination-Page-Count at all.
+                let response = HTTPURLResponse(url: request.url!, statusCode: 200,
+                    httpVersion: nil, headerFields: nil)!
+                return (response, Data(#"[{"id":9,"watched_at":"2024-01-01T00:00:00Z"}]"#.utf8))
+            }
+            let client = TraktClient(clientID: "c", clientSecret: "s",
+                                     http: HTTPClient(session: .mock),
+                                     token: { "tok" })
+            let date = try await client.firstHistoryDate(type: "movies", traktID: 7)
+            #expect(date == nil)   // must NOT report 2024 as "in your history since"
+        }
+
+        // Same reasoning for a header we can't parse as a number.
+        @Test func unparseablePaginationHeaderReturnsNil() async throws {
+            MockURLProtocol.handler = { request in
+                let response = HTTPURLResponse(url: request.url!, statusCode: 200,
+                    httpVersion: nil, headerFields: ["X-Pagination-Page-Count": "abc"])!
+                return (response, Data(#"[{"id":9,"watched_at":"2024-01-01T00:00:00Z"}]"#.utf8))
+            }
+            let client = TraktClient(clientID: "c", clientSecret: "s",
+                                     http: HTTPClient(session: .mock),
+                                     token: { "tok" })
+            let date = try await client.firstHistoryDate(type: "movies", traktID: 7)
+            #expect(date == nil)
+        }
+
+        // A timestamp in no recognized format → nil, not a garbage date.
+        @Test func unparseableWatchedAtReturnsNil() async throws {
+            MockURLProtocol.handler = { request in
+                let response = HTTPURLResponse(url: request.url!, statusCode: 200,
+                    httpVersion: nil, headerFields: ["X-Pagination-Page-Count": "1"])!
+                return (response, Data(#"[{"id":1,"watched_at":"not-a-date"}]"#.utf8))
+            }
+            let client = TraktClient(clientID: "c", clientSecret: "s",
+                                     http: HTTPClient(session: .mock),
+                                     token: { "tok" })
+            let date = try await client.firstHistoryDate(type: "movies", traktID: 1)
+            #expect(date == nil)
+        }
     }
 }

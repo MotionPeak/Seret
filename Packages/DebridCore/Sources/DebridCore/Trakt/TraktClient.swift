@@ -266,9 +266,14 @@ extension TraktClient {
     /// The oldest `watched_at` in the signed-in user's history for a title.
     /// `type` is "movies" or "shows"; `traktID` is the title's numeric Trakt id.
     /// History is newest-first, so the last page's single row is the earliest watch.
-    /// Returns nil if the title has no history rows or the dates can't be parsed.
+    ///
+    /// Returns nil when the title has no history, when the dates can't be parsed, or
+    /// when Trakt omits the pagination header (we can't identify the oldest row and
+    /// won't guess with the newest — an absent header is NOT the same as one page).
     public func firstHistoryDate(type: String, traktID: Int) async throws -> Date? {
-        func page(_ n: Int) async throws -> (rows: [TraktHistoryItem], pageCount: Int) {
+        /// `pageCount` is nil when the header is absent or unparseable — "unknown",
+        /// deliberately distinct from a genuine count of 1.
+        func page(_ n: Int) async throws -> (rows: [TraktHistoryItem], pageCount: Int?) {
             let url = Self.base.appending(path: "sync/history/\(type)/\(traktID)")
                 .appending(queryItems: [
                     URLQueryItem(name: "page", value: String(n)),
@@ -276,15 +281,18 @@ extension TraktClient {
                 ])
             let (rows, response): ([TraktHistoryItem], HTTPURLResponse) =
                 try await http.getWithHeaders(url, headers: try await authedHeaders())
-            let count = Int(response.value(forHTTPHeaderField: "X-Pagination-Page-Count") ?? "") ?? 1
+            let count = response.value(forHTTPHeaderField: "X-Pagination-Page-Count").flatMap(Int.init)
             return (rows, count)
         }
         let first = try await page(1)
         guard !first.rows.isEmpty else { return nil }
-        if first.pageCount <= 1 {
+        // Unknown page count: page 1 holds the NEWEST watch, so returning it would be a
+        // confidently wrong answer. Decline instead.
+        guard let pageCount = first.pageCount else { return nil }
+        if pageCount <= 1 {
             return first.rows.first.flatMap { Self.parseISO($0.watchedAt) }
         }
-        let last = try await page(first.pageCount)
+        let last = try await page(pageCount)
         return last.rows.first.flatMap { Self.parseISO($0.watchedAt) }
     }
 }
