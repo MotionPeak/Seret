@@ -103,8 +103,19 @@ public struct TraktPlaybackItem: Decodable, Sendable, Equatable {
 
 public struct TraktWatchedMovie: Decodable, Sendable, Equatable {
     public let plays: Int
+    /// ISO-8601 timestamp of the most recent play. Optional on purpose: a payload
+    /// missing the field must still decode (a non-optional field here once wiped an
+    /// entire sync when one partial payload failed to decode).
+    public let lastWatchedAt: String?
     public let movie: TraktMovieRef
-    public init(plays: Int, movie: TraktMovieRef) { self.plays = plays; self.movie = movie }
+    public init(plays: Int, lastWatchedAt: String? = nil, movie: TraktMovieRef) {
+        self.plays = plays; self.lastWatchedAt = lastWatchedAt; self.movie = movie
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case plays, movie
+        case lastWatchedAt = "last_watched_at"
+    }
 }
 
 /// `/sync/watched/shows` collapses to the set of (showTmdb, season, number) watched.
@@ -116,6 +127,24 @@ public struct TraktWatchedShow: Decodable, Sendable, Equatable {
     }
     public let show: TraktShowRef
     public let seasons: [Season]
+    /// ISO-8601 timestamp of the most recent play across the show. Optional — see above.
+    public let lastWatchedAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case show, seasons
+        case lastWatchedAt = "last_watched_at"
+    }
+}
+
+/// One row from `/sync/history/{type}/{id}` (newest-first).
+public struct TraktHistoryItem: Decodable, Sendable, Equatable {
+    public let id: Int
+    public let watchedAt: String
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case watchedAt = "watched_at"
+    }
 }
 
 /// Community rating summary from Trakt's public `/{movies|shows}/{id}/ratings`.

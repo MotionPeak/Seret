@@ -248,3 +248,43 @@ extension TraktClient {
         }
     }
 }
+
+// MARK: - Watch history dates
+
+extension TraktClient {
+    /// Trakt timestamps sometimes carry fractional seconds and sometimes don't;
+    /// try both before giving up.
+    private static func parseISO(_ string: String) -> Date? {
+        let withFraction = ISO8601DateFormatter()
+        withFraction.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let d = withFraction.date(from: string) { return d }
+        let plain = ISO8601DateFormatter()
+        plain.formatOptions = [.withInternetDateTime]
+        return plain.date(from: string)
+    }
+
+    /// The oldest `watched_at` in the signed-in user's history for a title.
+    /// `type` is "movies" or "shows"; `traktID` is the title's numeric Trakt id.
+    /// History is newest-first, so the last page's single row is the earliest watch.
+    /// Returns nil if the title has no history rows or the dates can't be parsed.
+    public func firstHistoryDate(type: String, traktID: Int) async throws -> Date? {
+        func page(_ n: Int) async throws -> (rows: [TraktHistoryItem], pageCount: Int) {
+            let url = Self.base.appending(path: "sync/history/\(type)/\(traktID)")
+                .appending(queryItems: [
+                    URLQueryItem(name: "page", value: String(n)),
+                    URLQueryItem(name: "limit", value: "1"),
+                ])
+            let (rows, response): ([TraktHistoryItem], HTTPURLResponse) =
+                try await http.getWithHeaders(url, headers: try await authedHeaders())
+            let count = Int(response.value(forHTTPHeaderField: "X-Pagination-Page-Count") ?? "") ?? 1
+            return (rows, count)
+        }
+        let first = try await page(1)
+        guard !first.rows.isEmpty else { return nil }
+        if first.pageCount <= 1 {
+            return first.rows.first.flatMap { Self.parseISO($0.watchedAt) }
+        }
+        let last = try await page(first.pageCount)
+        return last.rows.first.flatMap { Self.parseISO($0.watchedAt) }
+    }
+}
