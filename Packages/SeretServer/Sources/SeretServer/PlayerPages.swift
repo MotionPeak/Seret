@@ -82,24 +82,97 @@ private let homePage = """
 .card .ct{margin-top:var(--sm);font-size:14px;font-weight:600;line-height:1.25}
 .card .cy{font-size:12px;font-weight:500;color:var(--text2);margin-top:2px}
 .badge{display:inline-block;margin-top:var(--xs);font-size:11px;font-weight:600;color:var(--gold)}
+/* app shell: sidebar + main, mirroring the iPad NavigationSplitView */
+.app{display:flex;min-height:100vh}
+.side{position:sticky;top:0;height:100vh;width:220px;flex:0 0 220px;padding:var(--xxl) var(--lg);
+  border-right:1px solid var(--hairline);background:rgba(20,20,22,.35);backdrop-filter:blur(20px);
+  display:flex;flex-direction:column;gap:2px;z-index:5}
+.brand{font-size:22px;font-weight:800;letter-spacing:-.02em;margin-bottom:var(--xxl);
+  background:var(--gold-grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+.navitem{display:flex;align-items:center;gap:var(--md);padding:10px var(--md);border-radius:var(--r-chip);
+  color:var(--text2);font-size:15px;font-weight:600;cursor:pointer;transition:background .15s,color .15s}
+.navitem:hover{color:var(--text)}
+.navitem.active{background:var(--chip);color:var(--gold)}
+.navitem .ic{width:20px;text-align:center;font-size:15px}
+.main{flex:1;min-width:0;padding:var(--xxl) var(--xxl) 64px}
+.sec{display:none} .sec.on{display:block}
+.h2{font-size:12px;font-weight:600;letter-spacing:1.5px;color:var(--gold);margin:0 0 var(--md)}
+.rail{display:flex;gap:var(--lg);overflow-x:auto;padding-bottom:var(--sm)}
+.rail .card{flex:0 0 150px}
+.search{width:100%;max-width:520px;background:var(--surface1);border:1px solid var(--hairline);
+  border-radius:var(--r-pill);padding:12px var(--lg);color:var(--text);font:15px var(--font);
+  margin-bottom:var(--xl);outline:none}
+.search:focus{border-color:rgba(235,193,29,.5)}
+.count{margin-bottom:var(--lg)}
+@media(max-width:760px){
+  .app{flex-direction:column}
+  .side{position:sticky;height:auto;width:auto;flex:none;flex-direction:row;align-items:center;
+    gap:var(--sm);padding:var(--md) var(--lg);border-right:0;border-bottom:1px solid var(--hairline)}
+  .brand{margin:0 auto 0 0;font-size:18px}
+  .navitem .lbl{display:none}
+  .main{padding:var(--lg)}
+}
 </style>
-<div class=wrap>
-  <div class=head><div class=t-xl>Seret</div><div class="t-body muted" id=sub>loading…</div></div>
-  <div class=grid id=grid></div>
+<div class=app>
+  <nav class=side>
+    <div class=brand>Seret</div>
+    <div class="navitem active" data-tab=home><span class=ic>⌂</span><span class=lbl>Home</span></div>
+    <div class=navitem data-tab=find><span class=ic>⌕</span><span class=lbl>Find</span></div>
+    <div class=navitem data-tab=library><span class=ic>▤</span><span class=lbl>My Library</span></div>
+  </nav>
+  <main class=main>
+    <section class="sec on" id=home>
+      <div class=h2>RECENTLY ADDED</div>
+      <div class=rail id=recent></div>
+      <div class=h2 style="margin-top:var(--xxl)">ALL MOVIES</div>
+      <div class=grid id=homegrid></div>
+    </section>
+    <section class=sec id=find>
+      <input class=search id=q placeholder="Search your library…" autocomplete=off>
+      <div class="t-body muted count" id=findcount></div>
+      <div class=grid id=findgrid></div>
+    </section>
+    <section class=sec id=library>
+      <div class="t-body muted count" id=libcount>loading…</div>
+      <div class=grid id=libgrid></div>
+    </section>
+  </main>
 </div>
 <script>
+const card = i => {
+  const bg = i.posterPath ? `background-image:url(https://image.tmdb.org/t/p/w500${i.posterPath})` : '';
+  const fb = i.posterPath ? '' : i.title;
+  const badge = i.versions.length > 1 ? `<div class=badge>${i.versions.length} versions</div>` : '';
+  return `<a class=card href="/item?id=${encodeURIComponent(i.id)}">
+    <div class=poster style="${bg}">${fb}</div>
+    <div class=ct>${i.title}</div><div class=cy>${i.year||''}</div>${badge}</a>`;
+};
+let ALL = [];
 fetch('/api/library').then(r=>r.json()).then(items=>{
-  document.getElementById('sub').textContent = items.length + ' movies';
-  document.getElementById('grid').innerHTML = items.map(i=>{
-    const bg = i.posterPath ? `background-image:url(https://image.tmdb.org/t/p/w500${i.posterPath})` : '';
-    const fallback = i.posterPath ? '' : i.title;
-    const badge = i.versions.length > 1 ? `<div class=badge>${i.versions.length} versions</div>` : '';
-    return `<a class=card href="/item?id=${encodeURIComponent(i.id)}">
-      <div class=poster style="${bg}">${fallback}</div>
-      <div class=ct>${i.title}</div>
-      <div class=cy>${i.year || ''}</div>${badge}</a>`;
-  }).join('');
-}).catch(e=>{document.getElementById('sub').textContent = 'error: ' + e});
+  ALL = items;
+  const recent = [...items].filter(i=>i.addedAt).sort((a,b)=>b.addedAt-a.addedAt).slice(0,18);
+  document.getElementById('recent').innerHTML = (recent.length?recent:items.slice(0,18)).map(card).join('');
+  document.getElementById('homegrid').innerHTML = items.map(card).join('');
+  document.getElementById('libgrid').innerHTML = items.map(card).join('');
+  document.getElementById('libcount').textContent = items.length + ' movies';
+}).catch(e=>{document.getElementById('libcount').textContent = 'error: ' + e});
+
+document.querySelectorAll('.navitem').forEach(n=>n.onclick=()=>{
+  document.querySelectorAll('.navitem').forEach(x=>x.classList.remove('active'));
+  n.classList.add('active');
+  const t = n.dataset.tab;
+  document.querySelectorAll('.sec').forEach(s=>s.classList.toggle('on', s.id===t));
+  if (t==='find') document.getElementById('q').focus();
+});
+
+const q = document.getElementById('q');
+q.oninput = () => {
+  const term = q.value.trim().toLowerCase();
+  const res = term ? ALL.filter(i=>i.title.toLowerCase().includes(term)) : ALL;
+  document.getElementById('findcount').textContent =
+    term ? `${res.length} result${res.length===1?'':'s'}` : `${ALL.length} movies`;
+  document.getElementById('findgrid').innerHTML = res.map(card).join('');
+};
 </script>
 """
 
