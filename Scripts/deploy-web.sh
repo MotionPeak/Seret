@@ -4,7 +4,9 @@
 #   cd ~/Seret && git pull && sudo bash Scripts/deploy-web.sh <TMDB_API_KEY>
 #
 # Recovers RD_TOKEN from the currently-running container so it never has to be retyped.
-# Optional: SERET_WEB_PASSWORD=secret sudo -E bash Scripts/deploy-web.sh <TMDB_API_KEY>
+# Optional env (pass with `sudo -E`): SERET_WEB_PASSWORD=secret, OMDB_API_KEY=… (enables the
+# detail-page IMDb/RT/Metacritic ratings row; omit to disable it).
+#   OMDB_API_KEY=xxxx sudo -E bash Scripts/deploy-web.sh <TMDB_API_KEY>
 set -euo pipefail
 
 TMDB_KEY="${1:-${TMDB_API_KEY:-}}"
@@ -37,6 +39,7 @@ docker run -d --name seret-web --restart unless-stopped \
   --device /dev/dri -p 8080:8080 \
   -e RD_TOKEN="$RD" \
   -e TMDB_API_KEY="$TMDB_KEY" \
+  ${OMDB_API_KEY:+-e OMDB_API_KEY="$OMDB_API_KEY"} \
   ${SERET_WEB_PASSWORD:+-e SERET_WEB_PASSWORD="$SERET_WEB_PASSWORD"} \
   seret-server:latest >/dev/null
 
