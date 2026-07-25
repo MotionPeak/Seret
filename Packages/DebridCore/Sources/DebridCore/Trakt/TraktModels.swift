@@ -118,6 +118,13 @@ public struct TraktWatchedShow: Decodable, Sendable, Equatable {
     public let seasons: [Season]
 }
 
+/// Community rating summary from Trakt's public `/{movies|shows}/{id}/ratings`.
+public struct TraktCommunityRating: Decodable, Sendable, Equatable {
+    public let rating: Double
+    public let votes: Int
+    public init(rating: Double, votes: Int) { self.rating = rating; self.votes = votes }
+}
+
 public struct TraktRatingItem: Decodable, Sendable, Equatable {
     public let rating: Int
     public let type: String

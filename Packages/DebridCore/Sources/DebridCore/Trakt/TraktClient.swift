@@ -226,3 +226,17 @@ extension TraktClient {
             json: groupedBody([ref]), headers: try await authedHeaders())
     }
 }
+
+// MARK: - Public community ratings
+
+extension TraktClient {
+    /// Public (api-key-only) community rating for a title, addressed by IMDb id.
+    /// Trakt is addressed by Trakt id / slug / IMDb id — never TMDB id — so this joins
+    /// on the same IMDb key OMDb already uses.
+    public func communityRating(imdbID: String, kind: MediaKind) async throws -> TraktCommunityRating? {
+        let segment = (kind == .movie) ? "movies" : "shows"
+        return try await http.get(
+            Self.base.appending(path: "\(segment)/\(imdbID)/ratings"),
+            headers: baseHeaders)
+    }
+}
