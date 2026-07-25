@@ -48,7 +48,7 @@ extension MockTests {
             #expect(details.imdbID == nil)
         }
 
-        @Test func movieDetailsRequestsCreditsAndSimilar() async throws {
+        @Test func movieDetailsRequestsCreditsAndRecommendations() async throws {
             var capturedURL: URL?
             MockURLProtocol.handler = { request in
                 capturedURL = request.url
@@ -59,10 +59,10 @@ extension MockTests {
             let client = TMDBClient(apiKey: "k", http: HTTPClient(session: .mock))
             _ = try await client.movieDetails(id: 1)
             let query = capturedURL?.query ?? ""
-            #expect(query.contains("append_to_response=credits,similar"))
+            #expect(query.contains("append_to_response=credits,recommendations"))
         }
 
-        @Test func tvDetailsRequestsExternalIDsFirstPlusCreditsAndSimilar() async throws {
+        @Test func tvDetailsRequestsExternalIDsFirstPlusCreditsAndRecommendations() async throws {
             var capturedURL: URL?
             MockURLProtocol.handler = { request in
                 capturedURL = request.url
@@ -81,7 +81,7 @@ extension MockTests {
             #expect(parts.first == "external_ids")
             // and the A2 decoder needs these two, or cast/similar silently decode empty:
             #expect(parts.contains("aggregate_credits"))
-            #expect(parts.contains("similar"))
+            #expect(parts.contains("recommendations"))
         }
     }
 }

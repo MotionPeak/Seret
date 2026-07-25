@@ -144,13 +144,13 @@ public struct TMDBClient: Sendable {
 
     public func movieDetails(id: Int) async throws -> TMDBMovieDetails {
         try await get("movie/\(id)", [
-            URLQueryItem(name: "append_to_response", value: "credits,similar")
+            URLQueryItem(name: "append_to_response", value: "credits,recommendations")
         ])
     }
 
     public func tvDetails(id: Int) async throws -> TMDBTVDetails {
         try await get("tv/\(id)", [
-            URLQueryItem(name: "append_to_response", value: "external_ids,aggregate_credits,similar")
+            URLQueryItem(name: "append_to_response", value: "external_ids,aggregate_credits,recommendations")
         ])
     }
 

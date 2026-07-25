@@ -100,7 +100,14 @@ struct TMDBAggregateCredits: Decodable {
 
 struct TMDBCreatedBy: Decodable { let name: String }
 
-struct TMDBSimilar: Decodable { let results: [TMDBSearchResult] }
+/// The payload behind `similar` on the detail models.
+///
+/// Sourced from TMDB's `recommendations`, NOT its `similar` endpoint — despite the Swift name.
+/// Both return this identical search-shaped body, but `similar` matches on shared keywords and
+/// genres and produces poor suggestions (The Prestige → Miss Potter, Jump In!), while
+/// `recommendations` is built from what viewers actually watch together and returns the
+/// obvious neighbours (Memento, The Illusionist). Verified on-device before switching.
+struct TMDBRecommendations: Decodable { let results: [TMDBSearchResult] }
 
 public struct TMDBMovieDetails: Decodable, Sendable, Equatable, Identifiable {
     public let id: Int
@@ -119,7 +126,8 @@ public struct TMDBMovieDetails: Decodable, Sendable, Equatable, Identifiable {
     public let similar: [TMDBSearchResult]
 
     enum CodingKeys: String, CodingKey {
-        case id, title, overview, runtime, genres, credits, similar
+        case id, title, overview, runtime, genres, credits
+        case similar = "recommendations"
         case releaseDate = "release_date"
         case posterPath = "poster_path"
         case backdropPath = "backdrop_path"
@@ -161,7 +169,7 @@ public struct TMDBMovieDetails: Decodable, Sendable, Equatable, Identifiable {
         var seen = Set<String>()
         let uniqueDirectors = directors.filter { seen.insert($0).inserted }
         director = uniqueDirectors.isEmpty ? nil : uniqueDirectors.joined(separator: ", ")
-        similar = (try c.decodeIfPresent(TMDBSimilar.self, forKey: .similar)?.results ?? [])
+        similar = (try c.decodeIfPresent(TMDBRecommendations.self, forKey: .similar)?.results ?? [])
     }
 }
 
@@ -182,7 +190,8 @@ public struct TMDBTVDetails: Decodable, Sendable, Equatable, Identifiable {
     public let similar: [TMDBSearchResult]
 
     enum CodingKeys: String, CodingKey {
-        case id, name, overview, genres, similar
+        case id, name, overview, genres
+        case similar = "recommendations"
         case firstAirDate = "first_air_date"
         case posterPath = "poster_path"
         case backdropPath = "backdrop_path"
@@ -226,7 +235,7 @@ public struct TMDBTVDetails: Decodable, Sendable, Equatable, Identifiable {
         cast = (agg?.cast ?? []).sorted { ($0.order ?? .max) < ($1.order ?? .max) }
                                 .prefix(10).map { $0.normalized }
         creators = (try c.decodeIfPresent([TMDBCreatedBy].self, forKey: .createdBy) ?? []).map(\.name)
-        similar = (try c.decodeIfPresent(TMDBSimilar.self, forKey: .similar)?.results ?? [])
+        similar = (try c.decodeIfPresent(TMDBRecommendations.self, forKey: .similar)?.results ?? [])
     }
 }
 

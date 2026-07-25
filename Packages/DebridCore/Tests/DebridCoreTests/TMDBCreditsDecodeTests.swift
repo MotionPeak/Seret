@@ -20,7 +20,7 @@ import Foundation
               {"id": 525, "name": "Christopher Nolan", "job": "Writer", "department": "Writing", "profile_path": "/c.jpg"}
             ]
           },
-          "similar": { "results": [ {"id": 155, "title": "The Dark Knight", "poster_path": "/d.jpg"} ] }
+          "recommendations": { "results": [ {"id": 155, "title": "The Dark Knight", "poster_path": "/d.jpg"} ] }
         }
         """
         let d = try decoder.decode(TMDBMovieDetails.self, from: Data(json.utf8))
@@ -42,7 +42,7 @@ import Foundation
                "roles": [ {"character": "Tyrion Lannister"} ]}
             ]
           },
-          "similar": { "results": [ {"id": 1396, "name": "Breaking Bad", "poster_path": "/e.jpg"} ] }
+          "recommendations": { "results": [ {"id": 1396, "name": "Breaking Bad", "poster_path": "/e.jpg"} ] }
         }
         """
         let d = try decoder.decode(TMDBTVDetails.self, from: Data(json.utf8))
@@ -64,5 +64,19 @@ import Foundation
         #expect(tv.cast.isEmpty)
         #expect(tv.creators.isEmpty)
         #expect(tv.similar.isEmpty)
+    }
+
+    // Guards the /similar -> /recommendations switch: TMDB's `similar` endpoint returns the
+    // same shape but much worse matches, so a payload carrying only `similar` must NOT
+    // populate the field. If this starts passing with data, someone reverted the CodingKey.
+    @Test func legacySimilarKeyIsIgnored() throws {
+        let json = """
+        {
+          "id": 27205, "title": "Inception", "genres": [],
+          "similar": { "results": [ {"id": 155, "title": "The Dark Knight", "poster_path": "/d.jpg"} ] }
+        }
+        """
+        let d = try decoder.decode(TMDBMovieDetails.self, from: Data(json.utf8))
+        #expect(d.similar.isEmpty)
     }
 }
