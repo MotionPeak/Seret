@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking   // URLSession/URLRequest/URLResponse live here on Linux, not in Foundation
+#endif
 
 /// The OpenSubtitles movie hash: file size plus the sum of every little-endian `UInt64` word in
 /// the first and last 64 KB, wrapping on overflow, as 16 lowercase hex characters.
