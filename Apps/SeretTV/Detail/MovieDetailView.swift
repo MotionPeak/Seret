@@ -27,6 +27,9 @@ struct MovieDetailView: View {
                 VStack(alignment: .leading, spacing: 36) {
                     hero.frame(maxWidth: .infinity, alignment: .leading)
                     if store.versions.count > 1 { versionsSection }   // single source → no disclosure (spec §6)
+                    // Gated on non-empty: the rail only ever appears once TMDB credits land, and it
+                    // appends BELOW everything else, so it never resizes content already on screen.
+                    if !store.cast.isEmpty { CastRail(cast: store.cast) }
                 }
                 .padding(60)
             }

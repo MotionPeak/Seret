@@ -41,6 +41,9 @@ struct ShowDetailView: View {
                     markSeasonButton
                     SeasonDownloadButton(store: seasonStore, onAdded: onSeasonAdded)
                     episodeList
+                    // Gated on non-empty: the rail only ever appears once TMDB credits land, and it
+                    // appends BELOW everything else, so it never resizes content already on screen.
+                    if !store.cast.isEmpty { CastRail(cast: store.cast) }
                 }
                 .padding(60)
             }
