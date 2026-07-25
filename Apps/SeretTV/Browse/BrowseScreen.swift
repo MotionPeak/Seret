@@ -87,6 +87,10 @@ struct BrowseScreen<Leading: View>: View {
                     .focused($focusedSegment, equals: seg)
             }
         }
+        // The pill row is narrower than the edge-to-edge rails below it, so without a full-width
+        // section a card scrolled to the right had nothing above it.
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .focusSection()
     }
 
     private func rail(title: String, hits: [SearchHit], cam: Bool) -> some View {
@@ -99,7 +103,11 @@ struct BrowseScreen<Leading: View>: View {
                 .padding(.horizontal, Theme.Layout.contentMargin).padding(.vertical, 40)
             }
             .scrollClipDisabled()
+            // Each rail is ONE target for vertical travel; independent scroll offsets otherwise make
+            // UP/DOWN between rails land arbitrarily.
+            .focusSection()
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
 }
