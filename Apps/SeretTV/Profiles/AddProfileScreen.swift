@@ -68,6 +68,10 @@ struct AddProfileScreen: View {
                             }
                         }
                         .font(.title3)
+                        .frame(maxWidth: .infinity)
+                        // The avatar grid is full-width but this row is centered, so the outer
+                        // avatars could not reach Save/Create at all.
+                        .focusSection()
                     }
 
                     Text("Pick an avatar").cardTitle().foregroundStyle(Theme.Palette.textSecondary)
@@ -86,6 +90,7 @@ struct AddProfileScreen: View {
                         }
                     }
                     .padding(.horizontal, 80)
+                    .focusSection()
                 }
                 .padding(60)
             }
