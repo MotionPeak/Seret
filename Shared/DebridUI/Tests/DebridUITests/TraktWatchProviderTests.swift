@@ -37,11 +37,16 @@ import DebridCore
         func setWatchedMovies(_ v: [TraktWatchedMovie]) { watchedMoviesResult = v }
         func setWatchedShows(_ v: [TraktWatchedShow]) { watchedShowsResult = v }
 
+        struct FakeError: Error {}
+
         var communityRatingResult: TraktCommunityRating?
+        var communityRatingFails = false
         private(set) var communityRatingCallCount = 0
         func setCommunityRating(_ v: TraktCommunityRating?) { communityRatingResult = v }
+        func setCommunityRatingFails(_ v: Bool) { communityRatingFails = v }
         func communityRating(imdbID: String, kind: MediaKind) async throws -> TraktCommunityRating? {
             communityRatingCallCount += 1
+            if communityRatingFails { throw FakeError() }
             return communityRatingResult
         }
 

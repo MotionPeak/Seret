@@ -32,6 +32,7 @@ public actor TraktWatchProvider: WatchProgressProviding {
     private var summaries: [String: WatchSummary] = [:]
     private var traktIDs: [String: Int] = [:]          // contentKey -> the title's numeric Trakt id
     private var communityCache: [String: Double] = [:] // imdbID -> score (in-session memo)
+    private var historyCache: [String: Date] = [:]     // contentKey -> first-watched (in-session memo)
     /// Whether the cache has been filled from Trakt at least once, plus the in-flight fill. Reads
     /// lazily warm the cache instead of returning an empty answer: the sign-in refresh is
     /// fire-and-forget, so a screen opened before it lands would otherwise see "no rating" /
@@ -100,6 +101,8 @@ public actor TraktWatchProvider: WatchProgressProviding {
             guard let k = Self.key(movie: m.movie) else { continue }
             watched.insert(k)
             sums[k] = WatchSummary(plays: m.plays, lastWatchedAt: parseISO(m.lastWatchedAt))
+            // `trakt` is optional and this dict isn't: assigning nil REMOVES the key, which is the
+            // intent — no Trakt id means `historySince` has nothing to query and declines.
             ids[k] = m.movie.ids.trakt
         }
         for s in try await wShows {
@@ -114,6 +117,7 @@ public actor TraktWatchProvider: WatchProgressProviding {
             // A show's rollup is keyed by the series itself; per-episode keys stay in `watched`.
             let showKey = TraktMapping.showContentKey(tmdb: show)
             sums[showKey] = WatchSummary(plays: plays, lastWatchedAt: parseISO(s.lastWatchedAt))
+            // As above: a nil `trakt` id removes the key rather than storing a placeholder.
             ids[showKey] = s.show.ids.trakt
         }
         watchedKeys = watched
@@ -190,12 +194,22 @@ public actor TraktWatchProvider: WatchProgressProviding {
         // Live position writes go through TraktScrobbler, not here. This path serves the manual
         // Mark Watched/Unwatched actions (DetailStore/LibraryStore call record with position 0).
         guard let ref = TraktMapping.ref(forContentKey: contentKey) else { return }
+        // Warm first, like every read does: this method maintains the caches incrementally, and a
+        // read arriving later would otherwise trigger the first load and overwrite what we set here.
+        await ensureLoaded()
         if finished {
             try await api.addToHistory([ref])
             watchedKeys.insert(contentKey)
+            // Keep the derived rollup coherent: without this the Detail page would show a stale
+            // play count (or none at all) next to a freshly-changed checkmark until the next refresh.
+            summaries[contentKey] = WatchSummary(plays: (summaries[contentKey]?.plays ?? 0) + 1,
+                                                 lastWatchedAt: Date())
         } else if positionSeconds == 0 {          // explicit "mark unwatched"
             try await api.removeFromHistory([ref])
             watchedKeys.remove(contentKey)
+            summaries[contentKey] = nil
+            // `historyCache` is deliberately NOT invalidated: "in your history since" reflects
+            // Trakt's record of earlier plays, which un-marking the latest one doesn't erase.
         }
     }
 
@@ -209,7 +223,10 @@ public actor TraktWatchProvider: WatchProgressProviding {
     }
 
     public func deleteProgress(forContentKeys keys: [String]) async throws {
-        for k in keys { playback[k] = nil; watchedKeys.remove(k); ratings[k] = nil }
+        for k in keys {
+            playback[k] = nil; watchedKeys.remove(k); ratings[k] = nil
+            summaries[k] = nil; traktIDs[k] = nil
+        }
         order.removeAll { keys.contains($0) }
     }
 }
@@ -222,7 +239,11 @@ extension TraktWatchProvider: WatchSummaryProviding {
         return summaries[key]
     }
 
+    /// Memoized because it is the expensive one: `firstHistoryDate` costs up to two sequential
+    /// round trips (page 1 for the pagination header, then the last page). Successes only —
+    /// a nil answer can mean Trakt omitted the header, which is transient, so it stays retryable.
     public func historySince(forContentKey key: String) async -> Date? {
+        if let cached = historyCache[key] { return cached }
         await ensureLoaded()
         guard let id = traktIDs[key], let ref = TraktMapping.ref(forContentKey: key) else { return nil }
         let type: String
@@ -230,7 +251,9 @@ extension TraktWatchProvider: WatchSummaryProviding {
         case .movie: type = "movies"
         case .show, .episode: type = "shows"
         }
-        return try? await api.firstHistoryDate(type: type, traktID: id)
+        guard let date = try? await api.firstHistoryDate(type: type, traktID: id) else { return nil }
+        historyCache[key] = date
+        return date
     }
 }
 
