@@ -75,12 +75,18 @@ struct ShowDetailView: View {
         VStack(alignment: .leading, spacing: 22) {
             Text(item.title).screenTitle()
             Text(metaLine).calloutText().foregroundStyle(Theme.Palette.textSecondary)
-            RatingsRow(ratings: store.ratings)
+            if !store.creators.isEmpty {
+                Text("Created by: \(store.creators.joined(separator: ", "))").calloutText()
+                    .foregroundStyle(Theme.Palette.textSecondary)
+            }
+            RatingsRow(ratings: store.ratings, community: store.communityScore)
             if let overview = store.overview {
                 Text(overview).bodyText().frame(maxWidth: 1100, alignment: .leading).lineLimit(4)
             }
             heroActions
             UserRatingRow(store: store)
+            WatchDatesLine(summary: store.watchSummary, since: store.historySince)
+                .task { await store.loadWatchSummary() }
         }
     }
 

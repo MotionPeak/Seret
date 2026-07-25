@@ -48,13 +48,19 @@ struct MovieDetailView: View {
         VStack(alignment: .leading, spacing: 22) {
             Text(item.title).screenTitle()
             Text(metaLine).calloutText().foregroundStyle(Theme.Palette.textSecondary)
+            if let director = store.director {
+                Text("Director: \(director)").calloutText()
+                    .foregroundStyle(Theme.Palette.textSecondary)
+            }
             if let best = store.bestSource { QualityChips(parsed: best.parsed) }
-            RatingsRow(ratings: store.ratings)
+            RatingsRow(ratings: store.ratings, community: store.communityScore)
             if let overview = store.overview {
                 Text(overview).bodyText().frame(maxWidth: 1100, alignment: .leading).lineLimit(4)
             }
             actions
             UserRatingRow(store: store)
+            WatchDatesLine(summary: store.watchSummary, since: store.historySince)
+                .task { await store.loadWatchSummary() }
             if store.bestSource == nil, let tmdb = item.tmdbID {
                 MovieDownloadSection(tmdbID: tmdb, title: item.title, posterPath: item.posterPath,
                                      imdbID: store.imdbID, originalLanguage: store.originalLanguage)
