@@ -119,11 +119,22 @@ public final class NowPlayingCenter: NowPlayingControlling {
             guard let (data, _) = try? await URLSession.shared.data(from: url),
                   !Task.isCancelled, self != nil,
                   let image = UIImage(data: data) else { return }
-            let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
             var entry = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
-            entry[MPMediaItemPropertyArtwork] = artwork
+            entry[MPMediaItemPropertyArtwork] = Self.artwork(for: image)
             MPNowPlayingInfoCenter.default().nowPlayingInfo = entry
         }
+    }
+
+    /// Build the artwork OUTSIDE any actor isolation. MediaPlayer calls `requestHandler` on its own
+    /// private queue to rasterise the poster (`-[MPMediaItemArtwork jpegDataWithSize:]`, reached
+    /// from `_onQueue_pushNowPlayingInfoAndRetry:`). A closure formed inside this `@MainActor` class
+    /// INHERITS main-actor isolation, so Swift injects an isolation check that calls
+    /// `dispatch_assert_queue(main)` — which trips instantly on MediaPlayer's queue and kills the
+    /// app with SIGTRAP in `_dispatch_assert_queue_fail`. It crashed on entering any title, the
+    /// moment the poster finished downloading. Forming the closure in a `nonisolated` context keeps
+    /// it isolation-free, so it can run wherever MediaPlayer likes.
+    private nonisolated static func artwork(for image: UIImage) -> MPMediaItemArtwork {
+        MPMediaItemArtwork(boundsSize: image.size) { _ in image }
     }
 }
 #endif
