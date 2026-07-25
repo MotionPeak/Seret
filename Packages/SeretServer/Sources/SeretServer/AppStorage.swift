@@ -29,6 +29,30 @@ extension Application {
     }
 }
 
+private struct TMDBClientKey: StorageKey { typealias Value = TMDBClient }
+
+extension Application {
+    /// TMDB client for on-demand detail-page enrichment (cast, credits, recommendations, runtime…).
+    var tmdb: TMDBClient {
+        get {
+            guard let c = storage[TMDBClientKey.self] else { fatalError("TMDBClient not configured") }
+            return c
+        }
+        set { storage[TMDBClientKey.self] = newValue }
+    }
+}
+
+private struct OMDbClientKey: StorageKey { typealias Value = OMDbClient }
+
+extension Application {
+    /// Optional OMDb client for IMDb/RT/Metacritic ratings. `nil` when no OMDB_API_KEY is set —
+    /// the detail route then omits the ratings row.
+    var ratings: OMDbClient? {
+        get { storage[OMDbClientKey.self] }
+        set { storage[OMDbClientKey.self] = newValue }
+    }
+}
+
 private struct TranscodeManagerKey: StorageKey { typealias Value = TranscodeManager }
 
 extension Application {
