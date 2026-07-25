@@ -84,6 +84,22 @@ struct SettingsView: View {
                 } else if session.traktLinked {
                     Label("Linked to Trakt", systemImage: "checkmark.seal.fill")
                         .foregroundStyle(Theme.Palette.textPrimary)
+                    // Reads fetch once per launch, so anything changed on Trakt afterwards
+                    // (rated on the web, watched elsewhere) needs an explicit re-read.
+                    Button {
+                        Task { await session.syncTraktNow() }
+                    } label: {
+                        HStack {
+                            Label("Sync Now", systemImage: "arrow.clockwise")
+                                .foregroundStyle(Theme.Palette.textPrimary)
+                            Spacer()
+                            if case .syncing = session.traktSyncState {
+                                ProgressView().tint(Theme.Palette.gold)
+                            }
+                        }
+                    }
+                    .disabled(session.traktSyncState == .syncing)
+                    syncStatus
                     Button(role: .destructive) {
                         Task { await session.unlinkTrakt() }
                     } label: {
@@ -186,6 +202,21 @@ struct SettingsView: View {
     private var subtitleColor: Binding<SubtitlePreferences.Color> {
         Binding(get: { session.subtitleSettings.preferences.color },
                 set: { session.subtitleSettings.preferences.color = $0 })
+    }
+
+    /// Result of the last manual sync. The counts matter: they distinguish "Trakt returned nothing"
+    /// from "it returned plenty but the screen still looks empty" — which is otherwise guesswork.
+    @ViewBuilder private var syncStatus: some View {
+        switch session.traktSyncState {
+        case .idle, .syncing:
+            EmptyView()
+        case let .succeeded(ratings, watched):
+            Label("\(ratings) ratings · \(watched) watched", systemImage: "checkmark.circle")
+                .font(.footnote).foregroundStyle(Theme.Palette.textSecondary)
+        case let .failed(message):
+            Label(message, systemImage: "exclamationmark.triangle")
+                .font(.footnote).foregroundStyle(Theme.Palette.textSecondary)
+        }
     }
 
     private var appVersion: String {

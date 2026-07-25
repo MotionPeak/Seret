@@ -100,18 +100,20 @@ public actor TraktWatchProvider: WatchProgressProviding {
         for m in try await wMovies {
             guard let k = Self.key(movie: m.movie) else { continue }
             watched.insert(k)
-            sums[k] = WatchSummary(plays: m.plays, lastWatchedAt: parseISO(m.lastWatchedAt))
+            sums[k] = WatchSummary(plays: m.plays ?? 0, lastWatchedAt: parseISO(m.lastWatchedAt))
             // `trakt` is optional and this dict isn't: assigning nil REMOVES the key, which is the
             // intent — no Trakt id means `historySince` has nothing to query and declines.
             ids[k] = m.movie.ids.trakt
         }
         for s in try await wShows {
             guard let show = s.show.ids.tmdb else { continue }
+            // Nil-safe on every hop: Trakt omits `seasons`/`episodes`/`plays` on some entries, and a
+            // partial payload must degrade to "less data", never throw away the whole sync.
             var plays = 0
-            for season in s.seasons {
-                for ep in season.episodes {
+            for season in s.seasons ?? [] {
+                for ep in season.episodes ?? [] {
                     watched.insert(TraktMapping.episodeContentKey(showTmdb: show, season: season.number, number: ep.number))
-                    plays += ep.plays
+                    plays += ep.plays ?? 0
                 }
             }
             // A show's rollup is keyed by the series itself; per-episode keys stay in `watched`.
@@ -133,6 +135,24 @@ public actor TraktWatchProvider: WatchProgressProviding {
         }
         ratings = rate
         loaded = true
+    }
+
+    /// What the cache currently holds. Surfaced in Settings after a sync so "nothing showed up"
+    /// can be told apart from "nothing was fetched" without attaching a debugger.
+    public func cacheCounts() -> (ratings: Int, watched: Int, paused: Int) {
+        (ratings.count, watchedKeys.count, playback.count)
+    }
+
+    /// Re-read everything from Trakt, ignoring the once-per-launch latch.
+    ///
+    /// Reads only fetch once per launch (see `ensureLoaded`), which is right for a cold start but
+    /// means anything changed on Trakt afterwards — rated on the website, watched on another
+    /// device, a bulk import — stays invisible until relaunch. This is the escape hatch behind
+    /// Settings ▸ Sync Now. Throws so the caller can report failure.
+    public func forceRefresh() async throws {
+        if let task = loadTask { await task.value }   // let an in-flight fill settle first
+        loaded = false
+        try await refresh()
     }
 
     /// Fill the cache once if nothing has yet, coalescing concurrent callers onto one fetch. A

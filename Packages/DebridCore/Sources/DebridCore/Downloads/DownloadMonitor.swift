@@ -1,3 +1,4 @@
+#if canImport(SwiftData)
 import Foundation
 
 /// Minimal seam over RD torrent info, so the monitor is testable without the network.
@@ -39,3 +40,4 @@ public actor DownloadMonitor {
         return statuses
     }
 }
+#endif

@@ -10,7 +10,7 @@ import DebridCore
 @Suite struct ActiveProfileStoreIntegrationTests {
     @Test func loadAndCreatePopulateRosterWithRealStore() async throws {
         let container = try ModelContainer(
-            for: Profile.self, MyListEntry.self, WatchProgress.self,
+            for: Profile.self, MyListEntry.self,
             configurations: ModelConfiguration(isStoredInMemoryOnly: true))
         let store = ProfileStore(modelContainer: container)
         let aps = ActiveProfileStore(provider: store)

@@ -12,7 +12,7 @@ struct HomeScreen: View {
     @State private var showingSettings = false
 
     private var isRegular: Bool { hSize == .regular }
-    private var posterW: CGFloat { isRegular ? 150 : 112 }
+    // Recently Added is a grid now — its cards size to the column, so no poster width here.
     private var landW: CGFloat { isRegular ? 280 : 178 }
     private var heroH: CGFloat { isRegular ? 380 : 250 }
 
@@ -90,13 +90,16 @@ struct HomeScreen: View {
                             }
                         }
                         if !home.recentlyAdded.isEmpty {
-                            Rail(title: "Recently Added") {
+                            // A wall, not a side-scroller: the library can be large and a
+                            // horizontal rail hides everything past the first few posters.
+                            GridSection(title: "Recently Added") {
                                 ForEach(home.recentlyAdded) { item in
                                     let isWatched = item.kind == .movie
                                         && session.libraryStore?.watchState(for: item)?.finished == true
                                     Button { router.detail = item } label: {
+                                        // width: nil → the card fills its grid column.
                                         PosterCard(title: item.title, posterURL: posterURL(item),
-                                                   width: posterW, watched: isWatched)
+                                                   width: nil, watched: isWatched)
                                     }
                                     .pressable()
                                     .contextMenu {

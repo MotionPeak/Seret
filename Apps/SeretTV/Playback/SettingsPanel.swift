@@ -6,10 +6,12 @@ import DebridCore
 /// Audio Streams, Subtitles, and Playback Speed. (No Info / Technical tabs.)
 struct SettingsPanel: View {
     @Bindable var model: PlayerModel
+    /// Leave the panel and open the full subtitle browser (Task 9).
+    let onSearchSubtitles: () -> Void
     let onClose: () -> Void
 
     var body: some View {
-        PlaybackColumns(model: model, onPick: onClose)
+        PlaybackColumns(model: model, onSearchSubtitles: onSearchSubtitles, onPick: onClose)
             .padding(.horizontal, 60)
             .padding(.vertical, 40)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -29,12 +31,13 @@ struct SettingsPanel: View {
 
 private struct PlaybackColumns: View {
     @Bindable var model: PlayerModel
+    let onSearchSubtitles: () -> Void
     let onPick: () -> Void
     /// Seeds focus to the "Subtitles → Off" row when the panel opens, so the arrows navigate the
-    /// options immediately — no extra click to "enter" the menu. Uses the same `@FocusState` +
-    /// `.onAppear` seed as the sibling overlays (`UpNextBar`, `EpisodesPanel`) — reliable across the
-    /// UIKit `ScrubPad` → SwiftUI focus handoff, unlike the `.defaultFocus`/`.focusScope` combo it
-    /// replaces (which stranded focus and left the panel uncontrollable).
+    /// options immediately — no extra click to "enter" the menu. `@FocusState` + `.onAppear` is the
+    /// reliable seed HERE; `.defaultFocus`/`.focusScope` stranded focus and left the panel
+    /// uncontrollable. (The opposite holds for the Detail screen's off-screen CTA, which NEEDS
+    /// `.defaultFocus` — don't generalize either rule.)
     @FocusState private var landingFocused: Bool
 
     var body: some View {
@@ -63,27 +66,40 @@ private struct PlaybackColumns: View {
         SettingsColumn(header: "SUBTITLES") {
             CheckRow(title: "Off", checked: model.selectedSubtitleID == nil) { model.selectSubtitleOff() }
                 .focused($landingFocused)         // first focused when the panel opens
-            ForEach(labeled(model.embeddedSubtitleTracks), id: \.track.id) { entry in
-                CheckRow(title: entry.label, checked: model.selectedSubtitleID == entry.track.id) {
-                    model.selectSubtitle(id: entry.track.id)
+
+            // Muxed subtitle tracks that ship inside the file.
+            if !model.embeddedTracks.isEmpty {
+                groupCaption("IN THIS FILE")
+                ForEach(labeled(model.embeddedTracks), id: \.track.id) { entry in
+                    CheckRow(title: entry.label, checked: model.selectedSubtitleID == entry.track.id) {
+                        model.selectSubtitle(id: entry.track.id)
+                    }
                 }
             }
-            ForEach(model.subtitleRows) { row in
-                if let attachedID = model.attachedTrackID(row) {
-                    // Downloaded → the language row IS the track (selectable, no duplicate "Track N").
-                    CheckRow(title: row.language == "he" ? "Hebrew" : "English",
-                             checked: model.selectedSubtitleID == attachedID) {
-                        model.selectSubtitle(id: attachedID)
+            // Subtitles attached from a download this session (auto he/en or a browser pick).
+            if !model.downloadedTracks.isEmpty {
+                groupCaption("DOWNLOADED")
+                ForEach(labeled(model.downloadedTracks), id: \.track.id) { entry in
+                    CheckRow(title: entry.label, checked: model.selectedSubtitleID == entry.track.id) {
+                        model.selectSubtitle(id: entry.track.id)
                     }
-                } else {
-                    let title = row.language == "he" ? "Hebrew (download)" : "English (download)"
-                    CheckRow(title: title, checked: false) {
-                        Task { await model.requestSubtitle(language: row.language) }
-                    }
-                    .disabled(isDisabled(row))
                 }
             }
+            // The fixed he/en download rows are gone: a moviehash-backed, ranked search over every
+            // language (Task 9) replaces them.
+            CheckRow(title: "Search subtitles…", checked: false) { onSearchSubtitles() }
         }
+    }
+
+    /// A small sub-header separating muxed tracks from ones downloaded this session.
+    private func groupCaption(_ text: String) -> some View {
+        Text(text)
+            .font(.caption2.weight(.semibold))
+            .tracking(1.1)
+            .foregroundStyle(Theme.Palette.textSecondary)
+            .padding(.top, 6)
+            .padding(.leading, 18)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var speedColumn: some View {
@@ -98,13 +114,6 @@ private struct PlaybackColumns: View {
 
     private var speedOptions: [(label: String, value: Double)] {
         [("0.5x", 0.5), ("0.75x", 0.75), ("Normal", 1.0), ("1.25x", 1.25), ("1.5x", 1.5)]
-    }
-
-    private func isDisabled(_ row: PlayerModel.SubtitleRow) -> Bool {
-        switch row.state {
-        case .capReached, .noAccount, .downloading: return true
-        default: return false
-        }
     }
 
     /// Same de-duplicated language naming as before.
@@ -152,6 +161,10 @@ private struct SettingsColumn<Content: View>: View {
             }
         }
         .frame(minWidth: 240, maxHeight: 640, alignment: .leading)
+        // Each column is ONE target. The three have different lengths and independent scroll
+        // offsets, so without sections a horizontal move from the bottom of the longest column
+        // found no candidate beside it and died.
+        .focusSection()
     }
 }
 

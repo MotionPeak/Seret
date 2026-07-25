@@ -130,6 +130,11 @@ struct ShowDetailView: View {
             }
             .buttonStyle(SeretActionButtonStyle())
         }
+        // Each horizontal row is one target for vertical travel. Wide scrolling rows sat above and
+        // below narrow left-aligned buttons, so a card scrolled to the right had nothing above it
+        // and UP was a dead press. (`.focusSection()` widens a target; it does NOT trap focus.)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .focusSection()
     }
 
     @ViewBuilder private var seasonPicker: some View {
@@ -149,6 +154,8 @@ struct ShowDetailView: View {
             .onChange(of: focusedSeason) { _, new in
                 if let new, new != store.selectedSeason { Task { await store.selectSeason(new) } }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .focusSection()
         }
     }
 
@@ -187,6 +194,8 @@ struct ShowDetailView: View {
             .padding(.horizontal, 60)    // align with the page + room for the focus scale at the edges
         }
         .padding(.horizontal, -60)       // ScrollView runs edge-to-edge so a focused card doesn't clip
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .focusSection()
     }
 }
 

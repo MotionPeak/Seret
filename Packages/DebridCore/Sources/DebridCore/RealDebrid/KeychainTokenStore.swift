@@ -1,3 +1,4 @@
+#if canImport(Security)
 import Foundation
 import Security
 
@@ -58,3 +59,4 @@ public struct KeychainTokenStore: TokenStore {
         }
     }
 }
+#endif

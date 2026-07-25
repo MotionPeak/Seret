@@ -22,10 +22,13 @@ public actor OpenSubtitlesProvider: SubtitleProvider {
     private var token: String?
 
     /// Persistent on-disk cache for downloaded subtitle files, keyed by OpenSubtitles `file_id`.
-    /// A re-download of the same file (re-watching a title) is served from here — no `POST /download`,
-    /// so it doesn't spend the daily quota. Defaults to a Caches subfolder (survives app restarts).
+    /// A re-download of the same file (re-watching a title) is served from here — no `POST
+    /// /download`, so it doesn't spend the daily quota.
+    ///
+    /// Application Support, NOT Caches: **tvOS purges `Caches/`**, which silently threw the cache
+    /// away and re-spent quota. The library snapshot was moved for the same reason.
     public static var defaultCacheDirectory: URL {
-        (FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+        (FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory).appending(path: "SeretSubtitles")
     }
 
@@ -53,6 +56,7 @@ public actor OpenSubtitlesProvider: SubtitleProvider {
         }
         if let s = query.season { items.append(URLQueryItem(name: "season_number", value: String(s))) }
         if let e = query.episode { items.append(URLQueryItem(name: "episode_number", value: String(e))) }
+        if let hash = query.moviehash { items.append(URLQueryItem(name: "moviehash", value: hash)) }
 
         var comps = URLComponents(url: Self.base.appending(path: "subtitles"), resolvingAgainstBaseURL: false)!
         comps.queryItems = items
@@ -63,7 +67,13 @@ public actor OpenSubtitlesProvider: SubtitleProvider {
                                   language: sub.attributes.language ?? "",
                                   release: sub.attributes.release,
                                   fileName: file.fileName,
-                                  downloadCount: sub.attributes.downloadCount)
+                                  downloadCount: sub.attributes.downloadCount,
+                                  fps: sub.attributes.fps,
+                                  hearingImpaired: sub.attributes.hearingImpaired,
+                                  trusted: sub.attributes.fromTrusted,
+                                  aiTranslated: sub.attributes.aiTranslated,
+                                  moviehashMatch: sub.attributes.moviehashMatch,
+                                  uploader: sub.attributes.uploader?.name)
         }
     }
 

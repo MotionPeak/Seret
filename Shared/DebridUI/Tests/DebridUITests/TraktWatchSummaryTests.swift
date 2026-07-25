@@ -50,6 +50,36 @@ import DebridCore
         #expect(ep?.finished == true)
     }
 
+    /// Trakt omits `seasons`, `episodes` and `plays` on some watched entries. A partial payload
+    /// must degrade to LESS data, never to no data — a non-optional field here once emptied the
+    /// entire sync (ratings, watched state and resume) with no error shown. This holds the whole
+    /// path: decode, the per-episode watched set, and the play rollup.
+    @Test func partialWatchedPayloadStillPopulatesEverythingElse() async throws {
+        let api = FakeTraktAPI()
+        await api.setWatchedMovies(try JSONDecoder().decode([TraktWatchedMovie].self, from: Data("""
+        [{"movie": {"ids": {"tmdb": 27205, "trakt": 481}}, "last_watched_at": "2023-05-01T00:00:00Z"}]
+        """.utf8)))
+        await api.setWatchedShows(try watchedShows("""
+        [{"show": {"ids": {"tmdb": 1399, "trakt": 1390}}},
+         {"show": {"ids": {"tmdb": 1400, "trakt": 1391}},
+          "seasons": [{"number": 1},
+                      {"number": 2, "episodes": [{"number": 1}, {"number": 2, "plays": 2}]}]}]
+        """))
+        let provider = TraktWatchProvider(api: api)
+        try await provider.refresh()
+
+        // The movie decoded without `plays` and still counts as watched.
+        #expect(await provider.watchSummary(forContentKey: "movie:tmdb:27205")?.plays == 0)
+        #expect(try await provider.progress(forContentKey: "movie:tmdb:27205",
+                                            profileID: "")?.finished == true)
+        // A show with no `seasons` at all rolls up to zero rather than taking the sync down.
+        #expect(await provider.watchSummary(forContentKey: "show:tmdb:1399")?.plays == 0)
+        // The show AFTER it still maps every episode; the play-less episode counts as zero.
+        #expect(await provider.watchSummary(forContentKey: "show:tmdb:1400")?.plays == 2)
+        #expect(try await provider.progress(forContentKey: "show:tmdb:1400:s2e1",
+                                            profileID: "")?.finished == true)
+    }
+
     @Test func communityRatingIsMemoizedPerIMDbID() async throws {
         let api = FakeTraktAPI()
         await api.setCommunityRating(TraktCommunityRating(rating: 8.1, votes: 5))

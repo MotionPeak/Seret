@@ -36,6 +36,17 @@ final class MockPlayerEngine: VideoPlayerEngine {
 }
 
 @Suite @MainActor struct VideoPlayerEngineTests {
+    @Test func aMediaTrackDefaultsToEmbedded() {
+        let track = MediaTrack(id: "spu/0", kind: .subtitle, name: "English", language: "en")
+        #expect(track.isExternal == false)
+    }
+
+    @Test func anExternalTrackIsFlagged() {
+        let track = MediaTrack(id: "spu/9", kind: .subtitle, name: "Hebrew",
+                               language: "he", isExternal: true)
+        #expect(track.isExternal == true)
+    }
+
     @Test func conformerRecordsControlCallsAndEmitsEvents() async {
         let engine = MockPlayerEngine()
         engine.subtitleTracks = [MediaTrack(id: "s1", kind: .subtitle, name: "Hebrew", language: "he")]

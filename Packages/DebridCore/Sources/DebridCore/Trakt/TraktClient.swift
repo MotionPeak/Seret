@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking   // HTTPURLResponse lives here on Linux, not in Foundation
+#endif
 
 public enum TraktAuthError: Error, Equatable, Sendable {
     case deviceCodeExpired

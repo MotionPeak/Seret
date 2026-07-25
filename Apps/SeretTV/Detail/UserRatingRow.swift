@@ -21,8 +21,9 @@ struct UserRatingRow: View {
                             .foregroundStyle(Theme.Palette.textSecondary)
                     }
                 }
-                // A focus section keeps the d-pad inside the star row until the viewer leaves it,
-                // so gliding across stars doesn't jump out to a neighbouring control.
+                // `.focusSection()` makes this row ONE wider target for the focus engine — it does
+                // NOT trap focus inside the row. Without it, vertical moves from a star can miss
+                // neighbours that don't geometrically overlap it.
                 HStack(spacing: 10) {
                     ForEach(1...10, id: \.self) { value in
                         Button {

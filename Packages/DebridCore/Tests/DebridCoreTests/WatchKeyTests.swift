@@ -32,13 +32,4 @@ import Foundation
         #expect(WatchKey.source(noFile) == "T2#-")
     }
 
-    @Test func watchStateMapsFromModel() {
-        let m = WatchProgress(contentKey: "k", sourceKey: "s", positionSeconds: 12,
-                              durationSeconds: 100, finished: false,
-                              updatedAt: Date(timeIntervalSince1970: 5))
-        let state = WatchState(m)
-        #expect(state == WatchState(contentKey: "k", sourceKey: "s", positionSeconds: 12,
-                                    durationSeconds: 100, finished: false,
-                                    updatedAt: Date(timeIntervalSince1970: 5)))
-    }
 }

@@ -30,12 +30,19 @@ struct PlayerSettingsSheet: View {
                     section("Subtitles", "captions.bubble.fill") {
                         FlowLayout {
                             chip("Off", selected: model.selectedSubtitleID == nil) { model.selectSubtitleOff() }
-                            ForEach(labeled(model.embeddedSubtitleTracks), id: \.track.id) { e in
+                            // Muxed tracks shipped inside the file.
+                            ForEach(labeled(model.embeddedTracks), id: \.track.id) { e in
                                 chip(e.label, selected: model.selectedSubtitleID == e.track.id) {
                                     model.selectSubtitle(id: e.track.id)
                                 }
                             }
-                            ForEach(model.subtitleRows) { row in downloadChip(row) }
+                            // Attached from a download this session (auto he/en or a browser pick).
+                            ForEach(labeled(model.downloadedTracks), id: \.track.id) { e in
+                                chip(e.label, selected: model.selectedSubtitleID == e.track.id) {
+                                    model.selectSubtitle(id: e.track.id)
+                                }
+                            }
+                            searchChip
                         }
                     }
 
@@ -100,48 +107,19 @@ struct PlayerSettingsSheet: View {
         .buttonStyle(.plain)
     }
 
-    @ViewBuilder private func downloadChip(_ row: PlayerModel.SubtitleRow) -> some View {
-        let lang = row.language == "he" ? "Hebrew" : "English"
-        let attachedID = model.attachedTrackID(row)            // non-nil once downloaded
-        let selected = attachedID != nil && model.selectedSubtitleID == attachedID
-        Button {
-            // Once downloaded, the language pill IS the track — tapping selects it (no re-download,
-            // and no separate generic "Track N" pill). Before download, it downloads.
-            if let attachedID { model.selectSubtitle(id: attachedID) }
-            else { Task { await model.requestSubtitle(language: row.language) } }
-        } label: {
-            HStack(spacing: 6) {
-                downloadGlyph(row.state)
-                Text(lang).font(.system(size: 14, weight: .semibold))
+    /// Opens the full ranked subtitle browser — replaces the old fixed he/en download pills.
+    private var searchChip: some View {
+        NavigationLink { MobileSubtitleBrowser(model: model) } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "magnifyingglass").font(.system(size: 11, weight: .bold))
+                Text("Search subtitles…").font(.system(size: 14, weight: .semibold))
             }
-            .foregroundStyle(selected ? Color(hex: 0x1A1400) : Theme.Palette.textPrimary)
+            .foregroundStyle(Theme.Palette.textPrimary)
             .padding(.vertical, 9).padding(.horizontal, 15)
-            .background(selected ? AnyShapeStyle(Theme.Palette.goldGradient)
-                                 : AnyShapeStyle(Theme.Palette.surface2), in: Capsule())
-            // Dashed while it's still a "download" affordance; solid once it's a real track.
-            .overlay(Capsule().stroke(Theme.Palette.gold.opacity(0.45),
-                                      style: StrokeStyle(lineWidth: 1, dash: attachedID == nil ? [4, 3] : [])))
+            .background(Theme.Palette.surface2, in: Capsule())
+            .overlay(Capsule().stroke(Theme.Palette.hairline, lineWidth: 1))
         }
         .buttonStyle(.plain)
-        .disabled(isDisabled(row))
-    }
-
-    @ViewBuilder private func downloadGlyph(_ state: PlayerModel.SubtitleRowState) -> some View {
-        switch state {
-        case .idle:        Image(systemName: "arrow.down.circle").foregroundStyle(Theme.Palette.gold)
-        case .downloading: ProgressView().controlSize(.mini)
-        case .attached:    Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.Palette.gold)
-        case .capReached:  Image(systemName: "clock").foregroundStyle(Theme.Palette.textSecondary)
-        case .noAccount:   Image(systemName: "person.crop.circle.badge.xmark").foregroundStyle(Theme.Palette.textSecondary)
-        case .error:       Image(systemName: "exclamationmark.triangle").foregroundStyle(Theme.Palette.gold)
-        }
-    }
-
-    private func isDisabled(_ row: PlayerModel.SubtitleRow) -> Bool {
-        switch row.state {
-        case .capReached, .noAccount, .downloading: return true
-        default: return false
-        }
     }
 
     private var speeds: [(label: String, value: Double)] {
@@ -170,5 +148,78 @@ struct PlayerSettingsSheet: View {
         }
         if let l = track.language, !l.isEmpty { return l.capitalized }
         return track.name
+    }
+}
+
+/// The subtitle browser on iPhone/iPad. Same model and ranking as tvOS; a plain `List` instead of
+/// a focus-driven layout. Pushed inside the sheet's `NavigationStack`.
+struct MobileSubtitleBrowser: View {
+    @Bindable var model: PlayerModel
+    @State private var languages: [SubtitleLanguage] = SubtitleLanguages.fallback
+    @Environment(\.dismiss) private var dismiss
+
+    private let pinned = ["he", "en"]
+
+    var body: some View {
+        List {
+            Section {
+                Picker("Language", selection: languageBinding) {
+                    ForEach(SubtitleLanguages.order(languages, pinned: pinned)) { language in
+                        Text(language.name).tag(language.code)
+                    }
+                }
+                .pickerStyle(.menu)
+            }
+            switch model.subtitleSearchState {
+            case .idle, .searching:
+                HStack { ProgressView(); Text("Searching…").foregroundStyle(.secondary) }
+            case .failed:
+                Text("Couldn't search subtitles. Check the OpenSubtitles account in Settings.")
+                    .foregroundStyle(.secondary)
+            case .loaded where model.subtitleSearchResults.isEmpty:
+                Text("No subtitles found in this language.").foregroundStyle(.secondary)
+            case .loaded:
+                ForEach(model.subtitleSearchResults, id: \.result.fileID) { ranked in
+                    Button {
+                        Task { await model.useSubtitle(ranked); dismiss() }
+                    } label: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text(badgeText(ranked.quality))
+                                    .font(.caption2.weight(.semibold))
+                                Spacer()
+                                if let downloads = ranked.result.downloadCount {
+                                    Text(downloads.formatted(.number))
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
+                            }
+                            Text(ranked.result.release ?? ranked.result.fileName ?? "Subtitle")
+                                .font(.footnote.monospaced()).lineLimit(2)
+                        }
+                    }
+                }
+            }
+        }
+        .navigationTitle("Subtitles")
+        .task {
+            if let fetched = try? await SubtitleLanguages.fetch(apiKey: Secrets.openSubtitlesAPIKey),
+               !fetched.isEmpty { languages = fetched }
+            if model.subtitleSearchState == .idle {
+                await model.searchSubtitles(language: pinned[0])
+            }
+        }
+    }
+
+    private var languageBinding: Binding<String> {
+        Binding(get: { model.subtitleSearchLanguage ?? pinned[0] },
+                set: { code in Task { await model.searchSubtitles(language: code) } })
+    }
+
+    private func badgeText(_ quality: SubtitleMatch.Quality) -> String {
+        switch quality {
+        case .perfect:   "✓ Perfect match"
+        case .good:      "Same release group"
+        case .uncertain: "Different source"
+        }
     }
 }

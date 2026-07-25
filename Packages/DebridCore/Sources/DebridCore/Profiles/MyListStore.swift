@@ -1,3 +1,4 @@
+#if canImport(SwiftData)
 import Foundation
 import SwiftData
 
@@ -54,3 +55,4 @@ public actor MyListStore {
         return survivor
     }
 }
+#endif

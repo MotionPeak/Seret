@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(Security)
+import Security   // Keychain is Apple-only; the protocol below stays portable so Linux can conform
+#endif
 
 public protocol TraktTokenStoring: Sendable {
     func load() throws -> TraktToken?
@@ -6,6 +9,7 @@ public protocol TraktTokenStoring: Sendable {
     func clear() throws
 }
 
+#if canImport(Security)
 public struct KeychainTraktTokenStore: TraktTokenStoring {
     private let service: String
     private let account: String
@@ -58,3 +62,4 @@ public struct KeychainTraktTokenStore: TraktTokenStoring {
         }
     }
 }
+#endif

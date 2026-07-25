@@ -143,6 +143,10 @@ private struct ShowAdd: View {
             .onChange(of: focusedSeason) { _, new in
                 if let new, new != flow.selectedSeason { Task { await flow.selectSeason(new) } }
             }
+            // Each horizontal row is one target for vertical travel — a card scrolled to the right
+            // otherwise has nothing above it. (`.focusSection()` widens a target; it does NOT trap.)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .focusSection()
         }
     }
 
@@ -175,6 +179,8 @@ private struct ShowAdd: View {
             }
         }
         .padding(.horizontal, -60)       // edge-to-edge so a focused card doesn't clip
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .focusSection()
     }
 }
 
@@ -286,6 +292,8 @@ private struct AddActions: View {
                     }
                     if showAllAvailable { showAllToggleButton }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .focusSection()
                 addStatus
             }
             pickedDownloadStatus                     // progress/error for a version picked below

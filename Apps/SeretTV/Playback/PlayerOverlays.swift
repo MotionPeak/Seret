@@ -48,7 +48,10 @@ private struct DimBackdrop<Content: View>: View {
     var body: some View {
         ZStack {
             Color.black
-            if let url { AsyncImage(url: url) { $0.resizable().scaledToFill() } placeholder: { Color.clear } }
+            // RemoteImage (not AsyncImage): keeps the decoded backdrop in ImageMemoryCache so a
+            // retry or an episode-swap reload doesn't re-fetch and re-decode it — the flash 40387ee
+            // removed everywhere else in the app.
+            if let url { RemoteImage(url: url, contentMode: .fill) { Color.clear } }
             Color.black.opacity(0.7)
             content
         }

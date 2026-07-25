@@ -6,6 +6,13 @@ extension MockTests {
     @Suite struct OpenSubtitlesDownloadTests {
         init() { MockURLProtocol.handler = nil }
 
+        @Test func theDefaultCacheLivesInApplicationSupportNotCaches() {
+            // tvOS purges Caches/ — a purged subtitle cache silently re-spends the daily quota.
+            let path = OpenSubtitlesProvider.defaultCacheDirectory.path
+            #expect(path.contains("Application Support"))
+            #expect(!path.contains("/Caches/"))
+        }
+
         /// A provider with an isolated, unique on-disk cache dir so tests don't share cached files.
         private func makeProvider() -> (OpenSubtitlesProvider, URL) {
             let dir = FileManager.default.temporaryDirectory.appending(path: "ostest-\(UUID().uuidString)")

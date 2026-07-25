@@ -22,6 +22,12 @@ struct SeretTVApp: App {
                 // The app launches as the unit-test host; don't drive the live
                 // (network-firing) sign-in UI during tests.
                 Color.clear
+            } else if let preview = Self.uiPreview {
+                #if DEBUG
+                PlayerUIPreview(target: preview)   // -uiPreview <scrubbar|settings|subtitles>
+                #else
+                RootView().environment(session)
+                #endif
             } else {
                 RootView()
                     .environment(session)
@@ -33,5 +39,12 @@ struct SeretTVApp: App {
     /// (true for both XCTest and Swift Testing runs).
     private static var isRunningTests: Bool {
         ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+    }
+
+    /// The value after `-uiPreview` in the launch arguments, if any. DEBUG-only visual harnesses.
+    private static var uiPreview: String? {
+        let args = ProcessInfo.processInfo.arguments
+        guard let i = args.firstIndex(of: "-uiPreview"), i + 1 < args.count else { return nil }
+        return args[i + 1]
     }
 }

@@ -61,6 +61,13 @@ struct HomeRail<Content: View>: View {
                     .padding(.horizontal, Theme.Layout.contentMargin).padding(.vertical, 40)
             }
             .scrollClipDisabled()
+            // Each rail is ONE target for vertical travel. Without this, rails with different card
+            // pitch (Continue Watching 496pt vs Recently Added 256pt) never line up in x, and their
+            // independent scroll offsets make UP/DOWN land arbitrarily — or not at all.
+            .focusSection()
         }
+        // The section is only a target if its FRAME intersects the direction of travel; a
+        // shrink-wrapped rail leaves dead space beside it.
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

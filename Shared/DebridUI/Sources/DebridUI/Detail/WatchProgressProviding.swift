@@ -40,13 +40,5 @@ extension WatchProgressProviding {
     }
 }
 
-extension WatchProgressStore: WatchProgressProviding {
-    // `progress(forContentKey:profileID:)` and `recentlyWatched(limit:profileID:)` satisfy the
-    // requirements directly. Provide the no-`at:` `record` overload the seam declares.
-    public func record(contentKey: String, sourceKey: String, positionSeconds: Double,
-                       durationSeconds: Double, finished: Bool, profileID: String) throws {
-        try record(contentKey: contentKey, sourceKey: sourceKey, positionSeconds: positionSeconds,
-                   durationSeconds: durationSeconds, finished: finished, profileID: profileID,
-                   at: Date())
-    }
-}
+// The SwiftData-backed conformance is gone — Trakt is the source of truth, and
+// `TraktWatchProvider` is the only implementation of this seam in the app.

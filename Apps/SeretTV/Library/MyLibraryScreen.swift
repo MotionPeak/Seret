@@ -35,6 +35,9 @@ struct MyLibraryScreen: View {
                     .focused($focusedKind, equals: .show)
             }
             .padding(.top, 30)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            // The grid below already has a section (so DOWN worked); the pills did not (so UP did not).
+            .focusSection()
 
             if let tiles = session.downloadStore?.activeTiles, !tiles.isEmpty {
                 DownloadingStrip(tiles: tiles)

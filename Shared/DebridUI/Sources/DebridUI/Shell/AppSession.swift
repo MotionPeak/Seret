@@ -58,7 +58,6 @@ public final class AppSession {
     public let trackPreferences = TrackPreferences()
     /// Legacy local watch store. No longer the watch-state source of truth (Trakt is) — kept only so
     /// the one-time "push existing progress to Trakt" migration can still read the old rows.
-    private var watchProgressStore: WatchProgressStore?
 
     // MARK: Trakt (the watch-state source of truth: scrobbling, resume, watched, ratings)
 
@@ -161,7 +160,6 @@ public final class AppSession {
         ratingsProvider = nil
         watchStore = nil
         home = nil
-        watchProgressStore = nil
         traktProvider = nil
         traktClient = nil
         traktSession = nil
@@ -187,7 +185,6 @@ public final class AppSession {
     /// cascade-delete + owner migration work across them and they share a single private DB. Falls
     /// back to local-only if iCloud/CloudKit is unavailable so the app still works offline.
     private struct ProfileStores {
-        let watch: WatchProgressStore
         let profiles: ProfileStore
         let myList: MyListStore
         let mode: String
@@ -200,7 +197,7 @@ public final class AppSession {
     public var profilesSyncedViaICloud: Bool { profileStoreMode == "cloud" }
 
     private static func makeProfileStores() -> ProfileStores? {
-        let schema = Schema([WatchProgress.self, Profile.self, MyListEntry.self])
+        let schema = Schema([Profile.self, MyListEntry.self])
         // Only ask for CloudKit when an iCloud account is actually signed in (a CloudKit store fails
         // silently on a sim / no-account device). Otherwise local-only — sync engages on real
         // iCloud devices.
@@ -260,7 +257,7 @@ public final class AppSession {
     }
 
     private static func wrap(_ container: ModelContainer, mode: String) -> ProfileStores {
-        ProfileStores(watch: WatchProgressStore(modelContainer: container),
+        ProfileStores(
                       profiles: ProfileStore(modelContainer: container),
                       myList: MyListStore(modelContainer: container), mode: mode)
     }
@@ -306,39 +303,74 @@ public final class AppSession {
         if traktLinked { Task { await refreshTraktThenHome() } }
     }
 
-    /// Pull the Trakt caches, then rebuild Home so Continue Watching reflects them.
+    /// Pull the Trakt caches, then refresh everything that reads them.
+    ///
+    /// Linking Trakt mid-session has to repaint more than Home: the library grid's watched ✓ comes
+    /// from `LibraryStore.watchByKey`, which is loaded separately and would otherwise stay empty
+    /// until the next library load (looking exactly like "my watch state didn't come back").
     private func refreshTraktThenHome() async {
-        await migrateLocalProgressIfNeeded()
         try? await traktProvider?.refresh()
+        await libraryStore?.reloadWatchStates()
         await rebuildHome()
     }
 
-    /// Key for the once-per-device flag guarding the legacy-progress hand-off.
-    private static let migratedKey = "trakt.migratedLocalProgress"
+    /// Outcome of the most recent manual Trakt sync, for the Settings row to display.
+    public enum SyncState: Equatable {
+        case idle
+        case syncing
+        case succeeded(ratings: Int, watched: Int)
+        case failed(String)
+    }
 
-    /// One-time hand-off: push watch progress recorded before Trakt to the linked account, so
-    /// existing resume points and watched titles survive the switch. Runs at most once per device
-    /// (and only while linked); entirely best-effort — a failure must never block sign-in, and the
-    /// flag is only set on success so a failed attempt retries next launch.
-    private func migrateLocalProgressIfNeeded() async {
-        guard traktLinked, let client = traktClient, let legacy = watchProgressStore else { return }
-        guard !UserDefaults.standard.bool(forKey: Self.migratedKey) else { return }
-        guard let states = try? await legacy.allStates(), !states.isEmpty else {
-            UserDefaults.standard.set(true, forKey: Self.migratedKey)   // nothing to carry over
+    public private(set) var traktSyncState: SyncState = .idle
+
+    /// Manual "Sync Now": re-read Trakt ignoring the once-per-launch cache latch, then repaint
+    /// everything that reads it. Exists because reads otherwise fetch only once per launch, so
+    /// anything changed on Trakt mid-session (rated on the web, watched elsewhere, a bulk import)
+    /// would stay invisible until relaunch.
+    public func syncTraktNow() async {
+        guard let provider = traktProvider, traktLinked else {
+            traktSyncState = .failed("Trakt isn’t linked.")
             return
         }
-        let rows = TraktMigration.rows(from: states)
-        guard !rows.isEmpty else {
-            UserDefaults.standard.set(true, forKey: Self.migratedKey)
-            return
-        }
+        traktSyncState = .syncing
         do {
-            try await TraktMigration.push(rows, to: client)
-            UserDefaults.standard.set(true, forKey: Self.migratedKey)
+            try await provider.forceRefresh()
+            await libraryStore?.reloadWatchStates()
+            await rebuildHome()
+            let counts = await provider.cacheCounts()
+            traktSyncState = .succeeded(ratings: counts.ratings, watched: counts.watched)
         } catch {
-            // Leave the flag unset so the next launch tries again.
+            traktSyncState = .failed(Self.syncMessage(for: error))
         }
     }
+
+    /// Say what actually went wrong. A blanket "check your connection" is worse than useless here:
+    /// an expired token, a revoked grant and a dead network all look identical, and the failure is
+    /// otherwise silent (reads swallow it and just render empty).
+    static func syncMessage(for error: Error) -> String {
+        if error is TraktSessionError {
+            return "Trakt sign-in expired. Unlink and link again."
+        }
+        if let http = error as? HTTPError {
+            switch http {
+            case let .status(code, _):
+                switch code {
+                case 401: return "Trakt rejected the sign-in (401). Unlink and link again."
+                case 403: return "Trakt refused access (403). Unlink and link again."
+                case 420, 429: return "Trakt is rate-limiting (\(code)). Wait a minute and retry."
+                default: return "Trakt returned HTTP \(code)."
+                }
+            case let .transport(detail):
+                return "Couldn’t reach Trakt: \(detail)"
+            case let .decoding(detail):
+                return "Trakt sent something unexpected: \(detail)"
+            }
+        }
+        return "Sync failed: \(error)"
+    }
+
+    /// Key for the once-per-device flag guarding the legacy-progress hand-off.
 
     /// A `TraktAuthModel` for the Settings "Link Trakt" flow (nil when unconfigured/signed out).
     /// On success it flips `traktLinked` and warms the caches.
@@ -391,7 +423,6 @@ public final class AppSession {
         Self.purgeLegacyDefaultStore()
         // Build the watch + profile + My-List stores from one dedicated container.
         let stores = Self.makeProfileStores()
-        watchProgressStore = stores?.watch      // legacy rows — migration source only
         // Trakt is the watch-state source of truth; it vends `watchStore`, so LibraryStore /
         // HomeStore / DetailStore / the seed service consume it through the same seam unchanged.
         makeTraktStack()
@@ -593,7 +624,21 @@ public final class AppSession {
             prefetchLink: { link in
                 guard let cache else { return }
                 Task { await cache.prefetch(link) }
-            })
+            },
+            // Declares our transport to the system: the iPhone Remote app's ±10s buttons and
+            // scrubber, Control Center, Siri and HDMI-CEC TV remotes. Unavailable on macOS, where
+            // this package only builds to run `swift test`.
+            nowPlaying: Self.makeNowPlayingCenter())
+    }
+
+    /// The system Now Playing surface, when the platform has MediaPlayer + UIKit (iOS/tvOS).
+    /// nil on macOS so `swift test` keeps building.
+    private static func makeNowPlayingCenter() -> NowPlayingControlling? {
+        #if canImport(MediaPlayer) && canImport(UIKit)
+        return NowPlayingCenter()
+        #else
+        return nil
+        #endif
     }
 
     /// The Trakt identity for a playback request — show+episode when playing an episode, else the

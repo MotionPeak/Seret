@@ -101,14 +101,18 @@ public struct TraktPlaybackItem: Decodable, Sendable, Equatable {
     }
 }
 
+// Every optional below is deliberate. `refresh()` fetches six endpoints together, so a single
+// missing field used to throw and wipe the WHOLE sync — ratings, watched and resume all went
+// empty, silently. Trakt omits `seasons` on some watched-show entries (and `plays` can be absent),
+// so partial payloads must degrade to "less data", never to "no data".
 public struct TraktWatchedMovie: Decodable, Sendable, Equatable {
-    public let plays: Int
+    public let plays: Int?
     /// ISO-8601 timestamp of the most recent play. Optional on purpose: a payload
     /// missing the field must still decode (a non-optional field here once wiped an
     /// entire sync when one partial payload failed to decode).
     public let lastWatchedAt: String?
     public let movie: TraktMovieRef
-    public init(plays: Int, lastWatchedAt: String? = nil, movie: TraktMovieRef) {
+    public init(plays: Int?, lastWatchedAt: String? = nil, movie: TraktMovieRef) {
         self.plays = plays; self.lastWatchedAt = lastWatchedAt; self.movie = movie
     }
 
@@ -121,12 +125,15 @@ public struct TraktWatchedMovie: Decodable, Sendable, Equatable {
 /// `/sync/watched/shows` collapses to the set of (showTmdb, season, number) watched.
 public struct TraktWatchedShow: Decodable, Sendable, Equatable {
     public struct Season: Decodable, Sendable, Equatable {
-        public struct Ep: Decodable, Sendable, Equatable { public let number: Int; public let plays: Int }
+        public struct Ep: Decodable, Sendable, Equatable {
+            public let number: Int
+            public let plays: Int?
+        }
         public let number: Int
-        public let episodes: [Ep]
+        public let episodes: [Ep]?
     }
     public let show: TraktShowRef
-    public let seasons: [Season]
+    public let seasons: [Season]?
     /// ISO-8601 timestamp of the most recent play across the show. Optional — see above.
     public let lastWatchedAt: String?
 

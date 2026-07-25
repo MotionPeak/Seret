@@ -48,6 +48,9 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
     let videoView: UIView = VLCDrawableView()
     private let player: VLCMediaPlayer
     private let subtitleScale: Float
+    /// Text-track ids present before any external subtitle was attached. Anything not in here is a
+    /// downloaded slave — VLCKit does not tag slave tracks itself.
+    private var embeddedTextTrackIDs: Set<String> = []
     private let continuation: AsyncStream<PlaybackEvent>.Continuation
     let events: AsyncStream<PlaybackEvent>
 
@@ -93,6 +96,7 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
         #endif
         media.addOption(":input-fast-seek")   // land on the nearest keyframe — skips respond fast
         media.addOption(":http-reconnect")    // transparently re-open a dropped CDN connection
+        embeddedTextTrackIDs = []          // a new media has its own muxed track set
         player.media = media
         player.currentSubTitleFontScale = subtitleScale   // global size preference (1.0 = VLCKit default)
     }
@@ -106,13 +110,23 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
     func stop()  { player.stop(); continuation.finish() }
 
     func addExternalSubtitle(url: URL) {
+        // Snapshot the muxed ids the first time, so every id that appears afterwards is a slave.
+        if embeddedTextTrackIDs.isEmpty {
+            embeddedTextTrackIDs = Set(player.textTracks.map(\.trackId))
+        }
         player.addPlaybackSlave(url, type: .subtitle, enforce: true)
     }
 
     // VLCKit 4.x object-based tracks. `trackId` is libvlc's stable string id (e.g. "audio/0",
     // "spu/1"); selecting `selectedExclusively` unselects every other track of that kind.
     var audioTracks: [MediaTrack] { player.audioTracks.map { Self.mediaTrack($0, kind: .audio) } }
-    var subtitleTracks: [MediaTrack] { player.textTracks.map { Self.mediaTrack($0, kind: .subtitle) } }
+    var subtitleTracks: [MediaTrack] {
+        player.textTracks.map {
+            Self.mediaTrack($0, kind: .subtitle,
+                            isExternal: !embeddedTextTrackIDs.isEmpty
+                                && !embeddedTextTrackIDs.contains($0.trackId))
+        }
+    }
 
     func selectAudioTrack(id: String?) {
         guard let id else { player.deselectAllAudioTracks(); return }
@@ -124,8 +138,10 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
         player.textTracks.first { $0.trackId == id }?.isSelectedExclusively = true
     }
 
-    private static func mediaTrack(_ t: VLCMediaPlayer.Track, kind: TrackKind) -> MediaTrack {
-        MediaTrack(id: t.trackId, kind: kind, name: displayName(for: t), language: t.language)
+    private static func mediaTrack(_ t: VLCMediaPlayer.Track, kind: TrackKind,
+                                   isExternal: Bool = false) -> MediaTrack {
+        MediaTrack(id: t.trackId, kind: kind, name: displayName(for: t),
+                   language: t.language, isExternal: isExternal)
     }
 
     /// A user-facing track label. VLCKit usually fills `trackName` ("English", "Track 1 - [eng]");
