@@ -1,3 +1,4 @@
+#if canImport(SwiftData)
 import Foundation
 import SwiftData
 
@@ -75,3 +76,4 @@ public actor ProfileStore {
         return try modelContext.fetch(d).first
     }
 }
+#endif

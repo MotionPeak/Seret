@@ -1,3 +1,4 @@
+#if canImport(SwiftData)
 import Foundation
 import SwiftData
 
@@ -24,3 +25,4 @@ public final class MyListEntry {
         "\(profileID)|\(contentKey)"
     }
 }
+#endif
