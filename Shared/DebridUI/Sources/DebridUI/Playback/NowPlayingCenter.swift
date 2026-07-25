@@ -133,7 +133,13 @@ public final class NowPlayingCenter: NowPlayingControlling {
     /// app with SIGTRAP in `_dispatch_assert_queue_fail`. It crashed on entering any title, the
     /// moment the poster finished downloading. Forming the closure in a `nonisolated` context keeps
     /// it isolation-free, so it can run wherever MediaPlayer likes.
-    private nonisolated static func artwork(for image: UIImage) -> MPMediaItemArtwork {
+    ///
+    /// `nonisolated` is load-bearing, not stylistic. It is `internal` rather than `private` so
+    /// `NowPlayingArtworkTests` can call it off the main actor — that suite is tvOS app-hosted
+    /// because this file does not compile on macOS, so `swift test` can never reach it. Removing
+    /// `nonisolated` breaks that test's BUILD ("main actor-isolated static method cannot be called
+    /// from outside of the actor"), which is the compile-time guard on this regression.
+    nonisolated static func artwork(for image: UIImage) -> MPMediaItemArtwork {
         MPMediaItemArtwork(boundsSize: image.size) { _ in image }
     }
 }
