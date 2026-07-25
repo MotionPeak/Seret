@@ -19,6 +19,8 @@ import DebridCore
         func scrobble(_ a: ScrobbleAction, ref: TraktMediaRef, progress: Double) async throws {
             scrobbles.append((ref, progress))
         }
+        func communityRating(imdbID: String, kind: MediaKind) async throws -> TraktCommunityRating? { nil }
+        func firstHistoryDate(type: String, traktID: Int) async throws -> Date? { nil }
     }
 
     private func state(_ key: String, position: Double, duration: Double,

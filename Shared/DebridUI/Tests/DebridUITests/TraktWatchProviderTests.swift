@@ -35,6 +35,23 @@ import DebridCore
 
         func setPlaybackMovies(_ v: [TraktPlaybackItem]) { playbackMoviesResult = v }
         func setWatchedMovies(_ v: [TraktWatchedMovie]) { watchedMoviesResult = v }
+        func setWatchedShows(_ v: [TraktWatchedShow]) { watchedShowsResult = v }
+
+        var communityRatingResult: TraktCommunityRating?
+        private(set) var communityRatingCallCount = 0
+        func setCommunityRating(_ v: TraktCommunityRating?) { communityRatingResult = v }
+        func communityRating(imdbID: String, kind: MediaKind) async throws -> TraktCommunityRating? {
+            communityRatingCallCount += 1
+            return communityRatingResult
+        }
+
+        var firstHistoryDateResult: Date?
+        private(set) var historyCalls: [(type: String, traktID: Int)] = []
+        func setFirstHistoryDate(_ v: Date?) { firstHistoryDateResult = v }
+        func firstHistoryDate(type: String, traktID: Int) async throws -> Date? {
+            historyCalls.append((type, traktID))
+            return firstHistoryDateResult
+        }
     }
 
     private func playbackMovie(tmdb: Int, progress: Double, at: String) -> TraktPlaybackItem {
