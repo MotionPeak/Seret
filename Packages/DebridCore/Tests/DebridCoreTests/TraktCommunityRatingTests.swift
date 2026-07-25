@@ -39,5 +39,30 @@ extension MockTests {
             _ = try await client.communityRating(imdbID: "tt0944947", kind: .show)
             #expect(capturedURL?.path == "/shows/tt0944947/ratings")
         }
+
+        @Test func unknownIMDbIDReturnsNilRatherThanThrowing() async throws {
+            MockURLProtocol.handler = { request in
+                let response = HTTPURLResponse(url: request.url!, statusCode: 404,
+                                               httpVersion: nil, headerFields: nil)!
+                return (response, Data(#"{"error":"not found"}"#.utf8))
+            }
+            let client = TraktClient(clientID: "cid", clientSecret: "sec",
+                                     http: HTTPClient(session: .mock))
+            let r = try await client.communityRating(imdbID: "tt9999999", kind: .movie)
+            #expect(r == nil)
+        }
+
+        @Test func serverErrorStillThrows() async throws {
+            MockURLProtocol.handler = { request in
+                let response = HTTPURLResponse(url: request.url!, statusCode: 500,
+                                               httpVersion: nil, headerFields: nil)!
+                return (response, Data(#"{"error":"boom"}"#.utf8))
+            }
+            let client = TraktClient(clientID: "cid", clientSecret: "sec",
+                                     http: HTTPClient(session: .mock))
+            await #expect(throws: (any Error).self) {
+                _ = try await client.communityRating(imdbID: "tt0133093", kind: .movie)
+            }
+        }
     }
 }
