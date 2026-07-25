@@ -65,6 +65,8 @@ struct SearchScreen: View {
             }
             .padding(Theme.Layout.contentMargin)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .focusSection()
     }
 
     private func message(_ text: String, systemImage: String) -> some View {

@@ -161,6 +161,10 @@ private struct SettingsColumn<Content: View>: View {
             }
         }
         .frame(minWidth: 240, maxHeight: 640, alignment: .leading)
+        // Each column is ONE target. The three have different lengths and independent scroll
+        // offsets, so without sections a horizontal move from the bottom of the longest column
+        // found no candidate beside it and died.
+        .focusSection()
     }
 }
 
