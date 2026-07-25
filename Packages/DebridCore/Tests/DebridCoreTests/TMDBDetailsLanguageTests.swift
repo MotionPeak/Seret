@@ -59,11 +59,10 @@ extension MockTests {
             let client = TMDBClient(apiKey: "k", http: HTTPClient(session: .mock))
             _ = try await client.movieDetails(id: 1)
             let query = capturedURL?.query ?? ""
-            #expect(query.contains("append_to_response=credits,similar")
-                    || query.contains("append_to_response=credits%2Csimilar"))
+            #expect(query.contains("append_to_response=credits,similar"))
         }
 
-        @Test func tvDetailsStillRequestsExternalIDsFirst() async throws {
+        @Test func tvDetailsRequestsExternalIDsFirstPlusCreditsAndSimilar() async throws {
             var capturedURL: URL?
             MockURLProtocol.handler = { request in
                 capturedURL = request.url
@@ -73,8 +72,16 @@ extension MockTests {
             }
             let client = TMDBClient(apiKey: "k", http: HTTPClient(session: .mock))
             _ = try await client.tvDetails(id: 1)
-            // external_ids must stay FIRST so the existing substring assertion still holds.
-            #expect(capturedURL?.query?.contains("append_to_response=external_ids") == true)
+
+            let appended = URLComponents(url: capturedURL!, resolvingAgainstBaseURL: false)?
+                .queryItems?.first(where: { $0.name == "append_to_response" })?.value
+            let parts = (appended ?? "").split(separator: ",").map(String.init)
+            // external_ids must stay FIRST: the pre-existing decode test asserts the
+            // substring "append_to_response=external_ids", which only holds if it leads.
+            #expect(parts.first == "external_ids")
+            // and the A2 decoder needs these two, or cast/similar silently decode empty:
+            #expect(parts.contains("aggregate_credits"))
+            #expect(parts.contains("similar"))
         }
     }
 }
