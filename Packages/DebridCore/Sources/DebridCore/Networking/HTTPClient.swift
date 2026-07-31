@@ -19,6 +19,17 @@ public struct HTTPClient: Sendable {
         return try await send(request)
     }
 
+    /// Like `get`, but also returns the `HTTPURLResponse` so callers can read response
+    /// headers (e.g. Trakt's `X-Pagination-Page-Count`, which is not in the body).
+    public func getWithHeaders<T: Decodable>(
+        _ url: URL, headers: [String: String] = [:]
+    ) async throws -> (value: T, response: HTTPURLResponse) {
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        for (k, v) in headers { request.setValue(v, forHTTPHeaderField: k) }
+        return try await perform(request)
+    }
+
     public func post<T: Decodable>(_ url: URL, form: [String: String], headers: [String: String] = [:]) async throws -> T {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -28,7 +39,7 @@ public struct HTTPClient: Sendable {
         return try await send(request)
     }
 
-    private func send<T: Decodable>(_ request: URLRequest) async throws -> T {
+    private func perform<T: Decodable>(_ request: URLRequest) async throws -> (T, HTTPURLResponse) {
         let data: Data
         let response: URLResponse
         do {
@@ -43,10 +54,14 @@ public struct HTTPClient: Sendable {
             throw HTTPError.status(code: http.statusCode, body: String(decoding: data, as: UTF8.self))
         }
         do {
-            return try decoder.decode(T.self, from: data)
+            return (try decoder.decode(T.self, from: data), http)
         } catch {
             throw HTTPError.decoding(String(describing: error))
         }
+    }
+
+    private func send<T: Decodable>(_ request: URLRequest) async throws -> T {
+        try await perform(request).0
     }
 
     public func post<T: Decodable, Body: Encodable>(_ url: URL, json body: Body,

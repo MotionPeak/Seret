@@ -1,4 +1,5 @@
 import DebridCore
+import Foundation
 import Observation
 
 /// The Detail screen's source of truth for one title. Renders instantly from the cached
@@ -39,6 +40,18 @@ public final class DetailStore {
     /// after TMDB details resolve. nil until loaded (or if unavailable).
     public private(set) var ratings: OMDbRatings?
     public private(set) var ratingsState: RichState = .idle
+
+    /// Rich title-page fields. Cast / director / creators / similar ride along with the TMDB
+    /// details call (`append_to_response`), so they cost no extra request.
+    public private(set) var cast: [TMDBCastMember] = []
+    public private(set) var director: String?
+    public private(set) var creators: [String] = []
+    public private(set) var similar: [TMDBSearchResult] = []
+    /// Trakt's community average (0–10) — a fallback shown when OMDb produced no chips.
+    public private(set) var communityScore: Double?
+    /// The viewer's Trakt history rollup for this title, loaded lazily by the view.
+    public private(set) var watchSummary: WatchSummary?
+    public private(set) var historySince: Date?
 
     public init(item: MediaItem, details: MediaDetailsProviding, watch: WatchProgressProviding?,
                 profileID: String? = nil, myList: MyListProviding? = nil,
@@ -117,6 +130,9 @@ public final class DetailStore {
                 overview = d.overview ?? overview
                 imdbID = d.imdbID
                 originalLanguage = d.originalLanguage
+                cast = d.cast
+                director = d.director
+                similar = d.similar
             case .show:
                 let d = try await details.tvDetails(tmdbID: tmdbID)
                 backdropPath = d.backdropPath ?? backdropPath
@@ -125,6 +141,9 @@ public final class DetailStore {
                 imdbID = d.imdbID
                 originalLanguage = d.originalLanguage
                 numberOfSeasons = d.numberOfSeasons
+                cast = d.cast
+                creators = d.creators
+                similar = d.similar
                 await loadSeason(selectedSeason, tvID: tmdbID)
             }
             await watchLoad
@@ -136,17 +155,33 @@ public final class DetailStore {
         }
     }
 
-    /// Supplemental, non-blocking: enrich with OMDb ratings once TMDB has given us the IMDb id.
-    /// Failure leaves `ratings == nil` and the rest of the screen intact.
+    /// Supplemental, non-blocking: enrich with the public scores once TMDB has given us the IMDb id.
+    /// Failure leaves everything nil and the rest of the screen intact.
     private func loadRatings() async {
-        guard let provider = ratingsProvider, let imdb = imdbID else { return }
-        ratingsState = .loading
-        do {
-            ratings = try await provider.ratings(imdbID: imdb)
-            ratingsState = .loaded
-        } catch {
-            ratingsState = .failed
+        // OMDb aggregate chips — only when a key is configured.
+        if let provider = ratingsProvider, let imdb = imdbID {
+            ratingsState = .loading
+            do {
+                ratings = try await provider.ratings(imdbID: imdb)
+                ratingsState = .loaded
+            } catch {
+                ratingsState = .failed
+            }
         }
+        // Trakt community score — independent of OMDb (which is often unconfigured), and only as a
+        // FALLBACK when OMDb produced no chips: a title with IMDb/RT/Metacritic doesn't need it.
+        if ratings?.hasAny != true, let imdb = imdbID,
+           let community = watch as? CommunityRatingProviding {
+            communityScore = await community.communityRating(imdbID: imdb, kind: item.kind)
+        }
+    }
+
+    /// The viewer's Trakt history rollup (play count, last watched, "in your history since").
+    /// Lazy — the views call it on appear, like `loadUserRating()`. Absent backend → stays nil.
+    public func loadWatchSummary() async {
+        guard let summaryProvider = watch as? WatchSummaryProviding else { return }
+        watchSummary = await summaryProvider.watchSummary(forContentKey: item.id)
+        historySince = await summaryProvider.historySince(forContentKey: item.id)
     }
 
     public func selectSeason(_ n: Int) async {

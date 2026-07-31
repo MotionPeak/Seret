@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking   // HTTPURLResponse lives here on Linux, not in Foundation
+#endif
 
 public enum TraktAuthError: Error, Equatable, Sendable {
     case deviceCodeExpired
@@ -224,5 +227,75 @@ extension TraktClient {
     public func removeRating(_ ref: TraktMediaRef) async throws {
         let _: AckResponse = try await http.post(Self.base.appending(path: "sync/ratings/remove"),
             json: groupedBody([ref]), headers: try await authedHeaders())
+    }
+}
+
+// MARK: - Public community ratings
+
+extension TraktClient {
+    /// Public (api-key-only) community rating for a title, addressed by IMDb id.
+    /// Trakt is addressed by Trakt id / slug / IMDb id — never TMDB id — so this joins
+    /// on the same IMDb key OMDb already uses.
+    ///
+    /// Returns `nil` when Trakt has no entry for the id (404) — a normal outcome for
+    /// obscure titles, not a failure. Genuine failures (transport, 5xx, malformed body)
+    /// still throw so callers can distinguish "no rating" from "lookup broke".
+    public func communityRating(imdbID: String, kind: MediaKind) async throws -> TraktCommunityRating? {
+        let segment = (kind == .movie) ? "movies" : "shows"
+        do {
+            return try await http.get(
+                Self.base.appending(path: "\(segment)/\(imdbID)/ratings"),
+                headers: baseHeaders)
+        } catch HTTPError.status(let code, _) where code == 404 {
+            return nil
+        }
+    }
+}
+
+// MARK: - Watch history dates
+
+extension TraktClient {
+    /// Trakt timestamps sometimes carry fractional seconds and sometimes don't;
+    /// try both before giving up.
+    private static func parseISO(_ string: String) -> Date? {
+        let withFraction = ISO8601DateFormatter()
+        withFraction.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let d = withFraction.date(from: string) { return d }
+        let plain = ISO8601DateFormatter()
+        plain.formatOptions = [.withInternetDateTime]
+        return plain.date(from: string)
+    }
+
+    /// The oldest `watched_at` in the signed-in user's history for a title.
+    /// `type` is "movies" or "shows"; `traktID` is the title's numeric Trakt id.
+    /// History is newest-first, so the last page's single row is the earliest watch.
+    ///
+    /// Returns nil when the title has no history, when the dates can't be parsed, or
+    /// when Trakt omits the pagination header (we can't identify the oldest row and
+    /// won't guess with the newest — an absent header is NOT the same as one page).
+    public func firstHistoryDate(type: String, traktID: Int) async throws -> Date? {
+        /// `pageCount` is nil when the header is absent or unparseable — "unknown",
+        /// deliberately distinct from a genuine count of 1.
+        func page(_ n: Int) async throws -> (rows: [TraktHistoryItem], pageCount: Int?) {
+            let url = Self.base.appending(path: "sync/history/\(type)/\(traktID)")
+                .appending(queryItems: [
+                    URLQueryItem(name: "page", value: String(n)),
+                    URLQueryItem(name: "limit", value: "1"),
+                ])
+            let (rows, response): ([TraktHistoryItem], HTTPURLResponse) =
+                try await http.getWithHeaders(url, headers: try await authedHeaders())
+            let count = response.value(forHTTPHeaderField: "X-Pagination-Page-Count").flatMap(Int.init)
+            return (rows, count)
+        }
+        let first = try await page(1)
+        guard !first.rows.isEmpty else { return nil }
+        // Unknown page count: page 1 holds the NEWEST watch, so returning it would be a
+        // confidently wrong answer. Decline instead.
+        guard let pageCount = first.pageCount else { return nil }
+        if pageCount <= 1 {
+            return first.rows.first.flatMap { Self.parseISO($0.watchedAt) }
+        }
+        let last = try await page(pageCount)
+        return last.rows.first.flatMap { Self.parseISO($0.watchedAt) }
     }
 }

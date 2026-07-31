@@ -9,6 +9,10 @@ struct MovieDetail: View {
     /// Per-version remove (one MediaSource → one RD torrent). Owner-injected; nil hides the
     /// affordance.
     var onRemoveVersion: ((MediaSource) -> Void)? = nil
+    /// A "More Like This" poster was tapped — owned opens its Detail, new opens the Add flow.
+    /// The parent presents (see `SimilarRail`).
+    var onOpenTitle: (MediaItem) -> Void = { _ in }
+    var onAddTitle: (SearchHit) -> Void = { _ in }
     private var item: MediaItem { store.item }
     private var contentKey: String { WatchKey.content(forMovie: item) }
     private var watch: WatchState? { store.watchState(forKey: contentKey) }
@@ -24,9 +28,11 @@ struct MovieDetail: View {
                 Text(item.title).font(Theme.Typo.titleXL()).foregroundStyle(Theme.Palette.textPrimary)
                 Text(metaLine).font(Theme.Typo.body()).foregroundStyle(Theme.Palette.textSecondary)
                 if let best = store.bestSource { QualityChipRow(parsed: best.parsed) }
-                RatingsRow(ratings: store.ratings)
+                RatingsRow(ratings: store.ratings, community: store.communityScore)
                 actions
                 UserRatingRow(store: store)
+                WatchDatesLine(summary: store.watchSummary, since: store.historySince)
+                    .task { await store.loadWatchSummary() }
                 if store.bestSource == nil, let tmdb = item.tmdbID {
                     MovieDownloadSection(tmdbID: tmdb, title: item.title, posterPath: item.posterPath,
                                          imdbID: store.imdbID, originalLanguage: store.originalLanguage)
@@ -36,6 +42,13 @@ struct MovieDetail: View {
                         .foregroundStyle(Theme.Palette.textSecondary).lineSpacing(3)
                 }
                 if !store.versions.isEmpty { versionsSection }
+                // Gated on non-empty: the rails only appear once TMDB credits land, and they append
+                // BELOW everything else, so they never resize content already on screen.
+                if !store.cast.isEmpty { CastRail(cast: store.cast) }
+                if !store.similar.isEmpty {
+                    SimilarRail(titles: store.similar, parentKind: .movie,
+                                onOpenOwned: onOpenTitle, onAddNew: onAddTitle)
+                }
             }
             .frame(maxWidth: 700, alignment: .leading)
             .padding(.horizontal, Theme.Space.lg)
@@ -68,6 +81,7 @@ struct MovieDetail: View {
         if let y = item.year { parts.append(String(y)) }
         if let r = store.runtime { parts.append("\(r) min") }
         if !store.genres.isEmpty { parts.append(store.genres.prefix(3).joined(separator: " · ")) }
+        if let director = store.director { parts.append("Dir. \(director)") }
         return parts.joined(separator: "  ·  ")
     }
 

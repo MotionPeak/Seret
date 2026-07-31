@@ -49,6 +49,66 @@ public struct TMDBGenre: Decodable, Sendable, Equatable, Identifiable {
     public init(id: Int, name: String) { self.id = id; self.name = name }
 }
 
+/// One cast member from TMDB `credits` (movies) or normalized from `aggregate_credits` (shows).
+public struct TMDBCastMember: Decodable, Sendable, Equatable, Hashable, Identifiable {
+    public let id: Int
+    public let name: String
+    public let character: String?
+    public let profilePath: String?
+    public let order: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, character, order
+        case profilePath = "profile_path"
+    }
+
+    public init(id: Int, name: String, character: String?, profilePath: String?, order: Int?) {
+        self.id = id; self.name = name; self.character = character
+        self.profilePath = profilePath; self.order = order
+    }
+}
+
+/// Internal decode shapes for the credits payloads (never exposed on the public model).
+struct TMDBMovieCredits: Decodable {
+    struct Crew: Decodable {
+        let name: String
+        let job: String?
+    }
+    let cast: [TMDBCastMember]
+    let crew: [Crew]
+}
+
+struct TMDBAggregateCredits: Decodable {
+    struct AggCast: Decodable {
+        struct Role: Decodable { let character: String? }
+        let id: Int
+        let name: String
+        let profilePath: String?
+        let order: Int?
+        let roles: [Role]
+        enum CodingKeys: String, CodingKey {
+            case id, name, order, roles
+            case profilePath = "profile_path"
+        }
+        var normalized: TMDBCastMember {
+            TMDBCastMember(id: id, name: name, character: roles.first?.character,
+                           profilePath: profilePath, order: order)
+        }
+    }
+    let cast: [AggCast]
+}
+
+struct TMDBCreatedBy: Decodable { let name: String }
+
+/// The payload behind `similar` on the detail models.
+///
+/// Sourced from TMDB's `recommendations`, NOT its `similar` endpoint — despite the Swift name.
+/// Both return this identical search-shaped body, but `similar` matches on shared keywords and
+/// genres and produces poor suggestions (The Prestige → Miss Potter, Jump In!), while
+/// `recommendations` is built from what viewers actually watch together and returns the
+/// obvious neighbours (Memento, The Illusionist). Verified on-device before switching.
+struct TMDBRecommendations: Decodable { let results: [TMDBSearchResult] }
+
 public struct TMDBMovieDetails: Decodable, Sendable, Equatable, Identifiable {
     public let id: Int
     public let title: String
@@ -61,9 +121,13 @@ public struct TMDBMovieDetails: Decodable, Sendable, Equatable, Identifiable {
     public let voteAverage: Double?
     public let originalLanguage: String?   // ISO 639-1
     public let imdbID: String?
+    public let cast: [TMDBCastMember]
+    public let director: String?
+    public let similar: [TMDBSearchResult]
 
     enum CodingKeys: String, CodingKey {
-        case id, title, overview, runtime, genres
+        case id, title, overview, runtime, genres, credits
+        case similar = "recommendations"
         case releaseDate = "release_date"
         case posterPath = "poster_path"
         case backdropPath = "backdrop_path"
@@ -75,11 +139,37 @@ public struct TMDBMovieDetails: Decodable, Sendable, Equatable, Identifiable {
     public init(id: Int, title: String, releaseDate: String?, overview: String?,
                 posterPath: String?, backdropPath: String?, runtime: Int?,
                 genres: [TMDBGenre], voteAverage: Double?,
-                originalLanguage: String? = nil, imdbID: String? = nil) {
+                originalLanguage: String? = nil, imdbID: String? = nil,
+                cast: [TMDBCastMember] = [], director: String? = nil,
+                similar: [TMDBSearchResult] = []) {
         self.id = id; self.title = title; self.releaseDate = releaseDate
         self.overview = overview; self.posterPath = posterPath; self.backdropPath = backdropPath
         self.runtime = runtime; self.genres = genres; self.voteAverage = voteAverage
         self.originalLanguage = originalLanguage; self.imdbID = imdbID
+        self.cast = cast; self.director = director; self.similar = similar
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(Int.self, forKey: .id)
+        title = try c.decode(String.self, forKey: .title)
+        releaseDate = try c.decodeIfPresent(String.self, forKey: .releaseDate)
+        overview = try c.decodeIfPresent(String.self, forKey: .overview)
+        posterPath = try c.decodeIfPresent(String.self, forKey: .posterPath)
+        backdropPath = try c.decodeIfPresent(String.self, forKey: .backdropPath)
+        runtime = try c.decodeIfPresent(Int.self, forKey: .runtime)
+        genres = try c.decodeIfPresent([TMDBGenre].self, forKey: .genres) ?? []
+        voteAverage = try c.decodeIfPresent(Double.self, forKey: .voteAverage)
+        originalLanguage = try c.decodeIfPresent(String.self, forKey: .originalLanguage)
+        imdbID = try c.decodeIfPresent(String.self, forKey: .imdbID)
+        let credits = try c.decodeIfPresent(TMDBMovieCredits.self, forKey: .credits)
+        cast = (credits?.cast ?? []).sorted { ($0.order ?? .max) < ($1.order ?? .max) }
+                                    .prefix(10).map { $0 }
+        let directors = (credits?.crew ?? []).filter { $0.job == "Director" }.map(\.name)
+        var seen = Set<String>()
+        let uniqueDirectors = directors.filter { seen.insert($0).inserted }
+        director = uniqueDirectors.isEmpty ? nil : uniqueDirectors.joined(separator: ", ")
+        similar = (try c.decodeIfPresent(TMDBRecommendations.self, forKey: .similar)?.results ?? [])
     }
 }
 
@@ -95,9 +185,13 @@ public struct TMDBTVDetails: Decodable, Sendable, Equatable, Identifiable {
     public let voteAverage: Double?
     public let originalLanguage: String?   // ISO 639-1
     public let imdbID: String?             // from append_to_response=external_ids
+    public let cast: [TMDBCastMember]
+    public let creators: [String]
+    public let similar: [TMDBSearchResult]
 
     enum CodingKeys: String, CodingKey {
         case id, name, overview, genres
+        case similar = "recommendations"
         case firstAirDate = "first_air_date"
         case posterPath = "poster_path"
         case backdropPath = "backdrop_path"
@@ -105,6 +199,8 @@ public struct TMDBTVDetails: Decodable, Sendable, Equatable, Identifiable {
         case voteAverage = "vote_average"
         case originalLanguage = "original_language"
         case externalIDs = "external_ids"
+        case aggregateCredits = "aggregate_credits"
+        case createdBy = "created_by"
     }
 
     private struct ExternalIDs: Decodable { let imdb_id: String? }
@@ -112,11 +208,14 @@ public struct TMDBTVDetails: Decodable, Sendable, Equatable, Identifiable {
     public init(id: Int, name: String, firstAirDate: String?, overview: String?,
                 posterPath: String?, backdropPath: String?, numberOfSeasons: Int?,
                 genres: [TMDBGenre], voteAverage: Double?,
-                originalLanguage: String? = nil, imdbID: String? = nil) {
+                originalLanguage: String? = nil, imdbID: String? = nil,
+                cast: [TMDBCastMember] = [], creators: [String] = [],
+                similar: [TMDBSearchResult] = []) {
         self.id = id; self.name = name; self.firstAirDate = firstAirDate
         self.overview = overview; self.posterPath = posterPath; self.backdropPath = backdropPath
         self.numberOfSeasons = numberOfSeasons; self.genres = genres; self.voteAverage = voteAverage
         self.originalLanguage = originalLanguage; self.imdbID = imdbID
+        self.cast = cast; self.creators = creators; self.similar = similar
     }
 
     public init(from decoder: any Decoder) throws {
@@ -132,6 +231,11 @@ public struct TMDBTVDetails: Decodable, Sendable, Equatable, Identifiable {
         voteAverage = try c.decodeIfPresent(Double.self, forKey: .voteAverage)
         originalLanguage = try c.decodeIfPresent(String.self, forKey: .originalLanguage)
         imdbID = try c.decodeIfPresent(ExternalIDs.self, forKey: .externalIDs)?.imdb_id
+        let agg = try c.decodeIfPresent(TMDBAggregateCredits.self, forKey: .aggregateCredits)
+        cast = (agg?.cast ?? []).sorted { ($0.order ?? .max) < ($1.order ?? .max) }
+                                .prefix(10).map { $0.normalized }
+        creators = (try c.decodeIfPresent([TMDBCreatedBy].self, forKey: .createdBy) ?? []).map(\.name)
+        similar = (try c.decodeIfPresent(TMDBRecommendations.self, forKey: .similar)?.results ?? [])
     }
 }
 

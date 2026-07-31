@@ -41,6 +41,12 @@ struct ShowDetailView: View {
                     markSeasonButton
                     SeasonDownloadButton(store: seasonStore, onAdded: onSeasonAdded)
                     episodeList
+                    // Gated on non-empty: the rail only ever appears once TMDB credits land, and it
+                    // appends BELOW everything else, so it never resizes content already on screen.
+                    if !store.cast.isEmpty { CastRail(cast: store.cast) }
+                    if !store.similar.isEmpty {
+                        SimilarRail(titles: store.similar, parentKind: .show)
+                    }
                 }
                 .padding(60)
             }
@@ -69,12 +75,18 @@ struct ShowDetailView: View {
         VStack(alignment: .leading, spacing: 22) {
             Text(item.title).screenTitle()
             Text(metaLine).calloutText().foregroundStyle(Theme.Palette.textSecondary)
-            RatingsRow(ratings: store.ratings)
+            if !store.creators.isEmpty {
+                Text("Created by: \(store.creators.joined(separator: ", "))").calloutText()
+                    .foregroundStyle(Theme.Palette.textSecondary)
+            }
+            RatingsRow(ratings: store.ratings, community: store.communityScore)
             if let overview = store.overview {
                 Text(overview).bodyText().frame(maxWidth: 1100, alignment: .leading).lineLimit(4)
             }
             heroActions
             UserRatingRow(store: store)
+            WatchDatesLine(summary: store.watchSummary, since: store.historySince)
+                .task { await store.loadWatchSummary() }
         }
     }
 

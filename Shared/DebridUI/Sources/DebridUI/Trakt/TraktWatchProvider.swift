@@ -13,6 +13,8 @@ public protocol TraktWatchAPI: Sendable {
     func addToHistory(_ refs: [TraktMediaRef]) async throws
     func removeFromHistory(_ refs: [TraktMediaRef]) async throws
     func scrobble(_ action: ScrobbleAction, ref: TraktMediaRef, progress: Double) async throws
+    func communityRating(imdbID: String, kind: MediaKind) async throws -> TraktCommunityRating?
+    func firstHistoryDate(type: String, traktID: Int) async throws -> Date?
 }
 
 extension TraktClient: TraktWatchAPI {}
@@ -27,6 +29,10 @@ public actor TraktWatchProvider: WatchProgressProviding {
     private var order: [String] = []              // contentKeys, newest pausedAt first
     private var watchedKeys: Set<String> = []
     private var ratings: [String: Int] = [:]      // contentKey -> 1…10
+    private var summaries: [String: WatchSummary] = [:]
+    private var traktIDs: [String: Int] = [:]          // contentKey -> the title's numeric Trakt id
+    private var communityCache: [String: Double] = [:] // imdbID -> score (in-session memo)
+    private var historyCache: [String: Date] = [:]     // contentKey -> first-watched (in-session memo)
     /// Whether the cache has been filled from Trakt at least once, plus the in-flight fill. Reads
     /// lazily warm the cache instead of returning an empty answer: the sign-in refresh is
     /// fire-and-forget, so a screen opened before it lands would otherwise see "no rating" /
@@ -39,6 +45,18 @@ public actor TraktWatchProvider: WatchProgressProviding {
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return f
     }()
+    /// Trakt sends timestamps both with and without fractional seconds (`last_watched_at` is
+    /// routinely plain), and `iso` above parses only the fractional shape — hence the fallback.
+    private let isoPlain: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        return f
+    }()
+
+    private func parseISO(_ string: String?) -> Date? {
+        guard let string else { return nil }
+        return iso.date(from: string) ?? isoPlain.date(from: string)
+    }
 
     public init(api: TraktWatchAPI) {
         self.api = api
@@ -77,16 +95,36 @@ public actor TraktWatchProvider: WatchProgressProviding {
         order = pb.sorted { $0.value.1 > $1.value.1 }.map(\.key)
 
         var watched: Set<String> = []
-        for m in try await wMovies { if let k = Self.key(movie: m.movie) { watched.insert(k) } }
+        var sums: [String: WatchSummary] = [:]
+        var ids: [String: Int] = [:]
+        for m in try await wMovies {
+            guard let k = Self.key(movie: m.movie) else { continue }
+            watched.insert(k)
+            sums[k] = WatchSummary(plays: m.plays ?? 0, lastWatchedAt: parseISO(m.lastWatchedAt))
+            // `trakt` is optional and this dict isn't: assigning nil REMOVES the key, which is the
+            // intent — no Trakt id means `historySince` has nothing to query and declines.
+            ids[k] = m.movie.ids.trakt
+        }
         for s in try await wShows {
             guard let show = s.show.ids.tmdb else { continue }
+            // Nil-safe on every hop: Trakt omits `seasons`/`episodes`/`plays` on some entries, and a
+            // partial payload must degrade to "less data", never throw away the whole sync.
+            var plays = 0
             for season in s.seasons ?? [] {
                 for ep in season.episodes ?? [] {
                     watched.insert(TraktMapping.episodeContentKey(showTmdb: show, season: season.number, number: ep.number))
+                    plays += ep.plays ?? 0
                 }
             }
+            // A show's rollup is keyed by the series itself; per-episode keys stay in `watched`.
+            let showKey = TraktMapping.showContentKey(tmdb: show)
+            sums[showKey] = WatchSummary(plays: plays, lastWatchedAt: parseISO(s.lastWatchedAt))
+            // As above: a nil `trakt` id removes the key rather than storing a placeholder.
+            ids[showKey] = s.show.ids.trakt
         }
         watchedKeys = watched
+        summaries = sums
+        traktIDs = ids
 
         var rate: [String: Int] = [:]
         for r in try await rMovies { if let k = Self.key(movie: r.movie) { rate[k] = r.rating } }
@@ -176,12 +214,22 @@ public actor TraktWatchProvider: WatchProgressProviding {
         // Live position writes go through TraktScrobbler, not here. This path serves the manual
         // Mark Watched/Unwatched actions (DetailStore/LibraryStore call record with position 0).
         guard let ref = TraktMapping.ref(forContentKey: contentKey) else { return }
+        // Warm first, like every read does: this method maintains the caches incrementally, and a
+        // read arriving later would otherwise trigger the first load and overwrite what we set here.
+        await ensureLoaded()
         if finished {
             try await api.addToHistory([ref])
             watchedKeys.insert(contentKey)
+            // Keep the derived rollup coherent: without this the Detail page would show a stale
+            // play count (or none at all) next to a freshly-changed checkmark until the next refresh.
+            summaries[contentKey] = WatchSummary(plays: (summaries[contentKey]?.plays ?? 0) + 1,
+                                                 lastWatchedAt: Date())
         } else if positionSeconds == 0 {          // explicit "mark unwatched"
             try await api.removeFromHistory([ref])
             watchedKeys.remove(contentKey)
+            summaries[contentKey] = nil
+            // `historyCache` is deliberately NOT invalidated: "in your history since" reflects
+            // Trakt's record of earlier plays, which un-marking the latest one doesn't erase.
         }
     }
 
@@ -195,8 +243,48 @@ public actor TraktWatchProvider: WatchProgressProviding {
     }
 
     public func deleteProgress(forContentKeys keys: [String]) async throws {
-        for k in keys { playback[k] = nil; watchedKeys.remove(k); ratings[k] = nil }
+        for k in keys {
+            playback[k] = nil; watchedKeys.remove(k); ratings[k] = nil
+            summaries[k] = nil; traktIDs[k] = nil
+        }
         order.removeAll { keys.contains($0) }
+    }
+}
+
+// MARK: - Detail-page extras (obtained by downcast, not by injection)
+
+extension TraktWatchProvider: WatchSummaryProviding {
+    public func watchSummary(forContentKey key: String) async -> WatchSummary? {
+        await ensureLoaded()
+        return summaries[key]
+    }
+
+    /// Memoized because it is the expensive one: `firstHistoryDate` costs up to two sequential
+    /// round trips (page 1 for the pagination header, then the last page). Successes only —
+    /// a nil answer can mean Trakt omitted the header, which is transient, so it stays retryable.
+    public func historySince(forContentKey key: String) async -> Date? {
+        if let cached = historyCache[key] { return cached }
+        await ensureLoaded()
+        guard let id = traktIDs[key], let ref = TraktMapping.ref(forContentKey: key) else { return nil }
+        let type: String
+        switch ref {
+        case .movie: type = "movies"
+        case .show, .episode: type = "shows"
+        }
+        guard let date = try? await api.firstHistoryDate(type: type, traktID: id) else { return nil }
+        historyCache[key] = date
+        return date
+    }
+}
+
+extension TraktWatchProvider: CommunityRatingProviding {
+    /// Only successes are memoized: an unknown title returns nil and will be retried, which is
+    /// cheap and lets a title Trakt learns about later start showing a score.
+    public func communityRating(imdbID: String, kind: MediaKind) async -> Double? {
+        if let cached = communityCache[imdbID] { return cached }
+        guard let r = try? await api.communityRating(imdbID: imdbID, kind: kind) else { return nil }
+        communityCache[imdbID] = r.rating
+        return r.rating
     }
 }
 

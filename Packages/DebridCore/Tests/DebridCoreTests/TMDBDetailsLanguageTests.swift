@@ -47,5 +47,41 @@ extension MockTests {
             #expect(details.originalLanguage == "ja")
             #expect(details.imdbID == nil)
         }
+
+        @Test func movieDetailsRequestsCreditsAndRecommendations() async throws {
+            var capturedURL: URL?
+            MockURLProtocol.handler = { request in
+                capturedURL = request.url
+                let response = HTTPURLResponse(url: request.url!, statusCode: 200,
+                                               httpVersion: nil, headerFields: nil)!
+                return (response, Data(#"{"id":1,"title":"X","genres":[]}"#.utf8))
+            }
+            let client = TMDBClient(apiKey: "k", http: HTTPClient(session: .mock))
+            _ = try await client.movieDetails(id: 1)
+            let query = capturedURL?.query ?? ""
+            #expect(query.contains("append_to_response=credits,recommendations"))
+        }
+
+        @Test func tvDetailsRequestsExternalIDsFirstPlusCreditsAndRecommendations() async throws {
+            var capturedURL: URL?
+            MockURLProtocol.handler = { request in
+                capturedURL = request.url
+                let response = HTTPURLResponse(url: request.url!, statusCode: 200,
+                                               httpVersion: nil, headerFields: nil)!
+                return (response, Data(#"{"id":1,"name":"Y","genres":[]}"#.utf8))
+            }
+            let client = TMDBClient(apiKey: "k", http: HTTPClient(session: .mock))
+            _ = try await client.tvDetails(id: 1)
+
+            let appended = URLComponents(url: capturedURL!, resolvingAgainstBaseURL: false)?
+                .queryItems?.first(where: { $0.name == "append_to_response" })?.value
+            let parts = (appended ?? "").split(separator: ",").map(String.init)
+            // external_ids must stay FIRST: the pre-existing decode test asserts the
+            // substring "append_to_response=external_ids", which only holds if it leads.
+            #expect(parts.first == "external_ids")
+            // and the A2 decoder needs these two, or cast/similar silently decode empty:
+            #expect(parts.contains("aggregate_credits"))
+            #expect(parts.contains("recommendations"))
+        }
     }
 }

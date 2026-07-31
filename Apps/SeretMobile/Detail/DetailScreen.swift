@@ -15,6 +15,10 @@ struct DetailScreen: View {
     @State private var playback: PlaybackPresentation?
     @State private var confirmingRemove = false
     @State private var removeError: String?
+    /// "More Like This" destinations. Presented from HERE, not through `AppRouter`: this screen is
+    /// itself a cover owned by the shell, and the shell can't stack a second cover on top of it.
+    @State private var similarDetail: MediaItem?
+    @State private var similarAdd: SearchHit?
     @Environment(AppSession.self) private var session
     @Environment(\.dismiss) private var dismiss
 
@@ -31,7 +35,9 @@ struct DetailScreen: View {
                 case .movie: MovieDetail(store: store, onPlay: present,
                                         onRemoveVersion: { src in
                                             Task { await session.libraryStore?.removeVersion(store.item, source: src) }
-                                        })
+                                        },
+                                        onOpenTitle: { similarDetail = $0 },
+                                        onAddTitle: { similarAdd = $0 })
                 case .show:  ShowDetail(
                                 store: store, onPlay: present,
                                 makeSeasonDownload: { imdb, season, lang in
@@ -41,7 +47,9 @@ struct DetailScreen: View {
                                     session.makeAddStore(imdbID: imdb, kind: .series(season: season, episode: episode),
                                                          originalLanguage: lang)
                                 },
-                                onSeasonAdded: { session.libraryStore?.retry() })
+                                onSeasonAdded: { session.libraryStore?.retry() },
+                                onOpenTitle: { similarDetail = $0 },
+                                onAddTitle: { similarAdd = $0 })
                 }
             }
             .task {
@@ -98,6 +106,20 @@ struct DetailScreen: View {
             } else {
                 PlayerPlaceholder(request: presented.request)
             }
+        }
+        // A suggested title the viewer already owns opens its own Detail on top of this one.
+        // `AnyView` is load-bearing: without it DetailScreen's body type would contain itself.
+        .fullScreenCover(item: $similarDetail) { item in
+            if let details = session.detailsProvider {
+                AnyView(DetailScreen(item: item, details: details, watch: session.watchStore,
+                                     profileID: session.activeProfileID,
+                                     myList: session.myListStore,
+                                     ratings: session.ratingsProvider))
+            }
+        }
+        // A suggested title that isn't in the library opens the Add flow.
+        .fullScreenCover(item: $similarAdd) { hit in
+            AddScreen(hit: hit)
         }
     }
 
