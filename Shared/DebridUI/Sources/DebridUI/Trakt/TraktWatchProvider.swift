@@ -88,7 +88,10 @@ public actor TraktWatchProvider: WatchProgressProviding {
         var pb: [String: (Double, Date)] = [:]
         for item in try await movies + (try await episodes) {
             guard let k = Self.key(for: item) else { continue }
-            let at = iso.date(from: item.pausedAt) ?? .distantPast
+            // Tolerant parse: Trakt sends `paused_at` with AND without fractional seconds, and the
+            // shape varies per endpoint. The fractional-only formatter yielded `.distantPast` for a
+            // plain stamp, which sorted that title to the back of `order` — off Continue Watching.
+            let at = parseISO(item.pausedAt) ?? .distantPast
             pb[k] = (item.progress / 100.0, at)
         }
         playback = pb.mapValues { (fraction: $0.0, pausedAt: $0.1) }

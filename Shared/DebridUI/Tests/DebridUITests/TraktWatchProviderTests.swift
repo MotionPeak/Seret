@@ -79,6 +79,27 @@ import DebridCore
         #expect(rows.first?.finished == false)
     }
 
+    /// Trakt sends `paused_at` both with and without fractional seconds — this slice proved the
+    /// shape varies PER ENDPOINT, so neither can be assumed. A fractional-only parse turns a plain
+    /// timestamp into `.distantPast`, which sorts that title to the BACK of `order` and drops it off
+    /// Continue Watching entirely once the rail's `prefix(limit)` bites. Hence a position assertion,
+    /// not just a parse assertion.
+    @Test func plainPausedAtStillSortsNewestFirstOnTheRail() async throws {
+        let api = FakeTraktAPI()
+        await api.setPlaybackMovies([
+            playbackMovie(tmdb: 111, progress: 20, at: "2026-07-20T10:00:00.000Z"),  // older, fractional
+            playbackMovie(tmdb: 222, progress: 30, at: "2026-07-24T10:00:00Z"),      // NEWER, plain
+        ])
+        let provider = TraktWatchProvider(api: api)
+        try await provider.refresh()
+
+        let rows = try await provider.recentlyWatched(limit: 10, profileID: "")
+        #expect(rows.map(\.contentKey) == ["movie:tmdb:222", "movie:tmdb:111"])
+        // And it survives a rail that only shows one card.
+        let topOnly = try await provider.recentlyWatched(limit: 1, profileID: "")
+        #expect(topOnly.map(\.contentKey) == ["movie:tmdb:222"])
+    }
+
     @Test func fractionExposedForResume() async throws {
         let api = FakeTraktAPI()
         await api.setPlaybackMovies([playbackMovie(tmdb: 27205, progress: 50, at: "2026-07-24T10:00:00.000Z")])
