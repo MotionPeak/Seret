@@ -129,6 +129,9 @@ struct PlayerInputSurface: UIViewRepresentable {
         ) -> Bool { true }
 
         @objc private func handleWake(_ g: UILongPressGestureRecognizer) {
+            #if DEBUG
+            InputProbe.shared.touch("wake .\(g.state.rawValue)")
+            #endif
             switch g.state {
             case .began:
                 parent.onTouchDown()
@@ -141,10 +144,16 @@ struct PlayerInputSurface: UIViewRepresentable {
 
         @objc private func handlePan(_ g: UIPanGestureRecognizer) {
             let dx = g.translation(in: g.view).x
+            #if DEBUG
+            InputProbe.shared.touch("pan .\(g.state.rawValue)", dx: Double(dx))
+            #endif
             switch g.state {
             case .changed:
                 if !isScrubbing, abs(dx) >= scrubThreshold {
                     isScrubbing = true
+                    #if DEBUG
+                    InputProbe.shared.scrubBegan()
+                    #endif
                     parent.onScrubBegan()
                 }
                 if isScrubbing { parent.onScrubMoved(Double(dx)) }
@@ -159,13 +168,21 @@ struct PlayerInputSurface: UIViewRepresentable {
 
         // A left/right tap nudges the scrub target while scrubbing and skips otherwise — the
         // caller decides which; it only needs the signed amount.
-        @objc private func handleLeft()  { parent.onSkip(-10) }
-        @objc private func handleRight() { parent.onSkip(10) }
-        @objc private func handleUp()    { parent.onUp() }
-        @objc private func handleDown()  { parent.onDown() }
+        @objc private func handleLeft()  { probePress("left");  parent.onSkip(-10) }
+        @objc private func handleRight() { probePress("right"); parent.onSkip(10) }
+        @objc private func handleUp()    { probePress("up");    parent.onUp() }
+        @objc private func handleDown()  { probePress("down");  parent.onDown() }
         @objc private func handleSelect() {
+            probePress("select")
             if isScrubbing { isScrubbing = false; parent.onScrubEnded() }   // click commits early
             else { parent.onSelect() }
+        }
+
+        /// No-op in release; the probe compiles out entirely.
+        private func probePress(_ name: String) {
+            #if DEBUG
+            InputProbe.shared.press(name)
+            #endif
         }
 
         @objc private func handleScanBack(_ g: UILongPressGestureRecognizer) { scan(g, direction: -1) }

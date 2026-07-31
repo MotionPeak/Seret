@@ -18,9 +18,10 @@ struct PlayerUIPreview: View {
 
     var body: some View {
         switch target {
-        case "settings":  SettingsPanelPreview()
-        case "subtitles": SubtitleBrowserPreview()
-        default:          ScrubBarPreview()
+        case "settings":   SettingsPanelPreview()
+        case "subtitles":  SubtitleBrowserPreview()
+        case "inputprobe": InputProbePreview()
+        default:           ScrubBarPreview()
         }
     }
 }
@@ -103,6 +104,30 @@ final class PreviewDriver {
     func driveScrubbing() {
         model.beginScrub()
         model.updateScrub(by: 1600)   // glide the target well ahead of the playhead
+    }
+}
+
+// MARK: - Input probe
+
+/// Mounts a bare `PlayerInputSurface` over black with the probe HUD on top — no sign-in, no stream,
+/// no library. That matters: it makes the remote-input question answerable on a signed-out device
+/// or a fresh simulator, and it isolates the surface from every other thing that could swallow
+/// input. Launch with `-uiPreview inputprobe -inputHUD`.
+private struct InputProbePreview: View {
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            PlayerInputSurface(
+                isActive: true,
+                onTouchDown: {}, onTouchUp: {},
+                onScrubBegan: {}, onScrubMoved: { _ in },
+                onScrubEnded: {}, onScrubCancelled: {},
+                onSkip: { _ in }, onSelect: {}, onUp: {}, onDown: {},
+                onScanBegan: { _ in }, onScanEnded: {}
+            )
+            .ignoresSafeArea()
+            InputProbeHUD()
+        }
     }
 }
 

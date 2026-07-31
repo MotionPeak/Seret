@@ -109,6 +109,12 @@ struct PlayerView: View {
                 SubtitleBrowser(model: model, onClose: { showSubtitleBrowser = false })
                     .transition(.opacity)
             }
+
+            #if DEBUG
+            // `-inputHUD`: live readout of what the remote actually delivers. Above everything and
+            // non-interactive, so it cannot perturb the very input it is measuring.
+            if InputProbe.isEnabled { InputProbeHUD() }
+            #endif
         }
         .animation(Theme.Anim.pageFade, value: showSettings)
         .animation(Theme.Anim.pageFade, value: showSubtitleBrowser)
