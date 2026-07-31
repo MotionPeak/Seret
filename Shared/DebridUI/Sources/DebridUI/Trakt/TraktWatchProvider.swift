@@ -39,13 +39,29 @@ public actor TraktWatchProvider: WatchProgressProviding {
     /// "no progress" and never re-read (the bug where a rating vanished on relaunch).
     private var loaded = false
     private var loadTask: Task<Void, Never>?
+    /// When the last fill FAILED, and how long reads then stop trying. A failed fill deliberately
+    /// leaves `loaded` false so a later read can retry — but reads arrive per title
+    /// (`progress(forContentKeys:)` loops), so without this a single 429 costs one 7-endpoint
+    /// fan-out PER ROW and the rate limit becomes self-sustaining. One failing round, one fan-out.
+    private var lastFailureAt: Date?
+    /// Whether that failure was an outright refusal (429/420/403) rather than a blip — those get a
+    /// much longer cooldown, because retrying into a block is what keeps the block alive.
+    private var refusedUpstream = false
+    private let retryCooldown: TimeInterval
+    private let refusalCooldown: TimeInterval
+    private let now: @Sendable () -> Date
     /// Trakt sends timestamps both with and without fractional seconds (`last_watched_at` is
     /// routinely plain, `paused_at` fractional), so every parse here goes through the shared
     /// tolerant one in DebridCore.
     private func parseISO(_ string: String?) -> Date? { ISO8601Timestamp.date(from: string) }
 
-    public init(api: TraktWatchAPI) {
+    public init(api: TraktWatchAPI, retryCooldown: TimeInterval = 60,
+                refusalCooldown: TimeInterval = 600,
+                now: @escaping @Sendable () -> Date = { Date() }) {
         self.api = api
+        self.retryCooldown = retryCooldown
+        self.refusalCooldown = refusalCooldown
+        self.now = now
     }
 
     /// Content key for a Trakt playback/watched/rating item, matching the enricher's id scheme.
@@ -124,6 +140,9 @@ public actor TraktWatchProvider: WatchProgressProviding {
         }
         ratings = rate
         loaded = true
+        // Recovered — don't hold a stale backoff against the next fill.
+        lastFailureAt = nil
+        refusedUpstream = false
     }
 
     /// What the cache currently holds. Surfaced in Settings after a sync so "nothing showed up"
@@ -141,6 +160,7 @@ public actor TraktWatchProvider: WatchProgressProviding {
     public func forceRefresh() async throws {
         if let task = loadTask { await task.value }   // let an in-flight fill settle first
         loaded = false
+        lastFailureAt = nil                           // an explicit user action ignores the cooldown
         try await refresh()
     }
 
@@ -149,10 +169,30 @@ public actor TraktWatchProvider: WatchProgressProviding {
     private func ensureLoaded() async {
         if loaded { return }
         if let task = loadTask { await task.value; return }
-        let task = Task { _ = try? await self.refresh() }
+        // Backing off after a failure: serve what we have (usually nothing) rather than hammering
+        // an upstream that is already refusing us. Settings ▸ Sync Now clears this.
+        if let failedAt = lastFailureAt, now().timeIntervalSince(failedAt) < currentCooldown { return }
+        let task = Task {
+            do { try await self.refresh() } catch { self.recordFillFailure(error) }
+        }
         loadTask = task
         await task.value
         loadTask = nil
+    }
+
+    private func recordFillFailure(_ error: Error) {
+        lastFailureAt = now()
+        refusedUpstream = Self.isExplicitRefusal(error)
+    }
+
+    /// How long to stay quiet. A transient blip earns the short cooldown; an upstream that
+    /// explicitly refused us (rate limit, or the blanket 403 Trakt's edge serves a throttled
+    /// network) earns a long one — retrying into a block is what sustains it.
+    private var currentCooldown: TimeInterval { refusedUpstream ? refusalCooldown : retryCooldown }
+
+    private static func isExplicitRefusal(_ error: Error) -> Bool {
+        guard case let .status(code, _)? = error as? HTTPError else { return false }
+        return code == 403 || code == 420 || code == 429
     }
 
     /// Fraction (0…1) for a paused key, for the player to convert to seconds via its known duration.

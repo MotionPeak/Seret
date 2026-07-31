@@ -3,6 +3,11 @@ import Foundation
 import DebridCore
 @testable import DebridUI
 
+/// Mutable "now" for cooldown tests. Single-task test usage only.
+private final class MutableClock: @unchecked Sendable {
+    var date = Date(timeIntervalSince1970: 1_000)
+}
+
 @Suite struct TraktWatchProviderTests {
     /// Fake of the API seam the provider depends on (not the concrete TraktClient).
     actor FakeTraktAPI: TraktWatchAPI {
@@ -17,7 +22,11 @@ import DebridCore
 
         func playbackMovies() async throws -> [TraktPlaybackItem] { playbackMoviesResult }
         func playbackEpisodes() async throws -> [TraktPlaybackItem] { playbackEpisodesResult }
-        func watchedMovies() async throws -> [TraktWatchedMovie] { watchedMoviesResult }
+        func watchedMovies() async throws -> [TraktWatchedMovie] {
+            watchedMoviesCallCount += 1
+            if failReads { throw readFailure }
+            return watchedMoviesResult
+        }
         func watchedShows() async throws -> [TraktWatchedShow] { watchedShowsResult }
         var ratedShowsResult: [TraktRatingItem] = []
         private(set) var ratedMoviesCallCount = 0
@@ -48,6 +57,19 @@ import DebridCore
             communityRatingCallCount += 1
             if communityRatingFails { throw FakeError() }
             return communityRatingResult
+        }
+
+        /// Makes every cache-filling read throw, so a test can watch what the provider does when
+        /// Trakt is refusing it (a 429, an expired token, a dead network).
+        var failReads = false
+        /// Which HTTP status the failure carries; nil means a transport-level failure instead.
+        var failureCode: Int? = 429
+        private(set) var watchedMoviesCallCount = 0
+        func setFailReads(_ v: Bool) { failReads = v }
+        func setFailureCode(_ v: Int?) { failureCode = v }
+        var readFailure: Error {
+            failureCode.map { HTTPError.status(code: $0, body: "refused") }
+                ?? HTTPError.transport("connection lost")
         }
 
         var firstHistoryDateResult: Date?
@@ -98,6 +120,96 @@ import DebridCore
         // And it survives a rail that only shows one card.
         let topOnly = try await provider.recentlyWatched(limit: 1, profileID: "")
         #expect(topOnly.map(\.contentKey) == ["movie:tmdb:222"])
+    }
+
+    /// Rate-limit storm guard. A failed fill leaves the cache empty on purpose (so a later read can
+    /// retry rather than caching an empty answer) — but `progress(forContentKeys:)` loops per key,
+    /// so with no cooldown ONE library repaint fires a full 7-endpoint fan-out PER TITLE. That turns
+    /// a single transient 429 into hundreds of calls, which guarantees more 429s. One failing round
+    /// must cost one fan-out, not one per row.
+    @Test func aFailedFillDoesNotRefetchOncePerTitle() async throws {
+        let api = FakeTraktAPI()
+        await api.setFailReads(true)
+        let provider = TraktWatchProvider(api: api)
+
+        let keys = (1...12).map { "movie:tmdb:\($0)" }
+        _ = try? await provider.progress(forContentKeys: keys, profileID: "")
+
+        #expect(await api.watchedMoviesCallCount == 1)
+    }
+
+    /// The cooldown must not become a lockout: once it lapses, a read fetches again (Trakt recovers,
+    /// the user shouldn't have to relaunch).
+    @Test func theCooldownExpiresAndReadsResume() async throws {
+        let api = FakeTraktAPI()
+        await api.setFailReads(true)
+        await api.setFailureCode(nil)   // a blip, not a refusal — refusals back off far longer
+        let clock = MutableClock()
+        let provider = TraktWatchProvider(api: api, retryCooldown: 60, now: { clock.date })
+
+        _ = try? await provider.progress(forContentKey: "movie:tmdb:1", profileID: "")
+        _ = try? await provider.progress(forContentKey: "movie:tmdb:2", profileID: "")
+        #expect(await api.watchedMoviesCallCount == 1)          // second read suppressed
+
+        clock.date += 61
+        await api.setFailReads(false)
+        await api.setWatchedMovies([.init(plays: 1, movie: .init(ids: .init(tmdb: 3, trakt: 1)))])
+        let state = try await provider.progress(forContentKey: "movie:tmdb:3", profileID: "")
+        #expect(await api.watchedMoviesCallCount == 2)          // cooldown lapsed → fetched again
+        #expect(state?.finished == true)                        // and the data actually landed
+    }
+
+    /// An outright refusal (the blanket 403 Trakt's edge serves a throttled network, or a 429) must
+    /// back off far longer than a transient blip: retrying into a block is what sustains the block.
+    /// Observed live — every API path answered 403 from one IP, for a valid key and a junk key alike.
+    @Test func anUpstreamRefusalBacksOffLongerThanABlip() async throws {
+        let api = FakeTraktAPI()
+        await api.setFailReads(true)                    // the fake throws 403
+        await api.setFailureCode(403)
+        let clock = MutableClock()
+        let provider = TraktWatchProvider(api: api, retryCooldown: 60, refusalCooldown: 600,
+                                          now: { clock.date })
+
+        _ = try? await provider.progress(forContentKey: "movie:tmdb:1", profileID: "")
+        #expect(await api.watchedMoviesCallCount == 1)
+
+        clock.date += 61                                 // past the BLIP cooldown…
+        _ = try? await provider.progress(forContentKey: "movie:tmdb:2", profileID: "")
+        #expect(await api.watchedMoviesCallCount == 1)   // …still quiet: it was a refusal
+
+        clock.date += 600                                // past the refusal cooldown
+        _ = try? await provider.progress(forContentKey: "movie:tmdb:3", profileID: "")
+        #expect(await api.watchedMoviesCallCount == 2)
+    }
+
+    /// A plain transport blip must NOT inherit the long refusal backoff — the network dropping for a
+    /// second shouldn't cost ten minutes of stale watch state.
+    @Test func aTransportBlipUsesTheShortCooldown() async throws {
+        let api = FakeTraktAPI()
+        await api.setFailReads(true)
+        await api.setFailureCode(nil)                    // transport error, not a status code
+        let clock = MutableClock()
+        let provider = TraktWatchProvider(api: api, retryCooldown: 60, refusalCooldown: 600,
+                                          now: { clock.date })
+
+        _ = try? await provider.progress(forContentKey: "movie:tmdb:1", profileID: "")
+        clock.date += 61
+        _ = try? await provider.progress(forContentKey: "movie:tmdb:2", profileID: "")
+        #expect(await api.watchedMoviesCallCount == 2)   // short cooldown lapsed → tried again
+    }
+
+    /// Settings ▸ Sync Now is an explicit user action: it must bypass the cooldown, or "wait a
+    /// minute and retry" would be a lie for up to a minute.
+    @Test func syncNowBypassesTheCooldown() async throws {
+        let api = FakeTraktAPI()
+        await api.setFailReads(true)
+        let provider = TraktWatchProvider(api: api)
+
+        _ = try? await provider.progress(forContentKey: "movie:tmdb:1", profileID: "")
+        #expect(await api.watchedMoviesCallCount == 1)
+        await api.setFailReads(false)
+        try await provider.forceRefresh()
+        #expect(await api.watchedMoviesCallCount == 2)
     }
 
     @Test func fractionExposedForResume() async throws {
