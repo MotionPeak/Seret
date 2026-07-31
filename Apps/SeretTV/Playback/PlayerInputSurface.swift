@@ -55,15 +55,33 @@ struct PlayerInputSurface: UIViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
 
-    /// Explicitly non-focusable. This is load-bearing, not incidental — see the type doc.
+    /// Focusable **while the player owns the remote** — and that is load-bearing.
+    ///
+    /// This used to return `false` unconditionally, on the theory that a focusable view lets the
+    /// focus engine consume touch-surface swipes before any pan recogniser sees them. The input
+    /// probe disproved it: with `canBecomeFocused = false` this view received **nothing** — not
+    /// indirect touches, not even button presses (TOUCH 0 / PRESS 0 after a six-press volley, while
+    /// Menu still worked because SwiftUI handles that on the view hierarchy). A view tvOS cannot
+    /// focus is simply not in the delivery path for remote input, so the whole surface was inert.
+    ///
+    /// The focus-steals-swipes worry is real but only bites when focus has somewhere to GO. At rest
+    /// the player has no other focusable view (the transport bar and episode peek are both
+    /// `allowsHitTesting(false)`), so the engine has no candidate and the pan recogniser keeps the
+    /// gesture. When an overlay that owns focus appears — settings panel, episode strip, Up Next —
+    /// `isActive` goes false and this stops being focusable, so exactly one system owns focus at a
+    /// time.
     final class InputView: UIView {
-        override var canBecomeFocused: Bool { false }
+        /// Mirrors `isActive`; toggled by the coordinator so overlays can take focus cleanly.
+        var focusable = true { didSet { if focusable != oldValue { setNeedsFocusUpdate() } } }
+        override var canBecomeFocused: Bool { focusable }
     }
 
     @MainActor
     final class Coordinator: NSObject, UIGestureRecognizerDelegate {
         var parent: PlayerInputSurface
         private var recognizers: [UIGestureRecognizer] = []
+        /// The surface itself, so focusability can follow `isActive`.
+        private weak var view: InputView?
         /// Horizontal displacement at which a drag stops being a stray thumb-rest and becomes a
         /// scrub. Low enough to feel immediate, high enough that a click doesn't scrub.
         private let scrubThreshold: CGFloat = 20
@@ -71,7 +89,8 @@ struct PlayerInputSurface: UIViewRepresentable {
 
         init(parent: PlayerInputSurface) { self.parent = parent }
 
-        func install(on view: UIView) {
+        func install(on view: InputView) {
+            self.view = view
             // Wake: zero-duration long-press fires .began the instant the thumb lands. A pan
             // cannot do this — it needs movement first.
             let wake = UILongPressGestureRecognizer(target: self, action: #selector(handleWake(_:)))
@@ -116,6 +135,9 @@ struct PlayerInputSurface: UIViewRepresentable {
 
         func setActive(_ active: Bool) {
             for recognizer in recognizers { recognizer.isEnabled = active }
+            // Hand focus to whichever system should own it: the surface while watching, the
+            // overlay otherwise. `focusable` only requests an update when it actually changes.
+            view?.focusable = active
             if !active, isScrubbing {
                 isScrubbing = false
                 parent.onScrubCancelled()
