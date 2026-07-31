@@ -37,6 +37,8 @@ struct PlayerView: View {
             // anti-pattern that cost this app its Browse-tile focus (see CLAUDE.md).
             PlayerInputSurface(
                 isActive: !showSettings && !showEpisodes && !model.upNextVisible && !showSubtitleBrowser,
+                // Click pauses AND arms scrubbing; a swipe while playing never seeks.
+                scrubEnabled: model.phase == .paused,
                 onTouchDown: { model.revealScrubBar() },
                 onTouchUp: {},
                 onScrubBegan: { model.beginScrub() },

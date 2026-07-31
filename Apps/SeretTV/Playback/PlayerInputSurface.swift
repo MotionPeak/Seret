@@ -19,6 +19,14 @@ import UIKit
 /// on screen, so exactly one system owns focus at any moment.
 struct PlayerInputSurface: UIViewRepresentable {
     var isActive: Bool
+    /// Whether a horizontal swipe is allowed to scrub. Derived from the player being PAUSED rather
+    /// than tracked here, so it stays right no matter how the pause happened — touchpad click, the
+    /// remote's dedicated play/pause button, Siri, or the iPhone Remote.
+    ///
+    /// Why gate it at all: previously any swipe entered scrub mode and committed a seek on lift, so
+    /// simply resting or sliding a thumb while watching would jump the film. Click now pauses AND
+    /// arms; swipe to move; click again to resume where you left it.
+    var scrubEnabled: Bool = true
 
     /// Thumb landed on the glass — reveal the bar. Playback keeps running.
     var onTouchDown: () -> Void
@@ -85,7 +93,12 @@ struct PlayerInputSurface: UIViewRepresentable {
         /// Horizontal displacement at which a drag stops being a stray thumb-rest and becomes a
         /// scrub. Low enough to feel immediate, high enough that a click doesn't scrub.
         private let scrubThreshold: CGFloat = 20
+        /// Vertical travel that counts as a deliberate up/down swipe. Higher than the scrub
+        /// threshold: a thumb drifting off-axis mid-scrub must not open the panel.
+        private let swipeThreshold: CGFloat = 45
         private var isScrubbing = false
+        /// One vertical action per drag — a long swipe must not fire `onDown` repeatedly.
+        private var verticalFired = false
 
         init(parent: PlayerInputSurface) { self.parent = parent }
 
@@ -165,13 +178,32 @@ struct PlayerInputSurface: UIViewRepresentable {
         }
 
         @objc private func handlePan(_ g: UIPanGestureRecognizer) {
-            let dx = g.translation(in: g.view).x
+            let translation = g.translation(in: g.view)
+            let dx = translation.x
+            let dy = translation.y
             #if DEBUG
             InputProbe.shared.touch("pan .\(g.state.rawValue)", dx: Double(dx))
             #endif
             switch g.state {
+            case .began:
+                verticalFired = false
             case .changed:
-                if !isScrubbing, abs(dx) >= scrubThreshold {
+                // A VERTICAL swipe is its own gesture, not a failed horizontal one. Until now only
+                // `dx` was read, so swiping down did nothing at all — the settings panel was
+                // reachable only by clicking the touchpad's bottom edge, which is why "swipe down
+                // for subtitles" appeared dead. Claim the gesture once per drag, and only when the
+                // motion is clearly more vertical than horizontal, so a sloppy scrub is not stolen.
+                if !isScrubbing, !verticalFired,
+                   abs(dy) >= swipeThreshold, abs(dy) > abs(dx) * 1.5 {
+                    verticalFired = true
+                    if dy > 0 { parent.onDown() } else { parent.onUp() }
+                    return
+                }
+                guard !verticalFired else { return }
+
+                // Only a PAUSED player scrubs. While playing, a swipe still wakes the transport bar
+                // (the long-press recogniser does that on touch-down) but never seeks.
+                if !isScrubbing, parent.scrubEnabled, abs(dx) >= scrubThreshold {
                     isScrubbing = true
                     #if DEBUG
                     InputProbe.shared.scrubBegan()
@@ -180,8 +212,10 @@ struct PlayerInputSurface: UIViewRepresentable {
                 }
                 if isScrubbing { parent.onScrubMoved(Double(dx)) }
             case .ended:
+                verticalFired = false
                 if isScrubbing { isScrubbing = false; parent.onScrubEnded() }
             case .cancelled, .failed:
+                verticalFired = false
                 if isScrubbing { isScrubbing = false; parent.onScrubCancelled() }
             default:
                 break
