@@ -85,9 +85,41 @@ private struct PlaybackColumns: View {
                     }
                 }
             }
-            // The fixed he/en download rows are gone: a moviehash-backed, ranked search over every
-            // language (Task 9) replaces them.
+            // One-click Hebrew/English, for the overwhelmingly common case: an RD rip with no muxed
+            // subtitles at all. Without these the column collapses to "Off" + "Search subtitles…",
+            // which is what shipped and read as "no subtitle info" — the search browser is the
+            // right tool for picking a specific release, not for "just give me Hebrew".
+            // Shown only while NOT yet attached; once downloaded the track appears under DOWNLOADED
+            // above, so listing it here too would duplicate it.
+            ForEach(model.subtitleRows) { row in
+                if model.attachedTrackID(row) == nil {
+                    CheckRow(title: quickTitle(row), checked: false) {
+                        Task { await model.requestSubtitle(language: row.language) }
+                    }
+                    .disabled(isDisabled(row))
+                }
+            }
+
             CheckRow(title: "Search subtitles…", checked: false) { onSearchSubtitles() }
+        }
+    }
+
+    /// Names the language and, when it matters, says why the row is not actionable.
+    private func quickTitle(_ row: PlayerModel.SubtitleRow) -> String {
+        let language = row.language == "he" ? "Hebrew" : "English"
+        switch row.state {
+        case .downloading: return "\(language) — downloading…"
+        case .capReached:  return "\(language) — daily limit reached"
+        case .noAccount:   return "\(language) — add an OpenSubtitles account"
+        case .error:       return "\(language) — not found, try Search"
+        default:           return "\(language) (download)"
+        }
+    }
+
+    private func isDisabled(_ row: PlayerModel.SubtitleRow) -> Bool {
+        switch row.state {
+        case .capReached, .noAccount, .downloading: return true
+        default: return false
         }
     }
 

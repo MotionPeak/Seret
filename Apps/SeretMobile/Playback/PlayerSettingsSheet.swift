@@ -42,6 +42,11 @@ struct PlayerSettingsSheet: View {
                                     model.selectSubtitle(id: e.track.id)
                                 }
                             }
+                            // One-click he/en for the common case (no muxed subs). Hidden once the
+                            // track is attached, since it then appears as a real track above.
+                            ForEach(model.subtitleRows) { row in
+                                if model.attachedTrackID(row) == nil { quickChip(row) }
+                            }
                             searchChip
                         }
                     }
@@ -107,7 +112,45 @@ struct PlayerSettingsSheet: View {
         .buttonStyle(.plain)
     }
 
-    /// Opens the full ranked subtitle browser — replaces the old fixed he/en download pills.
+    /// One-tap Hebrew/English download. Dashed border marks it as an action rather than a track.
+    @ViewBuilder private func quickChip(_ row: PlayerModel.SubtitleRow) -> some View {
+        let language = row.language == "he" ? "Hebrew" : "English"
+        Button {
+            Task { await model.requestSubtitle(language: row.language) }
+        } label: {
+            HStack(spacing: 6) {
+                downloadGlyph(row.state)
+                Text(language).font(.system(size: 14, weight: .semibold))
+            }
+            .foregroundStyle(Theme.Palette.textPrimary)
+            .padding(.vertical, 9).padding(.horizontal, 15)
+            .background(Theme.Palette.surface2, in: Capsule())
+            .overlay(Capsule().stroke(Theme.Palette.gold.opacity(0.45),
+                                      style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
+        }
+        .buttonStyle(.plain)
+        .disabled(isDisabled(row))
+    }
+
+    @ViewBuilder private func downloadGlyph(_ state: PlayerModel.SubtitleRowState) -> some View {
+        switch state {
+        case .idle:        Image(systemName: "arrow.down.circle").foregroundStyle(Theme.Palette.gold)
+        case .downloading: ProgressView().controlSize(.mini)
+        case .attached:    Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.Palette.gold)
+        case .capReached:  Image(systemName: "clock").foregroundStyle(Theme.Palette.textSecondary)
+        case .noAccount:   Image(systemName: "person.crop.circle.badge.xmark").foregroundStyle(Theme.Palette.textSecondary)
+        case .error:       Image(systemName: "exclamationmark.triangle").foregroundStyle(Theme.Palette.gold)
+        }
+    }
+
+    private func isDisabled(_ row: PlayerModel.SubtitleRow) -> Bool {
+        switch row.state {
+        case .capReached, .noAccount, .downloading: return true
+        default: return false
+        }
+    }
+
+    /// Opens the full ranked subtitle browser — for picking a specific release.
     private var searchChip: some View {
         NavigationLink { MobileSubtitleBrowser(model: model) } label: {
             HStack(spacing: 5) {
