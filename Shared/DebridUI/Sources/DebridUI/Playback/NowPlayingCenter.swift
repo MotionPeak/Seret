@@ -17,59 +17,83 @@ public final class NowPlayingCenter: NowPlayingControlling {
 
     public init() {}
 
+    /// Install the system transport handlers.
+    ///
+    /// Every handler below is `@Sendable`, which makes it **non-isolated**, and defers the real
+    /// work to a `@MainActor` hop. That shape is deliberate: Apple documents no thread on which
+    /// `MPRemoteCommand` invokes these blocks, and a closure written inline in this `@MainActor`
+    /// class would otherwise inherit main-actor isolation, so Swift would inject an isolation check
+    /// that calls `dispatch_assert_queue(main)` and **traps** the moment MediaPlayer used any other
+    /// queue. That is not hypothetical for this framework — it is exactly how the Now Playing
+    /// artwork handler crashed the app on entering every title (see `artwork(for:)` below).
+    /// An undocumented contract whose failure mode is SIGTRAP is not one to lean on.
+    ///
+    /// The cost is that a command reports `.success` before its effect runs. For transport actions
+    /// that is unobservable; the alternative — reading main-actor state synchronously off the main
+    /// actor — is the crash itself.
     public func activate(_ handlers: NowPlayingHandlers) {
         self.handlers = handlers
         let center = MPRemoteCommandCenter.shared()
+        // Read on the main actor, captured as plain Sendable values, so the handlers never touch
+        // actor state to decide what to return.
+        let skip = skipInterval
+        let hasNextTrack = handlers.nextTrack != nil
 
         center.playCommand.isEnabled = true
-        center.playCommand.addTarget { [weak self] _ in
-            self?.handlers?.play(); return .success
+        center.playCommand.addTarget { @Sendable [weak self] _ in
+            Task { @MainActor in self?.handlers?.play() }
+            return .success
         }
         center.pauseCommand.isEnabled = true
-        center.pauseCommand.addTarget { [weak self] _ in
-            self?.handlers?.pause(); return .success
+        center.pauseCommand.addTarget { @Sendable [weak self] _ in
+            Task { @MainActor in self?.handlers?.pause() }
+            return .success
         }
         center.togglePlayPauseCommand.isEnabled = true
-        center.togglePlayPauseCommand.addTarget { [weak self] _ in
-            self?.handlers?.togglePlayPause(); return .success
+        center.togglePlayPauseCommand.addTarget { @Sendable [weak self] _ in
+            Task { @MainActor in self?.handlers?.togglePlayPause() }
+            return .success
         }
 
         center.skipForwardCommand.isEnabled = true
         center.skipForwardCommand.preferredIntervals = [NSNumber(value: skipInterval)]
-        center.skipForwardCommand.addTarget { [weak self] event in
-            guard let self else { return .commandFailed }
-            let interval = (event as? MPSkipIntervalCommandEvent)?.interval ?? self.skipInterval
-            self.handlers?.skip(interval)
+        center.skipForwardCommand.addTarget { @Sendable [weak self] event in
+            // Pull the interval out here: the event object is not Sendable and must not cross.
+            let interval = (event as? MPSkipIntervalCommandEvent)?.interval ?? skip
+            Task { @MainActor in self?.handlers?.skip(interval) }
             return .success
         }
         center.skipBackwardCommand.isEnabled = true
         center.skipBackwardCommand.preferredIntervals = [NSNumber(value: skipInterval)]
-        center.skipBackwardCommand.addTarget { [weak self] event in
-            guard let self else { return .commandFailed }
-            let interval = (event as? MPSkipIntervalCommandEvent)?.interval ?? self.skipInterval
-            self.handlers?.skip(-interval)
+        center.skipBackwardCommand.addTarget { @Sendable [weak self] event in
+            let interval = (event as? MPSkipIntervalCommandEvent)?.interval ?? skip
+            Task { @MainActor in self?.handlers?.skip(-interval) }
             return .success
         }
 
         center.changePlaybackPositionCommand.isEnabled = true
-        center.changePlaybackPositionCommand.addTarget { [weak self] event in
+        center.changePlaybackPositionCommand.addTarget { @Sendable [weak self] event in
             guard let e = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
-            self?.handlers?.seek(e.positionTime)
+            let position = e.positionTime
+            Task { @MainActor in self?.handlers?.seek(position) }
             return .success
         }
 
         center.changePlaybackRateCommand.isEnabled = true
         center.changePlaybackRateCommand.supportedPlaybackRates = [1, 2, 3, 4].map { NSNumber(value: $0) }
-        center.changePlaybackRateCommand.addTarget { [weak self] event in
+        center.changePlaybackRateCommand.addTarget { @Sendable [weak self] event in
             guard let e = event as? MPChangePlaybackRateCommandEvent else { return .commandFailed }
-            self?.handlers?.setRate(Double(e.playbackRate))
+            let rate = Double(e.playbackRate)
+            Task { @MainActor in self?.handlers?.setRate(rate) }
             return .success
         }
 
-        center.nextTrackCommand.isEnabled = handlers.nextTrack != nil
-        center.nextTrackCommand.addTarget { [weak self] _ in
-            guard let next = self?.handlers?.nextTrack else { return .noSuchContent }
-            next()
+        // `.noSuchContent` has to be decided synchronously, so it reads the captured Bool rather
+        // than reaching into `handlers` — that read is what would have needed the main actor.
+        center.nextTrackCommand.isEnabled = hasNextTrack
+        center.nextTrackCommand.addTarget { @Sendable [weak self] _ in
+            guard hasNextTrack else { return .noSuchContent }
+            Task { @MainActor in self?.handlers?.nextTrack?() }
             return .success
         }
     }
