@@ -24,6 +24,16 @@ import Foundation
         #expect(d < 10)
     }
 
+    /// The reported "skips too much" lived here — not at the extremes, which were always fine, but
+    /// in the middle of the surface where ordinary aiming happens. A fifth of the reachable travel
+    /// must stay inside a shot, not throw you most of a minute.
+    @Test func midRangeMovesStayUsable() {
+        let fifth = ScrubGain.seconds(forDisplacement: ScrubGain.halfSurface * 0.2, duration: twoHours)
+        let third = ScrubGain.seconds(forDisplacement: ScrubGain.halfSurface * 0.3, duration: twoHours)
+        #expect(fifth < 20, "was 40s with a cubic ramp")
+        #expect(third < 40, "was 114s with a cubic ramp")
+    }
+
     @Test func aFullSweepCoversHalfTheFilm() {
         let d = ScrubGain.seconds(forDisplacement: ScrubGain.halfSurface, duration: twoHours)
         #expect(abs(d - twoHours / 2) < 1)

@@ -21,6 +21,15 @@ public enum ScrubGain {
     /// effectively linear and precise.
     public static let fineSpan: Double = 60
 
+    /// How sharply the coarse term ramps. This is THE sensitivity knob.
+    ///
+    /// It was 3, which put the cubic term in charge far too early: on a 2-hour film a 100pt nudge
+    /// jumped 40s and 150pt jumped nearly two minutes, so ordinary thumb movement overshot whatever
+    /// you were aiming at — reported as "sensitivity is too high, it skips too much". At 5 the same
+    /// movements are ~13s and ~27s, while a full sweep still covers half the film, so reach is
+    /// unchanged and only the usable middle gets calmer. Raise it further to soften more.
+    public static let coarseExponent: Double = 5
+
     /// - Parameters:
     ///   - points: horizontal displacement from the gesture's origin, in points. Positive = right.
     ///   - duration: media length in seconds. `0` (not yet reported) falls back to one hour so the
@@ -33,7 +42,7 @@ public enum ScrubGain {
         // A full sweep covers half the film; `fineSpan` is carved out of that for the linear term
         // so short movements stay precise. Clamped so a very short clip can't invert the curve.
         let coarseSpan = max(0, span / 2 - fineSpan)
-        let magnitude = fineSpan * normalized + coarseSpan * pow(normalized, 3)
+        let magnitude = fineSpan * normalized + coarseSpan * pow(normalized, coarseExponent)
         // Never let the fine term alone overshoot half of a very short clip.
         let capped = min(magnitude, span / 2)
         return points > 0 ? capped : -capped

@@ -230,7 +230,13 @@ private struct PlayerBottomBar: View {
     let onEpisodes: () -> Void
 
     // The bar is up while the viewer is interacting, mid-buffer, or the strip is open.
-    private var barShown: Bool { model.scrubBarVisible || model.isBuffering || showEpisodes }
+    // Paused keeps the bar up for as long as the pause lasts. Pausing IS how you arm scrubbing now,
+    // so the thing you are about to aim with must be on screen the whole time — not on the 5s
+    // reveal dwell, which timed out mid-scrub and left you dragging a film with no visible playhead.
+    // It comes down by itself when playback resumes.
+    private var barShown: Bool {
+        model.scrubBarVisible || model.isBuffering || showEpisodes || model.phase == .paused
+    }
 
     var body: some View {
         VStack(spacing: 16) {
