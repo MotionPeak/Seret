@@ -39,24 +39,10 @@ public actor TraktWatchProvider: WatchProgressProviding {
     /// "no progress" and never re-read (the bug where a rating vanished on relaunch).
     private var loaded = false
     private var loadTask: Task<Void, Never>?
-    // Actor-isolated (ISO8601DateFormatter isn't Sendable, so it can't be a shared static).
-    private let iso: ISO8601DateFormatter = {
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return f
-    }()
     /// Trakt sends timestamps both with and without fractional seconds (`last_watched_at` is
-    /// routinely plain), and `iso` above parses only the fractional shape — hence the fallback.
-    private let isoPlain: ISO8601DateFormatter = {
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime]
-        return f
-    }()
-
-    private func parseISO(_ string: String?) -> Date? {
-        guard let string else { return nil }
-        return iso.date(from: string) ?? isoPlain.date(from: string)
-    }
+    /// routinely plain, `paused_at` fractional), so every parse here goes through the shared
+    /// tolerant one in DebridCore.
+    private func parseISO(_ string: String?) -> Date? { ISO8601Timestamp.date(from: string) }
 
     public init(api: TraktWatchAPI) {
         self.api = api

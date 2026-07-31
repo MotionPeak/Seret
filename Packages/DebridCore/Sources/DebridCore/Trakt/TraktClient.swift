@@ -255,16 +255,9 @@ extension TraktClient {
 // MARK: - Watch history dates
 
 extension TraktClient {
-    /// Trakt timestamps sometimes carry fractional seconds and sometimes don't;
-    /// try both before giving up.
-    private static func parseISO(_ string: String) -> Date? {
-        let withFraction = ISO8601DateFormatter()
-        withFraction.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let d = withFraction.date(from: string) { return d }
-        let plain = ISO8601DateFormatter()
-        plain.formatOptions = [.withInternetDateTime]
-        return plain.date(from: string)
-    }
+    /// Trakt timestamps sometimes carry fractional seconds and sometimes don't — see
+    /// `ISO8601Timestamp`, which is shared with the RD `added` parse and the watch provider.
+    private static func parseISO(_ string: String) -> Date? { ISO8601Timestamp.date(from: string) }
 
     /// The oldest `watched_at` in the signed-in user's history for a title.
     /// `type` is "movies" or "shows"; `traktID` is the title's numeric Trakt id.
