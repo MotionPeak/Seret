@@ -9,9 +9,15 @@ func configure(_ app: Application, config: ServerConfig) async throws {
     app.transcoder = TranscodeManager(root: config.hlsRoot,
                                       maxHeight: config.maxHeight,
                                       maxSessions: config.maxSessions)
+    let tmdb = TMDBClient(apiKey: config.tmdbAPIKey)
+    app.tmdb = tmdb
+    app.ratings = config.omdbAPIKey.isEmpty ? nil : OMDbClient(apiKey: config.omdbAPIKey)
+    if config.omdbAPIKey.isEmpty {
+        app.logger.notice("OMDB_API_KEY is empty — the detail page ratings row is disabled.")
+    }
     app.library = ServerLibrary(
         torrents: app.torrents,
-        enricher: MetadataEnricher(tmdb: TMDBClient(apiKey: config.tmdbAPIKey)))
+        enricher: MetadataEnricher(tmdb: tmdb))
 
     let sessions = SessionStore()
     app.middleware.use(AuthMiddleware(password: config.webPassword, sessions: sessions))
@@ -23,6 +29,7 @@ func configure(_ app: Application, config: ServerConfig) async throws {
     registerAuthRoutes(app, password: config.webPassword, sessions: sessions)
     registerTorrentsRoutes(app)
     registerLibraryRoutes(app)
+    registerDetailRoutes(app)
     registerPlayRoutes(app)
     registerPlayerPages(app)
 

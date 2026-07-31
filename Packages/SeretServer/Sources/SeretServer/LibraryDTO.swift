@@ -2,11 +2,24 @@ import Vapor
 import DebridCore
 
 /// One playable version of a title. Deliberately carries only an `index` — the restricted RD
-/// link never leaves the server.
+/// link never leaves the server. `index` is the position in `item.sources` (what `/watch?version=`
+/// expects); the list itself is ordered best-first, mirroring the app's Versions list.
 struct VersionDTO: Content, Equatable {
     let index: Int
     let label: String
     let resolution: String?
+
+    /// Versions best-first, each carrying its original `item.sources` index for playback.
+    static func list(for item: MediaItem) -> [VersionDTO] {
+        item.sources.bestFirst().map { source in
+            let index = item.sources.firstIndex(of: source) ?? 0
+            let p = source.parsed
+            let parts = [p.resolution, p.source, p.videoCodec, p.audioCodec].compactMap { $0 }
+            return VersionDTO(index: index,
+                              label: parts.isEmpty ? "Version \(index + 1)" : parts.joined(separator: " · "),
+                              resolution: p.resolution)
+        }
+    }
 }
 
 /// A library entry as the browser sees it.
@@ -32,12 +45,6 @@ struct LibraryItemDTO: Content, Equatable {
         self.backdropPath = item.backdropPath
         self.overview = item.overview
         self.addedAt = item.addedAt.map { $0.timeIntervalSince1970 }
-        self.versions = item.sources.enumerated().map { index, media in
-            let p = media.parsed
-            let parts = [p.resolution, p.source, p.videoCodec].compactMap { $0 }
-            return VersionDTO(index: index,
-                              label: parts.isEmpty ? "Version \(index + 1)" : parts.joined(separator: " · "),
-                              resolution: p.resolution)
-        }
+        self.versions = VersionDTO.list(for: item)
     }
 }

@@ -148,6 +148,11 @@ public struct TMDBClient: Sendable {
         ])
     }
 
+    /// Cast + crew for a movie (`/movie/{id}/credits`) — powers the CAST rail and the director credit.
+    public func movieCredits(id: Int) async throws -> TMDBCredits {
+        try await get("movie/\(id)/credits", [])
+    }
+
     public func tvDetails(id: Int) async throws -> TMDBTVDetails {
         try await get("tv/\(id)", [
             URLQueryItem(name: "append_to_response", value: "external_ids,aggregate_credits,recommendations")
