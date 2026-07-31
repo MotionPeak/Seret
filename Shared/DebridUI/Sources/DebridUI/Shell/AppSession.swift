@@ -357,7 +357,14 @@ public final class AppSession {
             case let .status(code, _):
                 switch code {
                 case 401: return "Trakt rejected the sign-in (401). Unlink and link again."
-                case 403: return "Trakt refused access (403). Unlink and link again."
+                // NOT a relink prompt. Trakt's edge answers 403 to every request from a throttled
+                // network — a bogus API key and a valid one get the identical refusal, so it lands
+                // before the account is even considered. Relinking cannot fix it, and the extra auth
+                // calls prolong the block. Observed live: 403 on every API path from one IP while
+                // the same client worked elsewhere.
+                case 403:
+                    return "Trakt is refusing requests from this network (403). "
+                         + "This follows heavy retrying — wait a while, then try again. Don't unlink."
                 case 420, 429: return "Trakt is rate-limiting (\(code)). Wait a minute and retry."
                 default: return "Trakt returned HTTP \(code)."
                 }
