@@ -62,7 +62,9 @@ public struct TMDBCastMember: Decodable, Sendable, Equatable, Hashable, Identifi
         case profilePath = "profile_path"
     }
 
-    public init(id: Int, name: String, character: String?, profilePath: String?, order: Int?) {
+    /// `order` defaults so the `/credits` callers (which don't rank) can omit it; the
+    /// `append_to_response` path passes it and sorts the rail by it.
+    public init(id: Int, name: String, character: String?, profilePath: String?, order: Int? = nil) {
         self.id = id; self.name = name; self.character = character
         self.profilePath = profilePath; self.order = order
     }
@@ -183,22 +185,6 @@ public struct TMDBCredits: Decodable, Sendable, Equatable {
 
     public init(cast: [TMDBCastMember], crew: [TMDBCrewMember]) {
         self.cast = cast; self.crew = crew
-    }
-}
-
-public struct TMDBCastMember: Decodable, Sendable, Equatable, Identifiable {
-    public let id: Int
-    public let name: String
-    public let character: String?
-    public let profilePath: String?
-
-    enum CodingKeys: String, CodingKey {
-        case id, name, character
-        case profilePath = "profile_path"
-    }
-
-    public init(id: Int, name: String, character: String?, profilePath: String?) {
-        self.id = id; self.name = name; self.character = character; self.profilePath = profilePath
     }
 }
 
