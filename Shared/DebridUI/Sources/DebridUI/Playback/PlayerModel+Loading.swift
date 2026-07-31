@@ -33,7 +33,10 @@ extension PlayerModel {
             // active session's phase (that flashed the overlay over the video). It does mean we're
             // waiting on frames — flag buffering so the UI shows a small inline hint (the full
             // overlay only shows before the first frame).
-            isBuffering = true
+            // …but NOT while paused. VLCKit keeps emitting `.buffering` after a pause, and a paused
+            // player never emits `.playing` again, so nothing was left to lower the hint: the
+            // spinner simply stuck under a stopped picture.
+            if phase != .paused { isBuffering = true }
             if phase != .playing && phase != .paused { phase = .buffering }
         case .playing:
             phase = .playing

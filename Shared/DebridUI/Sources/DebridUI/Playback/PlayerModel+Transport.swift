@@ -16,7 +16,9 @@ extension PlayerModel {
         let target = clamp(position + delta)
         handleUserSeek(to: target)
         position = target            // optimistic: the scrub bar jumps to the new time immediately
-        isBuffering = true           // …and shows the loading hint while the seek rebuffers
+        // Loading hint only while PLAYING: a paused seek has no frames to wait for, and paused
+        // never emits `.playing`, so raising it here would leave it up for good.
+        if phase != .paused { isBuffering = true }
         lastTickPosition = target    // re-arm advance detection past the target
         pendingSeek = target != origin ? (from: origin, to: target) : nil   // hold the bar through stale ticks
         scheduleCoalescedSeek(to: target)
@@ -126,7 +128,7 @@ extension PlayerModel {
         handleUserSeek(to: scrubTarget)
         position = scrubTarget
         lastTickPosition = scrubTarget
-        isBuffering = true                     // loading hint while the seek rebuffers
+        if phase != .paused { isBuffering = true }   // hint only while playing — see `skip`
         pendingSeek = scrubTarget != from ? (from: from, to: scrubTarget) : nil   // hold through stale ticks
         cancelCoalescedSeek()                  // a commit supersedes any open skip window
         engine.seek(to: scrubTarget)
