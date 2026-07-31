@@ -30,13 +30,15 @@ import Foundation
     @Test func midRangeMovesStayUsable() {
         let fifth = ScrubGain.seconds(forDisplacement: ScrubGain.halfSurface * 0.2, duration: twoHours)
         let third = ScrubGain.seconds(forDisplacement: ScrubGain.halfSurface * 0.3, duration: twoHours)
-        #expect(fifth < 20, "was 40s with a cubic ramp")
-        #expect(third < 40, "was 114s with a cubic ramp")
+        #expect(fifth < 10, "was 40s originally, 13s after the first pass")
+        #expect(third < 20, "was 114s originally, 27s after the first pass")
     }
 
-    @Test func aFullSweepCoversHalfTheFilm() {
+    /// Reach is deliberately a quarter of the film per sweep, not half: half made the whole mapping
+    /// steep no matter how the curve was shaped, because the linear term scales with reach too.
+    @Test func aFullSweepCoversAQuarterOfTheFilm() {
         let d = ScrubGain.seconds(forDisplacement: ScrubGain.halfSurface, duration: twoHours)
-        #expect(abs(d - twoHours / 2) < 1)
+        #expect(abs(d - twoHours * ScrubGain.sweepFraction) < 1)
     }
 
     @Test func displacementIsClampedToTheSurface() {

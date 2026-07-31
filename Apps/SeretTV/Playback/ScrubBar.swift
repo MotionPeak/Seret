@@ -21,12 +21,20 @@ struct ScrubBar: View {
     private var headFraction: Double {
         model.duration > 0 ? min(1, max(0, headTime / model.duration)) : 0
     }
-    private var trackHeight: CGFloat { model.isScrubbing ? 8 : 3 }
+    /// The bar has two presentations, and PAUSE — not thumb-contact — decides which.
+    ///
+    /// Being paused IS scrub mode now, so the expanded slab stays up for the whole pause instead of
+    /// snapping open on touch-down and collapsing on lift. Tying it to `isScrubbing` alone made it
+    /// flicker between the two looks on every contact while aiming, which is what "it pops back off
+    /// and on" described. It returns to the thin resting bar when playback resumes.
+    private var expanded: Bool { model.isScrubbing || model.phase == .paused }
+
+    private var trackHeight: CGFloat { expanded ? 8 : 3 }
     private var timeFont: Font {
-        .system(size: model.isScrubbing ? 24 : 20, weight: .semibold)
+        .system(size: expanded ? 24 : 20, weight: .semibold)
     }
     private var timeColor: Color {
-        model.isScrubbing ? Theme.Palette.textPrimary : Theme.Palette.textSecondary
+        expanded ? Theme.Palette.textPrimary : Theme.Palette.textSecondary
     }
 
     var body: some View {
@@ -47,18 +55,18 @@ struct ScrubBar: View {
                 .transition(.opacity)
             }
         }
-        .padding(model.isScrubbing ? 20 : 0)
+        .padding(expanded ? 20 : 0)
         .background {
-            // The slab exists only while scrubbing — at rest the bar floats on the picture.
+            // The slab is the scrub-mode surface: up for the whole pause, gone while playing.
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .fill(.white.opacity(0.05))
                 .overlay(
                     RoundedRectangle(cornerRadius: 18, style: .continuous)
                         .strokeBorder(Theme.Palette.gold.opacity(0.35), lineWidth: 1)
                 )
-                .opacity(model.isScrubbing ? 1 : 0)
+                .opacity(expanded ? 1 : 0)
         }
-        .animation(Theme.Anim.heroSpring, value: model.isScrubbing)
+        .animation(Theme.Anim.heroSpring, value: expanded)
         .animation(Theme.Anim.focus, value: buffering)
     }
 

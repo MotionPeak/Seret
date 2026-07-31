@@ -19,7 +19,13 @@ public enum ScrubGain {
 
     /// Seconds covered by the fine (linear) term at full deflection. Below this the response is
     /// effectively linear and precise.
-    public static let fineSpan: Double = 60
+    public static let fineSpan: Double = 30
+
+    /// How much of the film one full sweep covers. Was half, which is what made even a calmed curve
+    /// feel hot: half a 2-hour film across one thumb travel means the *whole* mapping is steep, and
+    /// no exponent fixes that because the linear term scales with it too. A quarter still reaches
+    /// 30 minutes in one sweep — far more than aiming ever needs — and you can always sweep twice.
+    public static let sweepFraction: Double = 0.25
 
     /// How sharply the coarse term ramps. This is THE sensitivity knob.
     ///
@@ -39,9 +45,10 @@ public enum ScrubGain {
         guard points != 0 else { return 0 }
         let span = duration > 0 ? duration : 3600
         let normalized = min(1, abs(points) / halfSurface)
-        // A full sweep covers half the film; `fineSpan` is carved out of that for the linear term
-        // so short movements stay precise. Clamped so a very short clip can't invert the curve.
-        let coarseSpan = max(0, span / 2 - fineSpan)
+        // A full sweep covers `sweepFraction` of the film; `fineSpan` is carved out of that for the
+        // linear term so short movements stay precise. Clamped so a very short clip can't invert
+        // the curve — on a clip shorter than the fine span the mapping is purely linear.
+        let coarseSpan = max(0, span * sweepFraction - fineSpan)
         let magnitude = fineSpan * normalized + coarseSpan * pow(normalized, coarseExponent)
         // Never let the fine term alone overshoot half of a very short clip.
         let capped = min(magnitude, span / 2)
