@@ -103,7 +103,7 @@ private struct PreviewBarRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text(title).font(.callout).foregroundStyle(Theme.Palette.textSecondary)
+            Text(title).font(.seretCallout).foregroundStyle(Theme.Palette.textSecondary)
             ScrubBar(model: driver.model, buffering: driver.buffering)
         }
         .task { await driver.prime(); drive(driver) }

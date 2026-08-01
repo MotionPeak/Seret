@@ -44,7 +44,7 @@ struct AddProfileScreen: View {
                         ProfileAvatarImage(token: avatar, diameter: 170, colorTag: color)
                             .goldGlow(20, opacity: 0.25)
                         TextField("Name (optional)", text: $name)
-                            .frame(maxWidth: 560).font(.title3)
+                            .frame(maxWidth: 560).font(.seretTitle3)
                             .padding(.vertical, 10).padding(.horizontal, 24)
                             .background(Theme.Palette.surface1, in: RoundedRectangle(cornerRadius: 14))
                         colorRow
@@ -67,7 +67,7 @@ struct AddProfileScreen: View {
                                     }
                             }
                         }
-                        .font(.title3)
+                        .font(.seretTitle3)
                         .frame(maxWidth: .infinity)
                         // The avatar grid is full-width but this row is centered, so the outer
                         // avatars could not reach Save/Create at all.

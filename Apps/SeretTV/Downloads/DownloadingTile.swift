@@ -15,7 +15,7 @@ struct DownloadingTile: View {
             }
             .frame(width: 180, height: 270)
             .clipShape(RoundedRectangle(cornerRadius: Theme.Layout.posterCorner, style: .continuous))
-            Text(tile.title).font(.callout).lineLimit(1)
+            Text(tile.title).font(.seretCallout).lineLimit(1)
                 .frame(width: 180, alignment: .leading).foregroundStyle(.secondary)
         }
     }

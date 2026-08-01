@@ -15,7 +15,7 @@ struct SettingsView: View {
             ScrollView {
                 VStack(spacing: 40) {
                 Text("Settings").font(.largeTitle.bold()).foregroundStyle(Theme.Palette.textPrimary)
-                Text("Signed in to Real‑Debrid.").font(.title3).foregroundStyle(Theme.Palette.textSecondary)
+                Text("Signed in to Real‑Debrid.").font(.seretTitle3).foregroundStyle(Theme.Palette.textSecondary)
 
                 VStack(alignment: .leading, spacing: 16) {
                     Label("OpenSubtitles account", systemImage: "captions.bubble.fill")
@@ -23,7 +23,7 @@ struct SettingsView: View {
                     Text(model.isConnected
                          ? "Connected as \(model.username). Used to download Hebrew/English subtitles."
                          : "Add your free OpenSubtitles account to download subtitles during playback.")
-                        .font(.callout).foregroundStyle(Theme.Palette.textSecondary)
+                        .font(.seretCallout).foregroundStyle(Theme.Palette.textSecondary)
                     TextField("Username", text: $model.username)
                         .textContentType(.username)
                     SecureField("Password", text: $model.password)
@@ -45,7 +45,7 @@ struct SettingsView: View {
                     Label("Subtitles", systemImage: "textformat.size")
                         .font(.title3.bold()).foregroundStyle(Theme.Palette.gold)
                     Text("Applies to every movie and show. Takes effect on the next playback.")
-                        .font(.callout).foregroundStyle(Theme.Palette.textSecondary)
+                        .font(.seretCallout).foregroundStyle(Theme.Palette.textSecondary)
                     pillRow("Size", SubtitlePreferences.Size.allCases, label: { $0.label }, selected: subtitleSize)
                     pillRow("Font", SubtitlePreferences.Font.allCases, label: { $0.label }, selected: subtitleFont)
                     pillRow("Color", SubtitlePreferences.Color.allCases, label: { $0.label }, selected: subtitleColor)
@@ -59,7 +59,7 @@ struct SettingsView: View {
                         get: { session.trailerSettings.autoplayTrailers },
                         set: { session.trailerSettings.autoplayTrailers = $0 }))
                     Text("Play a muted trailer on a title's page automatically.")
-                        .font(.callout).foregroundStyle(Theme.Palette.textSecondary)
+                        .font(.seretCallout).foregroundStyle(Theme.Palette.textSecondary)
                 }
                 .frame(maxWidth: 900)
 
@@ -67,14 +67,14 @@ struct SettingsView: View {
                     Label("Profile", systemImage: "person.crop.circle.fill")
                         .font(.title3.bold()).foregroundStyle(Theme.Palette.gold)
                     if let name = session.activeProfiles?.activeProfile?.name {
-                        Text("Watching as \(name).").font(.callout)
+                        Text("Watching as \(name).").font(.seretCallout)
                             .foregroundStyle(Theme.Palette.textSecondary)
                     }
                     Text("Add a profile so each viewer gets their own Continue Watching and My List.")
-                        .font(.callout).foregroundStyle(Theme.Palette.textSecondary)
+                        .font(.seretCallout).foregroundStyle(Theme.Palette.textSecondary)
                     Label(session.profilesSyncedViaICloud ? "Syncing via iCloud" : "On this device only",
                           systemImage: session.profilesSyncedViaICloud ? "checkmark.icloud.fill" : "icloud.slash")
-                        .font(.callout)
+                        .font(.seretCallout)
                         .foregroundStyle(session.profilesSyncedViaICloud ? Theme.Palette.gold : Theme.Palette.textSecondary)
                     HStack(spacing: 24) {
                         if session.activeProfiles?.activeProfile != nil {
@@ -88,7 +88,7 @@ struct SettingsView: View {
                 Button(role: .destructive) {
                     Task { await session.signOut() }
                 } label: {
-                    Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right").font(.title3)
+                    Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right").font(.seretTitle3)
                 }
                 }
                 .frame(maxWidth: .infinity)

@@ -10,8 +10,8 @@ struct LoadingOverlay: View {
         DimBackdrop(url: backdropURL) {
             VStack(spacing: 16) {
                 ProgressView().controlSize(.large).tint(Theme.Palette.gold)
-                Text(caption).font(.title3)
-                Text(title).font(.headline).foregroundStyle(.secondary)
+                Text(caption).font(.seretTitle3)
+                Text(title).font(.seretHeadline).foregroundStyle(.secondary)
             }
         }
     }
@@ -30,7 +30,7 @@ struct ErrorOverlay: View {
                 Image(systemName: "exclamationmark.triangle").font(.system(size: 54))
                     .foregroundStyle(Theme.Palette.gold)
                 Text("Couldn't play this source").font(.title2.bold())
-                Text(reason).font(.callout).foregroundStyle(.secondary)
+                Text(reason).font(.seretCallout).foregroundStyle(.secondary)
                     .multilineTextAlignment(.center).frame(maxWidth: 800)
                 HStack(spacing: 24) {
                     Button("Retry", action: onRetry)

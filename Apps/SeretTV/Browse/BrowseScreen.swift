@@ -194,7 +194,7 @@ struct BrowseTile: View {
                     .padding(10)
             } else if cam {
                 Text("CAM")
-                    .font(.system(size: 15, weight: .heavy)).foregroundStyle(.white)
+                    .font(.seret(15, .bold)).foregroundStyle(.white)
                     .padding(.horizontal, 10).padding(.vertical, 4)
                     .background(Color.red.opacity(0.85), in: Capsule())
                     .padding(10)

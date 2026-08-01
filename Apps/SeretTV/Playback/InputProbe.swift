@@ -72,7 +72,7 @@ struct InputProbeHUD: View {
             Text(probe.touchEvents == 0
                  ? "no indirect touches yet — swipe the touchpad"
                  : "indirect touches ARE arriving")
-                .font(.caption2)
+                .font(.seretCaption2)
                 .foregroundStyle(probe.touchEvents == 0 ? .orange : .green)
         }
         .font(.system(size: 20, weight: .medium).monospaced())

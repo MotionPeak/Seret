@@ -52,7 +52,7 @@ struct VersionsScreen: View {
                            backdropURL: TMDBClient.imageURL(path: presented.request.item.backdropPath,
                                                             size: "original"))
             } else {
-                Text("Unable to start playback.").font(.title2)
+                Text("Unable to start playback.").font(.seretTitle2)
             }
         }
     }
@@ -80,9 +80,9 @@ struct VersionsScreen: View {
             .padding(.vertical, 40)
         case .failed:
             Label("Couldn't load versions. Check your connection and try again.",
-                  systemImage: "exclamationmark.triangle").font(.title3)
+                  systemImage: "exclamationmark.triangle").font(.seretTitle3)
         case .empty:
-            Label("No other versions found.", systemImage: "square.stack.3d.up.slash").font(.title3)
+            Label("No other versions found.", systemImage: "square.stack.3d.up.slash").font(.seretTitle3)
                 .foregroundStyle(Theme.Palette.textSecondary)
         case .ready:
             // Lazy so the (often 30+) rows realise as they scroll in — building every chip and
@@ -102,19 +102,19 @@ struct VersionsScreen: View {
             .status(forContentKey: DownloadKey.movie(tmdbID: flow.tmdbID)) {
             switch status.phase {
             case .queued:
-                ProgressView("Starting download…").font(.title3)
+                ProgressView("Starting download…").font(.seretTitle3)
             case .downloading:
                 VStack(alignment: .leading, spacing: 10) {
                     Label("Downloading \(Int(status.fraction * 100))% to Real‑Debrid…",
                           systemImage: "arrow.down.circle.fill")
-                        .font(.title3).foregroundStyle(.yellow)
+                        .font(.seretTitle3).foregroundStyle(.yellow)
                     ProgressView(value: status.fraction).tint(.yellow).frame(maxWidth: 700)
                     Text("It'll appear in your library when it's ready.")
-                        .font(.callout).foregroundStyle(.secondary)
+                        .font(.seretCallout).foregroundStyle(.secondary)
                 }
             case .failed(let reason):
                 Label(reason, systemImage: "exclamationmark.triangle")
-                    .font(.title3).foregroundStyle(.orange)
+                    .font(.seretTitle3).foregroundStyle(.orange)
             case .ready:
                 EmptyView()
             }

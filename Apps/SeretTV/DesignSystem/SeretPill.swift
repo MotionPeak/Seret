@@ -20,7 +20,7 @@ struct SeretPillStyle: ButtonStyle {
         @Environment(\.isFocused) private var focused: Bool
         var body: some View {
             configuration.label
-                .font(.headline)
+                .font(.seretHeadline)
                 .foregroundStyle(textColor)
                 .padding(.horizontal, 28).padding(.vertical, 12)
                 .background(fill, in: Capsule())

@@ -42,7 +42,7 @@ struct UserRatingRow: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .focusSection()
                 Text("Select your current rating again to clear it.")
-                    .font(.caption).foregroundStyle(Theme.Palette.textSecondary)
+                    .font(.seretCaption).foregroundStyle(Theme.Palette.textSecondary)
             }
             .task { await store.loadUserRating() }
         }

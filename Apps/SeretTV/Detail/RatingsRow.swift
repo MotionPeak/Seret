@@ -23,7 +23,7 @@ struct RatingsRow: View {
                             .foregroundStyle(Theme.Palette.gold)
                         value(String(format: "%.1f", community))
                         Text("Trakt")
-                            .font(.system(size: 15, weight: .semibold))
+                            .font(.seret(15, .semibold))
                             .foregroundStyle(Theme.Palette.textSecondary)
                     }
                 }
@@ -31,7 +31,7 @@ struct RatingsRow: View {
                     if let imdb = r.imdb {
                         chip {
                             Text("IMDb")
-                                .font(.system(size: 15, weight: .heavy))
+                                .font(.seret(15, .bold))
                                 .foregroundStyle(.black)
                                 .padding(.horizontal, 7).padding(.vertical, 3)
                                 .background(Theme.Palette.goldGradient,
@@ -48,13 +48,13 @@ struct RatingsRow: View {
                     if let mc = r.metacritic {
                         chip {
                             Text("\(mc)")
-                                .font(.system(size: 17, weight: .heavy).monospacedDigit())
+                                .font(.seret(17, .bold).monospacedDigit())
                                 .foregroundStyle(.black)
                                 .frame(minWidth: 32, minHeight: 26)
                                 .background(metacriticColor(mc),
                                             in: RoundedRectangle(cornerRadius: 5, style: .continuous))
                             Text("Metacritic")
-                                .font(.system(size: 15, weight: .semibold))
+                                .font(.seret(15, .semibold))
                                 .foregroundStyle(Theme.Palette.textSecondary)
                         }
                     }
@@ -65,7 +65,7 @@ struct RatingsRow: View {
 
     private func value(_ s: String) -> some View {
         Text(s)
-            .font(.system(size: 18, weight: .bold).monospacedDigit())
+            .font(.seret(18, .bold).monospacedDigit())
             .foregroundStyle(Theme.Palette.textPrimary)
     }
 

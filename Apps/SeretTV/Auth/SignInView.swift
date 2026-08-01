@@ -17,13 +17,13 @@ struct SignInView: View {
             } else {
                 switch model.phase {
                 case .idle, .requestingCode:
-                    ProgressView("Preparing sign‑in…").font(.title2)
+                    ProgressView("Preparing sign‑in…").font(.seretTitle2)
                 case .awaitingAuthorization(let code):
                     deviceCode(code)
                 case .validatingToken:
-                    ProgressView("Checking token…").font(.title2)
+                    ProgressView("Checking token…").font(.seretTitle2)
                 case .signedIn:
-                    ProgressView("Signing in…").font(.title2)
+                    ProgressView("Signing in…").font(.seretTitle2)
                 case .failed(let message):
                     failure(message)
                 }
@@ -39,9 +39,9 @@ struct SignInView: View {
             HStack(alignment: .center, spacing: 80) {
                 VStack(alignment: .leading, spacing: 20) {
                     Text("On your phone or computer, go to")
-                        .font(.title3).foregroundStyle(.secondary)
+                        .font(.seretTitle3).foregroundStyle(.secondary)
                     Text(displayURL(code.verificationURL)).font(.title.bold())
-                    Text("and enter this code:").font(.title3).foregroundStyle(.secondary)
+                    Text("and enter this code:").font(.seretTitle3).foregroundStyle(.secondary)
                     Text(code.userCode)
                         .font(.system(size: 96, weight: .heavy, design: .monospaced))
                 }
@@ -52,9 +52,9 @@ struct SignInView: View {
                 }
             }
             Label("Waiting for authorization…", systemImage: "hourglass")
-                .font(.title3).foregroundStyle(.secondary)
+                .font(.seretTitle3).foregroundStyle(.secondary)
             Button("Use a Real‑Debrid token instead") { showingTokenEntry = true }
-                .font(.title3)
+                .font(.seretTitle3)
         }
         .padding(80)
     }
@@ -63,14 +63,14 @@ struct SignInView: View {
         VStack(spacing: 28) {
             Text("Sign in with a token").font(.largeTitle.bold())
             Text("Get your token at real‑debrid.com/apitoken, then paste it here.")
-                .font(.title3).foregroundStyle(.secondary)
+                .font(.seretTitle3).foregroundStyle(.secondary)
                 .multilineTextAlignment(.center).frame(maxWidth: 800)
             SecureField("Real‑Debrid API token", text: $tokenText)
                 .textContentType(.password)
                 .frame(maxWidth: 700)
             if case .validatingToken = model.phase { ProgressView() }
             if case .failed(let message) = model.phase {
-                Text(message).font(.callout).foregroundStyle(.orange)
+                Text(message).font(.seretCallout).foregroundStyle(.orange)
                     .multilineTextAlignment(.center).frame(maxWidth: 700)
             }
             HStack(spacing: 24) {
@@ -78,7 +78,7 @@ struct SignInView: View {
                     .disabled(tokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 Button("Use a code instead") { showingTokenEntry = false }
             }
-            .font(.title3)
+            .font(.seretTitle3)
         }
         .padding(80)
     }
@@ -87,12 +87,12 @@ struct SignInView: View {
         VStack(spacing: 32) {
             Image(systemName: "exclamationmark.triangle")
                 .font(.system(size: 72)).foregroundStyle(Theme.Palette.gold)
-            Text(message).font(.title2).multilineTextAlignment(.center).frame(maxWidth: 800)
+            Text(message).font(.seretTitle2).multilineTextAlignment(.center).frame(maxWidth: 800)
             HStack(spacing: 24) {
                 Button("Try Again") { model.retry() }
                 Button("Use a Real‑Debrid token instead") { showingTokenEntry = true }
             }
-            .font(.title3)
+            .font(.seretTitle3)
         }
         .padding(80)
     }

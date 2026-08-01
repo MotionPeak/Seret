@@ -17,11 +17,11 @@ struct TraktLinkSection: View {
             if !session.traktConfigured {
                 Text("No Trakt API app is configured in this build. Add TRAKT_CLIENT_ID and "
                      + "TRAKT_CLIENT_SECRET to Secrets.xcconfig to enable syncing.")
-                    .font(.callout).foregroundStyle(Theme.Palette.textSecondary)
+                    .font(.seretCallout).foregroundStyle(Theme.Palette.textSecondary)
             } else if session.traktLinked {
                 Label("Linked — your watch history, resume points, and ratings sync with Trakt.",
                       systemImage: "checkmark.circle.fill")
-                    .font(.callout).foregroundStyle(Theme.Palette.textSecondary)
+                    .font(.seretCallout).foregroundStyle(Theme.Palette.textSecondary)
                 // Reads fetch once per launch, so anything changed on Trakt since (rated on the
                 // web, watched on another device) needs an explicit re-read.
                 HStack(spacing: 20) {
@@ -39,19 +39,19 @@ struct TraktLinkSection: View {
                 case .awaiting(let code):
                     deviceCode(code)
                 case .failed(let message):
-                    Text(message).font(.callout).foregroundStyle(Theme.Palette.textSecondary)
+                    Text(message).font(.seretCallout).foregroundStyle(Theme.Palette.textSecondary)
                     Button("Try Again") { model.retry() }
                 case .linked:
                     Label("Linked!", systemImage: "checkmark.circle.fill")
-                        .font(.callout).foregroundStyle(Theme.Palette.gold)
+                        .font(.seretCallout).foregroundStyle(Theme.Palette.gold)
                 default:
                     Label("Contacting Trakt…", systemImage: "hourglass")
-                        .font(.callout).foregroundStyle(Theme.Palette.textSecondary)
+                        .font(.seretCallout).foregroundStyle(Theme.Palette.textSecondary)
                 }
             } else {
                 Text("Link your Trakt account to sync watched history, resume position, and ratings "
                      + "across every device.")
-                    .font(.callout).foregroundStyle(Theme.Palette.textSecondary)
+                    .font(.seretCallout).foregroundStyle(Theme.Palette.textSecondary)
                 Button("Link Trakt") { model = session.makeTraktAuthModel() }
             }
         }
@@ -75,10 +75,10 @@ struct TraktLinkSection: View {
             EmptyView()
         case let .succeeded(ratings, watched):
             Label("\(ratings) ratings · \(watched) watched", systemImage: "checkmark.circle")
-                .font(.callout).foregroundStyle(Theme.Palette.textSecondary)
+                .font(.seretCallout).foregroundStyle(Theme.Palette.textSecondary)
         case let .failed(message):
             Label(message, systemImage: "exclamationmark.triangle")
-                .font(.callout).foregroundStyle(Theme.Palette.textSecondary)
+                .font(.seretCallout).foregroundStyle(Theme.Palette.textSecondary)
         }
     }
 
@@ -86,16 +86,16 @@ struct TraktLinkSection: View {
         HStack(alignment: .center, spacing: 40) {
             VStack(alignment: .leading, spacing: 12) {
                 Text("On your phone or computer, go to")
-                    .font(.callout).foregroundStyle(Theme.Palette.textSecondary)
+                    .font(.seretCallout).foregroundStyle(Theme.Palette.textSecondary)
                 Text(displayURL(code.verificationURL))
                     .font(.title3.bold()).foregroundStyle(Theme.Palette.textPrimary)
                 Text("and enter this code:")
-                    .font(.callout).foregroundStyle(Theme.Palette.textSecondary)
+                    .font(.seretCallout).foregroundStyle(Theme.Palette.textSecondary)
                 Text(code.userCode)
                     .font(.system(size: 56, weight: .heavy, design: .monospaced))
                     .foregroundStyle(Theme.Palette.textPrimary)
                 Label("Waiting for authorization…", systemImage: "hourglass")
-                    .font(.callout).foregroundStyle(Theme.Palette.textSecondary)
+                    .font(.seretCallout).foregroundStyle(Theme.Palette.textSecondary)
             }
             if let qr = QRCode.image(from: code.verificationURL) {
                 qr.resizable().interpolation(.none).scaledToFit()

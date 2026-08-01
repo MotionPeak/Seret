@@ -28,42 +28,42 @@ struct SeasonDownloadButton: View {
             switch store.state {
             case .idle, .loadingStreams:
                 Label("Checking for a full\u{2011}season pack\u{2026}", systemImage: "square.stack.3d.up")
-                    .font(.callout).foregroundStyle(.secondary)
+                    .font(.seretCallout).foregroundStyle(.secondary)
             case .noStreams:
                 if let status = activeStatus {
                     Label(DownloadProgressText.line(for: status),
                           systemImage: "arrow.down.circle.fill")
-                        .font(.callout).foregroundStyle(.secondary)
+                        .font(.seretCallout).foregroundStyle(.secondary)
                 } else if contentKey != nil {
                     // Nothing cached, but RD can still fetch it — offer the tracked download
                     // rather than dead-ending here.
                     Button { Task { await startSeasonDownload() } } label: {
                         Label("Download Whole Season", systemImage: "arrow.down.circle")
                     }
-                    .font(.title3)
+                    .font(.seretTitle3)
                 } else {
                     Label("No full\u{2011}season version available", systemImage: "xmark.circle")
-                        .font(.callout).foregroundStyle(.secondary)
+                        .font(.seretCallout).foregroundStyle(.secondary)
                 }
             case .adding:
-                ProgressView("Adding the whole season\u{2026}").font(.callout)
+                ProgressView("Adding the whole season\u{2026}").font(.seretCallout)
             case .added:
                 Label("Whole season added to your library", systemImage: "checkmark.circle.fill")
-                    .font(.callout).foregroundStyle(.green)
+                    .font(.seretCallout).foregroundStyle(.green)
             case .addFailed(let msg):
-                Label(msg, systemImage: "exclamationmark.triangle").font(.callout).foregroundStyle(.orange)
+                Label(msg, systemImage: "exclamationmark.triangle").font(.seretCallout).foregroundStyle(.orange)
             case .failed:
                 Button { Task { await store.loadStreams() } } label: {
                     Label("Check Again for a Full Season", systemImage: "arrow.clockwise")
                 }
-                .font(.title3)
+                .font(.seretTitle3)
             case .streams:
                 Button {
                     Task { await store.addBest(); if case .added = store.state { onAdded() } }
                 } label: {
                     Label("Download Whole Season", systemImage: "square.stack.3d.up.fill")
                 }
-                .font(.title3)
+                .font(.seretTitle3)
             }
         }
     }

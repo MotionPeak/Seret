@@ -250,17 +250,17 @@ private struct MovieDownloadSection: View {
                 let pct = Int((status?.fraction ?? 0) * 100)
                 Label("Downloading \(pct)% to Real-Debrid…", systemImage: "arrow.down.circle.fill")
                 ProgressView(value: status?.fraction ?? 0).frame(maxWidth: 600)
-                Text("It'll appear here when it's ready.").font(.callout).foregroundStyle(.secondary)
+                Text("It'll appear here when it's ready.").font(.seretCallout).foregroundStyle(.secondary)
             } else if case .failed(let reason) = status?.phase {
                 Label(reason, systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
                 requestButton("Try Another Version")
             } else {
                 Text("No cached version exists. Start a download and it'll appear here when it's ready.")
-                    .font(.callout).foregroundStyle(.secondary).frame(maxWidth: 1000, alignment: .leading)
+                    .font(.seretCallout).foregroundStyle(.secondary).frame(maxWidth: 1000, alignment: .leading)
                 requestButton("Request Download")
             }
         }
-        .font(.title3)
+        .font(.seretTitle3)
     }
 
     private func requestButton(_ label: String) -> some View {

@@ -176,7 +176,7 @@ private struct PlaybackUnavailableView: View {
     var body: some View {
         VStack(spacing: 20) {
             Image(systemName: "exclamationmark.triangle").font(.system(size: 54))
-            Text("Unable to start playback.").font(.title2)
+            Text("Unable to start playback.").font(.seretTitle2)
             Button("Back") { dismiss() }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

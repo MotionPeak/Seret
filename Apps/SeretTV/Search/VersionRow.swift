@@ -25,7 +25,7 @@ struct VersionRow: View {
                     LanguageBadges(codes: stream.languages)
                     Spacer()
                     if let size = stream.sizeBytes {
-                        Text(Self.sizeGB(size)).font(.callout).foregroundStyle(.secondary)
+                        Text(Self.sizeGB(size)).font(.seretCallout).foregroundStyle(.secondary)
                     }
                     if isPicking {
                         ProgressView()
@@ -33,7 +33,7 @@ struct VersionRow: View {
                         Image(systemName: stream.isCached ? "play.circle" : "arrow.down.circle")
                     }
                 }
-                Text(stream.rawTitle).font(.callout).foregroundStyle(.secondary)
+                Text(stream.rawTitle).font(.seretCallout).foregroundStyle(.secondary)
                     .lineLimit(1).truncationMode(.middle)
             }
         }

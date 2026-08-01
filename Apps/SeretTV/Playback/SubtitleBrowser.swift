@@ -69,7 +69,7 @@ struct SubtitleBrowser: View {
             Spacer()
             if model.subtitleSearchState == .loaded {
                 Text("Best match first")
-                    .font(.caption).foregroundStyle(Theme.Palette.textSecondary)
+                    .font(.seretCaption).foregroundStyle(Theme.Palette.textSecondary)
             }
         }
         .focusSection()
@@ -140,19 +140,19 @@ struct SubtitleBrowser: View {
                 badge(ranked.quality)
                 if ranked.reasons.contains(.fpsMismatch) {
                     Text("may need a timing nudge")
-                        .font(.caption).foregroundStyle(Theme.Palette.textSecondary)
+                        .font(.seretCaption).foregroundStyle(Theme.Palette.textSecondary)
                 }
                 Spacer()
                 if let downloads = ranked.result.downloadCount {
                     Label(downloads.formatted(.number), systemImage: "arrow.down.circle")
-                        .font(.caption).foregroundStyle(Theme.Palette.textSecondary)
+                        .font(.seretCaption).foregroundStyle(Theme.Palette.textSecondary)
                 }
             }
             Text(ranked.result.release ?? ranked.result.fileName ?? "Subtitle")
                 .font(.body.monospaced()).lineLimit(1)
                 .foregroundStyle(Theme.Palette.textPrimary)
             Text(subtitleDetail(ranked.result))
-                .font(.caption).foregroundStyle(Theme.Palette.textSecondary)
+                .font(.seretCaption).foregroundStyle(Theme.Palette.textSecondary)
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)

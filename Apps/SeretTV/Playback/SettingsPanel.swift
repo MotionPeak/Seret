@@ -57,7 +57,7 @@ private struct PlaybackColumns: View {
                 }
             }
             if model.audioTracks.isEmpty {
-                Text("None").font(.callout).foregroundStyle(.secondary)
+                Text("None").font(.seretCallout).foregroundStyle(.secondary)
             }
         }
     }
@@ -213,7 +213,7 @@ private struct CheckRow: View {
                     .font(.callout.bold())
                     .foregroundStyle(Theme.Palette.gold)
                     .opacity(checked ? 1 : 0)
-                Text(title).font(.callout)
+                Text(title).font(.seretCallout)
                 Spacer(minLength: 0)
             }
             .contentShape(Rectangle())

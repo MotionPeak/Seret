@@ -42,7 +42,7 @@ struct AddScreen: View {
                 PlayerView(model: model, engine: engine,
                            backdropURL: TMDBClient.imageURL(path: presented.request.item.backdropPath, size: "original"))
             } else {
-                Text("Unable to start playback.").font(.title2)
+                Text("Unable to start playback.").font(.seretTitle2)
             }
         }
         // A successful add lands a new torrent in RD → refresh the library so it appears
@@ -86,7 +86,7 @@ private struct MovieAdd: View {
                 }
                 if let add = flow.add {
                     AddActions(flow: flow, add: add, onPlay: onPlay,
-                               trailer: AnyView(TrailerButton(tmdbID: flow.tmdbID, kind: flow.mediaKind).font(.title3)))
+                               trailer: AnyView(TrailerButton(tmdbID: flow.tmdbID, kind: flow.mediaKind).font(.seretTitle3)))
                 }
             }
             .padding(.horizontal, 60).padding(.vertical, 40)
@@ -114,7 +114,7 @@ private struct ShowAdd: View {
                 if let overview = flow.overview {
                     Text(overview).bodyText().frame(maxWidth: 1100, alignment: .leading).lineLimit(2)
                 }
-                TrailerButton(tmdbID: flow.tmdbID, kind: flow.mediaKind).font(.title3)
+                TrailerButton(tmdbID: flow.tmdbID, kind: flow.mediaKind).font(.seretTitle3)
                 seasonPicker
                 SeasonDownloadButton(store: flow.seasonAdd) { session.libraryStore?.retry() }
                 episodeList
@@ -269,7 +269,7 @@ private struct AddActions: View {
                 DownloadSection(flow: flow, onPlay: onPlay)
             case .failed(let msg):
                 if let trailer { trailer }
-                Label(msg, systemImage: "exclamationmark.triangle").font(.title3)
+                Label(msg, systemImage: "exclamationmark.triangle").font(.seretTitle3)
                 Button("Try Again") { Task { await add.loadStreams() } }
                     .buttonStyle(SeretActionButtonStyle())
             default:
@@ -280,7 +280,7 @@ private struct AddActions: View {
                     }
                     if add.isFallback {
                         Label("Audio may not be in the original language.", systemImage: "info.circle")
-                            .font(.callout).foregroundStyle(.secondary)
+                            .font(.seretCallout).foregroundStyle(.secondary)
                     }
                 }
                 // The whole action row on ONE line: Trailer · Play · Show all versions.
@@ -342,7 +342,7 @@ private struct AddActions: View {
         if loadingAll {
             ProgressView().tint(Theme.Palette.gold).padding(.vertical, 8)
         } else if add.allVersions.isEmpty {
-            Text("No other versions found.").font(.callout).foregroundStyle(.secondary)
+            Text("No other versions found.").font(.seretCallout).foregroundStyle(.secondary)
         } else {
             allVersionsList
         }
@@ -381,12 +381,12 @@ private struct AddActions: View {
     @ViewBuilder private var addStatus: some View {
         switch add.state {
         case .adding:
-            ProgressView("Adding to Real‑Debrid…").font(.title3)
+            ProgressView("Adding to Real‑Debrid…").font(.seretTitle3)
         case .added:
             Label("Added — find it in your library.", systemImage: "checkmark.circle.fill")
-                .font(.title3).foregroundStyle(.green)
+                .font(.seretTitle3).foregroundStyle(.green)
         case .addFailed(let msg):
-            Label(msg, systemImage: "exclamationmark.triangle").font(.title3).foregroundStyle(.orange)
+            Label(msg, systemImage: "exclamationmark.triangle").font(.seretTitle3).foregroundStyle(.orange)
         default:
             EmptyView()
         }
@@ -401,18 +401,18 @@ private struct AddActions: View {
         } else if let status = session.downloadStore?.status(forContentKey: DownloadKey.movie(tmdbID: flow.tmdbID)) {
             switch status.phase {
             case .queued:
-                ProgressView("Starting download…").font(.title3)
+                ProgressView("Starting download…").font(.seretTitle3)
             case .downloading:
                 let pct = Int(status.fraction * 100)
                 Label("Downloading \(pct)% to Real‑Debrid…", systemImage: "arrow.down.circle.fill")
-                    .font(.title3).foregroundStyle(.yellow)
+                    .font(.seretTitle3).foregroundStyle(.yellow)
                 ProgressView(value: status.fraction).tint(.yellow).frame(maxWidth: 700)
-                Text("It'll appear in your library when it's ready.").font(.callout).foregroundStyle(.secondary)
+                Text("It'll appear in your library when it's ready.").font(.seretCallout).foregroundStyle(.secondary)
                 Button(role: .destructive) {
                     Task { await session.downloadStore?.cancel(contentKey: DownloadKey.movie(tmdbID: flow.tmdbID)) }
-                } label: { Label("Cancel download", systemImage: "xmark.circle") }.font(.title3)
+                } label: { Label("Cancel download", systemImage: "xmark.circle") }.font(.seretTitle3)
             case .failed(let reason):
-                Label(reason, systemImage: "exclamationmark.triangle").font(.title3).foregroundStyle(.orange)
+                Label(reason, systemImage: "exclamationmark.triangle").font(.seretTitle3).foregroundStyle(.orange)
             case .ready:
                 EmptyView()
             }
@@ -462,27 +462,27 @@ private struct DownloadSection: View {
         let status = session.downloadStore?.status(forContentKey: DownloadKey.movie(tmdbID: flow.tmdbID))
         VStack(alignment: .leading, spacing: 16) {
             if requesting && status == nil {
-                ProgressView("Checking Real‑Debrid…").font(.title3)
+                ProgressView("Checking Real‑Debrid…").font(.seretTitle3)
             } else if case .queued = status?.phase {
-                ProgressView("Starting download…").font(.title3)
+                ProgressView("Starting download…").font(.seretTitle3)
             } else if case .downloading = status?.phase {
                 let pct = Int((status?.fraction ?? 0) * 100)
                 Label("Downloading \(pct)% to Real‑Debrid…", systemImage: "arrow.down.circle.fill")
-                    .font(.title3).foregroundStyle(.yellow)
+                    .font(.seretTitle3).foregroundStyle(.yellow)
                 ProgressView(value: status?.fraction ?? 0).tint(.yellow).frame(maxWidth: 700)
-                Text("It'll appear in your library when it's ready.").font(.callout).foregroundStyle(.secondary)
+                Text("It'll appear in your library when it's ready.").font(.seretCallout).foregroundStyle(.secondary)
                 Button(role: .destructive) {
                     Task { await session.downloadStore?.cancel(contentKey: DownloadKey.movie(tmdbID: flow.tmdbID)) }
                 } label: { Label("Cancel download", systemImage: "xmark.circle") }
-                    .font(.title3)
+                    .font(.seretTitle3)
             } else if case .failed(let reason) = status?.phase {
-                Label(reason, systemImage: "exclamationmark.triangle").font(.title3).foregroundStyle(.orange)
+                Label(reason, systemImage: "exclamationmark.triangle").font(.seretTitle3).foregroundStyle(.orange)
                 requestButton(title: "Try Another Version")
             } else {
                 Label("Not in Real‑Debrid's cache", systemImage: "magnifyingglass")
-                    .font(.title3).foregroundStyle(.secondary)
+                    .font(.seretTitle3).foregroundStyle(.secondary)
                 Text("Play tries it instantly — if Real‑Debrid doesn't have it yet, it downloads and lands in your library when it's ready.")
-                    .font(.callout).foregroundStyle(.secondary).frame(maxWidth: 900, alignment: .leading)
+                    .font(.seretCallout).foregroundStyle(.secondary).frame(maxWidth: 900, alignment: .leading)
                 playButton()
             }
         }
@@ -505,7 +505,7 @@ private struct DownloadSection: View {
                 requesting = false
             }
         } label: { Label("Play", systemImage: "play.fill") }
-            .font(.title3)
+            .font(.seretTitle3)
             .disabled(requesting)
     }
 
@@ -521,7 +521,7 @@ private struct DownloadSection: View {
                 requesting = false
             }
         } label: { Label(title, systemImage: "arrow.down.circle") }
-            .font(.title3)
+            .font(.seretTitle3)
             .disabled(requesting)
     }
 }

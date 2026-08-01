@@ -31,7 +31,7 @@ struct ScrubBar: View {
 
     private var trackHeight: CGFloat { expanded ? 8 : 3 }
     private var timeFont: Font {
-        .system(size: expanded ? 24 : 20, weight: .semibold)
+        .seret(expanded ? 24 : 20, .semibold)
     }
     private var timeColor: Color {
         expanded ? Theme.Palette.textPrimary : Theme.Palette.textSecondary
@@ -49,7 +49,7 @@ struct ScrubBar: View {
             if buffering {
                 HStack(spacing: 10) {
                     ProgressView().controlSize(.small).tint(Theme.Palette.gold)
-                    Text("Loading…").font(.caption).foregroundStyle(Theme.Palette.textSecondary)
+                    Text("Loading…").font(.seretCaption).foregroundStyle(Theme.Palette.textSecondary)
                 }
                 .frame(maxWidth: .infinity)
                 .transition(.opacity)
@@ -109,7 +109,7 @@ struct ScrubBar: View {
                 .frame(width: 26, height: 26)
                 .overlay(alignment: .bottom) {
                     Text(Timecode.format(model.scrubTarget))
-                        .font(.system(size: 30, weight: .semibold))
+                        .font(.seret(30, .semibold))
                         .monospacedDigit()
                         .foregroundStyle(Theme.Palette.goldBright)
                         .fixedSize()

@@ -58,7 +58,7 @@ struct DetailView: View {
                 PlayerView(model: model, engine: engine,
                            backdropURL: TMDBClient.imageURL(path: presented.request.item.backdropPath, size: "w1280"))
             } else {
-                Text("Unable to start playback.").font(.title2)
+                Text("Unable to start playback.").font(.seretTitle2)
             }
         }
         .alert("Remove \u{201C}\(store.item.title)\u{201D}?", isPresented: $confirmingRemove) {

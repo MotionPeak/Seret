@@ -175,7 +175,7 @@ struct PlayerView: View {
             Image(systemName: forward ? "goforward" : "gobackward")
                 .font(.system(size: 44, weight: .semibold))
             Text(fb.label)
-                .font(.system(size: 34, weight: .bold)).monospacedDigit()
+                .font(.seret(34, .bold)).monospacedDigit()
                 .contentTransition(.numericText(value: abs(fb.seconds)))
         }
         .foregroundStyle(.white)
