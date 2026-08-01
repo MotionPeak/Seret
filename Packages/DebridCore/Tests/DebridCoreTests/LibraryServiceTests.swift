@@ -160,5 +160,28 @@ extension MockTests {
             await #expect(throws: (any Error).self) { try await svc.refresh() }
             #expect(svc.loadCached()?.first?.tmdbID == 111)
         }
+
+        /// Two RD torrents of one film whose names parse to DIFFERENT titles group separately and
+        /// only collide once TMDB re-keys them. They must land as ONE library entry holding both
+        /// versions — duplicate ids blank out cards in Recently Added and hide the second version
+        /// from the title's Versions list.
+        @Test func separateTorrentsOfOneTitleMergeIntoASingleEntry() async throws {
+            MockURLProtocol.handler = { req in
+                let url = req.url!.absoluteString
+                if url.contains("/torrents/info/A") { return Self.resp(req, 200, Self.infoJSON("A", release: "Alpha.2024.1080p.mkv")) }
+                if url.contains("/torrents/info/B") { return Self.resp(req, 200, Self.infoJSON("B", release: "Alpha.The.Movie.2024.2160p.mkv")) }
+                if url.contains("/torrents")        { return Self.resp(req, 200, Self.torrentListJSON(["A", "B"])) }
+                if url.contains("/search/movie")    { return Self.resp(req, 200, Self.tmdbJSON(id: 111, title: "Alpha")) }
+                return Self.resp(req, 200, "[]")
+            }
+            let svc = service(directory: tempDir())
+            let library = try await svc.refresh()
+            #expect(library.count == 1)
+            #expect(library[0].id == "movie:tmdb:111")
+            #expect(library[0].sources.map(\.torrentID).sorted() == ["A", "B"])
+            // …and the persisted snapshot is merged too, so the next cold launch shows one card.
+            #expect(svc.loadCached()?.count == 1)
+            #expect(svc.loadCached()?.first?.sources.count == 2)
+        }
     }
 }

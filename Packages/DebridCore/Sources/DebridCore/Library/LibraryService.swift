@@ -8,6 +8,7 @@ public struct LibraryService: Sendable {
     private let enricher: MetadataEnricher
     private let store: LibrarySnapshotStore
     private let reconciler: LibraryReconciler
+    private let merger = LibraryMerger()
 
     public init(torrents: TorrentsClient, builder: LibraryBuilder,
                 enricher: MetadataEnricher, store: LibrarySnapshotStore,
@@ -20,9 +21,11 @@ public struct LibraryService: Sendable {
     }
 
     /// The last persisted library, decoded from disk. Instant and offline; `nil` on first run
-    /// or an unreadable cache.
+    /// or an unreadable cache. Merged on the way out so a snapshot written before merging existed
+    /// (duplicate ids for one title) heals on the next launch, without waiting for a refresh.
     public func loadCached() -> [MediaItem]? {
-        store.load()?.items
+        guard let items = store.load()?.items else { return nil }
+        return merger.merge(items)
     }
 
     /// Reconcile the cache against RD. Cheap when nothing changed (one torrent-list call); on a
@@ -54,7 +57,7 @@ public struct LibraryService: Sendable {
         // index is always in range — an out-of-range access would fail fast rather than
         // silently inserting a placeholder.
         var enrichedIndex = 0
-        let library = plan.map { step -> MediaItem in
+        let assembled = plan.map { step -> MediaItem in
             switch step {
             case .carried(let item):
                 return item
@@ -64,6 +67,10 @@ public struct LibraryService: Sendable {
                 return item
             }
         }
+
+        // Enrichment re-keys each item by TMDB id, so separate torrents of one title only collide
+        // here — fold them into a single entry carrying every version.
+        let library = merger.merge(assembled)
 
         // Best-effort: a cache-write failure (e.g. a sandbox/storage hiccup) must NEVER fail the
         // refresh — the freshly-built library still displays, it just won't be cached this time.
