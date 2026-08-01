@@ -12,6 +12,8 @@ import DebridCore
 ///   - `settings`  — the playback settings panel with grouped subtitle tracks
 ///   - `subtitles` — the full subtitle browser with ranked, badged results
 ///   - `detail`    — the Movie Detail page with a rating-capable stub store
+///   - `sidemenu`  — the side menu EXPANDED over a stand-in page
+///   - `sidemenucollapsed` — the same menu at rest, for an A/B of the two states
 ///
 /// Not compiled into release builds.
 struct PlayerUIPreview: View {
@@ -23,8 +25,62 @@ struct PlayerUIPreview: View {
         case "subtitles":  SubtitleBrowserPreview()
         case "inputprobe": InputProbePreview()
         case "detail":     MovieDetailPreview()
+        case "sidemenu":            SideMenuPreview(startExpanded: true)
+        case "sidemenucollapsed":   SideMenuPreview(startExpanded: false)
         default:           ScrubBarPreview()
         }
+    }
+}
+
+// MARK: - Side menu
+
+/// Both menu states over a stand-in page, so the rail/panel geometry and the label reveal can be
+/// screenshot-verified without a signed-in session or the focus engine.
+private struct SideMenuPreview: View {
+    let startExpanded: Bool
+
+    @FocusState private var focus: SideMenuItem?
+    @FocusState private var pageFocus: Int?
+    @State private var selected: SideMenuItem = .movies
+
+    var body: some View {
+        ZStack(alignment: .leading) {
+            CanvasBackground()
+            fakePage
+                .padding(.leading, SideMenu.railWidth)
+                .focusSection()
+            SideMenuScrim(visible: focus != nil)
+            SideMenu(selected: selected, profileName: "Shahar",
+                     profileAvatar: "", profileColorTag: "gold",
+                     focus: $focus,
+                     onSelect: { if $0.isPage { selected = $0 } },
+                     onProfile: {})
+        }
+        // Content claims initial focus so the menu starts CLOSED. `.defaultFocus` is the only one
+        // of the three candidates that actually wins here — `prefersDefaultFocus(in:)` (leaf or
+        // container) loses to tvOS's top-leading heuristic, which the menu always satisfies.
+        .defaultFocus($pageFocus, 0)
+        .onAppear { if startExpanded { focus = .movies } }
+    }
+
+    /// Focusable stand-in posters, so initial focus has somewhere real to land.
+    private var fakePage: some View {
+        VStack(alignment: .leading, spacing: 30) {
+            Text("Trending Now").sectionTitle()
+            HStack(spacing: 36) {
+                ForEach(0..<6, id: \.self) { i in
+                    Button {} label: {
+                        RoundedRectangle(cornerRadius: Theme.Layout.posterCorner, style: .continuous)
+                            .fill(Theme.Palette.surface2)
+                            .frame(width: 220, height: 330)
+                    }
+                    .buttonStyle(.card)
+                    .focused($pageFocus, equals: i)
+                }
+            }
+        }
+        .padding(Theme.Layout.contentMargin)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }
 
