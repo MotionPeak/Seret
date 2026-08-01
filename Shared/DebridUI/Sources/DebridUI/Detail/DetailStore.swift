@@ -50,18 +50,23 @@ public final class DetailStore {
     /// Trakt's community average (0–10) — a fallback shown when OMDb produced no chips.
     public private(set) var communityScore: Double?
     /// The viewer's Trakt history rollup for this title, loaded lazily by the view.
+    private let versionPrefs: VersionPreferring?
+    /// The user's chosen source key for this title, once loaded. Nil = let the ranker decide.
+    public private(set) var preferredSourceKey: String?
+
     public private(set) var watchSummary: WatchSummary?
     public private(set) var historySince: Date?
 
     public init(item: MediaItem, details: MediaDetailsProviding, watch: WatchProgressProviding?,
                 profileID: String? = nil, myList: MyListProviding? = nil,
-                ratings: RatingsProviding? = nil) {
+                ratings: RatingsProviding? = nil, versionPrefs: VersionPreferring? = nil) {
         self.item = item
         self.details = details
         self.watch = watch
         self.profileID = profileID
         self.myList = myList
         self.ratingsProvider = ratings
+        self.versionPrefs = versionPrefs
         self.overview = item.overview
         self.backdropPath = item.backdropPath
         self.selectedSeason = item.seasons.first?.number ?? 1
@@ -69,7 +74,37 @@ public final class DetailStore {
 
     // Movies: ranked sources.
     public var versions: [MediaSource] { item.sources.bestFirst() }
-    public var bestSource: MediaSource? { item.sources.best }
+
+    /// The version Play uses: the user's choice when it still resolves to an owned source,
+    /// otherwise the quality ranker. A preference for a torrent since deleted from RD must fall
+    /// back rather than leave Play permanently broken.
+    public var bestSource: MediaSource? {
+        if let key = preferredSourceKey,
+           let chosen = item.sources.first(where: { WatchKey.source($0) == key }) {
+            return chosen
+        }
+        return item.sources.best
+    }
+
+    /// Whether this is the version Play will actually use — drives the Versions checkmark.
+    public func isActive(_ source: MediaSource) -> Bool {
+        bestSource.map { WatchKey.source($0) == WatchKey.source(source) } ?? false
+    }
+
+    public func loadPreferredVersion() async {
+        preferredSourceKey = await versionPrefs?.preferred(forContentKey: item.id)
+    }
+
+    public func chooseVersion(_ source: MediaSource) async {
+        let key = WatchKey.source(source)
+        preferredSourceKey = key
+        await versionPrefs?.choose(contentKey: item.id, sourceKey: key)
+    }
+
+    public func clearPreferredVersion() async {
+        preferredSourceKey = nil
+        await versionPrefs?.clear(contentKey: item.id)
+    }
 
     /// Every season to show (TMDB's full count ∪ any owned seasons), sorted. Falls back to the owned
     /// seasons (or the selected one) until TMDB details resolve — so the picker lists ALL seasons,
