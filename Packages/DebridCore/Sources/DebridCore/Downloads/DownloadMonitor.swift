@@ -6,51 +6,86 @@ public protocol DownloadInfoProviding: Sendable {
     func info(id: String) async throws -> TorrentInfo
 }
 
-extension TorrentsClient: DownloadInfoProviding {}
+/// Lists the account's torrents — the source of truth for what is downloading.
+public protocol DownloadListing: Sendable {
+    func torrents(page: Int, limit: Int) async throws -> [Torrent]
+}
 
-/// Polls the active download requests against RD and reports their progress. When a request
-/// reaches a terminal phase (`.ready` or `.failed`) its record is removed — a `.ready` title now
-/// appears in the normal library; a `.failed` one is surfaced to the caller for "try another".
+extension TorrentsClient: DownloadInfoProviding {}
+extension TorrentsClient: DownloadListing {}
+
+/// Reports what Real-Debrid is currently downloading.
+///
+/// RD's own torrent list is the source of truth, so a download started on another device, in DMM,
+/// or RD's web UI appears here too. Identity comes from the local `DownloadRequest` when Seret
+/// started the download — that record holds the exact tmdbID and episode key — and otherwise from
+/// the resolver, which can only guess from the release name.
 ///
 /// Holds one `ETAEstimator` per torrent so the reported remaining time is smoothed across polls
 /// rather than recomputed from RD's jumpy instantaneous speed.
 public actor DownloadMonitor {
-    private let info: any DownloadInfoProviding
+    private let lister: any DownloadListing
     private let store: DownloadsStore
+    private let resolver: any DownloadIdentityResolving
     private let now: @Sendable () -> Date
+    private let pageLimit: Int
     private var estimators: [String: ETAEstimator] = [:]
 
-    public init(info: any DownloadInfoProviding, store: DownloadsStore,
-                now: @escaping @Sendable () -> Date = Date.init) {
-        self.info = info
+    /// RD statuses that mean the torrent is still working toward `downloaded`. `compressing` and
+    /// `uploading` are RD's post-download processing — still "in flight" from the user's side.
+    static let activeStatuses: Set<String> = ["queued", "magnet_conversion",
+                                              "waiting_files_selection", "downloading",
+                                              "compressing", "uploading"]
+
+    public init(lister: any DownloadListing, store: DownloadsStore,
+                resolver: any DownloadIdentityResolving,
+                now: @escaping @Sendable () -> Date = Date.init,
+                pageLimit: Int = 100) {
+        self.lister = lister
         self.store = store
+        self.resolver = resolver
         self.now = now
+        self.pageLimit = pageLimit
     }
 
-    /// One pass over all active requests. Returns this pass's statuses (terminal ones included so
-    /// the caller can react/notify). A request whose info fetch fails is skipped and left tracked.
+    /// One pass. Returns a status for every torrent RD is currently working on.
     @discardableResult
     public func poll() async throws -> [DownloadStatus] {
-        let requests = try await store.all()
+        let list = try await lister.torrents(page: 1, limit: pageLimit)
+        let records = Dictionary((try await store.all()).map { ($0.torrentID, $0) },
+                                 uniquingKeysWith: { first, _ in first })
+
         var statuses: [DownloadStatus] = []
-        for request in requests {
-            guard let i = try? await info.info(id: request.torrentID) else { continue }
-            var estimator = estimators[request.torrentID] ?? ETAEstimator()
-            let eta = estimator.observe(fraction: i.progress / 100, totalBytes: i.bytes,
-                                        reportedSpeed: i.speed, at: now())
-            estimators[request.torrentID] = estimator
-            let status = DownloadStatus(from: i, contentKey: request.contentKey,
-                                        tmdbID: request.tmdbID, secondsRemaining: eta)
-            statuses.append(status)
-            switch status.phase {
-            case .ready, .failed:
-                estimators[request.torrentID] = nil   // otherwise this grows forever
-                try? await store.delete(torrentID: request.torrentID)
-            case .queued, .downloading:
-                break
-            }
+        for torrent in list where Self.activeStatuses.contains(torrent.status) {
+            let identity = await identify(torrent, record: records[torrent.id])
+            var estimator = estimators[torrent.id] ?? ETAEstimator()
+            let eta = estimator.observe(fraction: torrent.progress / 100, totalBytes: torrent.bytes,
+                                        reportedSpeed: torrent.speed, at: now())
+            estimators[torrent.id] = estimator
+            statuses.append(DownloadStatus(from: torrent,
+                                           contentKey: identity?.contentKey ?? "",
+                                           tmdbID: identity?.tmdbID ?? 0,
+                                           title: identity?.title ?? "",
+                                           posterPath: identity?.posterPath,
+                                           secondsRemaining: eta))
         }
         return statuses
+    }
+
+    /// A record we wrote when starting the download beats the resolver every time: it holds the
+    /// exact tmdbID and episode key, where the resolver only infers from a release name.
+    private func identify(_ torrent: Torrent,
+                          record: DownloadRequestData?) async -> DownloadIdentity? {
+        if let fromRecord = record.flatMap(Self.identity(fromRecord:)) { return fromRecord }
+        return await resolver.identity(filename: torrent.filename, infoHash: torrent.hash)
+    }
+
+    /// A record only counts as identity once it actually carries a key — rows written before
+    /// `contentKey` existed have an empty one, and must fall through to the resolver.
+    private static func identity(fromRecord r: DownloadRequestData) -> DownloadIdentity? {
+        guard !r.contentKey.isEmpty else { return nil }
+        return DownloadIdentity(contentKey: r.contentKey, tmdbID: r.tmdbID, kind: r.kind,
+                                title: r.title, posterPath: r.posterPath)
     }
 }
 #endif
