@@ -23,9 +23,11 @@ struct DetailScreen: View {
     @Environment(\.dismiss) private var dismiss
 
     init(item: MediaItem, details: MediaDetailsProviding, watch: WatchProgressProviding?,
-         profileID: String? = nil, myList: MyListProviding? = nil, ratings: RatingsProviding? = nil) {
+         profileID: String? = nil, myList: MyListProviding? = nil, ratings: RatingsProviding? = nil,
+         versionPrefs: VersionPreferring? = nil) {
         _store = State(initialValue: DetailStore(item: item, details: details, watch: watch,
-                                                 profileID: profileID, myList: myList, ratings: ratings))
+                                                 profileID: profileID, myList: myList, ratings: ratings,
+                                                 versionPrefs: versionPrefs))
     }
 
     var body: some View {
@@ -114,7 +116,8 @@ struct DetailScreen: View {
                 AnyView(DetailScreen(item: item, details: details, watch: session.watchStore,
                                      profileID: session.activeProfileID,
                                      myList: session.myListStore,
-                                     ratings: session.ratingsProvider))
+                                     ratings: session.ratingsProvider,
+                                     versionPrefs: session.versionPreferences))
             }
         }
         // A suggested title that isn't in the library opens the Add flow.

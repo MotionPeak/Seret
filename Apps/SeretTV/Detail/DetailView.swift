@@ -17,9 +17,11 @@ struct DetailView: View {
     private struct EpisodePlayback: Identifiable { let id = UUID(); let request: PlaybackRequest }
 
     init(item: MediaItem, details: MediaDetailsProviding, watch: WatchProgressProviding?,
-         profileID: String? = nil, myList: MyListProviding? = nil, ratings: RatingsProviding? = nil) {
+         profileID: String? = nil, myList: MyListProviding? = nil, ratings: RatingsProviding? = nil,
+         versionPrefs: VersionPreferring? = nil) {
         _store = State(initialValue: DetailStore(item: item, details: details, watch: watch,
-                                                 profileID: profileID, myList: myList, ratings: ratings))
+                                                 profileID: profileID, myList: myList, ratings: ratings,
+                                                 versionPrefs: versionPrefs))
     }
 
     var body: some View {

@@ -74,6 +74,8 @@ public final class AppSession {
     public private(set) var profileStore: ProfileStore?
     /// Per-profile "My List" store — claimed-title membership (later slice wires claim on add/play).
     public private(set) var myListStore: MyListStore?
+    /// The user's chosen default version per title (CloudKit-synced alongside profiles).
+    public private(set) var versionPreferences: VersionPreferenceStore?
     /// Device-local active-profile selection + roster (drives the Who's-Watching gate).
     public private(set) var activeProfiles: ActiveProfileStore?
     /// The profile this device is watching as (nil until resolved / while the gate is showing).
@@ -187,6 +189,7 @@ public final class AppSession {
     private struct ProfileStores {
         let profiles: ProfileStore
         let myList: MyListStore
+        let versions: VersionPreferenceStore
         let mode: String
     }
 
@@ -197,7 +200,7 @@ public final class AppSession {
     public var profilesSyncedViaICloud: Bool { profileStoreMode == "cloud" }
 
     private static func makeProfileStores() -> ProfileStores? {
-        let schema = Schema([Profile.self, MyListEntry.self])
+        let schema = Schema([Profile.self, MyListEntry.self, VersionPreference.self])
         // Only ask for CloudKit when an iCloud account is actually signed in (a CloudKit store fails
         // silently on a sim / no-account device). Otherwise local-only — sync engages on real
         // iCloud devices.
@@ -259,7 +262,8 @@ public final class AppSession {
     private static func wrap(_ container: ModelContainer, mode: String) -> ProfileStores {
         ProfileStores(
                       profiles: ProfileStore(modelContainer: container),
-                      myList: MyListStore(modelContainer: container), mode: mode)
+                      myList: MyListStore(modelContainer: container),
+                      versions: VersionPreferenceStore(modelContainer: container), mode: mode)
     }
 
     /// A `Profile` fetch on a stale store throws ("no such table: ZPROFILE"); a healthy store
@@ -435,6 +439,7 @@ public final class AppSession {
         makeTraktStack()
         profileStore = stores?.profiles
         myListStore = stores?.myList
+        versionPreferences = stores?.versions
         profileStoreMode = stores?.mode ?? "none"
         libraryStore = LibraryStore(library: service, watch: watchStore,
                                     profileID: { [weak self] in self?.activeProfileID })

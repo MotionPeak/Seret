@@ -27,7 +27,8 @@ struct RootView: View {
                 DetailScreen(item: item, details: details, watch: session.watchStore,
                              profileID: session.activeProfileID,
                              myList: session.myListStore,
-                             ratings: session.ratingsProvider)
+                             ratings: session.ratingsProvider,
+                             versionPrefs: session.versionPreferences)
             }
         }
         // The Add flow is presented here too (above the shell) so it and its nested player
