@@ -145,6 +145,8 @@ enum BrowseDestination: Hashable {
     case detail(MediaItem)
     case add(SearchHit)
     case search(MediaKind)
+    /// Straight to the full-screen versions list for a title you already own (skips the Add hero).
+    case versions(SearchHit)
 }
 
 /// A focusable browse poster. Owned → pushes the library Detail; else the Add flow. Owned posters

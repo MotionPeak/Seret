@@ -32,6 +32,7 @@ struct LibraryShell: View {
                         case .detail(let item): detailDestination(item)
                         case .add(let hit): AddScreen(hit: hit)
                         case .search(let kind): SearchScreen(kind: kind)
+                        case .versions(let hit): VersionsScreen(hit: hit)
                         }
                     }
                     .navigationDestination(for: SearchHit.self) { hit in

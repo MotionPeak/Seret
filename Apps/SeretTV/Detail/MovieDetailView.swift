@@ -147,8 +147,8 @@ struct MovieDetailView: View {
     }
     private var isWatched: Bool { watch?.finished == true }
 
-    /// The Add flow for this title — it already hosts the full cached/uncached versions browser,
-    /// so Detail routes there rather than growing a second one. Needs a TMDB id to search.
+    /// The title, as the Add pipeline wants it — `VersionsScreen` resolves the same cached/uncached
+    /// release list from it, without the Add screen's hero. Needs a TMDB id to search.
     private var otherVersionsHit: SearchHit? {
         guard let tmdb = item.tmdbID else { return nil }
         return SearchHit(result: TMDBSearchResult(
@@ -162,7 +162,7 @@ struct MovieDetailView: View {
                 Text("Versions").sectionTitle()
                 Spacer()
                 if let hit = otherVersionsHit {
-                    NavigationLink(value: BrowseDestination.add(hit)) {
+                    NavigationLink(value: BrowseDestination.versions(hit)) {
                         Label("Find Other Versions", systemImage: "square.stack.3d.up")
                     }
                     .buttonStyle(SeretActionButtonStyle())
