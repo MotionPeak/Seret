@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// One cohesive tvOS type ramp. Every screen routes its text through these roles, so the
 /// hierarchy (size · weight · tracking) lives in one place instead of ~140 ad-hoc `.system(size:)`
@@ -28,11 +29,44 @@ extension Theme {
     }
 }
 
-extension Font {
-    /// Seret system-font factory — keeps weight/design consistent at every call site.
-    static func seret(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
-        .system(size: size, weight: weight)
+extension Theme.Typography {
+    /// PostScript face for a weight. Rubik ships as static instances here, so weights are selected
+    /// by NAME — `Font.custom(_:size:).weight(_:)` does not synthesise a face that isn't registered.
+    static func face(for weight: Font.Weight) -> String {
+        switch weight {
+        case .bold, .heavy, .black: return "Rubik-Bold"
+        case .semibold:             return "Rubik-SemiBold"
+        case .medium:               return "Rubik-Medium"
+        default:                    return "Rubik-Regular"
+        }
     }
+
+    /// The tvOS point size of a system text style, read from UIKit rather than hard-coded. This is
+    /// what lets the SF Pro → Rubik swap preserve every existing size exactly.
+    static func size(_ style: UIFont.TextStyle) -> CGFloat {
+        UIFont.preferredFont(forTextStyle: style).pointSize
+    }
+}
+
+extension Font {
+    /// Seret type factory — Rubik at an explicit size and weight.
+    ///
+    /// ⚠️ SF Symbols must NOT go through here. A symbol is sized by its font, and Rubik has no
+    /// glyphs for them; keep `.system(size:)` on every `Image(systemName:)`.
+    static func seret(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
+        .custom(Theme.Typography.face(for: weight), size: size)
+    }
+
+    // Rubik stand-ins for the system text styles, at the SAME point sizes tvOS uses, so swapping a
+    // call site is a pure family change with no reflow.
+    static let seretTitle    = Font.seret(Theme.Typography.size(.title1), .bold)
+    static let seretTitle2   = Font.seret(Theme.Typography.size(.title2), .semibold)
+    static let seretTitle3   = Font.seret(Theme.Typography.size(.title3))
+    static let seretHeadline = Font.seret(Theme.Typography.size(.headline), .semibold)
+    static let seretBody     = Font.seret(Theme.Typography.size(.body))
+    static let seretCallout  = Font.seret(Theme.Typography.size(.callout))
+    static let seretCaption  = Font.seret(Theme.Typography.size(.caption1))
+    static let seretCaption2 = Font.seret(Theme.Typography.size(.caption2))
 }
 
 extension View {
@@ -46,6 +80,8 @@ extension View {
     func sectionTitle() -> some View { font(.seret(Theme.Typography.h2Size, .bold)).tracking(0.3) }
     /// Poster captions, episode titles, list-row titles.
     func cardTitle() -> some View { font(.seret(Theme.Typography.cardSize, .semibold)) }
+    /// Side-menu row label.
+    func navLabel() -> some View { font(.seret(36, .medium)) }
     /// Body copy — overviews & descriptions, with comfortable line spacing.
     func bodyText() -> some View { font(.seret(Theme.Typography.bodySize, .regular)).lineSpacing(4) }
     /// Secondary callout text (helper lines, status).

@@ -43,7 +43,10 @@ targets:
         TraktClientSecret: "$(TRAKT_CLIENT_SECRET)"
         LSApplicationQueriesSchemes: [youtube, vnd.youtube]
         UIBackgroundModes: [remote-notification]
-        UIAppFonts: [Rubik-Regular.ttf]      # registers Rubik so VLCKit can use it for subtitles
+        # Rubik is BOTH the app's UI face and the subtitle face VLCKit resolves by family name.
+        # Verified on tvOS 26: all four register under the single "Rubik" family, and code selects
+        # a weight by PostScript name (Font.custom won't synthesise an unregistered face).
+        UIAppFonts: [Rubik-Regular.ttf, Rubik-Medium.ttf, Rubik-SemiBold.ttf, Rubik-Bold.ttf]
     settings:
       base:
         PRODUCT_NAME: Seret
