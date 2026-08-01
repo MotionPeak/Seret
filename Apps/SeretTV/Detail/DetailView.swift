@@ -108,8 +108,25 @@ struct DetailView: View {
                 session.libraryStore?.retry()
                 episodePlayback = EpisodePlayback(request: req)
             } else {
-                episodeError = "Couldn't find a cached version of this episode to download."
+                await startEpisodeDownload(row, using: add)
             }
         }
+    }
+
+    /// Nothing cached for this episode — start a tracked Real-Debrid download instead of giving
+    /// up. It cannot play now (it is still downloading), so progress surfaces on the episode row
+    /// and the Home "Downloading" rail rather than opening the player.
+    private func startEpisodeDownload(_ row: DetailStore.EpisodeRowInfo, using add: AddStore) async {
+        let candidates = await add.uncachedCandidates()
+        guard !candidates.isEmpty, let tmdb = store.item.tmdbID else {
+            episodeError = "No version of this episode is available to download."
+            return
+        }
+        await session.downloadStore?.request(
+            contentKey: DownloadKey.episode(showTmdbID: tmdb, season: row.season,
+                                            number: row.number),
+            tmdbID: tmdb,
+            title: "\(store.item.title) S\(row.season)E\(row.number)",
+            kind: .show, candidates: candidates, posterPath: store.item.posterPath)
     }
 }

@@ -39,7 +39,11 @@ struct ShowDetailView: View {
                     hero.frame(maxWidth: .infinity, alignment: .leading)
                     seasonPicker
                     markSeasonButton
-                    SeasonDownloadButton(store: seasonStore, onAdded: onSeasonAdded)
+                    SeasonDownloadButton(store: seasonStore, onAdded: onSeasonAdded,
+                                         showTmdbID: store.item.tmdbID,
+                                         season: store.selectedSeason,
+                                         showTitle: store.item.title,
+                                         posterPath: store.item.posterPath)
                     episodeList
                     // Gated on non-empty: the rail only ever appears once TMDB credits land, and it
                     // appends BELOW everything else, so it never resizes content already on screen.
