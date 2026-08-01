@@ -12,12 +12,19 @@ public struct Torrent: Decodable, Sendable, Equatable, Identifiable {
     public let added: String
     public let links: [String]
     public let ended: String?
+    /// Download rate in bytes/sec. RD sends this only while `status == "downloading"`.
+    public let speed: Int?
+    /// Peers currently serving the torrent. RD sends this only while downloading; 0 means
+    /// nothing is available to download from yet.
+    public let seeders: Int?
 
     public init(id: String, filename: String, hash: String, bytes: Int, host: String,
-                progress: Double, status: String, added: String, links: [String], ended: String? = nil) {
+                progress: Double, status: String, added: String, links: [String],
+                ended: String? = nil, speed: Int? = nil, seeders: Int? = nil) {
         self.id = id; self.filename = filename; self.hash = hash; self.bytes = bytes
         self.host = host; self.progress = progress; self.status = status
         self.added = added; self.links = links; self.ended = ended
+        self.speed = speed; self.seeders = seeders
     }
 }
 
@@ -49,12 +56,18 @@ public struct TorrentInfo: Decodable, Sendable, Equatable {
     /// ISO-8601 date the torrent was added to RD. Nil from `/torrents/info/{id}` (which omits
     /// it); `TorrentsClient.allTorrentInfos()` carries it over from the `/torrents` list.
     public let added: String?
+    /// Download rate in bytes/sec. RD sends this only while `status == "downloading"`.
+    public let speed: Int?
+    /// Peers currently serving the torrent. RD sends this only while downloading; 0 means
+    /// nothing is available to download from yet.
+    public let seeders: Int?
 
     public init(id: String, filename: String, hash: String, bytes: Int, progress: Double,
-                status: String, files: [TorrentFile], links: [String], added: String? = nil) {
+                status: String, files: [TorrentFile], links: [String], added: String? = nil,
+                speed: Int? = nil, seeders: Int? = nil) {
         self.id = id; self.filename = filename; self.hash = hash; self.bytes = bytes
         self.progress = progress; self.status = status; self.files = files; self.links = links
-        self.added = added
+        self.added = added; self.speed = speed; self.seeders = seeders
     }
 }
 
