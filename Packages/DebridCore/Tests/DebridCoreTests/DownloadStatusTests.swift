@@ -28,4 +28,37 @@ import Foundation
             #expect(DownloadStatus(from: info(st, 0), tmdbID: 1).phase == .failed(st))
         }
     }
+
+    private func listItem(_ status: String, _ progress: Double,
+                          bytes: Int = 1000, speed: Int? = nil) -> Torrent {
+        Torrent(id: "T", filename: "f.mkv", hash: "h", bytes: bytes, host: "real-debrid.com",
+                progress: progress, status: status, added: "2026-08-01T10:00:00.000Z",
+                links: [], speed: speed)
+    }
+
+    @Test func buildsFromAListItem() {
+        let s = DownloadStatus(from: listItem("downloading", 40, bytes: 2048, speed: 256),
+                               contentKey: "movie:tmdb:7", tmdbID: 7, title: "Dune",
+                               posterPath: "/d.jpg", secondsRemaining: 5)
+        #expect(s.phase == .downloading)
+        #expect(abs(s.fraction - 0.4) < 0.0001)
+        #expect(s.bytesTotal == 2048)
+        #expect(s.speedBytesPerSecond == 256)
+        #expect(s.title == "Dune")
+        #expect(s.posterPath == "/d.jpg")
+        #expect(s.secondsRemaining == 5)
+    }
+
+    /// Both inits must classify identically — they are the same RD vocabulary.
+    @Test func listItemAndInfoAgreeOnPhase() {
+        for status in ["downloaded", "downloading", "queued", "dead", "compressing"] {
+            let fromInfo = DownloadStatus(from: info(status, 0), tmdbID: 1).phase
+            let fromList = DownloadStatus(from: listItem(status, 0), tmdbID: 1).phase
+            #expect(fromInfo == fromList, "phase mismatch for \(status)")
+        }
+    }
+
+    @Test func titleDefaultsToEmpty() {
+        #expect(DownloadStatus(from: info("downloading", 10), tmdbID: 1).title == "")
+    }
 }
