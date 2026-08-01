@@ -31,6 +31,16 @@ struct HomeScreen: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 50) {
                     hero(home)
+                    if let tiles = session.downloadStore?.activeTiles, !tiles.isEmpty {
+                        HomeRail(title: "Downloading") {
+                            ForEach(tiles) { tile in
+                                DownloadingRailCard(
+                                    tile: tile,
+                                    destination: downloadDestination(for: tile,
+                                                                     library: session.libraryStore))
+                            }
+                        }
+                    }
                     if !home.continueWatching.isEmpty {
                         HomeRail(title: "Continue Watching") {
                             ForEach(home.continueWatching) { hi in
