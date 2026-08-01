@@ -467,7 +467,8 @@ public final class AppSession {
         }()
         if let container = downloadsContainer {
             let dStore = DownloadsStore(modelContainer: container)
-            let dMonitor = DownloadMonitor(info: torrents, store: dStore)
+            let dMonitor = DownloadMonitor(lister: torrents, store: dStore,
+                                           resolver: TMDBDownloadIdentityResolver(search: tmdb))
             downloadsStore = dStore
             downloadMonitor = dMonitor
             // A finished download flips into the normal library — refresh so it appears + Play lights
