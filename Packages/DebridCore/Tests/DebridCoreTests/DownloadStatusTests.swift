@@ -61,4 +61,17 @@ import Foundation
     @Test func titleDefaultsToEmpty() {
         #expect(DownloadStatus(from: info("downloading", 10), tmdbID: 1).title == "")
     }
+
+    @Test func storeKeyIsTheContentKeyWhenIdentified() {
+        let s = DownloadStatus(from: info("downloading", 10), contentKey: "movie:tmdb:7", tmdbID: 7)
+        #expect(s.storeKey == "movie:tmdb:7")
+    }
+
+    /// Two unidentifiable foreign downloads must not collide on an empty key.
+    @Test func storeKeyFallsBackToTheTorrentIDWhenUnidentified() {
+        let a = DownloadStatus(torrentID: "A", tmdbID: 0, phase: .downloading, fraction: 0)
+        let b = DownloadStatus(torrentID: "B", tmdbID: 0, phase: .downloading, fraction: 0)
+        #expect(a.storeKey == "torrent:A")
+        #expect(a.storeKey != b.storeKey)
+    }
 }

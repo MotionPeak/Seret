@@ -28,6 +28,13 @@ public struct DownloadStatus: Sendable, Equatable, Identifiable {
 
     public var id: String { torrentID }
 
+    /// The key `DownloadStore` files this status under. Prefers the content key so a status
+    /// survives the torrent being retried under a different id; falls back to the torrent id for
+    /// a foreign download whose release name TMDB could not match, so two of those never collide.
+    public var storeKey: String {
+        contentKey.isEmpty ? "torrent:\(torrentID)" : contentKey
+    }
+
     /// RD statuses that mean the download will never finish.
     static let terminalStatuses: Set<String> = ["error", "magnet_error", "dead", "virus"]
     /// RD statuses before bytes start flowing.
