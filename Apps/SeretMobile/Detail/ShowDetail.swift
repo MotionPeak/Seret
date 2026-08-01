@@ -6,6 +6,7 @@ import SwiftUI
 /// episode list for the selected season. Every TMDB episode is shown — downloaded ones play, the
 /// rest say "Not downloaded" and download-then-play on tap.
 struct ShowDetail: View {
+    @Environment(AppSession.self) private var session
     let store: DetailStore
     let onPlay: (PlaybackRequest) -> Void
     /// Builds a whole-season download engine for (imdbID, season, originalLanguage); injected so the
@@ -45,7 +46,11 @@ struct ShowDetail: View {
                     .task { await store.loadWatchSummary() }
                 seasonPicker
                 markSeasonButton
-                SeasonDownloadButton(store: seasonStore, onAdded: onSeasonAdded)
+                SeasonDownloadButton(store: seasonStore, onAdded: onSeasonAdded,
+                                     showTmdbID: store.item.tmdbID,
+                                     season: store.selectedSeason,
+                                     showTitle: store.item.title,
+                                     posterPath: store.item.posterPath)
                 episodeList
                 // Gated on non-empty: the rails only appear once TMDB credits land, and they append
                 // BELOW everything else, so they never resize content already on screen.
@@ -171,9 +176,26 @@ struct ShowDetail: View {
                 onSeasonAdded()       // refresh the library so the episode now appears as downloaded
                 onPlay(req)
             } else {
-                episodeError = "Couldn't find a cached version of this episode to download."
+                await startEpisodeDownload(row, using: add)
             }
         }
+    }
+
+    /// Nothing cached for this episode — start a tracked Real-Debrid download instead of giving
+    /// up. It cannot play now (it is still downloading), so progress surfaces on the Home
+    /// "Downloading" rail rather than opening the player.
+    private func startEpisodeDownload(_ row: DetailStore.EpisodeRowInfo, using add: AddStore) async {
+        let candidates = await add.uncachedCandidates()
+        guard !candidates.isEmpty, let tmdb = store.item.tmdbID else {
+            episodeError = "No version of this episode is available to download."
+            return
+        }
+        await session.downloadStore?.request(
+            contentKey: DownloadKey.episode(showTmdbID: tmdb, season: row.season,
+                                            number: row.number),
+            tmdbID: tmdb,
+            title: "\(store.item.title) S\(row.season)E\(row.number)",
+            kind: .show, candidates: candidates, posterPath: store.item.posterPath)
     }
 }
 
