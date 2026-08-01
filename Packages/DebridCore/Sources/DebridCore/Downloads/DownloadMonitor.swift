@@ -30,6 +30,12 @@ public actor DownloadMonitor {
     private let now: @Sendable () -> Date
     private let pageLimit: Int
     private var estimators: [String: ETAEstimator] = [:]
+    /// Torrent ids that were active on the previous poll. A torrent that drops out of this set has
+    /// finished, failed, or been deleted — that transition is announced exactly once.
+    private var previouslyActive: Set<String> = []
+
+    /// Test hook: estimator state must not accumulate across completed downloads.
+    var trackedEstimatorCount: Int { estimators.count }
 
     /// RD statuses that mean the torrent is still working toward `downloaded`. `compressing` and
     /// `uploading` are RD's post-download processing — still "in flight" from the user's side.
@@ -48,15 +54,20 @@ public actor DownloadMonitor {
         self.pageLimit = pageLimit
     }
 
-    /// One pass. Returns a status for every torrent RD is currently working on.
+    /// One pass. Returns a status for every torrent RD is currently working on, plus a one-shot
+    /// terminal status for anything that stopped being active since the last poll.
     @discardableResult
     public func poll() async throws -> [DownloadStatus] {
         let list = try await lister.torrents(page: 1, limit: pageLimit)
+        let byID = Dictionary(list.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let records = Dictionary((try await store.all()).map { ($0.torrentID, $0) },
                                  uniquingKeysWith: { first, _ in first })
 
         var statuses: [DownloadStatus] = []
+        var active: Set<String> = []
+
         for torrent in list where Self.activeStatuses.contains(torrent.status) {
+            active.insert(torrent.id)
             let identity = await identify(torrent, record: records[torrent.id])
             var estimator = estimators[torrent.id] ?? ETAEstimator()
             let eta = estimator.observe(fraction: torrent.progress / 100, totalBytes: torrent.bytes,
@@ -69,6 +80,43 @@ public actor DownloadMonitor {
                                            posterPath: identity?.posterPath,
                                            secondsRemaining: eta))
         }
+
+        // Anything that was active and no longer is has reached a terminal state. Recorded
+        // requests RD no longer lists at all are swept the same way, so a torrent deleted
+        // elsewhere cannot leak its record forever.
+        let settled = previouslyActive.subtracting(active)
+            .union(records.keys.filter { !active.contains($0) })
+        for id in settled.sorted() {
+            let record = records[id]
+            let listed = byID[id]
+            // A vanished torrent has no `Torrent` to resolve from, so fall back to the record.
+            let identity: DownloadIdentity?
+            if let listed {
+                identity = await identify(listed, record: record)
+            } else {
+                identity = record.flatMap(Self.identity(fromRecord:))
+            }
+
+            if let listed {
+                statuses.append(DownloadStatus(from: listed,
+                                               contentKey: identity?.contentKey ?? "",
+                                               tmdbID: identity?.tmdbID ?? 0,
+                                               title: identity?.title ?? "",
+                                               posterPath: identity?.posterPath))
+            } else {
+                // RD no longer lists it at all — deleted from the account.
+                statuses.append(DownloadStatus(torrentID: id,
+                                               contentKey: identity?.contentKey ?? "",
+                                               tmdbID: identity?.tmdbID ?? 0,
+                                               phase: .failed("removed"), fraction: 0,
+                                               title: identity?.title ?? "",
+                                               posterPath: identity?.posterPath))
+            }
+            estimators[id] = nil
+            if record != nil { try? await store.delete(torrentID: id) }
+        }
+
+        previouslyActive = active
         return statuses
     }
 

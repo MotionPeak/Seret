@@ -139,5 +139,91 @@ extension SwiftDataSuite {
             _ = try await m.poll()
             #expect(lister.calls == 1)
         }
+
+        /// A torrent that was downloading and is now `downloaded` must be announced once, so the
+        /// library refreshes and the "ready" notification fires.
+        @Test func aFinishedTorrentIsReportedReadyOnce() async throws {
+            let s = try await store(seed: [record("A", "movie:tmdb:7")])
+            let lister = FakeLister([torrent("A", "downloading", 90)])
+            let m = monitor(lister, s)
+            _ = try await m.poll()
+
+            lister.torrentsToReturn = [torrent("A", "downloaded", 100)]
+            let second = try await m.poll()
+            #expect(second.count == 1)
+            #expect(second[0].phase == .ready)
+            #expect(second[0].contentKey == "movie:tmdb:7")
+
+            // Announced once only — a third poll must not repeat it.
+            #expect(try await m.poll().isEmpty)
+        }
+
+        @Test func aFinishedTorrentDropsItsRecord() async throws {
+            let s = try await store(seed: [record("A", "movie:tmdb:7")])
+            let lister = FakeLister([torrent("A", "downloading", 90)])
+            let m = monitor(lister, s)
+            _ = try await m.poll()
+            lister.torrentsToReturn = [torrent("A", "downloaded", 100)]
+            _ = try await m.poll()
+            #expect(try await s.all().isEmpty)
+        }
+
+        @Test func aFailedTorrentIsReportedFailed() async throws {
+            let s = try await store(seed: [record("A", "movie:tmdb:7")])
+            let lister = FakeLister([torrent("A", "downloading", 10)])
+            let m = monitor(lister, s)
+            _ = try await m.poll()
+            lister.torrentsToReturn = [torrent("A", "dead", 10)]
+            let second = try await m.poll()
+            #expect(second[0].phase == .failed("dead"))
+        }
+
+        /// Deleted from RD elsewhere. Previously this leaked the record forever, because the old
+        /// monitor skipped a torrent whose info fetch failed.
+        @Test func aVanishedTorrentIsReportedFailedAndDropsItsRecord() async throws {
+            let s = try await store(seed: [record("A", "movie:tmdb:7")])
+            let lister = FakeLister([torrent("A", "downloading", 10)])
+            let m = monitor(lister, s)
+            _ = try await m.poll()
+
+            lister.torrentsToReturn = []
+            let second = try await m.poll()
+            #expect(second.count == 1)
+            #expect(second[0].phase == .failed("removed"))
+            #expect(second[0].contentKey == "movie:tmdb:7")
+            #expect(try await s.all().isEmpty)
+        }
+
+        /// A record whose torrent was never seen active (app restarted mid-download, then the
+        /// torrent finished while we were away) must still be reconciled away.
+        @Test func aRecordForATorrentRDNoLongerListsIsCleanedUp() async throws {
+            let s = try await store(seed: [record("GONE", "movie:tmdb:7")])
+            let m = monitor(FakeLister([]), s)
+            let statuses = try await m.poll()
+            #expect(statuses.count == 1)
+            #expect(statuses[0].phase == .failed("removed"))
+            #expect(try await s.all().isEmpty)
+        }
+
+        /// A download started elsewhere has no record, so only the previously-active bookkeeping
+        /// can notice it finished. Without that announcement the library never refreshes and the
+        /// finished title never appears.
+        @Test func aFinishedForeignTorrentIsAnnouncedAndReleasesItsEstimator() async throws {
+            let s = try await store(seed: [])
+            let found = DownloadIdentity(contentKey: "movie:tmdb:42", tmdbID: 42,
+                                         kind: .movie, title: "Foreign")
+            let lister = FakeLister([torrent("A", "downloading", 50, bytes: 1000, speed: 100)])
+            let m = monitor(lister, s, resolver: FixedResolver(identity: found))
+            _ = try await m.poll()
+
+            lister.torrentsToReturn = [torrent("A", "downloaded", 100)]
+            let second = try await m.poll()
+            #expect(second.count == 1)
+            #expect(second[0].phase == .ready)
+            #expect(second[0].contentKey == "movie:tmdb:42")
+            #expect(await m.trackedEstimatorCount == 0)
+
+            #expect(try await m.poll().isEmpty)   // announced once only
+        }
     }
 }
