@@ -11,6 +11,7 @@ import DebridCore
 ///   - `scrubbar`  — the transport bar in each of its states
 ///   - `settings`  — the playback settings panel with grouped subtitle tracks
 ///   - `subtitles` — the full subtitle browser with ranked, badged results
+///   - `detail`    — the Movie Detail page with a rating-capable stub store
 ///
 /// Not compiled into release builds.
 struct PlayerUIPreview: View {
@@ -21,9 +22,52 @@ struct PlayerUIPreview: View {
         case "settings":   SettingsPanelPreview()
         case "subtitles":  SubtitleBrowserPreview()
         case "inputprobe": InputProbePreview()
+        case "detail":     MovieDetailPreview()
         default:           ScrubBarPreview()
         }
     }
+}
+
+// MARK: - Movie Detail
+
+/// The real `MovieDetailView` on a stub store that reports a linked rating service, so the star row
+/// renders (it's hidden when Trakt isn't linked) alongside the Versions header. Sign-in free, which
+/// is what makes the star styling and the focus geometry between them verifiable in the simulator.
+private struct MovieDetailPreview: View {
+    @State private var store: DetailStore = {
+        let s = MediaSource(torrentID: "t", fileID: nil, restrictedLink: "rd://x",
+                            parsed: ParsedRelease(title: "The Odyssey", year: 2026,
+                                                  resolution: "1080p", source: "TELESYNC",
+                                                  videoCodec: "x264"))
+        let item = MediaItem(id: "m", kind: .movie, title: "The Odyssey", year: 2026,
+                             sources: [s], seasons: [], tmdbID: 1_242_011,
+                             overview: "Odysseus takes the long way home.")
+        return DetailStore(item: item, details: PreviewDetails(), watch: PreviewWatchRating())
+    }()
+    @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()))
+
+    var body: some View {
+        NavigationStack { MovieDetailView(store: store) }
+            .environment(session)
+    }
+}
+
+/// Inert details provider — the harness renders from the cached `MediaItem` alone.
+private struct PreviewDetails: MediaDetailsProviding {
+    func movieDetails(tmdbID: Int) async throws -> TMDBMovieDetails { throw CancellationError() }
+    func tvDetails(tmdbID: Int) async throws -> TMDBTVDetails { throw CancellationError() }
+    func seasonEpisodes(tvID: Int, season: Int) async throws -> [TMDBEpisodeDetails] { [] }
+}
+
+/// A watch store that also rates — `DetailStore.canRate` keys off exactly this conformance.
+private struct PreviewWatchRating: WatchProgressProviding, WatchRatingProviding {
+    func progress(forContentKey key: String, profileID: String) async throws -> WatchState? { nil }
+    func record(contentKey: String, sourceKey: String, positionSeconds: Double,
+                durationSeconds: Double, finished: Bool, profileID: String) async throws {}
+    func recentlyWatched(limit: Int, profileID: String) async throws -> [WatchState] { [] }
+    func deleteProgress(forContentKeys keys: [String]) async throws {}
+    func rating(forContentKey key: String) async -> Int? { nil }
+    func setRating(_ value: Int?, forContentKey key: String) async {}
 }
 
 // MARK: - Scrub bar

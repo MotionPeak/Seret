@@ -22,27 +22,58 @@ struct UserRatingRow: View {
                     }
                 }
                 // `.focusSection()` makes this row ONE wider target for the focus engine — it does
-                // NOT trap focus inside the row. Without it, vertical moves from a star can miss
-                // neighbours that don't geometrically overlap it.
-                HStack(spacing: 10) {
+                // NOT trap focus inside the row. A section only counts if its FRAME intersects the
+                // direction of travel, so the row is widened to the full page FIRST: the stars end
+                // mid-screen, and without the full-width frame anything sitting to their right
+                // (the "Find Other Versions" button) had nothing above it and UP was a dead press.
+                HStack(spacing: 18) {
                     ForEach(1...10, id: \.self) { value in
                         Button {
                             Task { await store.rate(store.userRating == value ? nil : value) }
                         } label: {
                             Image(systemName: (store.userRating ?? 0) >= value ? "star.fill" : "star")
-                                .font(.title3)
-                                .foregroundStyle((store.userRating ?? 0) >= value
-                                                 ? Theme.Palette.gold : Theme.Palette.textSecondary)
+                                .font(.title2)
+                                .padding(6)
                         }
-                        .buttonStyle(.card)
+                        .buttonStyle(StarButtonStyle(filled: (store.userRating ?? 0) >= value))
                         .accessibilityLabel("Rate \(value) out of 10")
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .focusSection()
                 Text("Select your current rating again to clear it.")
                     .font(.caption).foregroundStyle(Theme.Palette.textSecondary)
             }
             .task { await store.loadUserRating() }
+        }
+    }
+}
+
+/// A chrome-free star. `.card` (the old style) drew tvOS's grey rounded platter behind every star,
+/// so the row read as ten grey boxes instead of a rating; a custom `ButtonStyle` is the only way to
+/// suppress that platter (see `BareButtonStyle`). The star supplies its own focus cue instead —
+/// gold tint, scale and glow, matching the rest of the Gold Glass controls.
+private struct StarButtonStyle: ButtonStyle {
+    let filled: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        Render(configuration: configuration, filled: filled)
+    }
+
+    private struct Render: View {
+        let configuration: ButtonStyleConfiguration
+        let filled: Bool
+        @Environment(\.isFocused) private var focused
+
+        var body: some View {
+            configuration.label
+                .foregroundStyle(filled || focused
+                                 ? AnyShapeStyle(Theme.Palette.gold)
+                                 : AnyShapeStyle(Theme.Palette.textSecondary))
+                .scaleEffect(focused ? 1.35 : 1)
+                .goldGlow(focused ? 16 : 0, opacity: 0.45)
+                .opacity(configuration.isPressed ? 0.6 : 1)
+                .animation(Theme.Anim.focus, value: focused)
         }
     }
 }

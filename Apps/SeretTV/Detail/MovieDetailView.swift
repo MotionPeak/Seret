@@ -134,6 +134,11 @@ struct MovieDetailView: View {
             }
             .buttonStyle(SeretActionButtonStyle())
         }
+        // Each horizontal row is one target for vertical travel, and a section only counts when its
+        // FRAME intersects the direction of travel — so widen to the page first, then section.
+        // Otherwise a control further right on the row below (a star, a version) has nothing above.
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .focusSection()
     }
 
     private var resumeSeconds: Double? {
@@ -188,7 +193,12 @@ struct MovieDetailView: View {
                 }
             }
         }
+        // Inner frame keeps the rows 1100pt wide; the outer one widens only the FOCUS target to the
+        // full page, so travelling UP from a poster on the right of the "More Like This" rail lands
+        // in Versions instead of dying on empty space.
         .frame(maxWidth: 1100, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .focusSection()
     }
 }
 
