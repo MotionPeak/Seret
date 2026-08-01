@@ -142,9 +142,28 @@ struct MovieDetailView: View {
     }
     private var isWatched: Bool { watch?.finished == true }
 
+    /// The Add flow for this title — it already hosts the full cached/uncached versions browser,
+    /// so Detail routes there rather than growing a second one. Needs a TMDB id to search.
+    private var otherVersionsHit: SearchHit? {
+        guard let tmdb = item.tmdbID else { return nil }
+        return SearchHit(result: TMDBSearchResult(
+            id: tmdb, title: item.title, name: nil, releaseDate: nil, firstAirDate: nil,
+            posterPath: item.posterPath, overview: nil, voteAverage: nil), kind: .movie)
+    }
+
     private var versionsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Versions").sectionTitle()
+            HStack(spacing: 24) {
+                Text("Versions").sectionTitle()
+                Spacer()
+                if let hit = otherVersionsHit {
+                    NavigationLink(value: BrowseDestination.add(hit)) {
+                        Label("Find Other Versions", systemImage: "square.stack.3d.up")
+                    }
+                    .buttonStyle(SeretActionButtonStyle())
+                }
+            }
+            .frame(maxWidth: 1100)
             ForEach(store.versions, id: \.self) { src in
                 NavigationLink(value: store.playRequest(source: src, episode: nil, label: item.title)) {
                     HStack(spacing: 16) {

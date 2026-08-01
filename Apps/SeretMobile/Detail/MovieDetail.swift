@@ -129,9 +129,30 @@ struct MovieDetail: View {
         .accessibilityLabel("More options")
     }
 
+    /// The Add flow for this title — it already hosts the full cached/uncached versions browser,
+    /// so Detail routes there rather than growing a second one. Needs a TMDB id to search.
+    private var otherVersionsHit: SearchHit? {
+        guard let tmdb = item.tmdbID else { return nil }
+        return SearchHit(result: TMDBSearchResult(
+            id: tmdb, title: item.title, name: nil, releaseDate: nil, firstAirDate: nil,
+            posterPath: item.posterPath, overview: nil, voteAverage: nil), kind: .movie)
+    }
+
     private var versionsSection: some View {
         VStack(alignment: .leading, spacing: Theme.Space.sm) {
-            Text("VERSIONS").font(Theme.Typo.label()).tracking(1.5).foregroundStyle(Theme.Palette.gold)
+            HStack {
+                Text("VERSIONS").font(Theme.Typo.label()).tracking(1.5)
+                    .foregroundStyle(Theme.Palette.gold)
+                Spacer()
+                if let hit = otherVersionsHit {
+                    Button { onAddTitle(hit) } label: {
+                        Label("Find Other", systemImage: "square.stack.3d.up")
+                            .font(Theme.Typo.caption())
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Theme.Palette.gold)
+                }
+            }
             ForEach(store.versions, id: \.self) { src in versionRow(src) }
         }
     }
