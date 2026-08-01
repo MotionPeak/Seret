@@ -27,6 +27,9 @@ public final class AppSession {
     public private(set) var moviesBrowse: DiscoverStore?
     public private(set) var showsBrowse: DiscoverStore?
 
+    /// Backs the per-genre grids on Movies/Shows (nil while signed out).
+    public private(set) var genreBrowsing: GenreBrowsing?
+
     /// Trailer-key resolver for the Add / Detail screens (nil while signed out).
     public private(set) var trailers: TrailerProviding?
 
@@ -157,6 +160,7 @@ public final class AppSession {
         searchStore = nil
         moviesBrowse = nil
         showsBrowse = nil
+        genreBrowsing = nil
         trailers = nil
         detailsProvider = nil
         ratingsProvider = nil
@@ -445,6 +449,7 @@ public final class AppSession {
                                     profileID: { [weak self] in self?.activeProfileID })
         searchStore = SearchStore(search: TMDBSearchService(client: tmdb))
         let discover = TMDBDiscoverService(client: tmdb)
+        genreBrowsing = TMDBGenreService(client: tmdb)
         let seedService = RecommendationSeedService(
             watch: watchStore ?? NoWatch(), library: libraryStore,
             profileID: { [weak self] in self?.activeProfileID })
@@ -581,6 +586,13 @@ public final class AppSession {
                 await self?.rebuildHome()
             }
         }
+    }
+
+    /// A fresh grid store for one genre, or nil if not signed in. Deliberately not cached: a grid
+    /// is a transient drill-down, and a cached one would show a stale page under a new sort.
+    public func makeGenreGrid(kind: MediaKind, genre: DiscoverStore.Genre) -> GenreGridStore? {
+        guard let genreBrowsing else { return nil }
+        return GenreGridStore(kind: kind, genre: genre, browsing: genreBrowsing)
     }
 
     /// Build a fully-wired player for a playback request, or nil if not signed in. The platform
