@@ -6,28 +6,58 @@ import SwiftUI
 /// opens when explicitly chosen — navigating the discover rows never triggers it. Results reuse the
 /// shared `BrowseTile`, so tapping one pushes Detail (owned) or the Add flow (new) on the shell stack.
 struct SearchScreen: View {
-    let kind: MediaKind
+    /// The kind the side menu guessed from the section you were in — a starting point, not a
+    /// constraint. Without the in-place toggle below, searching for a show from Home is a dead end.
+    let initialKind: MediaKind
 
     @Environment(AppSession.self) private var session
     @State private var query = ""
+    @State private var kind: MediaKind
+    @FocusState private var focusedKind: MediaKind?
+
+    init(kind: MediaKind) {
+        self.initialKind = kind
+        _kind = State(initialValue: kind)
+    }
 
     var body: some View {
         Group {
             if let search = session.searchStore {
-                content(search)
-                    .searchable(text: $query, placement: .automatic,
-                                prompt: kind == .movie ? "Search movies" : "Search shows")
-                    .task(id: query) {
-                        try? await Task.sleep(for: .milliseconds(350))
-                        guard !Task.isCancelled else { return }
-                        await search.search(query: query, kind: kind)
-                    }
+                VStack(alignment: .leading, spacing: 0) {
+                    kindToggle
+                    content(search)
+                }
+                .searchable(text: $query, placement: .automatic,
+                            prompt: kind == .movie ? "Search movies" : "Search shows")
+                // Keyed on kind TOO, so flipping Movies/Shows re-runs the search in place instead
+                // of leaving the previous kind's results on screen.
+                .task(id: "\(kind.rawValue)/\(query)") {
+                    try? await Task.sleep(for: .milliseconds(350))
+                    guard !Task.isCancelled else { return }
+                    await search.search(query: query, kind: kind)
+                }
             } else {
                 SeretLoader()
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(CanvasBackground())
+    }
+
+    /// Movies / Shows in place. Commit-on-press like every other pill row in the app.
+    private var kindToggle: some View {
+        HStack(spacing: 16) {
+            Button("Movies") { kind = .movie }
+                .buttonStyle(SeretPillStyle(selected: kind == .movie))
+                .focused($focusedKind, equals: .movie)
+            Button("Shows") { kind = .show }
+                .buttonStyle(SeretPillStyle(selected: kind == .show))
+                .focused($focusedKind, equals: .show)
+        }
+        .padding(.horizontal, Theme.Layout.contentMargin)
+        .padding(.top, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .focusSection()
     }
 
     @ViewBuilder private func content(_ search: SearchStore) -> some View {
