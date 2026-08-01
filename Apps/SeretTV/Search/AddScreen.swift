@@ -394,7 +394,8 @@ private struct AddActions: View {
             if let request = await flow.instantPlay(stream) {
                 onPlay(request)
             } else {
-                await session.downloadStore?.request(tmdbID: flow.tmdbID, title: flow.title,
+                await session.downloadStore?.request(contentKey: DownloadKey.movie(tmdbID: flow.tmdbID),
+                                                     tmdbID: flow.tmdbID, title: flow.title,
                                                      kind: flow.mediaKind, candidates: [stream],
                                                      posterPath: flow.posterPath)
             }
@@ -426,7 +427,7 @@ private struct AddActions: View {
     @ViewBuilder private var pickedDownloadStatus: some View {
         if case .noStreams = add.state {
             EmptyView()   // DownloadSection already surfaces progress in that state
-        } else if let status = session.downloadStore?.status(forTMDB: flow.tmdbID) {
+        } else if let status = session.downloadStore?.status(forContentKey: DownloadKey.movie(tmdbID: flow.tmdbID)) {
             switch status.phase {
             case .queued:
                 ProgressView("Starting download…").font(.title3)
@@ -437,7 +438,7 @@ private struct AddActions: View {
                 ProgressView(value: status.fraction).tint(.yellow).frame(maxWidth: 700)
                 Text("It'll appear in your library when it's ready.").font(.callout).foregroundStyle(.secondary)
                 Button(role: .destructive) {
-                    Task { await session.downloadStore?.cancel(tmdbID: flow.tmdbID) }
+                    Task { await session.downloadStore?.cancel(contentKey: DownloadKey.movie(tmdbID: flow.tmdbID)) }
                 } label: { Label("Cancel download", systemImage: "xmark.circle") }.font(.title3)
             case .failed(let reason):
                 Label(reason, systemImage: "exclamationmark.triangle").font(.title3).foregroundStyle(.orange)
@@ -487,7 +488,7 @@ private struct DownloadSection: View {
     @State private var requesting = false
 
     var body: some View {
-        let status = session.downloadStore?.status(forTMDB: flow.tmdbID)
+        let status = session.downloadStore?.status(forContentKey: DownloadKey.movie(tmdbID: flow.tmdbID))
         VStack(alignment: .leading, spacing: 16) {
             if requesting && status == nil {
                 ProgressView("Checking Real‑Debrid…").font(.title3)
@@ -500,7 +501,7 @@ private struct DownloadSection: View {
                 ProgressView(value: status?.fraction ?? 0).tint(.yellow).frame(maxWidth: 700)
                 Text("It'll appear in your library when it's ready.").font(.callout).foregroundStyle(.secondary)
                 Button(role: .destructive) {
-                    Task { await session.downloadStore?.cancel(tmdbID: flow.tmdbID) }
+                    Task { await session.downloadStore?.cancel(contentKey: DownloadKey.movie(tmdbID: flow.tmdbID)) }
                 } label: { Label("Cancel download", systemImage: "xmark.circle") }
                     .font(.title3)
             } else if case .failed(let reason) = status?.phase {
@@ -525,7 +526,8 @@ private struct DownloadSection: View {
                 if let best = candidates.first, let request = await flow.instantPlay(best) {
                     onPlay(request)
                 } else if !candidates.isEmpty {
-                    await session.downloadStore?.request(tmdbID: flow.tmdbID, title: flow.title,
+                    await session.downloadStore?.request(contentKey: DownloadKey.movie(tmdbID: flow.tmdbID),
+                                                     tmdbID: flow.tmdbID, title: flow.title,
                                                          kind: flow.mediaKind, candidates: candidates,
                                                          posterPath: flow.posterPath)
                 }
@@ -541,7 +543,8 @@ private struct DownloadSection: View {
             Task {
                 requesting = true
                 let candidates = await flow.uncachedCandidates()
-                await session.downloadStore?.request(tmdbID: flow.tmdbID, title: flow.title,
+                await session.downloadStore?.request(contentKey: DownloadKey.movie(tmdbID: flow.tmdbID),
+                                                     tmdbID: flow.tmdbID, title: flow.title,
                                                      kind: flow.mediaKind, candidates: candidates,
                                                      posterPath: flow.posterPath)
                 requesting = false

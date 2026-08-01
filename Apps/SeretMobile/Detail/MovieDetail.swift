@@ -180,7 +180,7 @@ private struct MovieDownloadSection: View {
     @State private var requesting = false
 
     var body: some View {
-        let status = session.downloadStore?.status(forTMDB: tmdbID)
+        let status = session.downloadStore?.status(forContentKey: DownloadKey.movie(tmdbID: tmdbID))
         VStack(alignment: .leading, spacing: Theme.Space.md) {
             if requesting && status == nil {
                 ProgressView("Starting download…").tint(Theme.Palette.gold)
@@ -217,7 +217,8 @@ private struct MovieDownloadSection: View {
                                                               originalLanguage: originalLanguage) {
                     candidates = await add.uncachedCandidates()
                 }
-                await session.downloadStore?.request(tmdbID: tmdbID, title: title, kind: .movie,
+                await session.downloadStore?.request(contentKey: DownloadKey.movie(tmdbID: tmdbID),
+                                                     tmdbID: tmdbID, title: title, kind: .movie,
                                                      candidates: candidates, posterPath: posterPath)
                 requesting = false
             }
