@@ -47,8 +47,12 @@ private final class FakeDeleter: DownloadDeleting, @unchecked Sendable {
 
 private final class FakePoller: DownloadPolling, @unchecked Sendable {
     var passes: [[DownloadStatus]]
+    var shouldThrow = false
     init(_ passes: [[DownloadStatus]]) { self.passes = passes }
-    func poll() async throws -> [DownloadStatus] { passes.isEmpty ? [] : passes.removeFirst() }
+    func poll() async throws -> [DownloadStatus] {
+        if shouldThrow { throw FakeError.boom }
+        return passes.isEmpty ? [] : passes.removeFirst()
+    }
 }
 
 @MainActor
@@ -177,6 +181,32 @@ private final class FakePoller: DownloadPolling, @unchecked Sendable {
         #expect(s.status(forContentKey: "show:tmdb:1399:s1e1")?.fraction == 0.2)
         #expect(s.status(forContentKey: "show:tmdb:1399:s1e2")?.fraction == 0.8)
         #expect(s.activeTiles.count == 2)
+    }
+
+    @Test func aFailingPollBacksOffExponentiallyAndRecovers() async {
+        let poller = FakePoller([])
+        let s = make(poller: poller)
+        #expect(s.pollBackoff == .zero)
+
+        poller.shouldThrow = true
+        await s.refresh()
+        #expect(s.pollBackoff == .seconds(5))
+        await s.refresh()
+        #expect(s.pollBackoff == .seconds(10))
+        await s.refresh()
+        #expect(s.pollBackoff == .seconds(20))
+
+        poller.shouldThrow = false
+        await s.refresh()
+        #expect(s.pollBackoff == .zero)   // one good poll clears it
+    }
+
+    @Test func backoffIsCapped() async {
+        let poller = FakePoller([])
+        poller.shouldThrow = true
+        let s = make(poller: poller)
+        for _ in 0..<10 { await s.refresh() }
+        #expect(s.pollBackoff == .seconds(60))
     }
 
     /// Two foreign downloads TMDB could not identify both have an empty content key.

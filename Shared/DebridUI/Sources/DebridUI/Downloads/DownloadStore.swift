@@ -46,6 +46,12 @@ public final class DownloadStore {
     private let pollInterval: Duration
     private var pollTask: Task<Void, Never>?
 
+    /// Extra delay added to the poll interval after a failure. RD rate-limits, and this loop now
+    /// issues a recurring GET /torrents — without backoff a failing account becomes a request
+    /// storm, the same shape as the Trakt 429 storm.
+    private(set) var pollBackoff: Duration = .zero
+    private static let maxBackoff: Duration = .seconds(60)
+
     public init(service: DownloadRequesting,
                 records: DownloadRecording,
                 poller: DownloadPolling,
@@ -141,8 +147,14 @@ public final class DownloadStore {
     /// One poll pass: refresh progress for every active download. A `.ready` title flips into the
     /// library and its badge clears; a `.failed` one stays so the UI can offer "try another".
     public func refresh() async {
-        let results = (try? await poller.poll()) ?? []
-        for status in results { await apply(status) }
+        do {
+            let results = try await poller.poll()
+            pollBackoff = .zero          // one good poll clears the penalty
+            for status in results { await apply(status) }
+        } catch {
+            pollBackoff = pollBackoff == .zero ? .seconds(5)
+                : min(pollBackoff * 2, Self.maxBackoff)
+        }
     }
 
     /// Test hook: apply monitor results without a poller.
@@ -169,7 +181,7 @@ public final class DownloadStore {
                 if self.statuses.allSatisfy({ if case .failed = $0.value.phase { return true } else { return false } }) {
                     break   // nothing left actively downloading
                 }
-                try? await Task.sleep(for: self.pollInterval)
+                try? await Task.sleep(for: self.pollInterval + self.pollBackoff)
             }
             self?.pollTask = nil
         }
