@@ -84,4 +84,28 @@ import DebridCore
         #expect(prefs.stored["movie:tmdb:7"] == nil)
         #expect(s.bestSource?.torrentID == "B")
     }
+
+    /// `item` is a snapshot, so a deleted version has to disappear from this screen right away —
+    /// otherwise its row stays listed and Play could still pick a torrent that no longer exists.
+    @Test func aDeletedVersionLeavesTheListAndCantBePlayed() async {
+        let sd = source("A", resolution: "1080p"), hd = source("B", resolution: "2160p")
+        let s = store([sd, hd], prefs: FakePrefs())
+        await s.loadPreferredVersion()
+        await s.forgetVersion(hd)
+        #expect(s.versions.map(\.torrentID) == ["A"])
+        #expect(s.bestSource?.torrentID == "A")
+    }
+
+    /// Deleting the version you'd pinned must retire the pin too — a preference pointing at a
+    /// torrent that no longer exists would follow the title around via CloudKit.
+    @Test func deletingThePreferredVersionClearsThePreference() async {
+        let sd = source("A", resolution: "1080p"), hd = source("B", resolution: "2160p")
+        let prefs = FakePrefs()
+        let s = store([sd, hd], prefs: prefs)
+        await s.chooseVersion(sd)
+        await s.forgetVersion(sd)
+        #expect(prefs.stored["movie:tmdb:7"] == nil)
+        #expect(s.preferredSourceKey == nil)
+        #expect(s.bestSource?.torrentID == "B")
+    }
 }

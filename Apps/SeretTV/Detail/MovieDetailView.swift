@@ -6,6 +6,8 @@ import SwiftUI
 struct MovieDetailView: View {
     let store: DetailStore
     var onRemove: () -> Void = {}
+    /// One version was chosen for deletion — the host confirms, then deletes it from Real-Debrid.
+    var onRemoveVersion: (MediaSource) -> Void = { _ in }
 
     private var item: MediaItem { store.item }
     private var contentKey: String { WatchKey.content(forMovie: item) }
@@ -189,6 +191,9 @@ struct MovieDetailView: View {
                         Button("Use Best Automatically") {
                             Task { await store.clearPreferredVersion() }
                         }
+                    }
+                    Button("Delete Version", systemImage: "trash", role: .destructive) {
+                        onRemoveVersion(src)
                     }
                 }
             }

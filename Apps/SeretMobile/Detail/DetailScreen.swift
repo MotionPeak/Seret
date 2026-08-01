@@ -36,7 +36,11 @@ struct DetailScreen: View {
                 switch store.item.kind {
                 case .movie: MovieDetail(store: store, onPlay: present,
                                         onRemoveVersion: { src in
-                                            Task { await session.libraryStore?.removeVersion(store.item, source: src) }
+                                            Task {
+                                                await session.libraryStore?.removeVersion(store.item, source: src)
+                                                // Drop it from this screen too — `item` is a snapshot.
+                                                await store.forgetVersion(src)
+                                            }
                                         },
                                         onOpenTitle: { similarDetail = $0 },
                                         onAddTitle: { similarAdd = $0 })

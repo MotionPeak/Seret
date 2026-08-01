@@ -53,6 +53,8 @@ public final class DetailStore {
     private let versionPrefs: VersionPreferring?
     /// The user's chosen source key for this title, once loaded. Nil = let the ranker decide.
     public private(set) var preferredSourceKey: String?
+    /// Versions deleted from Real-Debrid while this screen was open — see `ownedSources`.
+    private var removedSourceKeys: Set<String> = []
 
     public private(set) var watchSummary: WatchSummary?
     public private(set) var historySince: Date?
@@ -73,17 +75,34 @@ public final class DetailStore {
     }
 
     // Movies: ranked sources.
-    public var versions: [MediaSource] { item.sources.bestFirst() }
+    public var versions: [MediaSource] { ownedSources.bestFirst() }
+
+    /// The versions still on Real-Debrid. `item` is an immutable snapshot taken when the screen
+    /// opened, so a version deleted from here has to be filtered out locally — otherwise the row
+    /// stays on screen (and Play could pick it) until the next library refresh.
+    private var ownedSources: [MediaSource] {
+        removedSourceKeys.isEmpty
+            ? item.sources
+            : item.sources.filter { !removedSourceKeys.contains(WatchKey.source($0)) }
+    }
 
     /// The version Play uses: the user's choice when it still resolves to an owned source,
     /// otherwise the quality ranker. A preference for a torrent since deleted from RD must fall
     /// back rather than leave Play permanently broken.
     public var bestSource: MediaSource? {
         if let key = preferredSourceKey,
-           let chosen = item.sources.first(where: { WatchKey.source($0) == key }) {
+           let chosen = ownedSources.first(where: { WatchKey.source($0) == key }) {
             return chosen
         }
-        return item.sources.best
+        return ownedSources.best
+    }
+
+    /// Called after a version was deleted from Real-Debrid: drop it from this screen, and retire a
+    /// "play this one by default" preference that now points at nothing.
+    public func forgetVersion(_ source: MediaSource) async {
+        let key = WatchKey.source(source)
+        removedSourceKeys.insert(key)
+        if preferredSourceKey == key { await clearPreferredVersion() }
     }
 
     /// Whether this is the version Play will actually use — drives the Versions checkmark.

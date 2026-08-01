@@ -5,6 +5,8 @@ import SwiftUI
 struct DetailView: View {
     @State private var store: DetailStore
     @State private var confirmingRemove = false
+    /// The version awaiting a delete confirmation (nil = no sheet).
+    @State private var pendingVersionRemoval: MediaSource?
     @State private var removeError: String?
     @State private var downloadingEpisodeID: String?
     @State private var episodePlayback: EpisodePlayback?
@@ -27,7 +29,8 @@ struct DetailView: View {
     var body: some View {
         Group {
             switch store.item.kind {
-            case .movie: MovieDetailView(store: store, onRemove: { confirmingRemove = true })
+            case .movie: MovieDetailView(store: store, onRemove: { confirmingRemove = true },
+                                         onRemoveVersion: { pendingVersionRemoval = $0 })
             case .show:  ShowDetailView(
                 store: store, onRemove: { confirmingRemove = true },
                 makeSeasonDownload: { imdb, season, lang in
@@ -64,6 +67,16 @@ struct DetailView: View {
         } message: {
             Text("This deletes it from your Real\u{2011}Debrid account. You can re\u{2011}add it later by searching.")
         }
+        .alert("Delete this version?", isPresented: Binding(
+            get: { pendingVersionRemoval != nil },
+            set: { if !$0 { pendingVersionRemoval = nil } }), presenting: pendingVersionRemoval) { source in
+            Button("Delete", role: .destructive) { performVersionRemove(source) }
+            Button("Cancel", role: .cancel) { pendingVersionRemoval = nil }
+        } message: { source in
+            Text(store.versions.count > 1
+                 ? "\(Self.describe(source)) is deleted from your Real\u{2011}Debrid account. Your other versions of \u{201C}\(store.item.title)\u{201D} stay."
+                 : "\(Self.describe(source)) is the only version you have, so \u{201C}\(store.item.title)\u{201D} leaves your library.")
+        }
         .alert("Couldn\u{2019}t Remove", isPresented: Binding(
             get: { removeError != nil }, set: { if !$0 { removeError = nil } })) {
             Button("OK", role: .cancel) { removeError = nil }
@@ -89,6 +102,33 @@ struct DetailView: View {
                 dismiss()
             }
         }
+    }
+
+    /// Delete ONE version from Real-Debrid. The last one takes the whole title with it (that's what
+    /// `LibraryService.removeVersion` does), so the screen closes in that case; otherwise it stays
+    /// open with that row gone.
+    private func performVersionRemove(_ source: MediaSource) {
+        guard let library = session.libraryStore else { return }
+        let wasLast = store.versions.count <= 1
+        pendingVersionRemoval = nil
+        Task {
+            await library.removeVersion(store.item, source: source)
+            if case .failed(let message) = library.removal {
+                removeError = message
+                library.clearRemovalError()
+            } else if wasLast {
+                dismiss()
+            } else {
+                await store.forgetVersion(source)
+            }
+        }
+    }
+
+    /// A version in words, for the delete confirmation — "1080p · TELESYNC · x264".
+    private static func describe(_ source: MediaSource) -> String {
+        let parts = [source.parsed.resolution, source.parsed.source, source.parsed.videoCodec]
+            .compactMap { $0 }
+        return parts.isEmpty ? "This version" : parts.joined(separator: " · ")
     }
 
     /// A not-downloaded episode was selected → add the best cached version, refresh the library,
