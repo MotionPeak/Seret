@@ -23,25 +23,24 @@ extension DownloadsStore: DownloadRecording {}
 extension DownloadMonitor: DownloadPolling {}
 extension TorrentsClient: DownloadDeleting {}
 
-/// App-wide view-model for the "request download" feature: starts uncached downloads on the RD
-/// seam, persists a record, and surfaces live per-title progress (keyed by TMDB id) that drives
-/// the detail-screen status row and the library "downloading" badge. A `.ready` poll flips the
-/// title into the normal library (via `onReady`) and clears its badge.
+/// App-wide view-model for downloads: starts uncached downloads on the RD seam, persists a record,
+/// and surfaces live per-title progress that drives the Home rail, the library strip and the
+/// detail-screen status row. A `.ready` poll flips the title into the normal library (via
+/// `onReady`) and clears its badge.
+///
+/// Keyed by `DownloadStatus.storeKey` — the content key, so two episodes of one show track
+/// separately, falling back to the torrent id for a foreign download TMDB could not identify.
 @MainActor
 @Observable
 public final class DownloadStore {
-    /// Active download status per TMDB id. Absent = nothing in flight (or already in the library).
-    public private(set) var statuses: [Int: DownloadStatus] = [:]
-
-    /// Title + poster per in-flight TMDB id — renders the library "downloading" tile and names the
-    /// "ready" notification. Kept alongside `statuses` so the brain `DownloadStatus` stays minimal.
-    private var meta: [Int: (title: String, posterPath: String?)] = [:]
+    /// Active download status per content key. Absent = nothing in flight (or already in library).
+    public private(set) var statuses: [String: DownloadStatus] = [:]
 
     private let service: DownloadRequesting
     private let records: DownloadRecording
     private let poller: DownloadPolling
     private let deleter: DownloadDeleting
-    private let onReady: (Int) async -> Void
+    private let onReady: (DownloadStatus) async -> Void
     private let now: () -> Date
     private let maxAttempts: Int
     private let pollInterval: Duration
@@ -51,76 +50,80 @@ public final class DownloadStore {
                 records: DownloadRecording,
                 poller: DownloadPolling,
                 deleter: DownloadDeleting,
-                onReady: @escaping (Int) async -> Void = { _ in },
+                onReady: @escaping (DownloadStatus) async -> Void = { _ in },
                 pollInterval: Duration = .seconds(5),
                 now: @escaping () -> Date = Date.init,
                 maxAttempts: Int = 6) {
         self.service = service; self.records = records; self.poller = poller; self.deleter = deleter
-        self.onReady = onReady; self.pollInterval = pollInterval; self.now = now; self.maxAttempts = maxAttempts
+        self.onReady = onReady; self.pollInterval = pollInterval; self.now = now
+        self.maxAttempts = maxAttempts
     }
 
     /// Cancel an in-flight (or stalled) download: delete the RD torrent, drop the persisted record,
     /// and clear the badge. Safe to call for a request that never started (no torrent yet).
-    public func cancel(tmdbID: Int) async {
-        let torrentID = statuses[tmdbID]?.torrentID
-        statuses[tmdbID] = nil
-        meta[tmdbID] = nil
+    public func cancel(contentKey: String) async {
+        let torrentID = statuses[contentKey]?.torrentID
+        statuses[contentKey] = nil
         if let torrentID, !torrentID.isEmpty {
             try? await deleter.deleteTorrent(id: torrentID)
             try? await records.delete(torrentID: torrentID)
         }
     }
 
-    public func status(forTMDB id: Int) -> DownloadStatus? { statuses[id] }
+    public func status(forContentKey key: String) -> DownloadStatus? { statuses[key] }
 
-    /// The title of an in-flight download (for the "ready" notification).
-    public func title(forTMDB id: Int) -> String? { meta[id]?.title }
-
-    /// In-progress downloads (queued/downloading) as poster tiles for the library grid. Failed and
-    /// ready ones are excluded — failed surfaces on Detail, ready becomes a real library item.
+    /// In-progress downloads (queued/downloading) as poster tiles. Failed and ready ones are
+    /// excluded — failed surfaces on Detail, ready becomes a real library item.
     public var activeTiles: [DownloadTile] {
-        statuses.compactMap { tmdbID, status in
+        statuses.values.compactMap { status in
             switch status.phase {
             case .queued, .downloading:
-                let m = meta[tmdbID]
-                return DownloadTile(tmdbID: tmdbID, title: m?.title ?? "Downloading…",
-                                    posterPath: m?.posterPath, status: status)
+                return DownloadTile(tmdbID: status.tmdbID,
+                                    title: status.title.isEmpty ? "Downloading…" : status.title,
+                                    posterPath: status.posterPath, status: status)
             case .ready, .failed:
                 return nil
             }
         }
-        .sorted { $0.tmdbID < $1.tmdbID }
+        .sorted { $0.status.storeKey < $1.status.storeKey }
     }
 
     /// Seed badges from persisted records (call at sign-in) so an in-flight download survives an
     /// app restart, then resume polling.
     public func loadActive() async {
         let active = (try? await records.all()) ?? []
-        for r in active where statuses[r.tmdbID] == nil {
-            statuses[r.tmdbID] = DownloadStatus(torrentID: r.torrentID, tmdbID: r.tmdbID, phase: .queued, fraction: 0)
-            meta[r.tmdbID] = (r.title, r.posterPath)
+        for r in active {
+            let key = r.contentKey.isEmpty ? "torrent:\(r.torrentID)" : r.contentKey
+            guard statuses[key] == nil else { continue }
+            statuses[key] = DownloadStatus(torrentID: r.torrentID, contentKey: r.contentKey,
+                                           tmdbID: r.tmdbID, phase: .queued, fraction: 0,
+                                           title: r.title, posterPath: r.posterPath)
         }
         if !active.isEmpty { startPolling() }
     }
 
-    /// Start a background download for `tmdbID`, trying the ranked candidates in order until one
-    /// starts (each terminal failure self-skips, mirroring the instant add's fallback).
-    public func request(tmdbID: Int, title: String, kind: MediaKind, candidates: [CachedStream],
-                        posterPath: String? = nil) async {
-        meta[tmdbID] = (title, posterPath)
+    /// Start a background download for `contentKey`, trying the ranked candidates in order until
+    /// one starts (each terminal failure self-skips, mirroring the instant add's fallback).
+    public func request(contentKey: String, tmdbID: Int, title: String, kind: MediaKind,
+                        candidates: [CachedStream], posterPath: String? = nil) async {
         guard !candidates.isEmpty else {
-            statuses[tmdbID] = .failed(tmdbID, "No version available to download.")
+            statuses[contentKey] = .failed(contentKey, tmdbID, "No version available to download.")
             return
         }
-        statuses[tmdbID] = DownloadStatus(torrentID: "", tmdbID: tmdbID, phase: .queued, fraction: 0)
+        statuses[contentKey] = DownloadStatus(torrentID: "", contentKey: contentKey, tmdbID: tmdbID,
+                                              phase: .queued, fraction: 0,
+                                              title: title, posterPath: posterPath)
         var sawBlocked = false
         for candidate in candidates.prefix(maxAttempts) {
             do {
                 let info = try await service.startDownload(infoHash: candidate.infoHash)
                 try? await records.upsert(DownloadRequestData(
-                    torrentID: info.id, tmdbID: tmdbID, infoHash: candidate.infoHash,
+                    torrentID: info.id, contentKey: contentKey, tmdbID: tmdbID,
+                    infoHash: candidate.infoHash,
                     kind: kind, title: title, posterPath: posterPath, requestedAt: now()))
-                statuses[tmdbID] = DownloadStatus(from: info, tmdbID: tmdbID)
+                statuses[contentKey] = DownloadStatus(from: info, contentKey: contentKey,
+                                                      tmdbID: tmdbID, title: title,
+                                                      posterPath: posterPath)
                 startPolling()
                 return
             } catch RDAddError.blocked {
@@ -130,24 +133,30 @@ public final class DownloadStore {
                 continue            // dead/virus/magnet_error → try the next-best
             }
         }
-        statuses[tmdbID] = .failed(tmdbID, sawBlocked
+        statuses[contentKey] = .failed(contentKey, tmdbID, sawBlocked
             ? "Real‑Debrid blocked this title — its torrents are flagged for copyright, so none can be added."
             : "Couldn't start a download. Try another version later.")
     }
 
-    /// One poll pass: refresh progress for every active request. A `.ready` title flips into the
+    /// One poll pass: refresh progress for every active download. A `.ready` title flips into the
     /// library and its badge clears; a `.failed` one stays so the UI can offer "try another".
     public func refresh() async {
         let results = (try? await poller.poll()) ?? []
-        for status in results {
-            switch status.phase {
-            case .ready:
-                await onReady(status.tmdbID)
-                statuses[status.tmdbID] = nil
-                meta[status.tmdbID] = nil
-            case .queued, .downloading, .failed:
-                statuses[status.tmdbID] = status
-            }
+        for status in results { await apply(status) }
+    }
+
+    /// Test hook: apply monitor results without a poller.
+    func applyForTest(_ results: [DownloadStatus]) async {
+        for status in results { await apply(status) }
+    }
+
+    private func apply(_ status: DownloadStatus) async {
+        switch status.phase {
+        case .ready:
+            statuses[status.storeKey] = nil
+            await onReady(status)
+        case .queued, .downloading, .failed:
+            statuses[status.storeKey] = status
         }
     }
 
@@ -169,16 +178,17 @@ public final class DownloadStore {
 
 private extension DownloadStatus {
     /// A failed status with no torrent (a request that never started).
-    static func failed(_ tmdbID: Int, _ reason: String) -> DownloadStatus {
-        DownloadStatus(torrentID: "", tmdbID: tmdbID, phase: .failed(reason), fraction: 0)
+    static func failed(_ contentKey: String, _ tmdbID: Int, _ reason: String) -> DownloadStatus {
+        DownloadStatus(torrentID: "", contentKey: contentKey, tmdbID: tmdbID,
+                       phase: .failed(reason), fraction: 0)
     }
 }
 
-/// A poster tile for an in-progress download, rendered in the library grid alongside owned items.
+/// A poster tile for an in-progress download, rendered in the Home rail and the library grid.
 public struct DownloadTile: Identifiable, Sendable, Equatable {
     public let tmdbID: Int
     public let title: String
     public let posterPath: String?
     public let status: DownloadStatus
-    public var id: Int { tmdbID }
+    public var id: String { status.storeKey }
 }

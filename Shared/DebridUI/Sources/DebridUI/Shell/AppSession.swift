@@ -472,12 +472,13 @@ public final class AppSession {
             downloadsStore = dStore
             downloadMonitor = dMonitor
             // A finished download flips into the normal library — refresh so it appears + Play lights
-            // up — and fires a "ready" notification (the title is still in DownloadStore's meta here).
+            // up — and fires a "ready" notification. The status carries its own title, so this
+            // works for a download started on another device as well as one of ours.
             let store = DownloadStore(service: dlService, records: dStore, poller: dMonitor,
                                       deleter: torrents,
-                                      onReady: { [weak self] tmdbID in
+                                      onReady: { [weak self] status in
                                           guard let self else { return }
-                                          let name = self.downloadStore?.title(forTMDB: tmdbID) ?? "Your download"
+                                          let name = status.title.isEmpty ? "Your download" : status.title
                                           self.libraryStore?.retry()
                                           self.downloadNotifier.notifyReady(title: name)
                                       })
