@@ -17,6 +17,7 @@ struct MovieDetailView: View {
     /// puts focus on Play and scrolls it into view.
     private enum Field: Hashable { case play }
     @FocusState private var initialFocus: Field?
+    @Environment(AppSession.self) private var session
 
     var body: some View {
         ScrollView {
@@ -26,7 +27,7 @@ struct MovieDetailView: View {
                             resolvedURL: $trailerURL)
                 VStack(alignment: .leading, spacing: 36) {
                     hero.frame(maxWidth: .infinity, alignment: .leading)
-                    if store.versions.count > 1 { versionsSection }   // single source → no disclosure (spec §6)
+                    if !store.versions.isEmpty { versionsSection }
                     // Gated on non-empty: the rail only ever appears once TMDB credits land, and it
                     // appends BELOW everything else, so it never resizes content already on screen.
                     if !store.cast.isEmpty { CastRail(cast: store.cast) }
@@ -38,6 +39,7 @@ struct MovieDetailView: View {
             }
         }
         .defaultFocus($initialFocus, .play)
+        .task { await store.loadPreferredVersion() }
         .background(CanvasBackground())
         .fullScreenCover(isPresented: $expandTrailer) {
             if let u = trailerURL { FullScreenTrailer(url: u) }
@@ -61,7 +63,10 @@ struct MovieDetailView: View {
             UserRatingRow(store: store)
             WatchDatesLine(summary: store.watchSummary, since: store.historySince)
                 .task { await store.loadWatchSummary() }
-            if store.bestSource == nil, let tmdb = item.tmdbID {
+            if let tmdb = item.tmdbID,
+               store.bestSource == nil
+                || session.downloadStore?
+                    .status(forContentKey: DownloadKey.movie(tmdbID: tmdb)) != nil {
                 MovieDownloadSection(tmdbID: tmdb, title: item.title, posterPath: item.posterPath,
                                      imdbID: store.imdbID, originalLanguage: store.originalLanguage)
             }
@@ -142,13 +147,26 @@ struct MovieDetailView: View {
             Text("Versions").sectionTitle()
             ForEach(store.versions, id: \.self) { src in
                 NavigationLink(value: store.playRequest(source: src, episode: nil, label: item.title)) {
-                    HStack {
+                    HStack(spacing: 16) {
+                        Image(systemName: store.isActive(src) ? "checkmark.circle.fill" : "circle")
+                            .foregroundStyle(store.isActive(src)
+                                             ? Theme.Palette.gold : Theme.Palette.textSecondary)
                         QualityChips(parsed: src.parsed)
                         Spacer()
                         Image(systemName: "play.fill")
                     }
                 }
                 .buttonStyle(SeretRowStyle())
+                .contextMenu {
+                    if !store.isActive(src) {
+                        Button("Make Default") { Task { await store.chooseVersion(src) } }
+                    }
+                    if store.preferredSourceKey != nil {
+                        Button("Use Best Automatically") {
+                            Task { await store.clearPreferredVersion() }
+                        }
+                    }
+                }
             }
         }
         .frame(maxWidth: 1100, alignment: .leading)

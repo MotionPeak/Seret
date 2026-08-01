@@ -18,6 +18,7 @@ struct MovieDetail: View {
     private var watch: WatchState? { store.watchState(forKey: contentKey) }
     private var isWatched: Bool { watch?.finished == true }
     @State private var pendingVersionRemoval: MediaSource?
+    @Environment(AppSession.self) private var session
 
     var body: some View {
         ScrollView {
@@ -33,7 +34,11 @@ struct MovieDetail: View {
                 UserRatingRow(store: store)
                 WatchDatesLine(summary: store.watchSummary, since: store.historySince)
                     .task { await store.loadWatchSummary() }
-                if store.bestSource == nil, let tmdb = item.tmdbID {
+                    .task { await store.loadPreferredVersion() }
+                if let tmdb = item.tmdbID,
+                   store.bestSource == nil
+                    || session.downloadStore?
+                        .status(forContentKey: DownloadKey.movie(tmdbID: tmdb)) != nil {
                     MovieDownloadSection(tmdbID: tmdb, title: item.title, posterPath: item.posterPath,
                                          imdbID: store.imdbID, originalLanguage: store.originalLanguage)
                 }
@@ -135,6 +140,9 @@ struct MovieDetail: View {
         HStack {
             Button { onPlay(store.playRequest(source: src, episode: nil, label: item.title)) } label: {
                 HStack {
+                    Image(systemName: store.isActive(src) ? "checkmark.circle.fill" : "circle")
+                        .foregroundStyle(store.isActive(src)
+                                         ? Theme.Palette.gold : Theme.Palette.textSecondary)
                     QualityChipRow(parsed: src.parsed)
                     Spacer()
                     Image(systemName: "play.circle.fill").foregroundStyle(Theme.Palette.gold)
@@ -142,19 +150,29 @@ struct MovieDetail: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            if onRemoveVersion != nil {
-                Menu {
+            Menu {
+                if !store.isActive(src) {
+                    Button("Make Default", systemImage: "checkmark.circle") {
+                        Task { await store.chooseVersion(src) }
+                    }
+                }
+                if store.preferredSourceKey != nil {
+                    Button("Use Best Automatically", systemImage: "wand.and.stars") {
+                        Task { await store.clearPreferredVersion() }
+                    }
+                }
+                if onRemoveVersion != nil {
                     Button("Remove this version", systemImage: "trash", role: .destructive) {
                         pendingVersionRemoval = src
                     }
-                } label: {
+                }
+            } label: {
                     Image(systemName: "ellipsis").foregroundStyle(Theme.Palette.textSecondary)
                         .padding(.leading, Theme.Space.sm)
                         .frame(minWidth: 30, minHeight: 30)
                         .contentShape(Rectangle())
                 }
-                .menuStyle(.borderlessButton)
-            }
+            .menuStyle(.borderlessButton)
         }
         .padding(Theme.Space.md)
         .background(Theme.Palette.surface2, in: RoundedRectangle(cornerRadius: Theme.Radius.chip))
