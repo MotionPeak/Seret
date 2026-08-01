@@ -101,6 +101,23 @@ public final class DiscoverStore {
     public func isCAM(_ result: TMDBSearchResult) -> Bool { camIDs.contains(result.id) }
     public func select(_ segment: Segment) { selectedSegment = segment }
 
+    /// A browsable genre. `id` is the TMDB genre id, which is what every discover call keys on.
+    public struct Genre: Identifiable, Hashable, Sendable {
+        public let name: String
+        public let tmdbID: Int
+        public var id: Int { tmdbID }
+        public init(name: String, tmdbID: Int) {
+            self.name = name
+            self.tmdbID = tmdbID
+        }
+    }
+
+    /// The genre table for a kind. Movie and TV genre ids differ — passing a movie id to a TV
+    /// discover call returns an empty page rather than an error, so always go through this.
+    public static func genres(for kind: MediaKind) -> [Genre] {
+        (kind == .movie ? movieGenres : tvGenres).map { Genre(name: $0.0, tmdbID: $0.1) }
+    }
+
     // Genre tables (display name, TMDB id). Movie and TV genre ids differ.
     static let movieGenres: [(String, Int)] = [
         ("Action", 28), ("Adventure", 12), ("Animation", 16), ("Comedy", 35), ("Crime", 80),
@@ -123,7 +140,9 @@ public final class DiscoverStore {
     public static var tvGenreCount: Int { tvGenres.count }
     public static var decadeCount: Int { decades.count }
 
-    private var genres: [(String, Int)] { kind == .movie ? Self.movieGenres : Self.tvGenres }
+    /// This store's own kind's table. Named apart from the public `genres(for:)` so a type-level
+    /// reference to that static isn't shadowed by an instance property.
+    private var genreTable: [(String, Int)] { kind == .movie ? Self.movieGenres : Self.tvGenres }
 
     public init(kind: MediaKind, discover: DiscoverProviding,
                 seeds: RecommendationSeedProviding? = nil,
@@ -206,7 +225,7 @@ public final class DiscoverStore {
         let (from, to) = releaseWindow()
         var specs = [RowSpec(id: "new-all", title: "New This Month",
                              fetch: { (try? await d.newOverall(k, from: from, to: to)) ?? [] })]
-        for (name, gid) in genres {
+        for (name, gid) in genreTable {
             specs.append(RowSpec(id: "new-\(gid)", title: "New in \(name)",
                                  fetch: { (try? await d.newByGenre(k, gid, from: from, to: to)) ?? [] }))
         }
@@ -215,7 +234,7 @@ public final class DiscoverStore {
 
     private func popularSpecs() -> [RowSpec] {
         let d = discover, k = kind
-        return genres.map { (name, gid) in
+        return genreTable.map { (name, gid) in
             RowSpec(id: "pop-\(gid)", title: "Popular in \(name)",
                     fetch: { (try? await d.popularByGenre(k, gid)) ?? [] })
         }
@@ -230,7 +249,7 @@ public final class DiscoverStore {
             specs.append(RowSpec(id: "decade-\(from)", title: label,
                                  fetch: { (try? await d.decade(k, from: f, to: t)) ?? [] }))
         }
-        for (name, gid) in genres {
+        for (name, gid) in genreTable {
             specs.append(RowSpec(id: "topg-\(gid)", title: "Top \(name)",
                                  fetch: { (try? await d.topRatedByGenre(k, gid)) ?? [] }))
         }
