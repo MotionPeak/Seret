@@ -13,11 +13,11 @@ struct UserRatingRow: View {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 16) {
                     Text("YOUR RATING")
-                        .font(.caption.weight(.semibold)).kerning(1.5)
+                        .font(.seret(.caption1, .semibold)).kerning(1.5)
                         .foregroundStyle(Theme.Palette.gold)
                     if let rating = store.userRating {
                         Text("\(rating)/10")
-                            .font(.caption.weight(.semibold))
+                            .font(.seret(.caption1, .semibold))
                             .foregroundStyle(Theme.Palette.textSecondary)
                     }
                 }

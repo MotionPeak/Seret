@@ -57,6 +57,13 @@ extension Font {
         .custom(Theme.Typography.face(for: weight), size: size)
     }
 
+    /// Rubik at a system text style's point size, in an explicit weight — the replacement for the
+    /// old "style dot weight" call sites, which the plain style constants below can't express.
+    /// Note SwiftUI's `.caption`/`.title` are UIKit's `.caption1`/`.title1`.
+    static func seret(_ style: UIFont.TextStyle, _ weight: Font.Weight = .regular) -> Font {
+        .seret(Theme.Typography.size(style), weight)
+    }
+
     // Rubik stand-ins for the system text styles, at the SAME point sizes tvOS uses, so swapping a
     // call site is a pure family change with no reflow.
     static let seretTitle    = Font.seret(Theme.Typography.size(.title1), .bold)

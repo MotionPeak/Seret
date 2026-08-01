@@ -2,31 +2,40 @@ import DebridCore
 import DebridUI
 import SwiftUI
 
-/// The signed-in root: a custom Gold Glass top tab bar (Home · Find · My Library, with Settings
-/// behind the gear) over the switched content. The tab bar switches ON PRESS (focus a pill, click to
-/// select — moving focus never changes the page, so you can't skid past a section by accident).
-/// One root NavigationStack OUTSIDE the content so Detail / the player still cover everything cleanly.
+/// The signed-in root: an HBO-style left side menu over the switched content. The menu is a
+/// full-height overlay — content is inset by the collapsed rail and never moves when the menu
+/// opens. One root NavigationStack OUTSIDE the content so Detail / the player still cover
+/// everything cleanly.
 struct LibraryShell: View {
     @Environment(AppSession.self) private var session
-    @State private var tab: ShellTab = .home
+    @State private var tab: SideMenuItem = .home
     @State private var path = NavigationPath()
     @State private var showingProfiles = false
-    @State private var showingSettings = false
-    @FocusState private var focusedTab: ShellTab?
+    @FocusState private var menuFocus: SideMenuItem?
+
+    /// The panel is widened exactly while focus is inside it — "the menu is open while you are in
+    /// it". Press Left from a page to open it, Right (or any move into content) to close it.
+    ///
+    /// ⚠️ Known gap: selecting a row leaves focus ON that row, so the menu stays open over the page
+    /// you just chose until you press Right. HBO Max collapses there. Handing focus back to the page
+    /// needs a programmatic focus move, and tvOS ignores a `@FocusState` write from here — tried on
+    /// the same turn, deferred one turn, deferred 150ms, and with a per-page keyed anchor (several
+    /// pages are alive at once, so a shared Bool is ambiguous). Driving expansion from explicit state
+    /// instead does not help: the collapse animation re-fires the focus change and re-opens it, and
+    /// a focus event cannot be told apart from tvOS's own initial pick.
+    private var menuOpen: Bool { menuFocus != nil }
+
+    /// Search needs a kind and the menu has none — take the section the user is browsing.
+    private var searchKind: MediaKind { tab == .shows ? .show : .movie }
 
     var body: some View {
-        VStack(spacing: 0) {
-            // The bar lives ABOVE the NavigationStack, so `.searchable`'s field renders below it
-            // (no overlap) — and it hides while a Detail/Player is pushed so those stay full-screen.
-            if path.isEmpty {
-                tabBar.transition(.move(edge: .top).combined(with: .opacity))
-            }
+        ZStack(alignment: .leading) {
             NavigationStack(path: $path) {
                 pages
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    // Browse/Search posters + the Search pill push ONE value type (stable link
-                    // identity — see BrowseTile). The bare SearchHit/MediaItem destinations stay
-                    // registered for the other pushers (Home rails, My Library, episode rows).
+                    // Content clears the rail. This sits on the ROOT content only — pushed
+                    // destinations are separate views and stay full-bleed.
+                    .padding(.leading, SideMenu.railWidth)
                     .navigationDestination(for: BrowseDestination.self) { dest in
                         switch dest {
                         case .detail(let item): detailDestination(item)
@@ -51,25 +60,41 @@ struct LibraryShell: View {
                         }
                     }
             }
+            // The menu hides while a Detail/Player is pushed so those stay full-screen.
+            if path.isEmpty {
+                SideMenuScrim(visible: menuOpen)
+                SideMenu(selected: tab,
+                         profileName: session.activeProfiles?.activeProfile?.name ?? "Profile",
+                         profileAvatar: session.activeProfiles?.activeProfile?.avatar ?? "",
+                         profileColorTag: session.activeProfiles?.activeProfile?.colorTag ?? "gold",
+                         focus: $menuFocus,
+                         onSelect: select,
+                         onProfile: { showingProfiles = true })
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(CanvasBackground())
-        // Load the library once on appear (re-runs when `retry()` bumps `attempt`). This also
-        // populates ownership so Browse can badge titles already in the library.
+        // Menu button opens the nav from anywhere; a second press falls through and exits, because
+        // the handler is removed while the menu is already open.
+        .onExitCommand(perform: menuOpen || !path.isEmpty ? nil : { menuFocus = tab })
         .task(id: session.libraryStore?.attempt ?? -1) {
             await session.libraryStore?.load()
         }
-        // Refresh Continue Watching when you land on Home, and when you return from a pushed
-        // Detail/Player (the kept-alive Home tab won't re-run its own .task).
         .onChange(of: tab) { _, new in if new == .home { Task { await session.refreshHome() } } }
         .onChange(of: path.isEmpty) { _, empty in if empty { Task { await session.refreshHome() } } }
         .fullScreenCover(isPresented: $showingProfiles) {
             WhoIsWatchingScreen(onPicked: { showingProfiles = false }).environment(session)
         }
-        .fullScreenCover(isPresented: $showingSettings) {
-            SettingsView()
-                .environment(session)
-                .onExitCommand { showingSettings = false }   // Menu closes Settings
+    }
+
+    /// Search pushes, the profile presents, everything else switches the page. Commit-on-press —
+    /// focusing a row only highlights it, so gliding the remote never rebuilds a page.
+    private func select(_ item: SideMenuItem) {
+        switch item {
+        case .search:  path.append(BrowseDestination.search(searchKind))
+        case .profile: showingProfiles = true
+        default:
+            tab = item
         }
     }
 
@@ -84,60 +109,18 @@ struct LibraryShell: View {
         }
     }
 
-    /// The active profile avatar at the right of the top bar — tap to switch profiles.
-    private var profileButton: some View {
-        let p = session.activeProfiles?.activeProfile
-        return Button { showingProfiles = true } label: {
-            ProfileAvatarImage(token: p?.avatar ?? "", diameter: 56, colorTag: p?.colorTag ?? "gold")
-        }
-        .buttonStyle(.plain)
-    }
-
-    /// A focusable pill row. Moving focus across the pills only HIGHLIGHTS them; a Select press on a
-    /// pill switches the page (commit-on-press — no accidental section changes when the remote glides).
-    private var tabBar: some View {
-        // Free pills using the exact same SeretPillStyle as the Browse segment pills — the focused
-        // pill gets the gold fill + scale; a click on it commits the switch.
-        HStack(spacing: 12) {
-            ForEach(ShellTab.allCases) { t in
-                Button { tab = t } label: { Label(t.title, systemImage: t.icon) }
-                    .buttonStyle(SeretPillStyle(selected: tab == t))
-                    .focused($focusedTab, equals: t)
-            }
-        }
-        .padding(.top, 28).padding(.bottom, 12)
-        .frame(maxWidth: .infinity)
-        // The pills are CENTERED but content runs edge to edge, so without a section anything in
-        // the outer ~600pt of every screen has nothing above it and UP is a dead press. A section
-        // makes the whole full-width frame one target. (`.focusSection()` widens a target; it does
-        // NOT trap focus.)
-        .focusSection()
-        .overlay(alignment: .trailing) {
-            // Settings + profile sit off to the right — one step away, never in the primary row.
-            HStack(spacing: 24) {
-                Button { showingSettings = true } label: { Image(systemName: "gearshape") }
-                    .buttonStyle(SeretPillStyle(selected: false))
-                profileButton
-            }
-            .padding(.trailing, 50).padding(.top, 16)
-            // An overlay is off the HStack's focus path, so it needs its own section to be
-            // reachable from the pills and from content below.
-            .focusSection()
-        }
-    }
-
-    /// Pages stay alive across switches (instant, no rebuild → snappy). Home/Library are kept in the
-    /// tree (hidden + disabled when inactive). Find exists only while active (it owns the Movies/Shows
-    /// filter + browse); recreating it on entry keeps its search flow self-contained. The swap is
-    /// INSTANT on purpose: crossfading the heavy poster grids read as a sluggish in-between.
+    /// Pages stay alive across switches (instant, no rebuild → snappy). Movies/Shows are separate
+    /// browse surfaces now, so each keeps its own segment + genre state. The whole area is one
+    /// focus section so travel between the menu and a page is unambiguous.
     @ViewBuilder private var pages: some View {
         ZStack {
             keptAlive(tab == .home) { HomeScreen() }
+            keptAlive(tab == .movies) { BrowseScreen(kind: .movie) }
+            keptAlive(tab == .shows) { BrowseScreen(kind: .show) }
             keptAlive(tab == .library) { MyLibraryScreen() }
-            if tab == .find {
-                FindScreen()
-            }
+            if tab == .settings { SettingsView() }
         }
+        .focusSection()
     }
 
     @ViewBuilder private func keptAlive<V: View>(_ visible: Bool, @ViewBuilder _ make: () -> V) -> some View {
@@ -146,26 +129,6 @@ struct LibraryShell: View {
             .allowsHitTesting(visible)
             .disabled(!visible)
             .accessibilityHidden(!visible)
-    }
-}
-
-/// The shell's tabs, in bar order.
-private enum ShellTab: String, CaseIterable, Identifiable {
-    case home, find, library
-    var id: String { rawValue }
-    var title: String {
-        switch self {
-        case .home: return "Home"
-        case .find: return "Find"
-        case .library: return "My Library"
-        }
-    }
-    var icon: String {
-        switch self {
-        case .home: return "house"
-        case .find: return "magnifyingglass"
-        case .library: return "rectangle.stack"
-        }
     }
 }
 

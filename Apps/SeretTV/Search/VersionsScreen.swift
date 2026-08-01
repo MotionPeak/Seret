@@ -74,7 +74,7 @@ struct VersionsScreen: View {
         case .loading:
             HStack(spacing: 16) {
                 ProgressView().controlSize(.large).tint(Theme.Palette.gold)
-                Text("Finding versions…").font(.title3.weight(.medium))
+                Text("Finding versions…").font(.seret(.title3, .medium))
                     .foregroundStyle(Theme.Palette.textSecondary)
             }
             .padding(.vertical, 40)

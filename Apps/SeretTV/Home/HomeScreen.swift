@@ -96,7 +96,7 @@ struct HomeScreen: View {
                         Text(f.item.title).heroTitle()
                             .foregroundStyle(Theme.Palette.textPrimary).lineLimit(2)
                         HStack(spacing: 10) { Image(systemName: "play.fill"); Text("Resume") }
-                            .font(.title3.weight(.semibold)).foregroundStyle(.black)
+                            .font(.seret(.title3, .semibold)).foregroundStyle(.black)
                             .padding(.vertical, 14).padding(.horizontal, 40)
                             .background(Theme.Palette.goldGradient, in: Capsule())
                             .goldGlow(16, opacity: 0.4)

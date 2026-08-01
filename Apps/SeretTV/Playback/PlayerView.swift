@@ -199,9 +199,9 @@ private struct UpNextBar: View {
             Spacer()
             HStack(spacing: 28) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Up Next").font(.callout.weight(.semibold)).foregroundStyle(.secondary)
+                    Text("Up Next").font(.seret(.callout, .semibold)).foregroundStyle(.secondary)
                     Text("S\(next.season)\u{00B7}E\(next.number)  \u{00B7}  Playing in \(model.upNextSecondsRemaining)s")
-                        .font(.title3.weight(.semibold))
+                        .font(.seret(.title3, .semibold))
                 }
                 Spacer()
                 Button("Dismiss") { model.dismissUpNext() }
@@ -284,7 +284,7 @@ private struct EpisodePeek: View {
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: "chevron.compact.up")
-            Text("Episodes").font(.callout.weight(.semibold))
+            Text("Episodes").font(.seret(.callout, .semibold))
         }
         .foregroundStyle(.white.opacity(0.6))
         .frame(maxWidth: .infinity)
@@ -334,7 +334,7 @@ private struct EpisodeStripExpanded: View {
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .overlay(alignment: .topLeading) {
                     Text("\(ep.number)")
-                        .font(.caption.weight(.bold)).monospacedDigit().foregroundStyle(.white)
+                        .font(.seret(.caption1, .bold)).monospacedDigit().foregroundStyle(.white)
                         .padding(.horizontal, 7).padding(.vertical, 2)
                         .background(.black.opacity(0.6), in: Capsule())
                         .padding(6)

@@ -35,7 +35,7 @@ struct DownloadingTile: View {
                 Text(DownloadProgressText.line(for: tile.status))
                 Spacer()
             }
-            .font(.caption.weight(.semibold)).foregroundStyle(.white)
+            .font(.seret(.caption1, .semibold)).foregroundStyle(.white)
             .lineLimit(1)
             ProgressView(value: tile.status.fraction)
         }

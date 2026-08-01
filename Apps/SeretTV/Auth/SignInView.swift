@@ -40,7 +40,7 @@ struct SignInView: View {
                 VStack(alignment: .leading, spacing: 20) {
                     Text("On your phone or computer, go to")
                         .font(.seretTitle3).foregroundStyle(.secondary)
-                    Text(displayURL(code.verificationURL)).font(.title.bold())
+                    Text(displayURL(code.verificationURL)).font(.seret(.title1, .bold))
                     Text("and enter this code:").font(.seretTitle3).foregroundStyle(.secondary)
                     Text(code.userCode)
                         .font(.system(size: 96, weight: .heavy, design: .monospaced))

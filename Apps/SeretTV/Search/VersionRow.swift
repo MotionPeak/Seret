@@ -17,7 +17,7 @@ struct VersionRow: View {
                 HStack(spacing: 16) {
                     CacheBadge(isCached: stream.isCached)
                     if let year = stream.parsed.year {
-                        Text(String(year)).font(.caption.weight(.semibold))
+                        Text(String(year)).font(.seret(.caption1, .semibold))
                             .padding(.horizontal, 10).padding(.vertical, 4)
                             .background(.white.opacity(0.12), in: Capsule())
                     }
@@ -50,7 +50,7 @@ struct CacheBadge: View {
     let isCached: Bool
     var body: some View {
         Label(isCached ? "Instant" : "Download", systemImage: isCached ? "bolt.fill" : "arrow.down.circle")
-            .font(.caption.weight(.bold))
+            .font(.seret(.caption1, .bold))
             .foregroundStyle(isCached ? Color.green : .yellow)
             .padding(.vertical, 4).padding(.horizontal, 10)
             .background((isCached ? Color.green : .yellow).opacity(0.15), in: Capsule())
@@ -64,7 +64,7 @@ struct LanguageBadges: View {
         HStack(spacing: 8) {
             ForEach(codes.prefix(4), id: \.self) { code in
                 Text(code.uppercased())
-                    .font(.caption.weight(.bold))
+                    .font(.seret(.caption1, .bold))
                     .padding(.horizontal, 10).padding(.vertical, 5)
                     .background(.white.opacity(0.10), in: Capsule())
                     .overlay(Capsule().strokeBorder(.white.opacity(0.18)))

@@ -11,7 +11,7 @@ struct QualityChips: View {
             if chips.isEmpty {
                 // No parseable quality metadata — show the release name so the row is never blank.
                 Text(parsed.title)
-                    .font(.caption.weight(.medium))
+                    .font(.seret(.caption1, .medium))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             } else {
@@ -26,7 +26,7 @@ struct QualityChips: View {
 
     private func chip(_ text: String) -> some View {
         Text(text)
-            .font(.caption.weight(.semibold))
+            .font(.seret(.caption1, .semibold))
             .padding(.horizontal, 12).padding(.vertical, 6)
             .background(.white.opacity(0.12), in: Capsule())
             .overlay(Capsule().strokeBorder(.white.opacity(0.2)))

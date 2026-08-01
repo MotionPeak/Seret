@@ -19,7 +19,7 @@ struct SettingsView: View {
 
                 VStack(alignment: .leading, spacing: 16) {
                     Label("OpenSubtitles account", systemImage: "captions.bubble.fill")
-                        .font(.title3.bold()).foregroundStyle(Theme.Palette.gold)
+                        .font(.seret(.title3, .bold)).foregroundStyle(Theme.Palette.gold)
                     Text(model.isConnected
                          ? "Connected as \(model.username). Used to download Hebrew/English subtitles."
                          : "Add your free OpenSubtitles account to download subtitles during playback.")
@@ -43,7 +43,7 @@ struct SettingsView: View {
 
                 VStack(alignment: .leading, spacing: 16) {
                     Label("Subtitles", systemImage: "textformat.size")
-                        .font(.title3.bold()).foregroundStyle(Theme.Palette.gold)
+                        .font(.seret(.title3, .bold)).foregroundStyle(Theme.Palette.gold)
                     Text("Applies to every movie and show. Takes effect on the next playback.")
                         .font(.seretCallout).foregroundStyle(Theme.Palette.textSecondary)
                     pillRow("Size", SubtitlePreferences.Size.allCases, label: { $0.label }, selected: subtitleSize)
@@ -54,7 +54,7 @@ struct SettingsView: View {
 
                 VStack(alignment: .leading, spacing: 16) {
                     Label("Trailers", systemImage: "play.rectangle.fill")
-                        .font(.title3.bold()).foregroundStyle(Theme.Palette.gold)
+                        .font(.seret(.title3, .bold)).foregroundStyle(Theme.Palette.gold)
                     Toggle("Autoplay trailers", isOn: Binding(
                         get: { session.trailerSettings.autoplayTrailers },
                         set: { session.trailerSettings.autoplayTrailers = $0 }))
@@ -65,7 +65,7 @@ struct SettingsView: View {
 
                 VStack(alignment: .leading, spacing: 16) {
                     Label("Profile", systemImage: "person.crop.circle.fill")
-                        .font(.title3.bold()).foregroundStyle(Theme.Palette.gold)
+                        .font(.seret(.title3, .bold)).foregroundStyle(Theme.Palette.gold)
                     if let name = session.activeProfiles?.activeProfile?.name {
                         Text("Watching as \(name).").font(.seretCallout)
                             .foregroundStyle(Theme.Palette.textSecondary)
@@ -114,7 +114,7 @@ struct SettingsView: View {
                                       label: @escaping (T) -> String,
                                       selected: Binding<T>) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(title).font(.callout.weight(.semibold)).foregroundStyle(Theme.Palette.textSecondary)
+            Text(title).font(.seret(.callout, .semibold)).foregroundStyle(Theme.Palette.textSecondary)
             HStack(spacing: 14) {
                 ForEach(options, id: \.self) { opt in
                     Button(label(opt)) { selected.wrappedValue = opt }

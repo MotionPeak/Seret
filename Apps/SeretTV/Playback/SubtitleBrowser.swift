@@ -44,7 +44,7 @@ struct SubtitleBrowser: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Subtitles for \(model.label)")
-                .font(.title2.weight(.semibold))
+                .font(.seret(.title2, .semibold))
                 .foregroundStyle(Theme.Palette.textPrimary)
             Text(model.currentSource.releaseNameForMatching)
                 .font(.caption.monospaced())
@@ -173,7 +173,7 @@ struct SubtitleBrowser: View {
         case .uncertain: ("Different source", Theme.Palette.textSecondary)
         }
         return Text(text)
-            .font(.caption2.weight(.semibold))
+            .font(.seret(.caption2, .semibold))
             .foregroundStyle(color)
             .padding(.horizontal, 10).padding(.vertical, 3)
             .background(color.opacity(0.18), in: Capsule())

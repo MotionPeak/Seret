@@ -29,7 +29,7 @@ struct ErrorOverlay: View {
             VStack(spacing: 20) {
                 Image(systemName: "exclamationmark.triangle").font(.system(size: 54))
                     .foregroundStyle(Theme.Palette.gold)
-                Text("Couldn't play this source").font(.title2.bold())
+                Text("Couldn't play this source").font(.seret(.title2, .bold))
                 Text(reason).font(.seretCallout).foregroundStyle(.secondary)
                     .multilineTextAlignment(.center).frame(maxWidth: 800)
                 HStack(spacing: 24) {

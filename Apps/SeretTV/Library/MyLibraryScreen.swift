@@ -92,7 +92,7 @@ private struct DownloadingStrip: View {
     let tiles: [DownloadTile]
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Downloading").font(.title3.bold())
+            Text("Downloading").font(.seret(.title3, .bold))
                 .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 60)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 30) {

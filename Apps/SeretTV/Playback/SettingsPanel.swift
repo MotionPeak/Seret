@@ -126,7 +126,7 @@ private struct PlaybackColumns: View {
     /// A small sub-header separating muxed tracks from ones downloaded this session.
     private func groupCaption(_ text: String) -> some View {
         Text(text)
-            .font(.caption2.weight(.semibold))
+            .font(.seret(.caption2, .semibold))
             .tracking(1.1)
             .foregroundStyle(Theme.Palette.textSecondary)
             .padding(.top, 6)
@@ -180,7 +180,7 @@ private struct SettingsColumn<Content: View>: View {
     /// tab bar out of view). tvOS auto-scrolls a `ScrollView` to keep the focused row visible.
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text(header).font(.caption.weight(.bold))
+            Text(header).font(.seret(.caption1, .bold))
                 .foregroundStyle(Theme.Palette.gold)
                 .tracking(1.2)
                 .padding(.leading, 30)        // align with the rows below
@@ -210,7 +210,7 @@ private struct CheckRow: View {
         Button(action: action) {
             HStack(spacing: 10) {
                 Image(systemName: "checkmark")
-                    .font(.callout.bold())
+                    .font(.seret(.callout, .bold))
                     .foregroundStyle(Theme.Palette.gold)
                     .opacity(checked ? 1 : 0)
                 Text(title).font(.seretCallout)

@@ -12,7 +12,7 @@ struct TraktLinkSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Label("Trakt", systemImage: "arrow.triangle.2.circlepath")
-                .font(.title3.bold()).foregroundStyle(Theme.Palette.gold)
+                .font(.seret(.title3, .bold)).foregroundStyle(Theme.Palette.gold)
 
             if !session.traktConfigured {
                 Text("No Trakt API app is configured in this build. Add TRAKT_CLIENT_ID and "
@@ -88,7 +88,7 @@ struct TraktLinkSection: View {
                 Text("On your phone or computer, go to")
                     .font(.seretCallout).foregroundStyle(Theme.Palette.textSecondary)
                 Text(displayURL(code.verificationURL))
-                    .font(.title3.bold()).foregroundStyle(Theme.Palette.textPrimary)
+                    .font(.seret(.title3, .bold)).foregroundStyle(Theme.Palette.textPrimary)
                 Text("and enter this code:")
                     .font(.seretCallout).foregroundStyle(Theme.Palette.textSecondary)
                 Text(code.userCode)

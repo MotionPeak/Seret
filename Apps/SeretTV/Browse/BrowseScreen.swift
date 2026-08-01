@@ -2,21 +2,20 @@ import DebridCore
 import DebridUI
 import SwiftUI
 
-/// A browse tab (Movies or TV): the kind's `DiscoverStore` rows (For You / Trending / …). Search is
-/// a SEPARATE full-screen screen opened by the Search button, so navigating the rows never pops the
-/// keyboard. Owned titles get an "In Library" badge and push their library Detail; new titles push
-/// the Add flow. (Destinations are registered by the shell.)
-struct BrowseScreen<Leading: View>: View {
+/// A browse page (Movies or Shows), reached from the side menu. A genre strip runs across the top:
+/// "All" shows the kind's `DiscoverStore` rails (For You / Trending / …), any genre swaps in that
+/// genre's grid. Search lives in the side menu and is a SEPARATE full-screen screen, so navigating
+/// these rows never pops the keyboard. Owned titles get an "In Library" badge and push their library
+/// Detail; new titles push the Add flow. (Destinations are registered by the shell.)
+struct BrowseScreen: View {
     let kind: MediaKind
-    /// Extra pills rendered at the START of the segment row (e.g. Find's Movies/Shows filter), so the
-    /// filter shares the one reachable row with search + the discover segments instead of a row above
-    /// that the focus engine skips when you press Down from the nav bar.
-    @ViewBuilder var leading: () -> Leading
 
     @Environment(AppSession.self) private var session
     /// Which segment pill has focus. Focus only highlights; a Select press switches the section
     /// (commit-on-press — see `segmentPicker`).
     @FocusState private var focusedSegment: DiscoverStore.Segment?
+    /// nil = "All" (the segment rails). A genre swaps the page for that genre's grid.
+    @State private var genre: DiscoverStore.Genre?
 
     private var browse: DiscoverStore? { kind == .movie ? session.moviesBrowse : session.showsBrowse }
 
@@ -29,8 +28,17 @@ struct BrowseScreen<Leading: View>: View {
     @ViewBuilder private var rows: some View {
         if let browse {
             VStack(alignment: .leading, spacing: 0) {
-                segmentPicker(browse).padding(.leading, 60).padding(.bottom, 8)
-                segmentContent(browse)
+                GenreStrip(kind: kind, selection: $genre)
+                    .padding(.leading, Theme.Layout.contentMargin)
+                    .padding(.bottom, 6)
+                if let genre {
+                    GenreGridScreen(kind: kind, genre: genre)
+                } else {
+                    segmentPicker(browse)
+                        .padding(.leading, Theme.Layout.contentMargin)
+                        .padding(.bottom, 8)
+                    segmentContent(browse)
+                }
             }
             // Load the selected segment whenever it changes (and on first show). Keyed on kind TOO,
             // so Find's Movies→Shows flip re-fires the load even when both stores sit on the same
@@ -70,17 +78,12 @@ struct BrowseScreen<Leading: View>: View {
         }
     }
 
-    /// Search button + For You / Trending / New / Popular / Top Rated selector. Commit-on-press: moving
-    /// focus across the pills only highlights them; a click on a pill switches the section — consistent
-    /// with the top nav bar, so gliding the remote never reloads a rail set by accident. Search is an
-    /// explicit button so the keyboard never opens just from navigating. Value-based like every other
-    /// push — a view-destination link inside the shell's path-bound NavigationStack bypasses `path`, so
-    /// `path.isEmpty` (which drives the tab bar) stops reflecting reality.
+    /// For You / Trending / New / Popular / Top Rated selector, shown only under "All".
+    /// Commit-on-press: moving focus across the pills only highlights them; a click switches the
+    /// section — consistent with the side menu, so gliding the remote never reloads a rail set by
+    /// accident.
     private func segmentPicker(_ browse: DiscoverStore) -> some View {
         HStack(spacing: 16) {
-            leading()
-            NavigationLink(value: BrowseDestination.search(kind)) { Image(systemName: "magnifyingglass") }
-                .buttonStyle(SeretPillStyle(selected: false))
             ForEach(DiscoverStore.Segment.allCases) { seg in
                 Button(seg.title) { browse.select(seg) }
                     .buttonStyle(SeretPillStyle(selected: seg == browse.selectedSegment))

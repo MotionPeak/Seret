@@ -255,7 +255,7 @@ private struct AddActions: View {
                 if let trailer { trailer }
                 HStack(spacing: 16) {
                     ProgressView().controlSize(.large).tint(Theme.Palette.gold)
-                    Text("Finding cached versions…").font(.title3.weight(.medium))
+                    Text("Finding cached versions…").font(.seret(.title3, .medium))
                         .foregroundStyle(Theme.Palette.textSecondary)
                 }
                 .padding(.vertical, 16).padding(.horizontal, 28)
