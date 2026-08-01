@@ -13,6 +13,7 @@ public actor DownloadsStore {
             let r = DownloadRequest(); modelContext.insert(r); return r
         }()
         row.torrentID = data.torrentID
+        row.contentKey = data.contentKey
         row.tmdbID = data.tmdbID
         row.infoHash = data.infoHash
         row.kindRaw = data.kind.rawValue

@@ -211,7 +211,8 @@ public struct TorrentsClient: Sendable {
             guard let added = addedByID[info.id] else { return info }
             return TorrentInfo(id: info.id, filename: info.filename, hash: info.hash, bytes: info.bytes,
                                progress: info.progress, status: info.status, files: info.files,
-                               links: info.links, added: added)
+                               links: info.links, added: added,
+                               speed: info.speed, seeders: info.seeders)
         }
     }
 }
