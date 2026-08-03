@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import QuartzCore
 
 /// Every remote input the player takes while watching, on ONE non-focusable UIKit surface.
 ///
@@ -99,6 +100,14 @@ struct PlayerInputSurface: UIViewRepresentable {
         private var isScrubbing = false
         /// One vertical action per drag — a long swipe must not fire `onDown` repeatedly.
         private var verticalFired = false
+        /// A hold-to-scan is running. Tracked here (not just in the model) because this surface is
+        /// what learns the gesture ended — including when it ends by the surface being deactivated.
+        private var isScanning = false
+        /// When the last scan ended. A hold fires the long-press AND, on release, the tap for the
+        /// same arrow; without a short guard every scan landed a stray ±10s on top of itself.
+        private var lastScanEndedAt: CFTimeInterval = -.greatestFiniteMagnitude
+        /// How long after a scan a same-arrow tap is treated as that scan's release, not a new tap.
+        private let scanTapGuard: CFTimeInterval = 0.3
 
         init(parent: PlayerInputSurface) { self.parent = parent }
 
@@ -151,10 +160,26 @@ struct PlayerInputSurface: UIViewRepresentable {
             // Hand focus to whichever system should own it: the surface while watching, the
             // overlay otherwise. `focusable` only requests an update when it actually changes.
             view?.focusable = active
-            if !active, isScrubbing {
+            guard !active else { return }
+            if isScrubbing {
                 isScrubbing = false
                 parent.onScrubCancelled()
             }
+            // End a running scan too. This is the bug behind "skip keeps forwarding uncontrollably":
+            // only the scrub was cancelled here, so when an overlay took the remote mid-hold — Up
+            // Next, the settings panel, the episode strip — the recognisers were disabled and the
+            // release never arrived, leaving the model's scan loop skipping forever. Scanning to the
+            // end of a film RAISES the Up Next bar, so the runaway triggered its own trigger.
+            endScanIfRunning()
+        }
+
+        /// Stop a hold-to-scan exactly once, and remember when, so the release tap is not counted
+        /// as a fresh skip.
+        private func endScanIfRunning() {
+            guard isScanning else { return }
+            isScanning = false
+            lastScanEndedAt = CACurrentMediaTime()
+            parent.onScanEnded()
         }
 
         // Every recognizer here is a different input channel — none should starve another.
@@ -224,8 +249,16 @@ struct PlayerInputSurface: UIViewRepresentable {
 
         // A left/right tap nudges the scrub target while scrubbing and skips otherwise — the
         // caller decides which; it only needs the signed amount.
-        @objc private func handleLeft()  { probePress("left");  parent.onSkip(-10) }
-        @objc private func handleRight() { probePress("right"); parent.onSkip(10) }
+        @objc private func handleLeft()  { probePress("left");  skipUnlessScanning(-10) }
+        @objc private func handleRight() { probePress("right"); skipUnlessScanning(10) }
+
+        /// A held arrow drives the long-press (scan) AND fires this tap on release, so the tap has
+        /// to stand down for the scan's own release. Time-based rather than ordered, because UIKit
+        /// makes no promise about which of two simultaneous recognisers reports first.
+        private func skipUnlessScanning(_ delta: Double) {
+            guard !isScanning, CACurrentMediaTime() - lastScanEndedAt > scanTapGuard else { return }
+            parent.onSkip(delta)
+        }
         @objc private func handleUp()    { probePress("up");    parent.onUp() }
         @objc private func handleDown()  { probePress("down");  parent.onDown() }
         @objc private func handleSelect() {
@@ -246,9 +279,13 @@ struct PlayerInputSurface: UIViewRepresentable {
 
         private func scan(_ g: UILongPressGestureRecognizer, direction: Double) {
             switch g.state {
-            case .began: parent.onScanBegan(direction)
-            case .ended, .cancelled, .failed: parent.onScanEnded()
-            default: break
+            case .began:
+                isScanning = true
+                parent.onScanBegan(direction)
+            case .ended, .cancelled, .failed:
+                endScanIfRunning()
+            default:
+                break
             }
         }
     }

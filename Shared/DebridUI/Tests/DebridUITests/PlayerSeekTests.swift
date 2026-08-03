@@ -7,11 +7,14 @@ import DebridCore
 @Suite struct PlayerSeekTests {
 
     private func makeModel(engine: FakeVideoPlayerEngine,
-                           seekCoalesceWindow: Double = 0.05) -> PlayerModel {
+                           seekCoalesceWindow: Double = 0.05,
+                           scanInterval: Double = 0.5,
+                           scanMaxDuration: Double = 15) -> PlayerModel {
         PlayerModel(request: Fixture.request(), engine: engine,
                     unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
                     recordProgress: { _, _, _, _ in }, subtitles: nil,
-                    seekCoalesceWindow: seekCoalesceWindow)
+                    seekCoalesceWindow: seekCoalesceWindow,
+                    scanInterval: scanInterval, scanMaxDuration: scanMaxDuration)
     }
 
     /// Bring the model to a live, rendered, playing state at `position`.
@@ -109,5 +112,59 @@ import DebridCore
         model.endScan()
 
         #expect(model.position < 1000)
+    }
+
+    // MARK: - Runaway-scan guards
+
+    /// The step must plateau. It used to grow ×1.6 with a 120s ceiling, so a few seconds of holding
+    /// threw the film minutes ahead and kept accelerating — the reported "forwards uncontrollably".
+    @Test func scanStepAcceleratesThenPlateaus() {
+        #expect(PlayerModel.scanStep(atTick: 0) == 10)
+        #expect(PlayerModel.scanStep(atTick: 1) == 15)
+        #expect(PlayerModel.scanStep(atTick: 2) == 22.5)
+        #expect(PlayerModel.scanStep(atTick: 5) == PlayerModel.scanMaxStep)   // capped by here…
+        #expect(PlayerModel.scanStep(atTick: 500) == PlayerModel.scanMaxStep) // …and stays capped
+    }
+
+    /// Ten seconds of holding must stay in "fast-forward" territory rather than consuming the film.
+    @Test func aTenSecondHoldTravelsAPlausibleDistance() {
+        let ticks = Int(10 / 0.5)
+        let travelled = (0..<ticks).reduce(0.0) { $0 + PlayerModel.scanStep(atTick: $1) }
+        #expect(travelled < 600)   // under ten minutes of film for ten seconds of holding
+    }
+
+    /// Defence in depth for a LOST release event. `PlayerInputSurface` now ends a scan when it
+    /// hands the remote to an overlay, but if a release ever goes missing again the loop must run
+    /// down on its own instead of skipping until the film ends.
+    @Test func scanStopsItselfWhenTheReleaseNeverArrives() async {
+        let engine = FakeVideoPlayerEngine()
+        let model = makeModel(engine: engine, seekCoalesceWindow: 0.01,
+                              scanInterval: 0.02, scanMaxDuration: 0.1)
+        await warmUp(model, engine, to: 100)
+
+        model.beginScan(direction: 1)          // …and deliberately never call endScan()
+        try? await Task.sleep(for: .seconds(0.4))
+        let settled = model.position
+        try? await Task.sleep(for: .seconds(0.3))
+
+        #expect(model.position == settled)     // it stopped moving on its own
+        #expect(model.scanTask == nil)         // …and tidied itself up
+    }
+
+    /// The self-terminating scan must not tidy up a LIVE successor: a viewer who releases and
+    /// immediately re-holds keeps scanning.
+    @Test func aSelfTerminatingScanDoesNotKillTheNextOne() async {
+        let engine = FakeVideoPlayerEngine()
+        let model = makeModel(engine: engine, seekCoalesceWindow: 0.01,
+                              scanInterval: 0.02, scanMaxDuration: 0.06)
+        await warmUp(model, engine, to: 100)
+
+        model.beginScan(direction: 1)
+        try? await Task.sleep(for: .seconds(0.05))
+        model.beginScan(direction: 1)          // re-hold while the first is expiring
+        try? await Task.sleep(for: .seconds(0.03))
+
+        #expect(model.scanTask != nil)         // the successor is still running
+        model.endScan()
     }
 }

@@ -143,6 +143,15 @@ extension PlayerModel {
         revealScrubBar()
     }
 
+    /// The jump (seconds) applied on the `tick`-th repeat of a held scan.
+    ///
+    /// Pure and capped. The cap is the difference between "fast-forward" and "the film is gone":
+    /// this used to grow ×1.6 with a 120s ceiling, so five seconds of holding moved ~12 minutes
+    /// and kept accelerating — the reported "keeps forwarding uncontrollably".
+    static func scanStep(atTick tick: Int) -> Double {
+        min(scanFirstStep * pow(scanGrowth, Double(max(0, tick))), scanMaxStep)
+    }
+
     /// Hold-to-scan: holding left/right travels through the film at an accelerating rate.
     ///
     /// Implemented as accelerating repeated SKIPS rather than a negative playback rate, because
@@ -150,16 +159,34 @@ extension PlayerModel {
     /// so the two directions would behave differently. Repeated seeks are symmetric, and they
     /// reuse the existing coalescing and the accumulating on-screen badge, so a hold reads as one
     /// growing jump instead of a stutter of separate ones.
+    ///
+    /// The loop stops itself after `scanMaxDuration`. That is defence in depth, not the fix: a
+    /// scan is supposed to end when the remote reports the release, but a lost release event used
+    /// to leave this loop skipping forever with nothing on screen able to stop it. The real repair
+    /// is upstream in `PlayerInputSurface`, which now ends a scan when it hands the remote to an
+    /// overlay; this guarantees the failure is bounded however the release goes missing.
     public func beginScan(direction: Double) {
         scanTask?.cancel()
+        scanGeneration &+= 1
+        let generation = scanGeneration
         revealScrubBar()
         scanTask = Task { @MainActor [weak self] in
-            var step = 10.0
+            var tick = 0
+            var elapsed = 0.0
             while !Task.isCancelled {
                 guard let self else { return }
+                let step = Self.scanStep(atTick: tick)
                 self.skip(direction >= 0 ? step : -step)
-                try? await Task.sleep(for: .seconds(0.5))
-                step = min(step * 1.6, 120)      // 10 → 16 → 26 → 41 … capped at two minutes
+                try? await Task.sleep(for: .seconds(self.scanInterval))
+                guard !Task.isCancelled else { return }
+                elapsed += self.scanInterval
+                guard elapsed < self.scanMaxDuration else {
+                    // Only tidy up if this is still the live scan — a successor may already own
+                    // the slot, and cancelling it here would kill a scan the viewer is holding.
+                    if self.scanGeneration == generation { self.endScan() }
+                    return
+                }
+                tick += 1
             }
         }
     }
@@ -168,6 +195,7 @@ extension PlayerModel {
     public func endScan() {
         scanTask?.cancel()
         scanTask = nil
+        scanGeneration &+= 1
         revealScrubBar()
     }
 

@@ -73,6 +73,18 @@ public final class PlayerModel {
     var skipFeedbackClearTask: Task<Void, Never>?
     /// Hold-to-scan repeat loop (see `beginScan`).
     var scanTask: Task<Void, Never>?
+    /// Bumped whenever a scan starts or ends, so a self-terminating scan can tell whether it is
+    /// still the live one before tidying up — same guard as `seekGeneration`.
+    var scanGeneration: UInt64 = 0
+    /// Hold-to-scan shape: the first jump, how fast it grows per repeat, and the ceiling on one
+    /// jump. The ceiling is what keeps a long hold controllable.
+    static let scanFirstStep: Double = 10
+    static let scanGrowth: Double = 1.5
+    static let scanMaxStep: Double = 30
+    /// Seconds between repeats of a held scan, and the longest one hold may run before it stops
+    /// itself. Injectable so tests don't have to wait real seconds.
+    let scanInterval: Double
+    let scanMaxDuration: Double
 
     /// Output volume as a percentage (100 = unity, up to 200 = VLC-style boost). Re-applied on every
     /// track refresh so a boost survives episode swaps and VLCKit's async audio-object creation.
@@ -308,10 +320,14 @@ public final class PlayerModel {
          nowPlaying: NowPlayingControlling? = nil,
          autoHideDelay: Double = 4,
          loadTimeout: Double = 30,
-         seekCoalesceWindow: Double = 0.35) {
+         seekCoalesceWindow: Double = 0.35,
+         scanInterval: Double = 0.5,
+         scanMaxDuration: Double = 15) {
         self.autoHideDelay = autoHideDelay
         self.loadTimeout = loadTimeout
         self.seekCoalesceWindow = seekCoalesceWindow
+        self.scanInterval = scanInterval
+        self.scanMaxDuration = scanMaxDuration
         self.details = details
         self.trackPreferences = trackPreferences
         self.resolveResume = resolveResume
