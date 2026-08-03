@@ -12,6 +12,16 @@ enum ImageMemoryCache {
         return c
     }()
 
+    /// What a decoded bitmap actually occupies: width × height × scale² × 4 bytes (RGBA).
+    ///
+    /// The COMPRESSED `data.count` used to be passed as the cost, which under-reports by 10–20×
+    /// (a ~60 KB w500 poster decodes to ~1.5 MB), so the 96 MB ceiling above was really holding
+    /// well over a gigabyte of bitmaps. Same fix as tvOS — see that copy for the full story.
+    static func cost(of image: UIImage) -> Int {
+        let pixels = image.size.width * image.scale * image.size.height * image.scale
+        return Int(pixels) * 4
+    }
+
     /// Warm the cache for a batch of URLs in the background — call when a list's data loads (a
     /// season's episode stills, the Home rails) so cards render with images instead of sitting on
     /// placeholders until each one scrolls into view. No-op for already-cached URLs; failures are
@@ -21,7 +31,7 @@ enum ImageMemoryCache {
             Task.detached(priority: .utility) {
                 guard let (data, _) = try? await URLSession.shared.data(from: url),
                       let img = UIImage(data: data)?.preparingForDisplay() else { return }
-                shared.setObject(img, forKey: url as NSURL, cost: data.count)
+                shared.setObject(img, forKey: url as NSURL, cost: cost(of: img))
             }
         }
     }
@@ -58,7 +68,8 @@ struct RemoteImage<Placeholder: View>: View {
                 UIImage(data: data)?.preparingForDisplay()
             }.value
             guard let decoded, !Task.isCancelled else { return }
-            ImageMemoryCache.shared.setObject(decoded, forKey: url as NSURL, cost: data.count)
+            ImageMemoryCache.shared.setObject(decoded, forKey: url as NSURL,
+                                              cost: ImageMemoryCache.cost(of: decoded))
             loaded = decoded
         }
     }
