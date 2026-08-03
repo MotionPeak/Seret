@@ -19,6 +19,8 @@ final class FakeVideoPlayerEngine: VideoPlayerEngine {
     private(set) var selectedSubtitleID: String??
     private(set) var selectedAudioID: String??
 
+    /// The audio language passed at load — asserted by the "no mid-playback switch" tests.
+    private(set) var loadedAudioLanguage: String?
     var audioTracks: [MediaTrack] = []
     var subtitleTracks: [MediaTrack] = []
 
@@ -31,7 +33,10 @@ final class FakeVideoPlayerEngine: VideoPlayerEngine {
     }
     func emit(_ e: PlaybackEvent) { continuation.yield(e) }
 
-    func load(url: URL, headers: [String: String]) { loadedURL = url }
+    func load(url: URL, headers: [String: String], audioLanguage: String?) {
+        loadedURL = url
+        loadedAudioLanguage = audioLanguage
+    }
     func play() { playCalled = true }
     func pause() {}
     func stop() { stopCalled = true; continuation.finish() }

@@ -335,7 +335,7 @@ final class PreviewEngine: VideoPlayerEngine {
     }
     func emit(_ event: PlaybackEvent) { continuation.yield(event) }
 
-    func load(url: URL, headers: [String: String]) {}
+    func load(url: URL, headers: [String: String], audioLanguage: String?) {}
     func play() {}
     func pause() {}
     func stop() { continuation.finish() }

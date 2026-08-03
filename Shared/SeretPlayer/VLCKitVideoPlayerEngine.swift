@@ -117,7 +117,7 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
         #endif
     }
 
-    func load(url: URL, headers: [String: String]) {
+    func load(url: URL, headers: [String: String], audioLanguage: String?) {
         // `VLCMedia(url:)` is failable (nullable initWithURL:). A malformed/empty URL yields nil;
         // without this guard `media` stays nil, `play()` no-ops, VLCKit emits no `.error`, and the
         // model would spin on the loading overlay forever. Surface a failure so it offers Retry.
@@ -137,6 +137,13 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
         #endif
         media.addOption(":input-fast-seek")   // land on the nearest keyframe — skips respond fast
         media.addOption(":http-reconnect")    // transparently re-open a dropped CDN connection
+        // Pick the audio track HERE, during setup, rather than switching after playback starts.
+        // libvlc's own log made the cost plain: a REMUX whose first audio track is Spanish
+        // ("Track Language=`spa'", "Track Name=Latino") began decoding Spanish, then our late
+        // selection killed the decoder and rebuilt it for English — `killing decoder` →
+        // `removing "audio decoder"` → `codec (ac3) started`, three times before the film had
+        // begun. Every one of those is silence. Told up front, libvlc simply opens the right track.
+        if let audioLanguage { media.addOption(":audio-language=\(audioLanguage)") }
         embeddedTextTrackIDs = []          // a new media has its own muxed track set
         player.media = media
         player.currentSubTitleFontScale = subtitleScale   // global size preference (1.0 = VLCKit default)
@@ -214,7 +221,8 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
         MediaTrack(id: t.trackId, kind: kind, name: displayName(for: t),
                    language: t.language, isExternal: isExternal,
                    codec: fourccString(t.codec),
-                   channels: t.audio.map { Int($0.channelsNumber) })
+                   channels: t.audio.map { Int($0.channelsNumber) },
+                   isSelected: t.isSelected)
     }
 
     /// libvlc's normalised codec id as its four printable characters ("a52 ", "trhd", "mp4a").

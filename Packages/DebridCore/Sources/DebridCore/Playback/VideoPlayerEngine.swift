@@ -10,7 +10,13 @@ public protocol VideoPlayerEngine: AnyObject {
     /// (e.g. an `Authorization` header if a source ever needs one). Resume is a deferred `seek`
     /// after playback starts (see `PlayerModel`), NOT a load-time start-time — a start-time clips
     /// the timeline so you can't rewind before the resume point.
-    func load(url: URL, headers: [String: String])
+    ///
+    /// `audioLanguage` is the viewer's preferred audio language, applied BEFORE the engine opens
+    /// the media so it can pick the right track during setup. That timing is the whole point:
+    /// selecting a track after playback has begun makes libvlc kill the audio decoder and build a
+    /// new one, which is an audible drop-out. Real releases make this routine — a REMUX whose first
+    /// audio track is Spanish would otherwise start in Spanish and lurch into English.
+    func load(url: URL, headers: [String: String], audioLanguage: String?)
     func play()
     func pause()
     /// Halt playback and release the underlying player. After `stop()`, the engine is done —

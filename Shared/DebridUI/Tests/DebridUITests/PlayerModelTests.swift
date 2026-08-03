@@ -823,6 +823,111 @@ import DebridCore
         #expect(model.selectedAudioID == "audio/1")
     }
 
+    // MARK: - Audio language is chosen at LOAD time, not by correcting afterwards
+
+    /// The preference has to reach the engine BEFORE it opens the media. Selecting a track after
+    /// playback starts costs a decoder teardown, and on a release whose first audio track is
+    /// Spanish that is what made the film open in Spanish and lurch into English.
+    @Test func theAudioLanguagePreferenceIsPassedAtLoadTime() async {
+        let engine = FakeVideoPlayerEngine()
+        let prefs = FakeTrackPreferences(audio: .language("he"))
+        let model = makeModel(request: Fixture.request(), engine: engine, trackPreferences: prefs)
+        model.start(); await model.waitForIdleForTesting()
+        #expect(engine.loadedAudioLanguage == "he,heb")   // both spellings — containers use either
+    }
+
+    @Test func automaticMeansEnglishAtLoadTime() async {
+        let engine = FakeVideoPlayerEngine()
+        let prefs = FakeTrackPreferences(audio: .automatic)
+        let model = makeModel(request: Fixture.request(), engine: engine, trackPreferences: prefs)
+        model.start(); await model.waitForIdleForTesting()
+        #expect(engine.loadedAudioLanguage == "en,eng")
+    }
+
+    /// No preference store wired (and `.off`) must not constrain the engine at all.
+    @Test func noPreferenceLeavesTheEngineUnconstrained() async {
+        let engine = FakeVideoPlayerEngine()
+        let model = makeModel(request: Fixture.request(), engine: engine, trackPreferences: nil)
+        model.start(); await model.waitForIdleForTesting()
+        #expect(engine.loadedAudioLanguage == nil)
+    }
+
+    // MARK: - Not fighting the engine's own choice
+    //
+    // Captured from libvlc's log on a real 2160p REMUX (Spider-Man 3, three audio tracks:
+    // audio/2 a52, audio/3 a52, audio/4 mlpa):
+    //
+    //     ES track selected: 'audio/2' (fourcc: 'a52 ')
+    //     killing decoder fourcc `a52 '
+    //     removing "audio decoder" module "avcodec"
+    //     ES track unselected: 'audio/2'
+    //     ES track selected (forced): 'audio/3' (fourcc: 'a52 ')
+    //
+    // We tore the audio decoder down and rebuilt it to move between two tracks of the SAME codec.
+    // Each teardown is an audible drop-out — "plays, goes silent, plays again".
+
+    /// The regression: when the engine has already selected a track that is just as decodable as
+    /// anything else on offer, leave it alone. A switch buys nothing and costs a decoder restart.
+    @Test func aGoodEngineChoiceIsLeftAlone() async {
+        let engine = FakeVideoPlayerEngine()
+        let prefs = FakeTrackPreferences(audio: .automatic)
+        let model = makeModel(request: Fixture.request(), engine: engine, trackPreferences: prefs)
+        model.start(); await model.waitForIdleForTesting()
+        engine.audioTracks = [
+            MediaTrack(id: "audio/2", kind: .audio, name: "AC-3 5.1", language: "eng",
+                       codec: "a52 ", isSelected: true),          // libvlc's own pick
+            MediaTrack(id: "audio/3", kind: .audio, name: "AC-3 5.1", language: "eng", codec: "a52 "),
+            MediaTrack(id: "audio/4", kind: .audio, name: "TrueHD", language: "eng", codec: "mlpa"),
+        ]
+        engine.emit(.tracksChanged); await model.waitForIdleForTesting()
+        #expect(engine.selectedAudioID == nil)     // no switch was requested at all
+    }
+
+    /// …but a genuinely bad default still gets corrected: lossless selected, AC-3 available.
+    @Test func anUndecodableEngineChoiceIsStillCorrected() async {
+        let engine = FakeVideoPlayerEngine()
+        let prefs = FakeTrackPreferences(audio: .automatic)
+        let model = makeModel(request: Fixture.request(), engine: engine, trackPreferences: prefs)
+        model.start(); await model.waitForIdleForTesting()
+        engine.audioTracks = [
+            MediaTrack(id: "audio/0", kind: .audio, name: "TrueHD", language: "eng",
+                       codec: "trhd", isSelected: true),
+            MediaTrack(id: "audio/1", kind: .audio, name: "AC-3", language: "eng", codec: "a52 "),
+        ]
+        engine.emit(.tracksChanged); await model.waitForIdleForTesting()
+        #expect(engine.selectedAudioID == .some("audio/1"))
+    }
+
+    /// An explicit language preference the engine did not satisfy is still worth one switch.
+    @Test func aWrongLanguageIsStillCorrected() async {
+        let engine = FakeVideoPlayerEngine()
+        let prefs = FakeTrackPreferences(audio: .language("he"))
+        let model = makeModel(request: Fixture.request(), engine: engine, trackPreferences: prefs)
+        model.start(); await model.waitForIdleForTesting()
+        engine.audioTracks = [
+            MediaTrack(id: "audio/0", kind: .audio, name: "English", language: "eng",
+                       codec: "a52 ", isSelected: true),
+            MediaTrack(id: "audio/1", kind: .audio, name: "Hebrew", language: "heb", codec: "a52 "),
+        ]
+        engine.emit(.tracksChanged); await model.waitForIdleForTesting()
+        #expect(engine.selectedAudioID == .some("audio/1"))
+    }
+
+    /// Already in the preferred language and equally decodable → no switch.
+    @Test func aSatisfiedLanguagePreferenceCausesNoSwitch() async {
+        let engine = FakeVideoPlayerEngine()
+        let prefs = FakeTrackPreferences(audio: .language("he"))
+        let model = makeModel(request: Fixture.request(), engine: engine, trackPreferences: prefs)
+        model.start(); await model.waitForIdleForTesting()
+        engine.audioTracks = [
+            MediaTrack(id: "audio/0", kind: .audio, name: "Hebrew", language: "heb",
+                       codec: "a52 ", isSelected: true),
+            MediaTrack(id: "audio/1", kind: .audio, name: "Hebrew 2", language: "heb", codec: "a52 "),
+        ]
+        engine.emit(.tracksChanged); await model.waitForIdleForTesting()
+        #expect(engine.selectedAudioID == nil)
+    }
+
     /// VLCKit discovers elementary streams ONE AT A TIME, so the first `.tracksChanged` for a REMUX
     /// usually carries only the lossless track and the AC-3 one lands a beat later. Deciding once on
     /// the first non-empty list would pin the choice to the track that cannot play — which would
