@@ -138,5 +138,55 @@ extension SwiftDataSuite {
                               at: Date(timeIntervalSince1970: 20))
             #expect(try await s.rating(forContentKey: "movie:tmdb:7", profileID: "p1") == 8)
         }
+
+        /// Continue Watching: started but unfinished, newest first.
+        @Test func recentReturnsUnfinishedNewestFirst() async throws {
+            let s = try store()
+            try await s.write(contentKey: "movie:tmdb:1", sourceKey: "T1#1", positionSeconds: 10,
+                              durationSeconds: 600, finished: false, profileID: "p1",
+                              at: Date(timeIntervalSince1970: 10))
+            try await s.write(contentKey: "movie:tmdb:2", sourceKey: "T2#1", positionSeconds: 20,
+                              durationSeconds: 600, finished: false, profileID: "p1",
+                              at: Date(timeIntervalSince1970: 50))
+            // finished — must not appear
+            try await s.write(contentKey: "movie:tmdb:3", sourceKey: "T3#1", positionSeconds: 590,
+                              durationSeconds: 600, finished: true, profileID: "p1",
+                              at: Date(timeIntervalSince1970: 60))
+            // never started — must not appear
+            try await s.setRating(9, contentKey: "movie:tmdb:4", profileID: "p1",
+                                  at: Date(timeIntervalSince1970: 70))
+
+            let recent = try await s.recent(limit: 10, profileID: "p1")
+            #expect(recent.map(\.contentKey) == ["movie:tmdb:2", "movie:tmdb:1"])
+        }
+
+        @Test func recentHonoursTheLimitAndTheProfile() async throws {
+            let s = try store()
+            for i in 1...5 {
+                try await s.write(contentKey: "movie:tmdb:\(i)", sourceKey: "T\(i)#1",
+                                  positionSeconds: 10, durationSeconds: 600, finished: false,
+                                  profileID: "p1", at: Date(timeIntervalSince1970: TimeInterval(i)))
+            }
+            #expect(try await s.recent(limit: 2, profileID: "p1").count == 2)
+            #expect(try await s.recent(limit: 10, profileID: "p2").isEmpty)
+        }
+
+        /// The title left the shared library — its progress goes for every profile.
+        @Test func deleteRemovesKeysAcrossProfiles() async throws {
+            let s = try store()
+            try await s.write(contentKey: "movie:tmdb:1", sourceKey: "T1#1", positionSeconds: 10,
+                              durationSeconds: 600, finished: false, profileID: "p1",
+                              at: Date(timeIntervalSince1970: 10))
+            try await s.write(contentKey: "movie:tmdb:1", sourceKey: "T1#1", positionSeconds: 10,
+                              durationSeconds: 600, finished: false, profileID: "p2",
+                              at: Date(timeIntervalSince1970: 10))
+            try await s.write(contentKey: "movie:tmdb:2", sourceKey: "T2#1", positionSeconds: 10,
+                              durationSeconds: 600, finished: false, profileID: "p1",
+                              at: Date(timeIntervalSince1970: 10))
+
+            try await s.delete(contentKeys: ["movie:tmdb:1"])
+            #expect(try await s.count() == 1)
+            #expect(try await s.state(forContentKey: "movie:tmdb:2", profileID: "p1") != nil)
+        }
     }
 }

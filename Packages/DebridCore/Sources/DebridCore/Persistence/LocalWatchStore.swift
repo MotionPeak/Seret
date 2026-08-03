@@ -93,6 +93,26 @@ public actor LocalWatchStore {
         return (row.plays, row.lastWatchedAt)
     }
 
+    /// Continue Watching for one profile: started, not finished, newest first.
+    public func recent(limit: Int, profileID: String) throws -> [WatchState] {
+        var descriptor = FetchDescriptor<WatchProgress>(
+            predicate: #Predicate {
+                $0.profileID == profileID && !$0.finished && $0.positionSeconds > 0
+            },
+            sortBy: [SortDescriptor(\.updatedAt, order: .reverse)])
+        descriptor.fetchLimit = limit
+        return try modelContext.fetch(descriptor).map(state)
+    }
+
+    /// Drop progress for these titles across every profile — the item left the shared library.
+    public func delete(contentKeys keys: [String]) throws {
+        for row in try modelContext.fetch(FetchDescriptor<WatchProgress>(
+            predicate: #Predicate { keys.contains($0.contentKey) })) {
+            modelContext.delete(row)
+        }
+        try modelContext.save()
+    }
+
     public func count() throws -> Int {
         try modelContext.fetch(FetchDescriptor<WatchProgress>()).count
     }
