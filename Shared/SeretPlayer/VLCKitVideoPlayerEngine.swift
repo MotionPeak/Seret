@@ -107,7 +107,37 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
     func setRate(_ rate: Double) { player.rate = Float(rate) }
     /// VLCKit's audio volume is 0…200 (100 = unity, >100 amplifies — VLC's boost). Clamp defensively.
     func setVolume(_ percent: Int) { player.audio?.volume = Int32(min(200, max(0, percent))) }
-    func stop()  { player.stop(); continuation.finish() }
+    /// Tear the session down — and make sure THIS app drops the player last.
+    ///
+    /// The crash it prevents accounted for 7 of the 9 crash reports on the Apple TV:
+    ///
+    ///     -[VLCMediaPlayer dealloc] → unregisterObservers → libvlc_media_player_unwatch_time
+    ///       → vlc_player_Lock → __assert_rtn → abort,   on vlc_player_mainloop_Thread
+    ///
+    /// VLCKit's time-changed notification retains the player, and that notification is released
+    /// when VLC's OWN mainloop thread pops its autorelease pool. `stop()` is asynchronous, so when
+    /// the player screen is dismissed the view's `@State` engine — the only other strong owner —
+    /// can go away while that thread still has one in flight. Its pool pop then performs the LAST
+    /// release, so `dealloc` runs on the mainloop thread and re-enters a lock that thread already
+    /// holds; libvlc asserts and aborts the process.
+    ///
+    /// Holding a strong reference past VLC's in-flight events and dropping it on the main queue
+    /// guarantees our release is the last one, so `dealloc` always runs on the main thread with no
+    /// lock held. `withExtendedLifetime` (not `_ = held`) because the whole point is a side effect
+    /// the optimiser is otherwise free to delete.
+    func stop() {
+        player.delegate = nil          // no further events into a torn-down stream
+        player.stop()
+        continuation.finish()
+        let held = player
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.releaseGrace) {
+            withExtendedLifetime(held) {}
+        }
+    }
+
+    /// How long to outlive VLC's in-flight notifications before releasing the player. Generous:
+    /// the cost of being wrong is an abort, and the cost of waiting is one stopped player object.
+    private static let releaseGrace: TimeInterval = 3
 
     func addExternalSubtitle(url: URL) {
         // Snapshot the muxed ids the first time, so every id that appears afterwards is a slave.
