@@ -66,6 +66,24 @@ public actor LocalWatchStore {
         try modelContext.save()
     }
 
+    public func rating(forContentKey key: String, profileID: String) throws -> Int? {
+        try rows(key, profileID).first?.rating
+    }
+
+    /// Set or clear the viewer's 1–10 score, creating the row if the title has never been played.
+    public func setRating(_ value: Int?, contentKey: String, profileID: String,
+                          at: Date = Date()) throws {
+        let existing = try rows(contentKey, profileID)
+        for extra in existing.dropFirst() { modelContext.delete(extra) }
+        let row = existing.first ?? {
+            let r = WatchProgress(contentKey: contentKey, profileID: profileID)
+            modelContext.insert(r); return r
+        }()
+        row.rating = value
+        row.updatedAt = at
+        try modelContext.save()
+    }
+
     /// Completed plays + when it was last finished, for the title page. Nil when never watched.
     /// Returns a tuple, not a `WatchSummary`: that type lives in DebridUI, which depends on
     /// DebridCore and not the other way round.

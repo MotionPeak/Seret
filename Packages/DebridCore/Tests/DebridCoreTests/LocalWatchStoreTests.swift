@@ -108,5 +108,35 @@ extension SwiftDataSuite {
                               at: Date(timeIntervalSince1970: 120))
             #expect(try await s.rollup(forContentKey: "movie:tmdb:7", profileID: "p1")?.plays == 3)
         }
+
+        @Test func ratingRoundTripsAndClears() async throws {
+            let s = try store()
+            try await s.setRating(9, contentKey: "movie:tmdb:7", profileID: "p1",
+                                  at: Date(timeIntervalSince1970: 10))
+            #expect(try await s.rating(forContentKey: "movie:tmdb:7", profileID: "p1") == 9)
+            try await s.setRating(nil, contentKey: "movie:tmdb:7", profileID: "p1",
+                                  at: Date(timeIntervalSince1970: 20))
+            #expect(try await s.rating(forContentKey: "movie:tmdb:7", profileID: "p1") == nil)
+        }
+
+        /// Rating a title you have never played creates the row — you can rate before you finish.
+        @Test func ratingAnUnwatchedTitleCreatesTheRow() async throws {
+            let s = try store()
+            try await s.setRating(7, contentKey: "movie:tmdb:7", profileID: "p1",
+                                  at: Date(timeIntervalSince1970: 10))
+            #expect(try await s.count() == 1)
+            #expect(try await s.state(forContentKey: "movie:tmdb:7", profileID: "p1")?.finished == false)
+        }
+
+        /// A rating must survive later position writes — separate facts about the same row.
+        @Test func ratingSurvivesAPositionWrite() async throws {
+            let s = try store()
+            try await s.setRating(8, contentKey: "movie:tmdb:7", profileID: "p1",
+                                  at: Date(timeIntervalSince1970: 10))
+            try await s.write(contentKey: "movie:tmdb:7", sourceKey: "T1#1", positionSeconds: 30,
+                              durationSeconds: 600, finished: false, profileID: "p1",
+                              at: Date(timeIntervalSince1970: 20))
+            #expect(try await s.rating(forContentKey: "movie:tmdb:7", profileID: "p1") == 8)
+        }
     }
 }
