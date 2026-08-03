@@ -13,17 +13,22 @@ struct LibraryShell: View {
     @State private var showingProfiles = false
     @FocusState private var menuFocus: SideMenuItem?
 
-    /// The panel is widened exactly while focus is inside it — "the menu is open while you are in
-    /// it". Press Left from a page to open it, Right (or any move into content) to close it.
+
+    /// Whether the panel is widened.
     ///
-    /// ⚠️ Known gap: selecting a row leaves focus ON that row, so the menu stays open over the page
-    /// you just chose until you press Right. HBO Max collapses there. Handing focus back to the page
-    /// needs a programmatic focus move, and tvOS ignores a `@FocusState` write from here — tried on
-    /// the same turn, deferred one turn, deferred 150ms, and with a per-page keyed anchor (several
-    /// pages are alive at once, so a shared Bool is ambiguous). Driving expansion from explicit state
-    /// instead does not help: the collapse animation re-fires the focus change and re-opens it, and
-    /// a focus event cannot be told apart from tvOS's own initial pick.
-    private var menuOpen: Bool { menuFocus != nil }
+    /// Deliberately NOT derived from `menuFocus`. tvOS parks focus on this rail unprompted (it is
+    /// the top-leading view) and will not hand focus back to the page afterwards — `@FocusState`
+    /// writes, `resetFocus(in:)` + `prefersDefaultFocus`, and disabling the menu were all tried and
+    /// ignored. So focus-presence would mean the menu sat open at launch and stayed open over the
+    /// page you just picked.
+    ///
+    /// The signal that works is a *user action*, not a focus event: `.onMoveCommand` fires only
+    /// when someone actually presses a direction, which tvOS's own focus bookkeeping never does.
+    /// Gated on `menuFocus != nil` because that command also arrives from the profile picker on the
+    /// way in. Collapsing is not a move command, so nothing re-opens the menu behind your back.
+    @State private var menuExpanded = false
+
+    private var menuOpen: Bool { menuExpanded }
 
     /// Search needs a kind and the menu has none — take the section the user is browsing.
     private var searchKind: MediaKind { tab == .shows ? .show : .movie }
@@ -68,15 +73,26 @@ struct LibraryShell: View {
                          profileAvatar: session.activeProfiles?.activeProfile?.avatar ?? "",
                          profileColorTag: session.activeProfiles?.activeProfile?.colorTag ?? "gold",
                          focus: $menuFocus,
+                         expanded: menuExpanded,
                          onSelect: select,
                          onProfile: { showingProfiles = true })
+                // A directional press WHILE the menu holds focus = the user is navigating it, so
+                // widen. Both halves matter: a move command alone also arrives from the profile
+                // picker on the way in (which would open the menu at launch), and focus alone is
+                // what tvOS hands the rail unprompted.
+                .onMoveCommand { _ in if menuFocus != nil { menuExpanded = true } }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(CanvasBackground())
         // Menu button opens the nav from anywhere; a second press falls through and exits, because
         // the handler is removed while the menu is already open.
-        .onExitCommand(perform: menuOpen || !path.isEmpty ? nil : { menuFocus = tab })
+        .onExitCommand(perform: menuOpen || !path.isEmpty ? nil : {
+            menuFocus = tab
+            menuExpanded = true
+        })
+        // Focus genuinely leaving the menu (a move into the page) always collapses it.
+        .onChange(of: menuFocus) { _, new in if new == nil { menuExpanded = false } }
         .task(id: session.libraryStore?.attempt ?? -1) {
             await session.libraryStore?.load()
         }
@@ -95,6 +111,7 @@ struct LibraryShell: View {
         case .profile: showingProfiles = true
         default:
             tab = item
+            menuExpanded = false   // collapse onto the page you just chose
         }
     }
 

@@ -12,6 +12,10 @@ struct SideMenu: View {
     let profileAvatar: String
     let profileColorTag: String
     var focus: FocusState<SideMenuItem?>.Binding
+    /// Whether the panel is widened. Owned by the shell, NOT derived from `focus` here — tvOS parks
+    /// focus on this rail unprompted (it is the top-leading view) and refuses to hand it back after
+    /// a selection, so focus-presence would keep the menu open over the page you just chose.
+    let expanded: Bool
     let onSelect: (SideMenuItem) -> Void
     let onProfile: () -> Void
 
@@ -19,8 +23,6 @@ struct SideMenu: View {
     static let panelWidth: CGFloat = 470
     /// Row pitch. The VStack has zero spacing, so this IS the gap between rows.
     static let rowHeight: CGFloat = 96
-
-    private var expanded: Bool { focus.wrappedValue != nil }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {

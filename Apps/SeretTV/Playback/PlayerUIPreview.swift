@@ -49,10 +49,11 @@ private struct SideMenuPreview: View {
             fakePage
                 .padding(.leading, SideMenu.railWidth)
                 .focusSection()
-            SideMenuScrim(visible: focus != nil)
+            SideMenuScrim(visible: startExpanded)
             SideMenu(selected: selected, profileName: "Shahar",
                      profileAvatar: "", profileColorTag: "gold",
                      focus: $focus,
+                     expanded: startExpanded,
                      onSelect: { if $0.isPage { selected = $0 } },
                      onProfile: {})
         }
