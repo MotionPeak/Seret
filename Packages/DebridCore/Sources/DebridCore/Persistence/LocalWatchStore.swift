@@ -29,6 +29,17 @@ public actor LocalWatchStore {
         try rows(key, profileID).first.map(state)
     }
 
+    /// Every known state for these keys, in ONE fetch. Keys with no row are simply absent.
+    public func states(forContentKeys keys: [String], profileID: String) throws -> [String: WatchState] {
+        let rows = try modelContext.fetch(FetchDescriptor<WatchProgress>(
+            predicate: #Predicate { keys.contains($0.contentKey) && $0.profileID == profileID },
+            sortBy: [SortDescriptor(\.updatedAt, order: .reverse)]))
+        var out: [String: WatchState] = [:]
+        // Newest-first ordering means the first row wins and later duplicates are ignored.
+        for row in rows where out[row.contentKey] == nil { out[row.contentKey] = state(row) }
+        return out
+    }
+
     /// Record playback position (or a manual mark). Collapses any duplicate rows CloudKit produced.
     public func write(contentKey: String, sourceKey: String, positionSeconds: Double,
                       durationSeconds: Double, finished: Bool, profileID: String,

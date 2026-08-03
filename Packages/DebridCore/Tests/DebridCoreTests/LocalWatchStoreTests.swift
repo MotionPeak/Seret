@@ -37,5 +37,30 @@ extension SwiftDataSuite {
                               at: Date(timeIntervalSince1970: 10))
             #expect(try await s.state(forContentKey: "movie:tmdb:7", profileID: "p2") == nil)
         }
+
+        @Test func batchedReadReturnsOnlyKnownKeys() async throws {
+            let s = try store()
+            try await s.write(contentKey: "show:tmdb:1:s1e1", sourceKey: "T1#1",
+                              positionSeconds: 60, durationSeconds: 600, finished: false,
+                              profileID: "p1", at: Date(timeIntervalSince1970: 10))
+            try await s.write(contentKey: "show:tmdb:1:s1e2", sourceKey: "T1#2",
+                              positionSeconds: 30, durationSeconds: 600, finished: true,
+                              profileID: "p1", at: Date(timeIntervalSince1970: 20))
+
+            let got = try await s.states(forContentKeys: ["show:tmdb:1:s1e1", "show:tmdb:1:s1e2",
+                                                          "show:tmdb:1:s1e3"], profileID: "p1")
+            #expect(got.count == 2)
+            #expect(got["show:tmdb:1:s1e1"]?.positionSeconds == 60)
+            #expect(got["show:tmdb:1:s1e2"]?.finished == true)
+            #expect(got["show:tmdb:1:s1e3"] == nil)
+        }
+
+        @Test func batchedReadIsProfileScoped() async throws {
+            let s = try store()
+            try await s.write(contentKey: "show:tmdb:1:s1e1", sourceKey: "T1#1",
+                              positionSeconds: 60, durationSeconds: 600, finished: false,
+                              profileID: "p1", at: Date(timeIntervalSince1970: 10))
+            #expect(try await s.states(forContentKeys: ["show:tmdb:1:s1e1"], profileID: "p2").isEmpty)
+        }
     }
 }
