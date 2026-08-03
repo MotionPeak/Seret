@@ -66,6 +66,15 @@ public actor LocalWatchStore {
         try modelContext.save()
     }
 
+    /// Completed plays + when it was last finished, for the title page. Nil when never watched.
+    /// Returns a tuple, not a `WatchSummary`: that type lives in DebridUI, which depends on
+    /// DebridCore and not the other way round.
+    public func rollup(forContentKey key: String,
+                       profileID: String) throws -> (plays: Int, lastWatchedAt: Date?)? {
+        guard let row = try rows(key, profileID).first else { return nil }
+        return (row.plays, row.lastWatchedAt)
+    }
+
     public func count() throws -> Int {
         try modelContext.fetch(FetchDescriptor<WatchProgress>()).count
     }
