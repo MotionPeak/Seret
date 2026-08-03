@@ -36,7 +36,11 @@ public final class TrailerModel {
     /// The playable stream URL when ready, else nil.
     public var streamURL: URL? { if case .ready(let u) = state { return u } else { return nil } }
 
+    /// Resolve this title's trailer. Re-entrant calls are ignored: a second resolution would run
+    /// YouTube's player JS a second time, and JavaScriptCore aborts the process when its heap is
+    /// exhausted. `.idle` is the only state from which work should start.
     public func prepare(tmdbID: Int, kind: MediaKind) async {
+        guard state == .idle else { return }
         state = .resolving
         guard let key = await trailers.trailerKey(tmdbID: tmdbID, kind: kind) else {
             state = .unavailable
