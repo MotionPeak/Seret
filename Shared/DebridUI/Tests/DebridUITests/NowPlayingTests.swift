@@ -35,6 +35,34 @@ final class FakeNowPlaying: NowPlayingControlling {
         await model.waitForIdleForTesting()
     }
 
+    /// A paused player emits no time events, so nothing else would ever tell the system that
+    /// playback stopped: the iPhone Remote app and Control Center would keep advancing a playhead
+    /// that isn't moving. Pushing on the state change is also what the throttle relies on to notice
+    /// a rate change at all.
+    @Test func pausingTellsTheSystemPlaybackStopped() async {
+        let engine = FakeVideoPlayerEngine(), np = FakeNowPlaying()
+        let model = makeModel(engine: engine, nowPlaying: np)
+        await warmUp(model, engine, to: 100)
+
+        engine.emit(.state(.paused))
+        await model.waitForIdleForTesting()
+        #expect(np.updates.last?.rate == 0)
+
+        engine.emit(.state(.playing))
+        await model.waitForIdleForTesting()
+        #expect(np.updates.last?.rate == 1)
+    }
+
+    @Test func changingSpeedTellsTheSystemTheNewRate() async {
+        let engine = FakeVideoPlayerEngine(), np = FakeNowPlaying()
+        let model = makeModel(engine: engine, nowPlaying: np)
+        await warmUp(model, engine, to: 100)
+
+        model.setPlaybackSpeed(1.5)
+        await model.waitForIdleForTesting()
+        #expect(np.updates.last?.rate == 1.5)
+    }
+
     @Test func startRegistersTransportHandlers() async {
         let engine = FakeVideoPlayerEngine(), np = FakeNowPlaying()
         let model = makeModel(engine: engine, nowPlaying: np)

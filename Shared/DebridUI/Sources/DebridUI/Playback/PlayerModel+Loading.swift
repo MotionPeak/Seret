@@ -43,6 +43,7 @@ extension PlayerModel {
             markRendered()
             refreshTracks()
             armAutoHide()
+            pushNowPlaying()          // rate changed — the system cannot infer that itself
             if let onScrobbleStart {
                 let f = currentFraction
                 Task { await onScrobbleStart(f) }   // the scrobbler dedups repeat starts
@@ -58,6 +59,9 @@ extension PlayerModel {
             // Guarded on `isSwitching` so the OUTGOING media's late `.paused` during an episode
             // swap can't clear the swap guard early and let a stale `.ended` auto-advance.
             if !isSwitching { markRendered() }
+            // A paused player emits no more time events, so this is the ONLY chance to tell the
+            // system playback stopped — without it the Remote app keeps advancing a frozen playhead.
+            pushNowPlaying()
             if let onScrobblePause {
                 let f = currentFraction
                 Task { await onScrobblePause(f) }

@@ -2,6 +2,7 @@ import Foundation
 #if canImport(MediaPlayer) && canImport(UIKit)
 import MediaPlayer
 import UIKit
+import QuartzCore
 
 /// `NowPlayingControlling` backed by MediaPlayer. Declaring these commands is what makes the
 /// iPhone Remote app render a transport row with ±10s buttons and a scrubber — the same mechanism
@@ -12,6 +13,13 @@ public final class NowPlayingCenter: NowPlayingControlling {
     private var handlers: NowPlayingHandlers?
     private var artworkTask: Task<Void, Never>?
     private var lastArtworkURL: URL?
+    /// The resolved poster, held here rather than read back out of `MPNowPlayingInfoCenter`.
+    private var artwork: MPMediaItemArtwork?
+    /// The most recent state we were given, pushed or not — so a late-arriving poster can refresh
+    /// the entry against current values.
+    private var lastInfo: NowPlayingInfo?
+    /// Suppresses the ~4/second no-op pushes. See `NowPlayingThrottle`.
+    private var throttle = NowPlayingThrottle()
     /// The skip interval offered to the system, in seconds. Matches the on-screen ±10s.
     private let skipInterval: Double = 10
 
@@ -98,7 +106,28 @@ public final class NowPlayingCenter: NowPlayingControlling {
         }
     }
 
+    /// Take the latest playback state, and write it to the system only if the system's own
+    /// extrapolation would now be wrong.
+    ///
+    /// `PlayerModel.tick()` calls this on every VLCKit time event — several times a second — and
+    /// every push makes MediaPlayer rebuild its dictionary and re-encode the poster JPEG
+    /// (`-[MPMediaItemArtwork jpegDataWithSize:]`). The system derives the playhead from
+    /// elapsed-time + rate on its own, so all those pushes told it what it already knew.
     public func update(_ info: NowPlayingInfo) {
+        lastInfo = info
+        loadArtworkIfNeeded(info.artworkURL)
+        let identity = "\(info.title)|\(info.showName ?? "")|\(info.duration)"
+        guard throttle.shouldPush(identity: identity, position: info.position,
+                                  rate: info.rate, now: CACurrentMediaTime()) else { return }
+        push(info)
+    }
+
+    /// Write the entry to the system.
+    ///
+    /// Note what this does NOT do: read `MPNowPlayingInfoCenter.default().nowPlayingInfo` back to
+    /// recover the artwork. That getter is a synchronous cross-process call, and doing it on every
+    /// tick was half the cost of this path. The poster is kept in `artwork` instead.
+    private func push(_ info: NowPlayingInfo) {
         var entry: [String: Any] = [
             MPMediaItemPropertyTitle: info.title,
             MPMediaItemPropertyPlaybackDuration: info.duration,
@@ -107,18 +136,17 @@ public final class NowPlayingCenter: NowPlayingControlling {
             MPNowPlayingInfoPropertyMediaType: MPNowPlayingInfoMediaType.video.rawValue,
         ]
         if let show = info.showName { entry[MPMediaItemPropertyArtist] = show }
-        // Preserve artwork already resolved for this URL so each tick doesn't drop it.
-        if let existing = MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPMediaItemPropertyArtwork] {
-            entry[MPMediaItemPropertyArtwork] = existing
-        }
+        if let artwork { entry[MPMediaItemPropertyArtwork] = artwork }
         MPNowPlayingInfoCenter.default().nowPlayingInfo = entry
-        loadArtworkIfNeeded(info.artworkURL)
     }
 
     public func deactivate() {
         artworkTask?.cancel()
         artworkTask = nil
         lastArtworkURL = nil
+        artwork = nil
+        lastInfo = nil
+        throttle.reset()          // the next session must refresh the entry unconditionally
         let center = MPRemoteCommandCenter.shared()
         let commands: [MPRemoteCommand] = [
             center.playCommand, center.pauseCommand, center.togglePlayPauseCommand,
@@ -134,18 +162,18 @@ public final class NowPlayingCenter: NowPlayingControlling {
         handlers = nil
     }
 
-    /// Fetch the poster once per URL and fold it into the existing entry.
+    /// Fetch the poster once per URL, then refresh the entry with it. This push bypasses the
+    /// throttle: new artwork is exactly the kind of change the system cannot infer for itself.
     private func loadArtworkIfNeeded(_ url: URL?) {
         guard let url, url != lastArtworkURL else { return }
         lastArtworkURL = url
         artworkTask?.cancel()
         artworkTask = Task { @MainActor [weak self] in
             guard let (data, _) = try? await URLSession.shared.data(from: url),
-                  !Task.isCancelled, self != nil,
+                  !Task.isCancelled, let self,
                   let image = UIImage(data: data) else { return }
-            var entry = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
-            entry[MPMediaItemPropertyArtwork] = Self.artwork(for: image)
-            MPNowPlayingInfoCenter.default().nowPlayingInfo = entry
+            self.artwork = Self.artwork(for: image)
+            if let info = self.lastInfo { self.push(info) }
         }
     }
 

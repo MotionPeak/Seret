@@ -424,6 +424,7 @@ public final class PlayerModel {
     public func setPlaybackSpeed(_ rate: Double) {
         playbackSpeed = rate
         engine.setRate(rate)
+        pushNowPlaying()          // the system extrapolates the playhead from rate — tell it
     }
 
     // MARK: - Controls auto-hide
