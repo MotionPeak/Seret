@@ -62,6 +62,7 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
         var options = ["--freetype-color=\(preferences.color.rgb)"]
         if let font = preferences.font.freetypeName { options.append("--freetype-font=\(font)") }
         player = VLCMediaPlayer(options: options)
+        Self.attachVLCLogger(to: player)
         subtitleScale = Float(preferences.size.scale)
         var cont: AsyncStream<PlaybackEvent>.Continuation!
         events = AsyncStream(bufferingPolicy: .bufferingNewest(64)) { cont = $0 }
@@ -74,6 +75,46 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
         // subview would otherwise stay mis-sized.
         player.drawable = videoView
         player.delegate = self
+    }
+
+    /// Turn on libvlc's own logging when launched with `-vlcLog`. DEBUG-only and off by default.
+    ///
+    /// This exists because an audio fault is invisible from our side of the seam: `PlayerModel`
+    /// only ever sees `.playing` and a moving playhead, so audio that cuts in and out looks
+    /// identical to audio that is fine. libvlc knows exactly what it is doing — starving, dropping
+    /// to resample, restarting the output device, failing to decode a frame — and says so. Guessing
+    /// from the outside costs a rebuild-and-watch cycle per guess; this costs one.
+    ///
+    /// Mirrors the `-uiPreview` / `-inputHUD` harness pattern already used in this app.
+    /// Attach to THIS PLAYER's library, not `VLCLibrary.shared()`. `VLCMediaPlayer(options:)`
+    /// builds its own libvlc instance for those options, so loggers set on the shared library see
+    /// nothing but its own start-up banner — which is exactly what the first attempt captured.
+    private static func attachVLCLogger(to player: VLCMediaPlayer) {
+        #if DEBUG
+        guard ProcessInfo.processInfo.arguments.contains("-vlcLog") else { return }
+        // A FILE logger, not the console one: VLCConsoleLogger's output does not reach os_log, so
+        // `simctl spawn … log stream` captures nothing at all. A file in Documents can be pulled
+        // straight out of the container with `simctl get_app_container … data`, on a simulator or
+        // a real device via Xcode.
+        guard let dir = try? FileManager.default.url(for: .documentDirectory, in: .userDomainMask,
+                                                     appropriateFor: nil, create: true)
+        else { return }
+        let path = dir.appendingPathComponent("vlc.log")
+        if !FileManager.default.fileExists(atPath: path.path) {
+            FileManager.default.createFile(atPath: path.path, contents: nil)
+        }
+        guard let handle = try? FileHandle(forWritingTo: path) else { return }
+        handle.seekToEndOfFile()
+        let fileLogger = VLCFileLogger.create(with: handle)
+        fileLogger.level = .debug
+        // Console too: its output does not reach os_log, but it DOES reach stdout, which Xcode's
+        // console shows for a scheme-launched run. That is the zero-friction path — run with the
+        // argument, reproduce, copy the console — with the file as the fallback for a run that
+        // wasn't started from Xcode.
+        let consoleLogger = VLCConsoleLogger()
+        consoleLogger.level = .debug
+        player.libraryInstance.loggers = [fileLogger, consoleLogger]
+        #endif
     }
 
     func load(url: URL, headers: [String: String]) {
