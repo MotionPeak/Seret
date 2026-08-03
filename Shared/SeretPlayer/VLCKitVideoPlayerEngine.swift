@@ -171,7 +171,22 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
     private static func mediaTrack(_ t: VLCMediaPlayer.Track, kind: TrackKind,
                                    isExternal: Bool = false) -> MediaTrack {
         MediaTrack(id: t.trackId, kind: kind, name: displayName(for: t),
-                   language: t.language, isExternal: isExternal)
+                   language: t.language, isExternal: isExternal,
+                   codec: fourccString(t.codec),
+                   channels: t.audio.map { Int($0.channelsNumber) })
+    }
+
+    /// libvlc's normalised codec id as its four printable characters ("a52 ", "trhd", "mp4a").
+    ///
+    /// `VLC_FOURCC` packs the first character in the LOW byte, so the bytes read out little-endian.
+    /// `codec` is used rather than `fourcc` because libvlc normalises it — a container spelling
+    /// AC-3 as "ac-3" still arrives here as "a52 " — which is what makes matching on it dependable.
+    /// nil for anything non-printable, which ranks as `.unknown` rather than guessing.
+    private static func fourccString(_ value: UInt32) -> String? {
+        let bytes = [UInt8(value & 0xFF), UInt8((value >> 8) & 0xFF),
+                     UInt8((value >> 16) & 0xFF), UInt8((value >> 24) & 0xFF)]
+        guard bytes.allSatisfy({ $0 >= 0x20 && $0 < 0x7F }) else { return nil }
+        return String(decoding: bytes, as: UTF8.self)
     }
 
     /// A user-facing track label. VLCKit usually fills `trackName` ("English", "Track 1 - [eng]");

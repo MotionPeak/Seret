@@ -16,33 +16,58 @@ extension PlayerModel {
         if volumePercent != 100 { engine.setVolume(volumePercent) }   // re-assert a boost post-swap
     }
 
-    /// Auto-apply the user's persisted audio/subtitle language once this source's tracks have been
-    /// discovered (audio is always present, so its arrival means parsing is far enough along). Runs
-    /// once per source (`reload()` re-arms it), so a later manual change isn't reverted by a
-    /// subsequent `.tracksChanged`. A preferred he/en subtitle that isn't embedded auto-downloads —
-    /// but only when its row is still `.idle`, so a daily-cap or in-flight download isn't re-hit
-    /// every episode of a binge.
+    /// Auto-apply the user's persisted audio/subtitle language as this source's tracks are
+    /// discovered. Audio and subtitles latch differently — see each method.
     func applyTrackPreferencesIfNeeded() {
-        guard let prefs = trackPreferences, !trackPrefsApplied, !audioTracks.isEmpty else { return }
-        trackPrefsApplied = true
+        guard let prefs = trackPreferences else { return }
+        applyAudioPreference(prefs)
+        applySubtitlePreferenceOnce(prefs)
+    }
+
+    /// Choose the audio track, re-deciding for as long as the track set keeps growing.
+    ///
+    /// It cannot latch on the first non-empty list the way the subtitle side does. VLCKit discovers
+    /// elementary streams ONE AT A TIME, so a REMUX's first `.tracksChanged` typically carries only
+    /// the lossless track and its AC-3 companion arrives a beat later. Deciding once would pin the
+    /// choice to whichever track happened to be parsed first — exactly the undecodable one the
+    /// ranking exists to avoid. So the pick is recomputed whenever the set of track ids changes,
+    /// and stops for good the moment the viewer chooses by hand.
+    func applyAudioPreference(_ prefs: TrackPreferenceStoring) {
+        guard !audioPickedByUser, !audioTracks.isEmpty else { return }
+        let signature = audioTracks.map(\.id)
+        guard signature != audioSelectionSignature else { return }   // nothing new to reconsider
+        audioSelectionSignature = signature
 
         switch prefs.preferredAudio {
         case .language(let lang):
-            if let match = audioTracks.first(where: { $0.language == lang }) {
-                engine.selectAudioTrack(id: match.id)
-                selectedAudioID = match.id
-            }
+            // Ranked, not first-match: the preference stores a LANGUAGE, so on a release that
+            // carries both a lossless and a compatibility track in that language, first-match
+            // would keep re-picking the one that doesn't play.
+            if let match = audioTracks.bestAudio(forLanguage: lang) { applyAudioSelection(match) }
         case .automatic:
             // Default: English audio when the release has it; otherwise leave VLCKit's default,
             // which is the file's first/original-language track — so a foreign film or show plays
             // in its original language instead of a wrong dub.
-            if let english = audioTracks.first(where: { Self.isEnglishLanguage($0.language) }) {
-                engine.selectAudioTrack(id: english.id)
-                selectedAudioID = english.id
+            if let english = audioTracks.bestAudio(forLanguage: "en") {
+                applyAudioSelection(english)
+            } else if let first = audioTracks.first, let original = first.language,
+                      let best = audioTracks.bestAudio(forLanguage: original), best.id != first.id {
+                // No English: stay in the original language, but take the version of it that
+                // actually decodes. Only when that DIFFERS from the file's first track, so a
+                // release whose default is already the best keeps VLCKit's own choice untouched.
+                applyAudioSelection(best)
             }
         case .off:
             break   // "off" isn't meaningful for audio — keep the default track
         }
+    }
+
+    /// Apply the subtitle preference once per source (`reload()` re-arms it). Unlike audio this
+    /// must NOT repeat: the `.language` branch can kick off an on-demand download, and re-running
+    /// it on every `.tracksChanged` would re-hit a daily-capped account every episode of a binge.
+    func applySubtitlePreferenceOnce(_ prefs: TrackPreferenceStoring) {
+        guard !trackPrefsApplied, !audioTracks.isEmpty else { return }
+        trackPrefsApplied = true
 
         switch prefs.preferredSubtitle {
         case .automatic:
@@ -61,15 +86,17 @@ extension PlayerModel {
         }
     }
 
-    /// Whether a track's language tag denotes English. VLCKit reports whatever libvlc parsed from the
-    /// container — 2-letter ("en"), 3-letter ("eng"), or descriptive ("English", "en-US") — so match
-    /// them all. An untagged (`nil`) track is never treated as English.
-    static func isEnglishLanguage(_ language: String?) -> Bool {
-        guard let l = language?.lowercased() else { return false }
-        return l == "en" || l.hasPrefix("en-") || l.hasPrefix("eng")
+    /// Select an audio track on the engine and mirror it into published state. Re-selecting the
+    /// track that is already playing restarts VLCKit's audio output for nothing — an audible gap of
+    /// exactly the kind this file exists to remove — so a no-op pick stays a no-op.
+    private func applyAudioSelection(_ track: MediaTrack) {
+        guard track.id != selectedAudioID else { return }
+        engine.selectAudioTrack(id: track.id)
+        selectedAudioID = track.id
     }
 
     public func selectAudio(id: String) {
+        audioPickedByUser = true      // stop the automatic pick from re-deciding over them
         selectedAudioID = id
         engine.selectAudioTrack(id: id)
         if let lang = audioTracks.first(where: { $0.id == id })?.language {

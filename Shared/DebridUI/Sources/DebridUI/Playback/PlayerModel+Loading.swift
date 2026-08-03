@@ -166,6 +166,8 @@ extension PlayerModel {
         pendingSeek = nil
         cancelCoalescedSeek()
         trackPrefsApplied = false
+        audioPickedByUser = false          // a new source re-decides audio from scratch
+        audioSelectionSignature = []
         lastSavedPosition = -.infinity
         loadTask?.cancel()
         loadTask = Task { await self.loadCurrentSource() }

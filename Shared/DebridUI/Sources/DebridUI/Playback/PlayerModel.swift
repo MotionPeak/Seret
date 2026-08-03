@@ -184,9 +184,14 @@ public final class PlayerModel {
     /// App-global preferred audio/subtitle language. Recorded on a manual pick and auto-applied once
     /// per loaded source. Optional — nil disables persistence (no preference recorded or applied).
     let trackPreferences: TrackPreferenceStoring?
-    /// Whether the preferred tracks have been auto-applied for the current source (reset on reload),
-    /// so a later manual change isn't reverted by subsequent `.tracksChanged` events.
+    /// Whether the preferred SUBTITLE has been auto-applied for the current source (reset on
+    /// reload), so a later manual change isn't reverted by subsequent `.tracksChanged` events.
     var trackPrefsApplied = false
+    /// The viewer picked an audio track by hand — the automatic choice stops re-deciding.
+    var audioPickedByUser = false
+    /// The audio track ids the automatic choice was last computed from, so it re-runs only when
+    /// VLCKit actually discovers a different set (see `applyAudioPreference`).
+    var audioSelectionSignature: [String] = []
 
     var eventTask: Task<Void, Never>?
     var loadTask: Task<Void, Never>?

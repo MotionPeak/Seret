@@ -29,13 +29,21 @@ public struct MediaTrack: Sendable, Equatable, Identifiable {
     /// True for a track attached from a downloaded subtitle file rather than one muxed into the
     /// media. Lets the picker group "in this file" apart from "downloaded".
     public let isExternal: Bool
+    /// The codec's four-character code as the container reports it — "a52 ", "trhd", "mp4a".
+    /// nil when the engine can't tell. Drives `mostDecodableFirst()`: which audio codec is chosen
+    /// decides whether a REMUX plays at all on tvOS, so it has to survive up to the picker.
+    public let codec: String?
+    /// Channel count for an audio track (2 = stereo, 6 = 5.1, 8 = 7.1), nil when unknown.
+    public let channels: Int?
     public init(id: String, kind: TrackKind, name: String, language: String? = nil,
-                isExternal: Bool = false) {
+                isExternal: Bool = false, codec: String? = nil, channels: Int? = nil) {
         self.id = id
         self.kind = kind
         self.name = name
         self.language = language
         self.isExternal = isExternal
+        self.codec = codec
+        self.channels = channels
     }
 }
 

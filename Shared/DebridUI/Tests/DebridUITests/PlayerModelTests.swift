@@ -769,6 +769,117 @@ import DebridCore
         #expect(model.selectedAudioID == nil)
     }
 
+    // MARK: - Audio codec (a REMUX lists lossless FIRST, compatibility AC-3 second)
+
+    /// The reported bug: many titles played silent or with audio-only dropouts over a smooth
+    /// picture. "First English track" on a REMUX is TrueHD Atmos — the codec tvOS/VLCKit is worst
+    /// at — while the AC-3 track that always plays sits below it.
+    @Test func automaticAudioPrefersTheDecodableEnglishTrackOverTheFirstOne() async {
+        let engine = FakeVideoPlayerEngine()
+        let prefs = FakeTrackPreferences(audio: .automatic)
+        let model = makeModel(request: Fixture.request(), engine: engine, trackPreferences: prefs)
+        model.start(); await model.waitForIdleForTesting()
+        engine.audioTracks = [
+            MediaTrack(id: "audio/0", kind: .audio, name: "TrueHD 7.1", language: "eng",
+                       codec: "trhd", channels: 8),
+            MediaTrack(id: "audio/1", kind: .audio, name: "AC-3 5.1", language: "eng",
+                       codec: "a52 ", channels: 6),
+        ]
+        engine.emit(.tracksChanged); await model.waitForIdleForTesting()
+        #expect(engine.selectedAudioID == .some("audio/1"))
+        #expect(model.selectedAudioID == "audio/1")
+    }
+
+    /// The same ranking has to apply to an explicitly preferred LANGUAGE, not just `.automatic` —
+    /// the preference stores a language, so without this it would re-pick the lossless track.
+    @Test func preferredAudioLanguageAlsoPicksTheDecodableTrack() async {
+        let engine = FakeVideoPlayerEngine()
+        let prefs = FakeTrackPreferences(audio: .language("he"))
+        let model = makeModel(request: Fixture.request(), engine: engine, trackPreferences: prefs)
+        model.start(); await model.waitForIdleForTesting()
+        engine.audioTracks = [
+            MediaTrack(id: "audio/0", kind: .audio, name: "English AC-3", language: "eng", codec: "a52 "),
+            MediaTrack(id: "audio/1", kind: .audio, name: "Hebrew DTS-HD", language: "heb", codec: "dts "),
+            MediaTrack(id: "audio/2", kind: .audio, name: "Hebrew AC-3", language: "heb", codec: "a52 "),
+        ]
+        engine.emit(.tracksChanged); await model.waitForIdleForTesting()
+        #expect(engine.selectedAudioID == .some("audio/2"))
+        #expect(model.selectedAudioID == "audio/2")
+    }
+
+    /// A foreign film must keep its ORIGINAL language (never jump to an English dub) — but among
+    /// that language's own tracks it should still take the one that decodes.
+    @Test func foreignFilmKeepsItsLanguageButTakesTheDecodableTrack() async {
+        let engine = FakeVideoPlayerEngine()
+        let prefs = FakeTrackPreferences(audio: .automatic)
+        let model = makeModel(request: Fixture.request(), engine: engine, trackPreferences: prefs)
+        model.start(); await model.waitForIdleForTesting()
+        engine.audioTracks = [
+            MediaTrack(id: "audio/0", kind: .audio, name: "French TrueHD", language: "fre", codec: "trhd"),
+            MediaTrack(id: "audio/1", kind: .audio, name: "French AC-3", language: "fre", codec: "a52 "),
+        ]
+        engine.emit(.tracksChanged); await model.waitForIdleForTesting()
+        #expect(engine.selectedAudioID == .some("audio/1"))   // still French, now playable
+        #expect(model.selectedAudioID == "audio/1")
+    }
+
+    /// VLCKit discovers elementary streams ONE AT A TIME, so the first `.tracksChanged` for a REMUX
+    /// usually carries only the lossless track and the AC-3 one lands a beat later. Deciding once on
+    /// the first non-empty list would pin the choice to the track that cannot play — which would
+    /// have left the ranking above doing nothing at all in the real app.
+    @Test func aLateArrivingCompatibilityTrackStillWinsTheAutomaticPick() async {
+        let engine = FakeVideoPlayerEngine()
+        let prefs = FakeTrackPreferences(audio: .automatic)
+        let model = makeModel(request: Fixture.request(), engine: engine, trackPreferences: prefs)
+        model.start(); await model.waitForIdleForTesting()
+
+        engine.audioTracks = [MediaTrack(id: "audio/0", kind: .audio, name: "TrueHD",
+                                         language: "eng", codec: "trhd")]
+        engine.emit(.tracksChanged); await model.waitForIdleForTesting()
+        #expect(model.selectedAudioID == "audio/0")            // nothing better exists yet
+
+        engine.audioTracks.append(MediaTrack(id: "audio/1", kind: .audio, name: "AC-3",
+                                             language: "eng", codec: "a52 "))
+        engine.emit(.tracksChanged); await model.waitForIdleForTesting()
+        #expect(model.selectedAudioID == "audio/1")            // upgraded as soon as it appeared
+    }
+
+    /// …but re-deciding must stop the moment the viewer chooses for themselves.
+    @Test func aManualAudioPickSurvivesLaterTrackDiscovery() async {
+        let engine = FakeVideoPlayerEngine()
+        let prefs = FakeTrackPreferences(audio: .automatic)
+        let model = makeModel(request: Fixture.request(), engine: engine, trackPreferences: prefs)
+        model.start(); await model.waitForIdleForTesting()
+        engine.audioTracks = [MediaTrack(id: "audio/0", kind: .audio, name: "TrueHD",
+                                         language: "eng", codec: "trhd"),
+                              MediaTrack(id: "audio/1", kind: .audio, name: "AC-3",
+                                         language: "eng", codec: "a52 ")]
+        engine.emit(.tracksChanged); await model.waitForIdleForTesting()
+        #expect(model.selectedAudioID == "audio/1")
+
+        model.selectAudio(id: "audio/0")                       // the viewer wants the lossless one
+        engine.audioTracks.append(MediaTrack(id: "audio/2", kind: .audio, name: "Commentary",
+                                             language: "eng", codec: "a52 "))
+        engine.emit(.tracksChanged); await model.waitForIdleForTesting()
+        #expect(model.selectedAudioID == "audio/0")            // left alone
+    }
+
+    /// Guard the tie-break: when the file's first track is already the best of its language we make
+    /// NO explicit selection, so VLCKit's own default keeps deciding (see the test above this pair).
+    @Test func noSelectionWhenTheFirstTrackIsAlreadyTheBestOfItsLanguage() async {
+        let engine = FakeVideoPlayerEngine()
+        let prefs = FakeTrackPreferences(audio: .automatic)
+        let model = makeModel(request: Fixture.request(), engine: engine, trackPreferences: prefs)
+        model.start(); await model.waitForIdleForTesting()
+        engine.audioTracks = [
+            MediaTrack(id: "audio/0", kind: .audio, name: "French AC-3", language: "fre", codec: "a52 "),
+            MediaTrack(id: "audio/1", kind: .audio, name: "French TrueHD", language: "fre", codec: "trhd"),
+        ]
+        engine.emit(.tracksChanged); await model.waitForIdleForTesting()
+        #expect(engine.selectedAudioID == nil)
+        #expect(model.selectedAudioID == nil)
+    }
+
     @Test func automaticAudioDetectsEnglishFromThreeLetterCode() async {
         let engine = FakeVideoPlayerEngine()
         let prefs = FakeTrackPreferences(audio: .automatic)
