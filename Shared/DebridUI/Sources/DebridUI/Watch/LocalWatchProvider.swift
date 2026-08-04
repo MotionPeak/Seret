@@ -12,9 +12,11 @@ import Foundation
 /// closure, the same shape `AppSession` already passes to `LibraryStore` and `DetailStore`.
 public struct LocalWatchProvider: WatchProgressProviding, Sendable {
     private let store: LocalWatchStore
-    private let profileID: @Sendable () -> String
+    /// Main-actor isolated because the active profile lives on `AppSession`, which is `@MainActor`.
+    /// Every caller below is already `async`, so awaiting the hop costs nothing.
+    private let profileID: @MainActor @Sendable () -> String
 
-    public init(store: LocalWatchStore, profileID: @escaping @Sendable () -> String) {
+    public init(store: LocalWatchStore, profileID: @escaping @MainActor @Sendable () -> String) {
         self.store = store
         self.profileID = profileID
     }
@@ -54,7 +56,7 @@ public struct LocalWatchProvider: WatchProgressProviding, Sendable {
 
 extension LocalWatchProvider: WatchSummaryProviding {
     public func watchSummary(forContentKey key: String) async -> WatchSummary? {
-        guard let rollup = try? await store.rollup(forContentKey: key, profileID: profileID())
+        guard let rollup = try? await store.rollup(forContentKey: key, profileID: await profileID())
         else { return nil }
         return WatchSummary(plays: rollup.plays, lastWatchedAt: rollup.lastWatchedAt)
     }
@@ -65,7 +67,7 @@ extension LocalWatchProvider: WatchSummaryProviding {
     /// One unwrap, not two: `try?` flattens rather than producing `Date??`, so the store's
     /// already-optional return needs no second `let`.
     public func historySince(forContentKey key: String) async -> Date? {
-        guard let rollup = try? await store.rollup(forContentKey: key, profileID: profileID())
+        guard let rollup = try? await store.rollup(forContentKey: key, profileID: await profileID())
         else { return nil }
         return rollup.lastWatchedAt
     }
@@ -73,18 +75,18 @@ extension LocalWatchProvider: WatchSummaryProviding {
 
 extension LocalWatchProvider: WatchRatingProviding {
     public func rating(forContentKey key: String) async -> Int? {
-        try? await store.rating(forContentKey: key, profileID: profileID())
+        try? await store.rating(forContentKey: key, profileID: await profileID())
     }
 
     public func setRating(_ value: Int?, forContentKey key: String) async {
-        try? await store.setRating(value, contentKey: key, profileID: profileID())
+        try? await store.setRating(value, contentKey: key, profileID: await profileID())
     }
 }
 
 extension LocalWatchProvider: ResumeFractionProviding {
     /// Nil for anything finished or unstarted — those get Play, not Resume.
     public func resumeFraction(forContentKey key: String) async -> Double? {
-        guard let state = try? await store.state(forContentKey: key, profileID: profileID()),
+        guard let state = try? await store.state(forContentKey: key, profileID: await profileID()),
               !state.finished,
               state.durationSeconds > 0, state.positionSeconds > 0 else { return nil }
         return state.positionSeconds / state.durationSeconds

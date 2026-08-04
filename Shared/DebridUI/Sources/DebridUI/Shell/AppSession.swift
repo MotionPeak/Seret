@@ -62,9 +62,27 @@ public final class AppSession {
     /// Legacy local watch store. No longer the watch-state source of truth (Trakt is) — kept only so
     /// the one-time "push existing progress to Trakt" migration can still read the old rows.
 
-    // MARK: Trakt (the watch-state source of truth: scrobbling, resume, watched, ratings)
+    // MARK: Watch state (local is the source of truth; Trakt mirrors when linked)
 
-    /// Trakt-backed watch state — vended as `watchStore`, so Home/Detail/Library read it unchanged.
+    /// The on-device watch state — the truth behind `watchStore`. Survives Trakt being unreachable,
+    /// unlinked, or having its API app deleted, which is exactly why it exists.
+    public private(set) var localWatch: LocalWatchProvider?
+    /// Which profile linked Trakt. One Trakt account is shared by every profile, so only this
+    /// one's viewing is mirrored outward.
+    private var traktLinkedProfileID: String? {
+        get { UserDefaults.standard.string(forKey: "TraktLinkedProfileID") }
+        set { UserDefaults.standard.set(newValue, forKey: "TraktLinkedProfileID") }
+    }
+    /// Mirror only when Trakt is linked AND the active profile is the one that linked it. A nil
+    /// recorded profile means the link predates profile scoping — mirror it rather than silently
+    /// dropping the owner's scrobbles.
+    private var mirrorsToTrakt: Bool {
+        guard traktLinked else { return false }
+        guard let linked = traktLinkedProfileID else { return true }
+        return linked == (activeProfileID ?? "")
+    }
+
+    /// Trakt-backed watch state — now the mirror behind `watchStore`, not the source of truth.
     public private(set) var traktProvider: TraktWatchProvider?
     private var traktClient: TraktClient?
     private var traktSession: TraktSession?
@@ -295,7 +313,7 @@ public final class AppSession {
     /// bootstrap one for the (unauthenticated) token refresh call, and the authed one everything
     /// else uses. Safe to build even when unlinked/unconfigured — reads then just come back empty,
     /// which is the designed "not linked" degradation (Play instead of Resume, empty rails).
-    private func makeTraktStack() {
+    private func makeTraktStack(local: LocalWatchStore?) {
         let tokenStore = KeychainTraktTokenStore()
         let bootClient = TraktClient(clientID: Secrets.traktClientID,
                                      clientSecret: Secrets.traktClientSecret)
@@ -310,7 +328,18 @@ public final class AppSession {
         traktClient = client
         traktProvider = provider
         traktLinked = ((try? tokenStore.load()) ?? nil) != nil
-        watchStore = provider
+        // Local is the source of truth; Trakt only mirrors. The profile resolver must spell a nil
+        // profile as "" — exactly what LibraryStore and DetailStore use — or reads miss writes.
+        localWatch = local.map { store in
+            LocalWatchProvider(store: store,
+                               profileID: { [weak self] in self?.activeProfileID ?? "" })
+        }
+        // With no local store at all (the container failed to open) fall back to Trakt alone rather
+        // than losing watch state entirely.
+        watchStore = localWatch.map { lw in
+            MirroringWatchProvider(local: lw, trakt: provider,
+                                   shouldMirror: { [weak self] in self?.mirrorsToTrakt ?? false })
+        } ?? provider
         if traktLinked { Task { await refreshTraktThenHome() } }
     }
 
@@ -398,6 +427,9 @@ public final class AppSession {
                               onLinked: { [weak self] in
                                   guard let self else { return }
                                   self.traktLinked = true
+                                  // Remember WHICH profile linked it: one Trakt account is shared
+                                  // by every profile, and only this one's viewing mirrors outward.
+                                  self.traktLinkedProfileID = self.activeProfileID ?? ""
                                   Task { await self.refreshTraktThenHome() }
                               })
     }
@@ -407,7 +439,11 @@ public final class AppSession {
         try? await traktSession?.signOut()
         traktLinked = false
         traktProvider = traktProvider.map { _ in TraktWatchProvider(api: traktClient!) }
-        watchStore = traktProvider
+        // Rebuild the mirror around the fresh Trakt provider — local stays exactly as it was.
+        watchStore = localWatch.map { lw in
+            MirroringWatchProvider(local: lw, trakt: traktProvider,
+                                   shouldMirror: { [weak self] in self?.mirrorsToTrakt ?? false })
+        } ?? traktProvider
         await rebuildHome()
     }
 
@@ -441,13 +477,14 @@ public final class AppSession {
         Self.purgeLegacyDefaultStore()
         // Build the watch + profile + My-List stores from one dedicated container.
         let stores = Self.makeProfileStores()
-        // Trakt is the watch-state source of truth; it vends `watchStore`, so LibraryStore /
-        // HomeStore / DetailStore / the seed service consume it through the same seam unchanged.
-        makeTraktStack()
         profileStore = stores?.profiles
         myListStore = stores?.myList
         versionPreferences = stores?.versions
         profileStoreMode = stores?.mode ?? "none"
+        // Local watch state is the source of truth and vends `watchStore` through the mirror, so
+        // LibraryStore / HomeStore / DetailStore / the seed service consume the same seam
+        // unchanged. Must come AFTER the stores above — it needs the local one.
+        makeTraktStack(local: stores?.watch)
         libraryStore = LibraryStore(library: service, watch: watchStore,
                                     profileID: { [weak self] in self?.activeProfileID })
         searchStore = SearchStore(search: TMDBSearchService(client: tmdb))

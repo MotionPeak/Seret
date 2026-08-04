@@ -10,11 +10,12 @@ public struct MirroringWatchProvider: WatchProgressProviding, Sendable {
     private let local: any LocalWatchBacking
     private let trakt: (any TraktWatchBacking)?
     /// Whether the active profile is the one that linked Trakt. Several profiles share one Trakt
-    /// account, so only that profile's viewing is mirrored outward.
-    private let shouldMirror: @Sendable () -> Bool
+    /// account, so only that profile's viewing is mirrored outward. Main-actor isolated because it
+    /// reads `AppSession` state; every caller is `async`, so the hop is free.
+    private let shouldMirror: @MainActor @Sendable () -> Bool
 
     public init(local: any LocalWatchBacking, trakt: (any TraktWatchBacking)?,
-                shouldMirror: @escaping @Sendable () -> Bool) {
+                shouldMirror: @escaping @MainActor @Sendable () -> Bool) {
         self.local = local
         self.trakt = trakt
         self.shouldMirror = shouldMirror
@@ -22,8 +23,8 @@ public struct MirroringWatchProvider: WatchProgressProviding, Sendable {
 
     /// The Trakt side of a write: detached, and its errors are swallowed. A mirror failure must
     /// never reach the caller, because the caller is usually playback.
-    private func mirror(_ body: @escaping @Sendable (any TraktWatchBacking) async -> Void) {
-        guard shouldMirror(), let trakt else { return }
+    private func mirror(_ body: @escaping @Sendable (any TraktWatchBacking) async -> Void) async {
+        guard await shouldMirror(), let trakt else { return }
         Task { await body(trakt) }
     }
 
@@ -49,7 +50,7 @@ public struct MirroringWatchProvider: WatchProgressProviding, Sendable {
         try await local.record(contentKey: contentKey, sourceKey: sourceKey,
                                positionSeconds: positionSeconds, durationSeconds: durationSeconds,
                                finished: finished, profileID: profileID)
-        mirror { trakt in
+        await mirror { trakt in
             try? await trakt.record(contentKey: contentKey, sourceKey: sourceKey,
                                     positionSeconds: positionSeconds,
                                     durationSeconds: durationSeconds,
@@ -61,7 +62,7 @@ public struct MirroringWatchProvider: WatchProgressProviding, Sendable {
         try await local.deleteProgress(forContentKeys: keys)
         // Trakt's implementation only clears its in-memory cache — it does not touch the user's
         // Trakt history, which is correct: the title left OUR library, not their viewing record.
-        mirror { trakt in try? await trakt.deleteProgress(forContentKeys: keys) }
+        await mirror { trakt in try? await trakt.deleteProgress(forContentKeys: keys) }
     }
 }
 
@@ -82,7 +83,7 @@ extension MirroringWatchProvider: WatchRatingProviding {
 
     public func setRating(_ value: Int?, forContentKey key: String) async {
         await local.setRating(value, forContentKey: key)
-        mirror { trakt in await trakt.setRating(value, forContentKey: key) }
+        await mirror { trakt in await trakt.setRating(value, forContentKey: key) }
     }
 }
 
