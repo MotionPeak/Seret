@@ -194,6 +194,7 @@ public final class AppSession {
         let profiles: ProfileStore
         let myList: MyListStore
         let versions: VersionPreferenceStore
+        let watch: LocalWatchStore
         let mode: String
     }
 
@@ -204,7 +205,8 @@ public final class AppSession {
     public var profilesSyncedViaICloud: Bool { profileStoreMode == "cloud" }
 
     private static func makeProfileStores() -> ProfileStores? {
-        let schema = Schema([Profile.self, MyListEntry.self, VersionPreference.self])
+        let schema = Schema([Profile.self, MyListEntry.self, VersionPreference.self,
+                             WatchProgress.self])
         // Only ask for CloudKit when an iCloud account is actually signed in (a CloudKit store fails
         // silently on a sim / no-account device). Otherwise local-only — sync engages on real
         // iCloud devices.
@@ -267,7 +269,8 @@ public final class AppSession {
         ProfileStores(
                       profiles: ProfileStore(modelContainer: container),
                       myList: MyListStore(modelContainer: container),
-                      versions: VersionPreferenceStore(modelContainer: container), mode: mode)
+                      versions: VersionPreferenceStore(modelContainer: container),
+                      watch: LocalWatchStore(modelContainer: container), mode: mode)
     }
 
     /// A `Profile` fetch on a stale store throws ("no such table: ZPROFILE"); a healthy store
