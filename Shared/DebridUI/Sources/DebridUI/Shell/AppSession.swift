@@ -640,7 +640,14 @@ public final class AppSession {
     /// shared factory owns only the brain wiring (unrestrict / progress / subtitles).
     public func makePlayer(for request: PlaybackRequest,
                            engine: VideoPlayerEngine) -> PlayerModel? {
-        guard let torrents, let provider = traktProvider else { return nil }
+        guard let torrents else { return nil }
+        // No Trakt requirement any more: local watch state is the truth, so a player must be
+        // buildable with Trakt unlinked, throttled, or its API app deleted.
+        let resume = watchStore as? any ResumeFractionProviding
+        let watch = watchStore
+        // Captured once: a player outlives a profile switch, and its progress must keep landing
+        // under the profile that started the playback.
+        let profile = activeProfileID ?? ""
         // Playing a title claims it into the active profile's My List (add-or-play, rule ii).
         // Keyed by the title's id (matches the Detail toggle + My Library filter), not the
         // episode-level contentKey.
@@ -665,11 +672,18 @@ public final class AppSession {
                 guard let url = URL(string: unrestricted.download) else { throw URLError(.badURL) }
                 return url
             },
-            // The 1s tick drives the Trakt heartbeat; the scrobbler coalesces it to one call a
-            // minute, so an app kill still leaves a recent resume point without spamming Trakt.
-            recordProgress: { _, _, position, duration in
-                guard let scrobbler, duration > 0 else { return }
-                await scrobbler.heartbeat(fraction: position / duration)
+            // The 1s tick writes local state (the source of truth) and drives the Trakt heartbeat,
+            // which the scrobbler coalesces to one call a minute. Before this, the tick wrote ONLY
+            // to Trakt — so with the API app gone, playback recorded nothing anywhere.
+            //
+            // PlayerModel hands over the CURRENT contentKey + sourceKey, not the request's, so an
+            // Up Next auto-advance records against the episode actually playing.
+            recordProgress: { contentKey, sourceKey, position, duration in
+                guard duration > 0 else { return }
+                try? await watch?.record(contentKey: contentKey, sourceKey: sourceKey,
+                                         positionSeconds: position, durationSeconds: duration,
+                                         finished: false, profileID: profile)
+                await scrobbler?.heartbeat(fraction: position / duration)
             },
             subtitles: subtitlesProvider,
             details: detailsProvider,
@@ -677,14 +691,17 @@ public final class AppSession {
             // Authoritative resume, Trakt-style: the paused percentage is re-read at load time (so
             // playback can't race the screen's watch-state load), then turned into a seek target
             // once the media reports its runtime.
-            resolveResumeFraction: { key in await provider.fraction(forContentKey: key) },
+            resolveResumeFraction: { key in await resume?.resumeFraction(forContentKey: key) },
             onScrobbleStart: { fraction in await scrobbler?.start(fraction: fraction) },
             onScrobblePause: { fraction in await scrobbler?.pause(fraction: fraction) },
-            // Trakt finalizes here: at ≥80% it moves the title into watched history, below that it
-            // keeps it resumable. That 80% cutoff is Trakt's, which is why no local threshold remains.
+            // Local finalisation happens on the 1s tick, NOT here: LocalWatchProvider applies the
+            // 80% rule (Trakt's own number) to every recordProgress write. Deliberately not writing
+            // local state here — this closure receives only a fraction, so it would have to
+            // finalise under `request.contentKey`, which after an Up Next auto-advance is the
+            // PREVIOUS episode. That would mark the wrong episode watched.
             onScrobbleStop: { fraction in
                 await scrobbler?.stop(fraction: fraction)
-                try? await provider.refresh()     // reflect the new watched/resume state in the UI
+                try? await self.traktProvider?.refresh()   // repaint Trakt-derived UI
             },
             // Up Next warm-up: resolve the next episode's link while the countdown runs.
             prefetchLink: { link in
