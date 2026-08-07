@@ -6,6 +6,30 @@ import FoundationNetworking   // HTTPURLResponse lives here on Linux, not in Fou
 public enum TraktAuthError: Error, Equatable, Sendable {
     case deviceCodeExpired
     case deniedOrUsed
+    /// Trakt does not recognise this build's client id at all — the API app was deleted, revoked,
+    /// or never existed. No amount of relinking or waiting fixes it; it needs fresh credentials in
+    /// `Secrets.xcconfig`. Distinct from every other failure precisely because the remedy is
+    /// different, and because reporting it as "check your connection" sends the diagnosis the
+    /// wrong way for days.
+    case unknownClient
+}
+
+extension TraktAuthError {
+    /// Classify an OAuth failure. Trakt answers `401 invalid_client` when the client id is unknown
+    /// and `401 invalid_grant` when the id is fine but the refresh token is dead — same status,
+    /// opposite remedies, so the BODY decides, never the status alone.
+    static func unknownClient(from error: Error) -> Bool {
+        guard case let .status(code, body)? = error as? HTTPError, code == 401 else { return false }
+        return body.contains("invalid_client")
+    }
+
+    /// Rethrow an OAuth failure as `.unknownClient` when that is what it is, else unchanged.
+    static func mapping<T>(_ body: () async throws -> T) async throws -> T {
+        do { return try await body() } catch {
+            if unknownClient(from: error) { throw TraktAuthError.unknownClient }
+            throw error
+        }
+    }
 }
 
 public struct TraktClient: Sendable {
@@ -49,8 +73,10 @@ public struct TraktClient: Sendable {
     }
 
     public func startDeviceCode() async throws -> TraktDeviceCode {
-        try await http.post(Self.base.appending(path: "oauth/device/code"),
-                            json: DeviceCodeRequest(client_id: clientID), headers: baseHeaders)
+        try await TraktAuthError.mapping {
+            try await http.post(Self.base.appending(path: "oauth/device/code"),
+                                json: DeviceCodeRequest(client_id: clientID), headers: baseHeaders)
+        }
     }
 
     /// One poll attempt: token once authorized, `nil` while pending. Throws on expiry/denial.
@@ -60,13 +86,16 @@ public struct TraktClient: Sendable {
                                        json: PollRequest(code: deviceCode, client_id: clientID,
                                                          client_secret: clientSecret),
                                        headers: baseHeaders)
-        } catch let HTTPError.status(code, _) {
+        } catch let HTTPError.status(code, body) {
             switch code {
             case 400: return nil                        // authorization_pending
+            case 401 where body.contains("invalid_client"): throw TraktAuthError.unknownClient
             case 410: throw TraktAuthError.deviceCodeExpired
             case 409, 418: throw TraktAuthError.deniedOrUsed
             case 429: return nil                        // slow down — treated as pending
-            default: throw HTTPError.status(code: code, body: "")
+            // Keep the body: it is the only field that says WHY, and dropping it is what left the
+            // deleted-API-app failure undiagnosable from the error alone.
+            default: throw HTTPError.status(code: code, body: body)
             }
         }
     }
@@ -85,12 +114,14 @@ public struct TraktClient: Sendable {
     }
 
     public func refresh(_ token: TraktToken) async throws -> TraktToken {
-        try await http.post(Self.base.appending(path: "oauth/token"),
-                            json: RefreshRequest(refresh_token: token.refreshToken,
-                                                 client_id: clientID, client_secret: clientSecret,
-                                                 redirect_uri: "urn:ietf:wg:oauth:2.0:oob",
-                                                 grant_type: "refresh_token"),
-                            headers: baseHeaders)
+        try await TraktAuthError.mapping {
+            try await http.post(Self.base.appending(path: "oauth/token"),
+                                json: RefreshRequest(refresh_token: token.refreshToken,
+                                                     client_id: clientID, client_secret: clientSecret,
+                                                     redirect_uri: "urn:ietf:wg:oauth:2.0:oob",
+                                                     grant_type: "refresh_token"),
+                                headers: baseHeaders)
+        }
     }
 }
 
