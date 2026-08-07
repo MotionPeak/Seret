@@ -35,8 +35,15 @@ public struct MediaTrack: Sendable, Equatable, Identifiable {
     public let codec: String?
     /// Channel count for an audio track (2 = stereo, 6 = 5.1, 8 = 7.1), nil when unknown.
     public let channels: Int?
+    /// Whether the ENGINE currently has this track selected.
+    ///
+    /// Load-bearing for audio: switching tracks after playback has started tears down and restarts
+    /// the decoder, which is an audible drop-out. Knowing what the engine already chose is what
+    /// lets the automatic pick leave a perfectly good choice alone instead of "correcting" it.
+    public let isSelected: Bool
     public init(id: String, kind: TrackKind, name: String, language: String? = nil,
-                isExternal: Bool = false, codec: String? = nil, channels: Int? = nil) {
+                isExternal: Bool = false, codec: String? = nil, channels: Int? = nil,
+                isSelected: Bool = false) {
         self.id = id
         self.kind = kind
         self.name = name
@@ -44,6 +51,7 @@ public struct MediaTrack: Sendable, Equatable, Identifiable {
         self.isExternal = isExternal
         self.codec = codec
         self.channels = channels
+        self.isSelected = isSelected
     }
 }
 

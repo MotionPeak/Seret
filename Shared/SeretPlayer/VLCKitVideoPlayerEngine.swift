@@ -62,6 +62,7 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
         var options = ["--freetype-color=\(preferences.color.rgb)"]
         if let font = preferences.font.freetypeName { options.append("--freetype-font=\(font)") }
         player = VLCMediaPlayer(options: options)
+        Self.attachVLCLogger(to: player)
         subtitleScale = Float(preferences.size.scale)
         var cont: AsyncStream<PlaybackEvent>.Continuation!
         events = AsyncStream(bufferingPolicy: .bufferingNewest(64)) { cont = $0 }
@@ -76,7 +77,47 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
         player.delegate = self
     }
 
-    func load(url: URL, headers: [String: String]) {
+    /// Turn on libvlc's own logging when launched with `-vlcLog`. DEBUG-only and off by default.
+    ///
+    /// This exists because an audio fault is invisible from our side of the seam: `PlayerModel`
+    /// only ever sees `.playing` and a moving playhead, so audio that cuts in and out looks
+    /// identical to audio that is fine. libvlc knows exactly what it is doing — starving, dropping
+    /// to resample, restarting the output device, failing to decode a frame — and says so. Guessing
+    /// from the outside costs a rebuild-and-watch cycle per guess; this costs one.
+    ///
+    /// Mirrors the `-uiPreview` / `-inputHUD` harness pattern already used in this app.
+    /// Attach to THIS PLAYER's library, not `VLCLibrary.shared()`. `VLCMediaPlayer(options:)`
+    /// builds its own libvlc instance for those options, so loggers set on the shared library see
+    /// nothing but its own start-up banner — which is exactly what the first attempt captured.
+    private static func attachVLCLogger(to player: VLCMediaPlayer) {
+        #if DEBUG
+        guard ProcessInfo.processInfo.arguments.contains("-vlcLog") else { return }
+        // A FILE logger, not the console one: VLCConsoleLogger's output does not reach os_log, so
+        // `simctl spawn … log stream` captures nothing at all. A file in Documents can be pulled
+        // straight out of the container with `simctl get_app_container … data`, on a simulator or
+        // a real device via Xcode.
+        guard let dir = try? FileManager.default.url(for: .documentDirectory, in: .userDomainMask,
+                                                     appropriateFor: nil, create: true)
+        else { return }
+        let path = dir.appendingPathComponent("vlc.log")
+        if !FileManager.default.fileExists(atPath: path.path) {
+            FileManager.default.createFile(atPath: path.path, contents: nil)
+        }
+        guard let handle = try? FileHandle(forWritingTo: path) else { return }
+        handle.seekToEndOfFile()
+        let fileLogger = VLCFileLogger.create(with: handle)
+        fileLogger.level = .debug
+        // Console too: its output does not reach os_log, but it DOES reach stdout, which Xcode's
+        // console shows for a scheme-launched run. That is the zero-friction path — run with the
+        // argument, reproduce, copy the console — with the file as the fallback for a run that
+        // wasn't started from Xcode.
+        let consoleLogger = VLCConsoleLogger()
+        consoleLogger.level = .debug
+        player.libraryInstance.loggers = [fileLogger, consoleLogger]
+        #endif
+    }
+
+    func load(url: URL, headers: [String: String], audioLanguage: String?) {
         // `VLCMedia(url:)` is failable (nullable initWithURL:). A malformed/empty URL yields nil;
         // without this guard `media` stays nil, `play()` no-ops, VLCKit emits no `.error`, and the
         // model would spin on the loading overlay forever. Surface a failure so it offers Retry.
@@ -96,6 +137,13 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
         #endif
         media.addOption(":input-fast-seek")   // land on the nearest keyframe — skips respond fast
         media.addOption(":http-reconnect")    // transparently re-open a dropped CDN connection
+        // Pick the audio track HERE, during setup, rather than switching after playback starts.
+        // libvlc's own log made the cost plain: a REMUX whose first audio track is Spanish
+        // ("Track Language=`spa'", "Track Name=Latino") began decoding Spanish, then our late
+        // selection killed the decoder and rebuilt it for English — `killing decoder` →
+        // `removing "audio decoder"` → `codec (ac3) started`, three times before the film had
+        // begun. Every one of those is silence. Told up front, libvlc simply opens the right track.
+        if let audioLanguage { media.addOption(":audio-language=\(audioLanguage)") }
         embeddedTextTrackIDs = []          // a new media has its own muxed track set
         player.media = media
         player.currentSubTitleFontScale = subtitleScale   // global size preference (1.0 = VLCKit default)
@@ -173,7 +221,8 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
         MediaTrack(id: t.trackId, kind: kind, name: displayName(for: t),
                    language: t.language, isExternal: isExternal,
                    codec: fourccString(t.codec),
-                   channels: t.audio.map { Int($0.channelsNumber) })
+                   channels: t.audio.map { Int($0.channelsNumber) },
+                   isSelected: t.isSelected)
     }
 
     /// libvlc's normalised codec id as its four printable characters ("a52 ", "trhd", "mp4a").

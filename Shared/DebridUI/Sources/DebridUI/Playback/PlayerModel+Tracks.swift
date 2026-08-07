@@ -24,6 +24,27 @@ extension PlayerModel {
         applySubtitlePreferenceOnce(prefs)
     }
 
+    /// The preferred audio language to hand the engine at LOAD time, so it opens the right track
+    /// instead of being corrected afterwards (see `VideoPlayerEngine.load`).
+    ///
+    /// Both spellings are offered because containers tag either way — an MKV may say `eng` or `en`
+    /// — and libvlc matches this string against whatever the container wrote. `.automatic` means
+    /// English, matching the runtime rule below; `.off` leaves the engine's own choice alone.
+    var preferredAudioLanguageOption: String? {
+        switch trackPreferences?.preferredAudio {
+        case .language(let lang): return Self.languageSpellings(lang)
+        case .automatic:          return Self.languageSpellings("en")
+        case .off, nil:           return nil
+        }
+    }
+
+    /// "en" → "en,eng". Falls back to the tag alone for anything not in the app's own set.
+    static func languageSpellings(_ tag: String) -> String {
+        let stem = String(tag.lowercased().prefix(2))
+        let threeLetter = ["en": "eng", "he": "heb"][stem]
+        return threeLetter.map { "\(stem),\($0)" } ?? tag
+    }
+
     /// Choose the audio track, re-deciding for as long as the track set keeps growing.
     ///
     /// It cannot latch on the first non-empty list the way the subtitle side does. VLCKit discovers
@@ -38,28 +59,58 @@ extension PlayerModel {
         guard signature != audioSelectionSignature else { return }   // nothing new to reconsider
         audioSelectionSignature = signature
 
+        let desired: MediaTrack?
+        let language: String?
         switch prefs.preferredAudio {
         case .language(let lang):
             // Ranked, not first-match: the preference stores a LANGUAGE, so on a release that
             // carries both a lossless and a compatibility track in that language, first-match
             // would keep re-picking the one that doesn't play.
-            if let match = audioTracks.bestAudio(forLanguage: lang) { applyAudioSelection(match) }
+            desired = audioTracks.bestAudio(forLanguage: lang)
+            language = lang
         case .automatic:
             // Default: English audio when the release has it; otherwise leave VLCKit's default,
             // which is the file's first/original-language track — so a foreign film or show plays
             // in its original language instead of a wrong dub.
             if let english = audioTracks.bestAudio(forLanguage: "en") {
-                applyAudioSelection(english)
+                desired = english
+                language = "en"
             } else if let first = audioTracks.first, let original = first.language,
                       let best = audioTracks.bestAudio(forLanguage: original), best.id != first.id {
                 // No English: stay in the original language, but take the version of it that
                 // actually decodes. Only when that DIFFERS from the file's first track, so a
-                // release whose default is already the best keeps VLCKit's own choice untouched.
-                applyAudioSelection(best)
+                // release whose default is already the best keeps the engine's own choice untouched
+                // even when the engine cannot tell us what it selected.
+                desired = best
+                language = original
+            } else {
+                desired = nil
+                language = nil
             }
         case .off:
-            break   // "off" isn't meaningful for audio — keep the default track
+            desired = nil   // "off" isn't meaningful for audio — keep the default track
+            language = nil
         }
+        guard let desired, shouldOverrideEngineChoice(with: desired, preferring: language) else { return }
+        applyAudioSelection(desired)
+    }
+
+    /// Whether moving to `desired` is worth what it costs.
+    ///
+    /// It is never free: selecting an audio track mid-playback makes libvlc kill the decoder and
+    /// build a new one (`killing decoder` → `removing "audio decoder"` → `codec (ac3) started`),
+    /// which is an audible drop-out. The log from a real REMUX showed us doing exactly that to
+    /// swap between two tracks of the SAME codec — the engine had already picked a perfectly good
+    /// AC-3 track and we "corrected" it to another AC-3 track, twice, before the film had started.
+    ///
+    /// So the bar is: only override the engine when the viewer actually gets something for it —
+    /// the language they asked for, or a codec that will not fall over. Otherwise leave it be.
+    func shouldOverrideEngineChoice(with desired: MediaTrack, preferring language: String?) -> Bool {
+        // No engine has told us what it selected (older engine, or a test fake) — behave as before.
+        guard let current = audioTracks.first(where: \.isSelected) else { return true }
+        if current.id == desired.id { return false }
+        if let language, !current.matchesLanguage(language) { return true }   // wrong language
+        return desired.audioDecodeTier < current.audioDecodeTier              // else: only to escape a bad codec
     }
 
     /// Apply the subtitle preference once per source (`reload()` re-arms it). Unlike audio this

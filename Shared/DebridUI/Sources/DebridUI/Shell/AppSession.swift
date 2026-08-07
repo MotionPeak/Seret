@@ -528,7 +528,10 @@ public final class AppSession {
         moviesBrowse = DiscoverStore(kind: .movie, discover: discover, seeds: seedService)
         showsBrowse = DiscoverStore(kind: .show, discover: discover, seeds: seedService)
         trailers = TMDBTrailerService(client: tmdb)
-        trailerResolver = YouTubeKitStreamResolver()
+        // Wrapped so a video is extracted once per session, never concurrently — YouTubeKit's local
+        // extraction evaluates YouTube's player JS, and JavaScriptCore aborts the process outright
+        // when its heap runs out. See `CachingTrailerStreamResolver`.
+        trailerResolver = CachingTrailerStreamResolver(base: YouTubeKitStreamResolver())
         // Comet = accurate instant-cache flags; Torrentio = broad index incl. brand-new CAMs.
         streamSource = AggregateStreamSource([CometStreamSource(tokens: realDebrid),
                                               TorrentioStreamSource()])

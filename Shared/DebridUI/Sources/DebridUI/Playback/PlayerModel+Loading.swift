@@ -193,7 +193,7 @@ extension PlayerModel {
             }
             let url = try await unrestrict(currentSource.restrictedLink)
             guard !Task.isCancelled else { return }   // superseded by a newer reload()
-            engine.load(url: url, headers: [:])
+            engine.load(url: url, headers: [:], audioLanguage: preferredAudioLanguageOption)
             engine.play()
             armLoadWatchdog()
             // Resume: a best-effort seek right at load — when VLC honors it while opening, the
