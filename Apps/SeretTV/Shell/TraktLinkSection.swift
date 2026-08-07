@@ -2,9 +2,10 @@ import SwiftUI
 import DebridUI
 import DebridCore
 
-/// Settings card for linking a Trakt account. Trakt is the watch-state source of truth — watched
-/// history, resume position, and personal ratings all live there — so an unlinked device shows
-/// "Play" instead of "Resume" and empty Continue Watching until this is done.
+/// Settings card for linking a Trakt account. Trakt is a MIRROR, not the source of truth: watched
+/// history, resume position and ratings live on-device and sync between devices over CloudKit, so
+/// Continue Watching and Resume work fully with Trakt unlinked, throttled, or gone. Linking only
+/// pushes that state outward to trakt.tv as well.
 struct TraktLinkSection: View {
     @Environment(AppSession.self) private var session
     @State private var model: TraktAuthModel?
@@ -19,7 +20,7 @@ struct TraktLinkSection: View {
                      + "TRAKT_CLIENT_SECRET to Secrets.xcconfig to enable syncing.")
                     .font(.seretCallout).foregroundStyle(Theme.Palette.textSecondary)
             } else if session.traktLinked {
-                Label("Linked — your watch history, resume points, and ratings sync with Trakt.",
+                Label("Linked — what you watch and rate here is mirrored to Trakt as well.",
                       systemImage: "checkmark.circle.fill")
                     .font(.seretCallout).foregroundStyle(Theme.Palette.textSecondary)
                 // Reads fetch once per launch, so anything changed on Trakt since (rated on the
@@ -49,8 +50,8 @@ struct TraktLinkSection: View {
                         .font(.seretCallout).foregroundStyle(Theme.Palette.textSecondary)
                 }
             } else {
-                Text("Link your Trakt account to sync watched history, resume position, and ratings "
-                     + "across every device.")
+                Text("Your watch history, resume points and ratings are already kept on this device "
+                     + "and synced across your devices. Link Trakt to mirror them to trakt.tv too.")
                     .font(.seretCallout).foregroundStyle(Theme.Palette.textSecondary)
                 Button("Link Trakt") { model = session.makeTraktAuthModel() }
             }

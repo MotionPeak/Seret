@@ -46,4 +46,58 @@ import DebridCore
         if case let .failed(msg) = model.phase { #expect(!msg.isEmpty) }
         else { Issue.record("expected failed phase") }
     }
+
+    /// The regression that cost days: a deleted API app fell through to the catch-all
+    /// "check your connection", which is false and points the owner at the wrong system entirely.
+    @Test func aDisownedClientIDBlamesTheCredentialsNotTheNetwork() async throws {
+        final class DisownedFlow: TraktAuthFlow {
+            func begin() async throws -> TraktDeviceCode { throw TraktAuthError.unknownClient }
+            func awaitLink(_ code: TraktDeviceCode) async throws {}
+        }
+        let model = TraktAuthModel(flow: DisownedFlow(), onLinked: {})
+        await model.run()
+        guard case let .failed(msg) = model.phase else {
+            Issue.record("expected failed phase, got \(model.phase)"); return
+        }
+        #expect(msg.contains("no longer recognises"))
+        // The whole point: it must NOT send anyone hunting a network fault.
+        #expect(!msg.lowercased().contains("connection"))
+    }
+}
+
+/// How a failed Trakt sync explains itself in Settings.
+@MainActor @Suite struct TraktSyncMessageTests {
+    private func http(_ code: Int, _ body: String = "") -> Error {
+        HTTPError.status(code: code, body: body)
+    }
+
+    @Test func disownedCredentialsAreNamedOutright() {
+        let msg = AppSession.syncMessage(for: TraktAuthError.unknownClient)
+        #expect(msg.contains("no longer recognises"))
+        #expect(!msg.lowercased().contains("wait"))
+    }
+
+    /// A bare 403 is genuinely ambiguous — a throttled network and a deleted app look identical —
+    /// so it keeps the "wait, don't unlink" advice UNTIL a probe says otherwise.
+    @Test func aPlain403StillReadsAsAThrottle() {
+        #expect(AppSession.syncMessage(for: http(403)).contains("network"))
+    }
+
+    /// …and once the probe has confirmed the credentials are dead, the same 403 must stop telling
+    /// the owner to wait. Waiting is exactly what it did for a week.
+    @Test func a403IsReExplainedOnceTheProbeConfirmsDeadCredentials() {
+        let msg = AppSession.syncMessage(for: http(403), credentialsRejected: true)
+        #expect(msg.contains("no longer recognises"))
+        #expect(!msg.lowercased().contains("wait a while"))
+    }
+
+    /// Only the ambiguous refusal is worth spending an OAuth call on.
+    @Test func onlyA403WarrantsTheProbe() {
+        #expect(AppSession.warrantsCredentialProbe(http(403)))
+        #expect(!AppSession.warrantsCredentialProbe(http(429)))
+        #expect(!AppSession.warrantsCredentialProbe(http(500)))
+        #expect(!AppSession.warrantsCredentialProbe(TraktSessionError.notSignedIn))
+        // Already conclusive — probing again would be a wasted call into a refusing server.
+        #expect(!AppSession.warrantsCredentialProbe(TraktAuthError.unknownClient))
+    }
 }

@@ -46,6 +46,13 @@ public final class TraktAuthModel {
             switch e {
             case .deviceCodeExpired: return "The code expired. Tap to try again."
             case .deniedOrUsed: return "Linking was denied. Tap to try again."
+            // Retrying is pointless — the server has never heard of this build's client id. Say the
+            // remedy plainly instead of letting it fall through to the network catch-all below,
+            // which is what made this failure look like a connection problem for days.
+            case .unknownClient:
+                return "Trakt no longer recognises this app's credentials, so linking can't succeed. "
+                     + "Create a new API app at trakt.tv and put its Client ID and Secret in "
+                     + "Secrets.xcconfig, then rebuild."
             }
         }
         return "Couldn't reach Trakt. Check your connection and try again."

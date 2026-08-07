@@ -381,14 +381,46 @@ public final class AppSession {
             let counts = await provider.cacheCounts()
             traktSyncState = .succeeded(ratings: counts.ratings, watched: counts.watched)
         } catch {
-            traktSyncState = .failed(Self.syncMessage(for: error))
+            // A 403 alone cannot say whether Trakt is throttling this network or has disowned our
+            // client id — and the two remedies are opposites ("wait" vs "get new credentials").
+            // One OAuth call settles it, and only ever on an explicit Sync Now, never on a read path.
+            var rejected = false
+            if Self.warrantsCredentialProbe(error) { rejected = await credentialsAreRejected() }
+            traktSyncState = .failed(Self.syncMessage(for: error, credentialsRejected: rejected))
         }
+    }
+
+    /// Ask Trakt's OAuth layer whether it still knows this build's client id. `/oauth/device/code`
+    /// is the probe that actually discriminates — an authed API call answers 403 either way.
+    private func credentialsAreRejected() async -> Bool {
+        guard let client = traktClient else { return false }
+        do { _ = try await client.startDeviceCode(); return false }
+        catch { return (error as? TraktAuthError) == .unknownClient }
     }
 
     /// Say what actually went wrong. A blanket "check your connection" is worse than useless here:
     /// an expired token, a revoked grant and a dead network all look identical, and the failure is
     /// otherwise silent (reads swallow it and just render empty).
-    static func syncMessage(for error: Error) -> String {
+    /// The one failure that no amount of waiting or relinking fixes, phrased as the actual remedy.
+    static let disownedCredentialsMessage =
+        "Trakt no longer recognises this app's credentials — the API app is gone, so syncing "
+        + "cannot work. Create a new API app at trakt.tv and put its Client ID and Secret in "
+        + "Secrets.xcconfig, then rebuild. Your watch state is safe on this device either way."
+
+    /// Whether a failure is ambiguous enough to be worth spending one OAuth call to disambiguate.
+    /// Only 403 qualifies: Trakt's edge serves it both to a throttled network and to a client id it
+    /// has never heard of, and telling those apart from the response alone is impossible.
+    static func warrantsCredentialProbe(_ error: Error) -> Bool {
+        guard case let .status(code, _)? = error as? HTTPError else { return false }
+        return code == 403
+    }
+
+    /// - Parameter credentialsRejected: an OAuth probe has confirmed Trakt disowns our client id,
+    ///   which overrides the otherwise-correct "wait it out" reading of a 403.
+    static func syncMessage(for error: Error, credentialsRejected: Bool = false) -> String {
+        if credentialsRejected || (error as? TraktAuthError) == .unknownClient {
+            return disownedCredentialsMessage
+        }
         if error is TraktSessionError {
             return "Trakt sign-in expired. Unlink and link again."
         }
