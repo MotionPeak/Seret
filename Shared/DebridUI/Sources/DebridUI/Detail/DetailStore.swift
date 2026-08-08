@@ -277,10 +277,13 @@ public final class DetailStore {
         await ratingSync.setRating(value, forContentKey: ratingKey)
     }
 
-    /// Mark a movie or episode watched/unwatched. `source` records the exact file (sourceKey).
-    public func setWatched(_ watched: Bool, contentKey: String, source: MediaSource) async {
+    /// Mark a movie or episode watched/unwatched. `source` names the exact file when there is one;
+    /// nil for a title you have not added, which is marked by content key alone.
+    public func setWatched(_ watched: Bool, contentKey: String, source: MediaSource?) async {
         guard let watch else { return }
-        await watch.setWatched(watched, contentKey: contentKey, source: source, profileID: watchProfileID)
+        await watch.setWatched(watched, contentKey: contentKey,
+                               sourceKey: source.map(WatchKey.source) ?? "",
+                               profileID: watchProfileID)
         await refreshWatch(contentKey)
     }
 
@@ -351,6 +354,23 @@ public final class DetailStore {
         return all.first
     }
 
+    /// What Play should start for a show, addressed by NUMBERS so it works whether or not the
+    /// episode is downloaded: the owned next episode when there is one, otherwise the first episode
+    /// of the selected season that is not already finished.
+    ///
+    /// A show you have not added has no owned episode, and without this its page would have no Play
+    /// button — which on tvOS also means `.defaultFocus` has nothing to focus and the remote dies.
+    public func nextEpisodeTarget() -> (season: Int, number: Int)? {
+        if let owned = nextEpisode() { return (owned.season, owned.number) }
+        let rows = episodes(forSeason: selectedSeason)
+        guard !rows.isEmpty else { return nil }
+        let unwatched = rows.first {
+            watchByKey[WatchKey.content(forShow: item, season: selectedSeason, number: $0.number)]?
+                .finished != true
+        }
+        return (selectedSeason, (unwatched ?? rows[0]).number)
+    }
+
     // MARK: - Private
 
     private func loadSeason(_ n: Int, tvID: Int) async {
@@ -359,6 +379,13 @@ public final class DetailStore {
             episodeMeta[n] = Dictionary(eps.map { ($0.episodeNumber, $0) }, uniquingKeysWith: { a, _ in a })
         } catch {
             // leave episodeMeta[n] nil → rows degrade to "Episode N"
+        }
+        // TMDB's episode list can be bigger than what you own — for a show you have not added it is
+        // the ONLY list — so keys that did not exist when watch state was first read do now.
+        // Guarded on the count so an owned season whose list did not grow keeps its single batched
+        // read instead of querying twice.
+        if episodes(forSeason: n).count != watchKeyCountBySeason[n] {
+            await loadWatchForSeason(n)
         }
     }
 
@@ -369,15 +396,25 @@ public final class DetailStore {
         }
     }
 
+    /// Read watch state for every episode the season LISTS — TMDB's episodes merged with whatever
+    /// is downloaded, not just the downloaded ones. A show you have not added owns no episodes, and
+    /// it still needs its checkmarks.
     private func loadWatchForSeason(_ n: Int) async {
-        guard let watch, let season = item.seasons.first(where: { $0.number == n }) else { return }
-        let keys = season.episodes.map { WatchKey.content(forShow: item, episode: $0) }
+        guard let watch else { return }
+        let keys = episodes(forSeason: n).map {
+            WatchKey.content(forShow: item, season: n, number: $0.number)
+        }
         guard !keys.isEmpty else { return }
         // One batched read for the whole season — not a store round-trip per episode.
         guard let states = try? await watch.progress(forContentKeys: keys, profileID: watchProfileID)
         else { return }
         for key in keys { watchByKey[key] = states[key] }
+        watchKeyCountBySeason[n] = keys.count
     }
+
+    /// How many episode keys each season's last watch read covered — lets `loadSeason` tell a list
+    /// that actually grew from one that merely finished loading.
+    private var watchKeyCountBySeason: [Int: Int] = [:]
 
     /// The id the player saves progress under is `activeProfileID ?? ""` (see `AppSession.makePlayer`).
     /// Read/write under the SAME fallback so a nil active profile doesn't silently skip the resume

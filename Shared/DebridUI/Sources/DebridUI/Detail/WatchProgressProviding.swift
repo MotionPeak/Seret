@@ -33,10 +33,20 @@ extension WatchProgressProviding {
     /// position — `finished` alone drives the UI (full bar / ✓); live position is written later by
     /// the player. Shared by `DetailStore` (per-title) and `LibraryStore` (grid long-press) so the
     /// record shape stays in one place.
+    /// `sourceKey` is empty for a title you do not own: there is no file to name, and nothing
+    /// downstream keys off it — local storage and Trakt both address a title by `contentKey`.
+    public func setWatched(_ watched: Bool, contentKey: String, sourceKey: String,
+                           profileID: String) async {
+        try? await record(contentKey: contentKey, sourceKey: sourceKey,
+                          positionSeconds: 0, durationSeconds: 0, finished: watched,
+                          profileID: profileID)
+    }
+
+    /// The owned form — names the exact file that was watched.
     public func setWatched(_ watched: Bool, contentKey: String, source: MediaSource,
                            profileID: String) async {
-        try? await record(contentKey: contentKey, sourceKey: WatchKey.source(source),
-                          positionSeconds: 0, durationSeconds: 0, finished: watched, profileID: profileID)
+        await setWatched(watched, contentKey: contentKey, sourceKey: WatchKey.source(source),
+                         profileID: profileID)
     }
 }
 
