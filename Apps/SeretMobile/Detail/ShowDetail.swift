@@ -37,6 +37,9 @@ struct ShowDetail: View {
                 VStack(alignment: .leading, spacing: Theme.Space.lg) {
                 Text(item.title).font(Theme.Typo.titleXL()).foregroundStyle(Theme.Palette.textPrimary)
                 Text(metaLine).font(Theme.Typo.body()).foregroundStyle(Theme.Palette.textSecondary)
+                if !store.creatorRefs.isEmpty {
+                    CreditNamesRow(label: "By", people: store.creatorRefs)
+                }
                 RatingsRow(ratings: store.ratings, community: store.communityScore)
                 if let overview = store.overview {
                     Text(overview).font(Theme.Typo.body())
@@ -110,7 +113,7 @@ struct ShowDetail: View {
         if !store.genres.isEmpty { parts.append(store.genres.prefix(3).joined(separator: " · ")) }
         let n = store.allSeasons.count
         parts.append("\(n) Season\(n == 1 ? "" : "s")")
-        if !store.creators.isEmpty { parts.append("By \(store.creators.joined(separator: ", "))") }
+        // Creators are NOT folded in here any more — they are their own row of tappable names.
         return parts.joined(separator: "  ·  ")
     }
 

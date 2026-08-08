@@ -3,10 +3,12 @@ import SwiftUI
 
 /// A horizontal rail of circular cast headshots with name + character, shown on Movie/Show Detail.
 ///
-/// Informational only — the cards aren't tappable in this slice (cast pages come later), so there's
-/// no Button wrapper and nothing to route. The caller gates the rail on a non-empty cast, and every
-/// headshot frame is held by a placeholder while its image loads, so the row's height is fixed from
-/// first layout and the page never re-lays-out under the reader.
+/// A tap opens that person's page — pushed onto the navigation stack Detail owns, so it arrives
+/// with a back button rather than stacking a second cover the shell would ignore.
+///
+/// The caller gates the rail on a non-empty cast, and every headshot frame is held by a placeholder
+/// while its image loads, so the row's height is fixed from first layout and the page never
+/// re-lays-out under the reader.
 struct CastRail: View {
     let cast: [TMDBCastMember]
 
@@ -18,7 +20,16 @@ struct CastRail: View {
             Text("CAST").font(Theme.Typo.label()).tracking(1.5).foregroundStyle(Theme.Palette.gold)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(alignment: .top, spacing: Theme.Space.lg) {
-                    ForEach(cast) { card(for: $0) }
+                    ForEach(cast) { member in
+                        NavigationLink {
+                            PersonScreen(ref: TMDBPersonRef(id: member.id, name: member.name))
+                        } label: {
+                            card(for: member)
+                        }
+                        // Keeps the headshot and its labels rendering as themselves rather than
+                        // picking up link tinting.
+                        .buttonStyle(.plain)
+                    }
                 }
             }
         }

@@ -30,6 +30,10 @@ struct MovieDetail: View {
                 VStack(alignment: .leading, spacing: Theme.Space.lg) {
                 Text(item.title).font(Theme.Typo.titleXL()).foregroundStyle(Theme.Palette.textPrimary)
                 Text(metaLine).font(Theme.Typo.body()).foregroundStyle(Theme.Palette.textSecondary)
+                if !store.directors.isEmpty {
+                    CreditNamesRow(label: store.directors.count == 1 ? "Dir." : "Dirs.",
+                                   people: store.directors)
+                }
                 if let franchise = store.franchise {
                     Text("Film \(franchise.position) of \(franchise.count)  ·  \(franchise.name)")
                         .font(Theme.Typo.body()).foregroundStyle(Theme.Palette.gold)
@@ -113,7 +117,7 @@ struct MovieDetail: View {
         if let y = item.year { parts.append(String(y)) }
         if let r = store.runtime { parts.append("\(r) min") }
         if !store.genres.isEmpty { parts.append(store.genres.prefix(3).joined(separator: " · ")) }
-        if let director = store.director { parts.append("Dir. \(director)") }
+        // The director is NOT folded in here any more — it is its own row of tappable names.
         return parts.joined(separator: "  ·  ")
     }
 

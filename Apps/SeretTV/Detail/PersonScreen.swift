@@ -14,7 +14,10 @@ struct PersonScreen: View {
     let ref: TMDBPersonRef
 
     @Environment(AppSession.self) private var session
-    @Environment(TileWatchMarks.self) private var marks
+    /// Built here rather than read from the environment. The shell's `TileWatchMarks` does not
+    /// reliably survive a presentation boundary, and reading it as a non-optional `@Environment`
+    /// traps the moment the page appears — which is exactly how it failed on iOS.
+    @State private var marks: TileWatchMarks?
     @State private var store: PersonStore?
 
     /// `store` is the seam the DEBUG `-uiPreview person` harness loads through. Production passes
@@ -41,6 +44,7 @@ struct PersonScreen: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(CanvasBackground())
         .task {
+            if marks == nil { marks = session.makeTileWatchMarks() }
             if store == nil { store = session.makePersonStore(for: ref) }
             await store?.load()
         }
@@ -77,7 +81,7 @@ struct PersonScreen: View {
         // One batched read for everything on the page, so a title you have already seen says so
         // here too — the same call Search and the genre grids make for their tiles.
         .task(id: firstCreditID(store)) {
-            await marks.load(store.acting + store.directing)
+            await marks?.load(store.acting + store.directing)
         }
         // The first credit sits below the header, off-screen on open. Without this the remote is
         // dead — and an .onAppear focus seed does NOT reliably focus an off-screen element.
