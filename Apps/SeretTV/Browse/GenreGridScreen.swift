@@ -77,6 +77,7 @@ struct GenreGridScreen: View {
             .padding(.horizontal, Theme.Layout.contentMargin)
             .padding(.vertical, 30)
         }
+        .gridTopFade()
         .task(id: hits.map(\.id).joined()) { await marks.load(hits) }
         .frame(maxWidth: .infinity, alignment: .leading)
         .focusSection()

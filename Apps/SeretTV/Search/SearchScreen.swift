@@ -96,6 +96,7 @@ struct SearchScreen: View {
             }
             .padding(Theme.Layout.contentMargin)
         }
+        .gridTopFade()
         // One batched read for whatever this search turned up, so the posters can say what you
         // have already seen.
         .task(id: hits.map(\.id).joined()) { await marks.load(hits) }

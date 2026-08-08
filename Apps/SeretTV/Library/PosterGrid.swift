@@ -24,5 +24,6 @@ struct PosterGrid: View {
             }
             .padding(60)
         }
+        .gridTopFade()
     }
 }

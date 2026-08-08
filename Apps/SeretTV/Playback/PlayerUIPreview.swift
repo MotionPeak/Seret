@@ -15,6 +15,7 @@ import DebridCore
 ///   - `sidemenu`  — the side menu EXPANDED over a stand-in page
 ///   - `sidemenucollapsed` — the same menu at rest, for an A/B of the two states
 ///   - `opensubtitles` — the OpenSubtitles pairing card: QR, LAN address, keyboard fallback
+///   - `gridfade`  — a pre-scrolled grid under a pinned header, for tuning the top fade
 ///
 /// Not compiled into release builds.
 struct PlayerUIPreview: View {
@@ -29,7 +30,55 @@ struct PlayerUIPreview: View {
         case "sidemenu":            SideMenuPreview(startExpanded: true)
         case "sidemenucollapsed":   SideMenuPreview(startExpanded: false)
         case "opensubtitles":       OpenSubtitlesPreview()
+        case "gridfade":            GridTopFadePreview()
         default:           ScrubBarPreview()
+        }
+    }
+}
+
+// MARK: - Grid top fade
+
+/// A pinned header over an already-scrolled grid — the shape every results grid in the app has, and
+/// the shape whose top edge used to guillotine a poster in half.
+///
+/// The tiles are flat white on purpose. The fade is a brightness ramp, and a ramp is measurable on
+/// a flat field and guesswork on a poster; the 100pt default was picked by sampling a column here.
+/// Booting straight to it also takes the focus engine out of the question — reaching a real
+/// scrolled grid means walking the nav rail with synthesized presses that land where they like.
+private struct GridTopFadePreview: View {
+    private let columns = [GridItem(.adaptive(minimum: 220, maximum: 260), spacing: 50)]
+
+    var body: some View {
+        ZStack {
+            CanvasBackground()
+            VStack(spacing: 24) {
+                HStack(spacing: 16) {
+                    Button("Movies") {}.buttonStyle(SeretPillStyle(selected: true))
+                    Button("TV Shows") {}.buttonStyle(SeretPillStyle(selected: false))
+                }
+                .padding(.top, 30)
+                .padding(.horizontal, Theme.Layout.contentMargin)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVGrid(columns: columns, spacing: 50) {
+                            ForEach(0..<40, id: \.self) { i in
+                                Color.white
+                                    .frame(height: 330)
+                                    .clipShape(RoundedRectangle(cornerRadius: Theme.Layout.posterCorner,
+                                                                style: .continuous))
+                                    .id(i)
+                            }
+                        }
+                        .padding(60)
+                    }
+                    .gridTopFade()
+                    // Scrolled on arrival, so a row is genuinely crossing the top edge. Without it
+                    // the fade band sits in the grid's padding and shows nothing at all.
+                    .onAppear { proxy.scrollTo(20, anchor: .top) }
+                }
+            }
         }
     }
 }
