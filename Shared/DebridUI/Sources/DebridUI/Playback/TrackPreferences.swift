@@ -18,8 +18,31 @@ public enum TrackChoice: Equatable, Sendable {
 /// is `UserDefaults`-backed; tests inject a fake.
 @MainActor
 public protocol TrackPreferenceStoring: AnyObject {
+    /// The library-wide default, updated by every manual pick so a title never seen before still
+    /// opens the way the viewer last chose.
     var preferredAudio: TrackChoice { get set }
     var preferredSubtitle: TrackChoice { get set }
+
+    /// This title's own choice if it has one, otherwise the library-wide default.
+    ///
+    /// `titleID` is the MOVIE or SHOW id — never an episode's — so a series keeps one choice across
+    /// all of its episodes instead of forgetting between them.
+    func resolvedAudio(forTitle titleID: String) -> TrackChoice
+    func resolvedSubtitle(forTitle titleID: String) -> TrackChoice
+    /// Record a manual pick against this title AND as the new library-wide default.
+    func record(audio: TrackChoice, forTitle titleID: String)
+    func record(subtitle: TrackChoice, forTitle titleID: String)
+}
+
+/// Defaults so a store that only holds the global preference (a test fake) still satisfies the
+/// protocol. These are requirements rather than extension-only methods on purpose: `PlayerModel`
+/// holds the store as an existential, and an extension-only method would dispatch statically to
+/// this default and silently ignore the real implementation.
+public extension TrackPreferenceStoring {
+    func resolvedAudio(forTitle titleID: String) -> TrackChoice { preferredAudio }
+    func resolvedSubtitle(forTitle titleID: String) -> TrackChoice { preferredSubtitle }
+    func record(audio: TrackChoice, forTitle titleID: String) { preferredAudio = audio }
+    func record(subtitle: TrackChoice, forTitle titleID: String) { preferredSubtitle = subtitle }
 }
 
 /// Observable, `UserDefaults`-persisted track preferences. App-global (one preferred audio +
@@ -39,6 +62,57 @@ public final class TrackPreferences: TrackPreferenceStoring {
     private let defaults: UserDefaults
     private static let audioKey = "seret.preferredAudioTrack"
     private static let subtitleKey = "seret.preferredSubtitleTrack"
+    private static let titleAudioKey = "seret.titleAudioTracks"
+    private static let titleSubtitleKey = "seret.titleSubtitleTracks"
+
+    // MARK: - Per-title overrides
+    //
+    // Device-local, like the global preference above. Values use the same encoding, and a title
+    // with no entry inherits the global default — so choosing a language on one title still
+    // carries to everything not explicitly set.
+
+    public func resolvedAudio(forTitle titleID: String) -> TrackChoice {
+        Self.decode(map(Self.titleAudioKey)[titleID]) ?? preferredAudio
+    }
+
+    public func resolvedSubtitle(forTitle titleID: String) -> TrackChoice {
+        Self.decode(map(Self.titleSubtitleKey)[titleID]) ?? preferredSubtitle
+    }
+
+    public func record(audio: TrackChoice, forTitle titleID: String) {
+        preferredAudio = audio                       // the next unseen title inherits this
+        store(audio, forTitle: titleID, key: Self.titleAudioKey)
+    }
+
+    public func record(subtitle: TrackChoice, forTitle titleID: String) {
+        preferredSubtitle = subtitle
+        store(subtitle, forTitle: titleID, key: Self.titleSubtitleKey)
+    }
+
+    private func map(_ key: String) -> [String: String] {
+        defaults.dictionary(forKey: key) as? [String: String] ?? [:]
+    }
+
+    private func store(_ choice: TrackChoice, forTitle titleID: String, key: String) {
+        var m = map(key)
+        switch choice {
+        // `.automatic` is "no opinion", so it CLEARS the override rather than pinning one — that is
+        // how a title returns to following the library-wide default.
+        case .automatic:       m[titleID] = nil
+        case .off:             m[titleID] = "off"
+        case .language(let l): m[titleID] = l
+        }
+        defaults.set(m, forKey: key)
+    }
+
+    /// nil = this title has no override of its own.
+    private static func decode(_ raw: String?) -> TrackChoice? {
+        switch raw {
+        case .none, .some(""): return nil
+        case .some("off"):     return .off
+        case .some(let l):     return .language(l)
+        }
+    }
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults

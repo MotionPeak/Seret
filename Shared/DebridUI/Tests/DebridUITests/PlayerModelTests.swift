@@ -1276,3 +1276,70 @@ import DebridCore
         #expect(engine.selectedSubtitleID == nil)
     }
 }
+
+/// Per-title memory: a title keeps the audio/subtitle choice made on it, while anything never
+/// chosen for follows the library-wide default — so a binge still inherits without re-picking.
+@MainActor
+@Suite struct PerTitleTrackPreferenceTests {
+
+    private func prefs() -> TrackPreferences {
+        let d = UserDefaults(suiteName: "seret.tests.pertitle")!
+        for key in d.dictionaryRepresentation().keys { d.removeObject(forKey: key) }
+        return TrackPreferences(defaults: d)
+    }
+
+    @Test func aTitleWithNoChoiceOfItsOwnFollowsTheGlobalDefault() {
+        let p = prefs()
+        p.record(subtitle: .language("he"), forTitle: "movie:a")
+        #expect(p.resolvedSubtitle(forTitle: "movie:b") == .language("he"))
+    }
+
+    @Test func aTitleKeepsItsOwnChoiceWhenAnotherTitleChangesTheDefault() {
+        let p = prefs()
+        p.record(subtitle: .language("he"), forTitle: "show:bb")
+        p.record(subtitle: .language("en"), forTitle: "movie:dune")   // moves the global to "en"
+        #expect(p.resolvedSubtitle(forTitle: "show:bb") == .language("he"))
+        #expect(p.resolvedSubtitle(forTitle: "movie:dune") == .language("en"))
+        #expect(p.resolvedSubtitle(forTitle: "movie:unseen") == .language("en"))
+    }
+
+    /// "Off" is a real choice, not the absence of one — it must not be re-defaulted to the global.
+    @Test func offIsRememberedPerTitle() {
+        let p = prefs()
+        p.record(subtitle: .language("he"), forTitle: "movie:a")
+        p.record(subtitle: .off, forTitle: "movie:b")
+        #expect(p.resolvedSubtitle(forTitle: "movie:b") == .off)
+        #expect(p.resolvedSubtitle(forTitle: "movie:a") == .language("he"))
+    }
+
+    @Test func audioAndSubtitlesAreRememberedIndependently() {
+        let p = prefs()
+        p.record(audio: .language("ja"), forTitle: "movie:a")
+        p.record(subtitle: .language("en"), forTitle: "movie:a")
+        #expect(p.resolvedAudio(forTitle: "movie:a") == .language("ja"))
+        #expect(p.resolvedSubtitle(forTitle: "movie:a") == .language("en"))
+    }
+
+    @Test func choicesSurviveARestart() {
+        let suite = "seret.tests.pertitle.persist"
+        let d = UserDefaults(suiteName: suite)!
+        for key in d.dictionaryRepresentation().keys { d.removeObject(forKey: key) }
+        TrackPreferences(defaults: d).record(audio: .language("he"), forTitle: "movie:a")
+        #expect(TrackPreferences(defaults: UserDefaults(suiteName: suite)!)
+                    .resolvedAudio(forTitle: "movie:a") == .language("he"))
+    }
+
+    /// The whole point, end to end: a manual pick while watching is what gets remembered.
+    @Test func aManualPickWhileWatchingIsRecordedAgainstThatTitle() async {
+        let engine = FakeVideoPlayerEngine()
+        let p = prefs()
+        let model = PlayerModel(request: Fixture.request(), engine: engine,
+                                unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
+                                recordProgress: { _, _, _, _ in }, subtitles: nil,
+                                trackPreferences: p, subtitleFallbackDelay: 0.02)
+        engine.subtitleTracks = [MediaTrack(id: "spu/1", kind: .subtitle, name: "Hebrew", language: "he")]
+        model.refreshTracks()
+        model.selectSubtitle(id: "spu/1")
+        #expect(p.resolvedSubtitle(forTitle: model.item.id) == .language("he"))
+    }
+}

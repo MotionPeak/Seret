@@ -20,7 +20,7 @@ extension PlayerModel {
             let url = try await subtitles.download(best)
             // Requesting a language IS choosing it — make it sticky so the next episode/title
             // auto-downloads the same language without re-picking.
-            trackPreferences?.preferredSubtitle = .language(language)
+            trackPreferences?.record(subtitle: .language(language), forTitle: item.id)
             // The downloaded cues tell us when the dialogue ends → drives "Up Next" at content-end
             // rather than the file end. Timestamps are ASCII, so isoLatin1 is a safe fallback decode
             // for non-UTF-8 (e.g. windows-1255 Hebrew) files.

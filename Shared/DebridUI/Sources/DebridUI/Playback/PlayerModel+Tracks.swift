@@ -31,7 +31,7 @@ extension PlayerModel {
     /// — and libvlc matches this string against whatever the container wrote. `.automatic` means
     /// English, matching the runtime rule below; `.off` leaves the engine's own choice alone.
     var preferredAudioLanguageOption: String? {
-        switch trackPreferences?.preferredAudio {
+        switch trackPreferences?.resolvedAudio(forTitle: item.id) {
         case .language(let lang): return Self.languageSpellings(lang)
         case .automatic:          return Self.languageSpellings("en")
         case .off, nil:           return nil
@@ -61,7 +61,7 @@ extension PlayerModel {
 
         let desired: MediaTrack?
         let language: String?
-        switch prefs.preferredAudio {
+        switch prefs.resolvedAudio(forTitle: item.id) {
         case .language(let lang):
             // Ranked, not first-match: the preference stores a LANGUAGE, so on a release that
             // carries both a lossless and a compatibility track in that language, first-match
@@ -128,7 +128,7 @@ extension PlayerModel {
     func applySubtitlePreference(_ prefs: TrackPreferenceStoring) {
         guard !subtitlePickedByUser else { return }
 
-        switch prefs.preferredSubtitle {
+        switch prefs.resolvedSubtitle(forTitle: item.id) {
         case .automatic:
             return
         case .off:
@@ -192,7 +192,7 @@ extension PlayerModel {
         selectedAudioID = id
         engine.selectAudioTrack(id: id)
         if let lang = audioTracks.first(where: { $0.id == id })?.language {
-            trackPreferences?.preferredAudio = .language(lang)
+            trackPreferences?.record(audio: .language(lang), forTitle: item.id)
         }
     }
 
@@ -208,7 +208,7 @@ extension PlayerModel {
         subtitleFallbackTask?.cancel()
         selectedSubtitleID = nil
         engine.selectSubtitleTrack(id: nil)
-        trackPreferences?.preferredSubtitle = .off
+        trackPreferences?.record(subtitle: .off, forTitle: item.id)
     }
 
     /// Persist a manually-selected subtitle by language. A downloaded sub's engine track often has a
@@ -216,9 +216,9 @@ extension PlayerModel {
     /// own language tag (embedded subs).
     func recordPreferredSubtitle(forTrackID id: String) {
         if let row = subtitleRows.first(where: { attachedTrackID($0) == id }) {
-            trackPreferences?.preferredSubtitle = .language(row.language)
+            trackPreferences?.record(subtitle: .language(row.language), forTitle: item.id)
         } else if let lang = subtitleTracks.first(where: { $0.id == id })?.language {
-            trackPreferences?.preferredSubtitle = .language(lang)
+            trackPreferences?.record(subtitle: .language(lang), forTitle: item.id)
         }
     }
 
