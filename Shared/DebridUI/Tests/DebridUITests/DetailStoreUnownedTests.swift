@@ -83,6 +83,24 @@ private func showHit(_ id: Int) -> SearchHit {
         #expect(store.watchState(forKey: "show:tmdb:1399:s1e1") == nil)
     }
 
+    @Test func reloadWatchSeesEpisodeProgressRecordedSinceTheScreenOpened() async {
+        // The season read de-duplicates by key set so the initial load queries once. This proves it
+        // cannot also swallow the re-read the player triggers on dismiss — which would leave the
+        // episode you just finished unticked until the screen was reopened.
+        let item = MediaItem.placeholder(for: showHit(1399))
+        let watch = RecordingWatch()
+        let details = UnownedDetails(seasons: [1: [episodeMeta(1), episodeMeta(2)]])
+        let store = DetailStore(item: item, details: details, watch: watch)
+        await store.load()
+        #expect(store.watchState(forKey: "show:tmdb:1399:s1e1") == nil)
+
+        try? await watch.record(contentKey: "show:tmdb:1399:s1e1", sourceKey: "",
+                                positionSeconds: 0, durationSeconds: 0, finished: true, profileID: "")
+        await store.reloadWatch()
+
+        #expect(store.watchState(forKey: "show:tmdb:1399:s1e1")?.finished == true)
+    }
+
     @Test func nextEpisodeTargetIsTheFirstUnwatchedOfAnUnownedShow() async {
         let item = MediaItem.placeholder(for: showHit(1399))
         let watch = RecordingWatch()

@@ -814,6 +814,29 @@ public final class AppSession {
                             streamSource: streamSource, add: addService)
     }
 
+    /// The acquire-and-play engine for one title — what makes Play work on something you have not
+    /// added. `imdbID` comes from the page's resolved TMDB details, so it is nil until those land;
+    /// the engine reports "not signed in" until then rather than silently doing nothing.
+    public func makeAcquisition(for item: MediaItem, imdbID: String?,
+                                originalLanguage: String?) -> AcquisitionStore {
+        AcquisitionStore(item: item) { [weak self] kind in
+            guard let self, let imdbID else { return nil }
+            return self.makeAddStore(imdbID: imdbID, kind: kind, originalLanguage: originalLanguage)
+        }
+    }
+
+    /// Watched marks for browse/search posters. One instance is shared by every grid, so switching
+    /// tabs does not re-query what is already known.
+    public func makeTileWatchMarks() -> TileWatchMarks {
+        TileWatchMarks(watch: watchStore, profileID: { [weak self] in self?.activeProfileID ?? "" })
+    }
+
+    /// Marks a whole series watched. Nil until there is a details provider and a watch store.
+    public func makeShowWatchMarker() -> ShowWatchMarker? {
+        guard let detailsProvider, let watchStore else { return nil }
+        return ShowWatchMarker(details: detailsProvider, watch: watchStore)
+    }
+
     private static var cachesDirectory: URL {
         FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSTemporaryDirectory())

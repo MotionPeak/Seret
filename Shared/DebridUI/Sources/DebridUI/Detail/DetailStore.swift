@@ -265,7 +265,12 @@ public final class DetailStore {
     /// Re-read watch state (the movie's key / the selected season's keys). Call when the player
     /// dismisses so Resume labels and checkmarks reflect the just-recorded progress instead of
     /// what was loaded when the screen opened.
-    public func reloadWatch() async { await loadWatch() }
+    public func reloadWatch() async {
+        // Drop the "already read these keys" claim first — this call exists precisely to pick up
+        // state that changed since, so the de-duplication must not swallow it.
+        watchKeysRead.removeAll()
+        await loadWatch()
+    }
 
     // MARK: - Personal rating (Trakt)
 
@@ -316,7 +321,7 @@ public final class DetailStore {
             await watch.setWatched(watched, contentKey: WatchKey.content(forShow: item, episode: ep),
                                    source: ep.source, profileID: watchProfileID)
         }
-        await loadWatchForSeason(n)
+        await loadWatchForSeason(n, force: true)
     }
 
     /// Whether the season has any downloaded episodes to mark — gates the "Mark Season" control.
@@ -403,11 +408,8 @@ public final class DetailStore {
         }
         // TMDB's episode list can be bigger than what you own — for a show you have not added it is
         // the ONLY list — so keys that did not exist when watch state was first read do now.
-        // Guarded on the count so an owned season whose list did not grow keeps its single batched
-        // read instead of querying twice.
-        if episodes(forSeason: n).count != watchKeyCountBySeason[n] {
-            await loadWatchForSeason(n)
-        }
+        // `loadWatchForSeason` skips itself when the key set is unchanged.
+        await loadWatchForSeason(n)
     }
 
     private func loadWatch() async {
@@ -420,22 +422,32 @@ public final class DetailStore {
     /// Read watch state for every episode the season LISTS — TMDB's episodes merged with whatever
     /// is downloaded, not just the downloaded ones. A show you have not added owns no episodes, and
     /// it still needs its checkmarks.
-    private func loadWatchForSeason(_ n: Int) async {
+    /// `force` re-reads even when the key set is unchanged — for callers that just CHANGED the
+    /// state and need the new values, not the de-duplication.
+    private func loadWatchForSeason(_ n: Int, force: Bool = false) async {
         guard let watch else { return }
         let keys = episodes(forSeason: n).map {
             WatchKey.content(forShow: item, season: n, number: $0.number)
         }
-        guard !keys.isEmpty else { return }
+        // `load()` starts the watch read concurrently with the TMDB fetch, and `loadSeason` reads
+        // again once the episode list lands — because for a show you do not own, that list is the
+        // only thing that says which keys exist. Claiming the key set here, with no await between
+        // the check and the write, makes the pair deterministic: whichever runs first does the
+        // read, and the other skips unless the list actually grew.
+        guard !keys.isEmpty, force || Set(keys) != watchKeysRead[n] else { return }
+        watchKeysRead[n] = Set(keys)
         // One batched read for the whole season — not a store round-trip per episode.
         guard let states = try? await watch.progress(forContentKeys: keys, profileID: watchProfileID)
-        else { return }
+        else {
+            watchKeysRead[n] = nil       // a failed read must not block the retry
+            return
+        }
         for key in keys { watchByKey[key] = states[key] }
-        watchKeyCountBySeason[n] = keys.count
     }
 
-    /// How many episode keys each season's last watch read covered — lets `loadSeason` tell a list
-    /// that actually grew from one that merely finished loading.
-    private var watchKeyCountBySeason: [Int: Int] = [:]
+    /// The episode keys each season's watch read has already covered. Also what `reloadWatch()`
+    /// clears, so re-reading after playback is never mistaken for a duplicate.
+    private var watchKeysRead: [Int: Set<String>] = [:]
 
     /// The id the player saves progress under is `activeProfileID ?? ""` (see `AppSession.makePlayer`).
     /// Read/write under the SAME fallback so a nil active profile doesn't silently skip the resume
