@@ -29,9 +29,9 @@ struct PlayerView: View {
 
             switch model.phase {
             case .preparing:
-                LoadingOverlay(caption: "Preparing…", title: model.label, backdropURL: backdropURL)
+                loadingOverlay("Preparing…")
             case .buffering where model.position == 0:
-                LoadingOverlay(caption: "Buffering…", title: model.label, backdropURL: backdropURL)
+                loadingOverlay("Buffering…")
             case .failed(let reason):
                 ErrorOverlay(reason: reason, canTryAnother: model.canTryAnotherVersion, backdropURL: backdropURL,
                              onRetry: { model.retry() }, onTryAnother: { model.tryAnotherVersion() },
@@ -72,6 +72,17 @@ struct PlayerView: View {
     }
 
     // MARK: - Gestures (Balanced)
+
+    /// The load overlay REPLACES the gesture layer, so while it is up both of the player's ways out
+    /// — the back chevron and the pull-down — are off screen. A stream slow to start, or a dead link
+    /// (which takes the 30s watchdog to declare), therefore trapped the viewer on a spinner. Keeping
+    /// the pull-down alive here is why Menu always works on the tvOS side, and it changes nothing on
+    /// screen until the viewer actually drags.
+    private func loadingOverlay(_ caption: String) -> some View {
+        LoadingOverlay(caption: caption, title: model.label, backdropURL: backdropURL)
+            .contentShape(Rectangle())
+            .gesture(pullToDismiss)
+    }
 
     private var gestureLayer: some View {
         HStack(spacing: 0) {
