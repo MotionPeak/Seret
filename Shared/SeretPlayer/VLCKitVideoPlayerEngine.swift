@@ -2,6 +2,7 @@ import UIKit
 import DebridUI
 import VLCKit
 import DebridCore
+import os
 
 /// Adapter from VLCKit to DebridCore's `VideoPlayerEngine`.
 ///
@@ -53,6 +54,17 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
     private var embeddedTextTrackIDs: Set<String> = []
     private let continuation: AsyncStream<PlaybackEvent>.Continuation
     let events: AsyncStream<PlaybackEvent>
+
+    /// What the APP last asked for — not what libvlc reports.
+    ///
+    /// A frame step (see `seek`) makes libvlc announce `.playing` for the duration of the step even
+    /// though the viewer is paused. Forwarding that would tell the UI playback resumed, and on tvOS
+    /// that hides the scrub bar and disarms the very scrub the viewer is aiming with. Where the two
+    /// disagree, the app's intent wins.
+    ///
+    /// Locked rather than plain state because `mediaPlayerStateChanged` is `nonisolated` — VLCKit
+    /// makes no promise about which thread delivers it.
+    private let playbackRequested = OSAllocatedUnfairLock(initialState: false)
 
     /// `preferences` set the global subtitle look. Font + color are libvlc/freetype options that
     /// must be passed at player creation (`VLCMediaPlayer(options:)`); size is the dynamic
@@ -128,10 +140,15 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
         for (k, v) in headers { media.addOption(":http-\(k.lowercased())=\(v)") } // unused for RD CDN
         // network-caching is the pre-roll VLC fills before playback starts AND after every seek —
         // it is the floor on start latency and skip latency. The RD CDN sustains high-bitrate
-        // remuxes easily, so iOS runs a 1.5s pipeline for snappy starts/skips; tvOS keeps the
-        // deeper 3s buffer that fixed its stalls (unchanged behavior there).
+        // remuxes easily, so iOS runs a 1.5s pipeline for snappy starts/skips.
+        //
+        // tvOS ran 3s, which made every ±10s skip wait three seconds before the picture came back
+        // ("it loads for a very long time"). 2s takes a third off that floor while keeping ~500ms
+        // of headroom over iOS for the high-bitrate remuxes the deeper buffer was added for — a
+        // 63 GB / ~61 Mbps sustained file is on record here. If stalls return on the Apple TV,
+        // this constant is the revert.
         #if os(tvOS)
-        media.addOption(":network-caching=3000")
+        media.addOption(":network-caching=2000")
         #else
         media.addOption(":network-caching=1500")
         #endif
@@ -149,9 +166,23 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
         player.currentSubTitleFontScale = subtitleScale   // global size preference (1.0 = VLCKit default)
     }
 
-    func play()  { player.play() }
-    func pause() { player.pause() }
-    func seek(to seconds: Double) { player.time = VLCTime(int: Int32(seconds * 1000)) }
+    func play()  { playbackRequested.withLock { $0 = true };  player.play() }
+    func pause() { playbackRequested.withLock { $0 = false }; player.pause() }
+
+    /// Seek, and — when paused — force the target frame onto the screen.
+    ///
+    /// Setting `time` moves the demuxer but does NOT render while paused: the vout keeps displaying
+    /// the last decoded picture. That is why a ±10s skip on a paused film moved the scrub bar and
+    /// left the image frozen — the seek landed, nothing drew it. One frame step decodes and
+    /// displays the seek target and leaves the player paused.
+    ///
+    /// Gated on BOTH the app's intent and libvlc's own state, so a resume-seek issued while the
+    /// media is still opening cannot trip it.
+    func seek(to seconds: Double) {
+        player.time = VLCTime(int: Int32(seconds * 1000))
+        guard !playbackRequested.withLock({ $0 }), player.state == .paused else { return }
+        player.gotoNextFrame()
+    }
     func setRate(_ rate: Double) { player.rate = Float(rate) }
     /// VLCKit's audio volume is 0…200 (100 = unity, >100 amplifies — VLC's boost). Clamp defensively.
     func setVolume(_ percent: Int) { player.audio?.volume = Int32(min(200, max(0, percent))) }
@@ -261,7 +292,11 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
 
 extension VLCKitVideoPlayerEngine: VLCMediaPlayerDelegate {
     nonisolated func mediaPlayerStateChanged(_ newState: VLCMediaPlayerState) {
-        continuation.yield(.state(Self.map(newState)))
+        // A frame step announces `.playing` mid-pause (see `seek` / `playbackRequested`). Taken at
+        // face value it reads as "the viewer resumed" and tears down the paused UI underneath them,
+        // so intent wins — the rule itself is pure and lives in DebridCore.
+        let state = Self.map(newState).reconciled(playbackRequested: playbackRequested.withLock { $0 })
+        continuation.yield(.state(state))
     }
 
     nonisolated func mediaPlayerTimeChanged(_ aNotification: Notification) {

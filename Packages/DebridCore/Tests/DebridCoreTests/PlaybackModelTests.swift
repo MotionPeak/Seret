@@ -19,3 +19,27 @@ import Foundation
         #expect(track.language == "en")
     }
 }
+
+/// A frame step — how a paused seek is made visible — makes libvlc announce `.playing` mid-pause.
+/// Forwarding that tore down the paused UI on tvOS: the scrub bar hid and swipe-scrub disarmed
+/// mid-gesture. Intent wins over what the engine reports.
+@Suite struct PlaybackStateReconcileTests {
+
+    @Test func aPlayingReportedWhilePausedIsSuppressed() {
+        #expect(PlaybackState.playing.reconciled(playbackRequested: false) == .paused)
+    }
+
+    @Test func aPlayingReportedAfterPlayWasRequestedPassesThrough() {
+        #expect(PlaybackState.playing.reconciled(playbackRequested: true) == .playing)
+    }
+
+    /// Only `.playing` is overridden. Everything else genuinely happens to a paused player — a
+    /// paused stream can still buffer, end, or fail, and swallowing those would strand the UI.
+    @Test func everyOtherStatePassesThroughWhilePaused() {
+        let others: [PlaybackState] = [.idle, .buffering, .paused, .ended, .failed("boom")]
+        for state in others {
+            #expect(state.reconciled(playbackRequested: false) == state)
+            #expect(state.reconciled(playbackRequested: true) == state)
+        }
+    }
+}

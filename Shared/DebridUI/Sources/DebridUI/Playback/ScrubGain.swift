@@ -4,54 +4,64 @@ import Foundation
 ///
 /// The mapping is **relative** (displacement from where the thumb landed), never absolute
 /// finger-x → film-position: on a trackpad the viewer cannot see where their finger is, so an
-/// absolute mapping is unusable. It is also **non-linear** — a linear map that reaches the end of
-/// a 2-hour film across the surface makes every small movement jump ~15 seconds, which is the
-/// "clumsy" feel. Here the linear term keeps small movements fine-grained and a cubic term takes
-/// over for large sweeps.
+/// absolute mapping is unusable.
+///
+/// Two properties matter more than the exact curve, and both were learned the hard way on a real
+/// Apple TV:
+///
+/// **It never stops.** The previous mapping clamped displacement at 500pt, which is about half of
+/// what the Siri Remote actually delivers in one thumb sweep — so the outer half of the pad was
+/// dead, and the viewer hit an invisible wall mid-gesture ("it cuts off and doesn't let me do more
+/// than that"). Past the nominal reach the curve here continues at its terminal slope, so the only
+/// limit is the physical edge of the surface, and lifting to re-swipe carries on from there.
+///
+/// **It means the same thing on every title.** Reach used to be a FRACTION of the film, so one
+/// sweep was 30 minutes on a 2-hour film and 5 on a short episode. The viewer could never build a
+/// reflex. Both terms here are absolute, so a given thumb movement is a given number of seconds
+/// whatever is playing.
+///
+/// Precision is the goal; long-distance travel has its own affordance (hold left/right to scan).
 ///
 /// Pure and `Double`-based so the feel is unit-tested without a remote.
 public enum ScrubGain {
 
-    /// Usable half-width of the Siri Remote touch surface in the gesture recognizer's points.
-    /// A gesture starts wherever the thumb lands, so the reachable displacement in one direction
-    /// is about half the surface.
-    public static let halfSurface: Double = 500
+    /// The fine term: a flat, predictable rate that owns short movements. 100pt ≈ 4s.
+    public static let fineRate: Double = 0.04
 
-    /// Seconds covered by the fine (linear) term at full deflection. Below this the response is
-    /// effectively linear and precise.
-    public static let fineSpan: Double = 30
+    /// The coarse term's span at full pad travel, in seconds — **absolute**, not a share of the
+    /// film. Four minutes is far more than aiming ever needs, and the scan handles the rest.
+    public static let coarseSpan: Double = 240
 
-    /// How much of the film one full sweep covers. Was half, which is what made even a calmed curve
-    /// feel hot: half a 2-hour film across one thumb travel means the *whole* mapping is steep, and
-    /// no exponent fixes that because the linear term scales with it too. A quarter still reaches
-    /// 30 minutes in one sweep — far more than aiming ever needs — and you can always sweep twice.
-    public static let sweepFraction: Double = 0.25
+    /// Nominal full travel of the touch surface in the gesture recogniser's points. This sets where
+    /// the coarse term reaches `coarseSpan`; it is NOT a clamp, so an underestimate costs nothing
+    /// but a slightly earlier switch to the linear continuation.
+    public static let reach: Double = 700
 
-    /// How sharply the coarse term ramps. This is THE sensitivity knob.
-    ///
-    /// It was 3, which put the cubic term in charge far too early: on a 2-hour film a 100pt nudge
-    /// jumped 40s and 150pt jumped nearly two minutes, so ordinary thumb movement overshot whatever
-    /// you were aiming at — reported as "sensitivity is too high, it skips too much". At 5 the same
-    /// movements are ~13s and ~27s, while a full sweep still covers half the film, so reach is
-    /// unchanged and only the usable middle gets calmer. Raise it further to soften more.
-    public static let coarseExponent: Double = 5
+    /// How sharply the coarse term ramps. Was 5, which made the curve flat then explosive right
+    /// where aiming happens — 250pt threw 70s and 500pt threw thirty minutes. At 3 the same
+    /// movements are 21s and 1:47.
+    public static let coarseExponent: Double = 3
 
     /// - Parameters:
     ///   - points: horizontal displacement from the gesture's origin, in points. Positive = right.
-    ///   - duration: media length in seconds. `0` (not yet reported) falls back to one hour so the
-    ///     handle still moves instead of freezing.
+    ///   - duration: media length in seconds, used only to stop a short clip being thrown further
+    ///     than it is long. `0` (not yet reported) imposes no cap, so the handle still moves.
     /// - Returns: the signed scrub delta in seconds.
     public static func seconds(forDisplacement points: Double, duration: Double) -> Double {
         guard points != 0 else { return 0 }
-        let span = duration > 0 ? duration : 3600
-        let normalized = min(1, abs(points) / halfSurface)
-        // A full sweep covers `sweepFraction` of the film; `fineSpan` is carved out of that for the
-        // linear term so short movements stay precise. Clamped so a very short clip can't invert
-        // the curve — on a clip shorter than the fine span the mapping is purely linear.
-        let coarseSpan = max(0, span * sweepFraction - fineSpan)
-        let magnitude = fineSpan * normalized + coarseSpan * pow(normalized, coarseExponent)
-        // Never let the fine term alone overshoot half of a very short clip.
-        let capped = min(magnitude, span / 2)
+        let travel = abs(points)
+        let normalized = travel / reach
+        // Within the pad the coarse term is a gentle cubic. PAST it the cubic is continued at its
+        // terminal SLOPE rather than as a cubic: a continued cubic would double its span every
+        // fraction beyond reach (2x travel would jump half an hour), which is the "too sensitive"
+        // complaint reintroduced at the far end. The linear continuation is C1-continuous, so
+        // there is no seam to feel where the two segments meet.
+        let coarse = normalized <= 1
+            ? pow(normalized, coarseExponent)
+            : 1 + coarseExponent * (normalized - 1)
+        let magnitude = fineRate * travel + coarseSpan * coarse
+        // The one place duration still matters: never throw a clip further than half its length.
+        let capped = duration > 0 ? min(magnitude, duration / 2) : magnitude
         return points > 0 ? capped : -capped
     }
 }

@@ -6,6 +6,23 @@ public enum PlaybackState: Sendable, Equatable {
     case failed(String)
 }
 
+extension PlaybackState {
+    /// Reconcile what the engine REPORTS against what the app actually ASKED FOR.
+    ///
+    /// Underlying players report transport states that the viewer never requested. libvlc is the
+    /// case this exists for: stepping a single frame — which is how a seek is made visible while
+    /// paused — announces `.playing` for the duration of the step. Taken at face value that reads
+    /// as "the viewer resumed", and on tvOS the paused UI is torn down underneath them: the scrub
+    /// bar hides and swipe-scrubbing disarms mid-gesture.
+    ///
+    /// So where the two disagree, intent wins. Only `.playing` is overridden — `.buffering`,
+    /// `.ended` and `.failed` are things that genuinely happen to a paused player and must pass
+    /// through untouched.
+    public func reconciled(playbackRequested: Bool) -> PlaybackState {
+        self == .playing && !playbackRequested ? .paused : self
+    }
+}
+
 /// The current playhead position and total duration, in seconds.
 public struct PlaybackTime: Sendable, Equatable {
     public var position: Double
