@@ -27,6 +27,9 @@ struct LibraryShell: View {
     /// Gated on `menuFocus != nil` because that command also arrives from the profile picker on the
     /// way in. Collapsing is not a move command, so nothing re-opens the menu behind your back.
     @State private var menuExpanded = false
+    /// The page has held focus at least once. Distinguishes a real navigation INTO the menu from
+    /// tvOS parking focus on the rail at launch — see the `menuFocus` change handler.
+    @State private var pageHasHeldFocus = false
 
     private var menuOpen: Bool { menuExpanded }
 
@@ -91,8 +94,25 @@ struct LibraryShell: View {
             menuFocus = tab
             menuExpanded = true
         })
-        // Focus genuinely leaving the menu (a move into the page) always collapses it.
-        .onChange(of: menuFocus) { _, new in if new == nil { menuExpanded = false } }
+        // Focus ENTERING the menu opens it; focus leaving collapses it.
+        //
+        // The entry half is what fixes "I have to swipe left twice". `.onMoveCommand` above only
+        // fires while the menu ALREADY holds focus, so the first press from a page — the one the
+        // focus engine spends moving focus into the rail — was invisible to it, and the menu stayed
+        // a collapsed strip with a focused row inside it until you pressed again.
+        //
+        // `pageHasHeldFocus` is what keeps this from re-creating the bug it replaced: tvOS parks
+        // focus on this rail unprompted at launch (it is the top-leading view), and expanding on
+        // that would open the menu over the page before the viewer touched anything. A focus entry
+        // only counts once the PAGE has held focus, which can only happen after a real navigation.
+        .onChange(of: menuFocus) { _, new in
+            if new == nil {
+                pageHasHeldFocus = true
+                menuExpanded = false
+            } else if pageHasHeldFocus {
+                menuExpanded = true
+            }
+        }
         .task(id: session.libraryStore?.attempt ?? -1) {
             await session.libraryStore?.load()
         }

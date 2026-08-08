@@ -2,6 +2,11 @@ import SwiftUI
 import DebridUI
 import DebridCore
 
+/// Settings as one column of identical cards.
+///
+/// Four sections, ordered by how often they are touched: how subtitles look, where they come from,
+/// who is watching, and the account. Trakt is gone — watch state is kept on the device and synced
+/// through iCloud, so the card was offering to mirror to a service the app no longer depends on.
 struct SettingsView: View {
     @Environment(AppSession.self) private var session
     @State private var model = SettingsModel(
@@ -13,102 +18,93 @@ struct SettingsView: View {
         ZStack {
             CanvasBackground()
             ScrollView {
-                VStack(spacing: 40) {
-                Text("Settings").font(.largeTitle.bold()).foregroundStyle(Theme.Palette.textPrimary)
-                Text("Signed in to Real‑Debrid.").font(.seretTitle3).foregroundStyle(Theme.Palette.textSecondary)
-
-                VStack(alignment: .leading, spacing: 16) {
-                    Label("OpenSubtitles account", systemImage: "captions.bubble.fill")
-                        .font(.seret(.title3, .bold)).foregroundStyle(Theme.Palette.gold)
-                    Text(model.isConnected
-                         ? "Connected as \(model.username). Used to download Hebrew/English subtitles."
-                         : "Add your free OpenSubtitles account to download subtitles during playback.")
-                        .font(.seretCallout).foregroundStyle(Theme.Palette.textSecondary)
-                    TextField("Username", text: $model.username)
-                        .textContentType(.username)
-                    SecureField("Password", text: $model.password)
-                        .textContentType(.password)
-                    HStack(spacing: 20) {
-                        Button("Save") { model.save() }
-                        if model.isConnected {
-                            Button("Remove", role: .destructive) { model.remove() }
-                        }
-                    }
+                VStack(alignment: .leading, spacing: 28) {
+                    header
+                    subtitleAppearance
+                    OpenSubtitlesSection(model: model)
+                    playback
+                    profile
+                    account
                 }
-                .frame(maxWidth: 700)
-                .padding(40)
-                .background(Theme.Palette.surface1, in: RoundedRectangle(cornerRadius: 24))
-
-                TraktLinkSection()
-
-                VStack(alignment: .leading, spacing: 16) {
-                    Label("Subtitles", systemImage: "textformat.size")
-                        .font(.seret(.title3, .bold)).foregroundStyle(Theme.Palette.gold)
-                    Text("Applies to every movie and show. Takes effect on the next playback.")
-                        .font(.seretCallout).foregroundStyle(Theme.Palette.textSecondary)
-                    pillRow("Size", SubtitlePreferences.Size.allCases, label: { $0.label }, selected: subtitleSize)
-                    pillRow("Font", SubtitlePreferences.Font.allCases, label: { $0.label }, selected: subtitleFont)
-                    pillRow("Color", SubtitlePreferences.Color.allCases, label: { $0.label }, selected: subtitleColor)
-                }
-                .frame(maxWidth: 900)
-
-                VStack(alignment: .leading, spacing: 16) {
-                    Label("Trailers", systemImage: "play.rectangle.fill")
-                        .font(.seret(.title3, .bold)).foregroundStyle(Theme.Palette.gold)
-                    Toggle("Autoplay trailers", isOn: Binding(
-                        get: { session.trailerSettings.autoplayTrailers },
-                        set: { session.trailerSettings.autoplayTrailers = $0 }))
-                    Text("Play a muted trailer on a title's page automatically.")
-                        .font(.seretCallout).foregroundStyle(Theme.Palette.textSecondary)
-                }
-                .frame(maxWidth: 900)
-
-                VStack(alignment: .leading, spacing: 16) {
-                    Label("Profile", systemImage: "person.crop.circle.fill")
-                        .font(.seret(.title3, .bold)).foregroundStyle(Theme.Palette.gold)
-                    if let name = session.activeProfiles?.activeProfile?.name {
-                        Text("Watching as \(name).").font(.seretCallout)
-                            .foregroundStyle(Theme.Palette.textSecondary)
-                    }
-                    Text("Add a profile so each viewer gets their own Continue Watching and My List.")
-                        .font(.seretCallout).foregroundStyle(Theme.Palette.textSecondary)
-                    Label(session.profilesSyncedViaICloud ? "Syncing via iCloud" : "On this device only",
-                          systemImage: session.profilesSyncedViaICloud ? "checkmark.icloud.fill" : "icloud.slash")
-                        .font(.seretCallout)
-                        .foregroundStyle(session.profilesSyncedViaICloud ? Theme.Palette.gold : Theme.Palette.textSecondary)
-                    HStack(spacing: 24) {
-                        if session.activeProfiles?.activeProfile != nil {
-                            Button("Edit Profile") { editingActive = true }
-                        }
-                        Button("Manage Profiles") { showingProfiles = true }
-                    }
-                }
-                .frame(maxWidth: 900)
-
-                Button(role: .destructive) {
-                    Task { await session.signOut() }
-                } label: {
-                    Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right").font(.seretTitle3)
-                }
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal, 80)
-                .padding(.top, 20)
-                .padding(.bottom, 80)
-                .focusSection()      // let DOWN from the top nav bar move into the form
+                .frame(maxWidth: .infinity)          // centre the fixed-width column
+                .padding(.top, 40)
+                .padding(.bottom, 90)
+                .focusSection()                      // let DOWN from the nav rail enter the form
             }
         }
         .fullScreenCover(isPresented: $showingProfiles) {
-            WhoIsWatchingScreen(onPicked: { showingProfiles = false })
-                .environment(session)
+            WhoIsWatchingScreen(onPicked: { showingProfiles = false }).environment(session)
         }
         .fullScreenCover(isPresented: $editingActive) {
             AddProfileScreen(editing: session.activeProfiles?.activeProfile).environment(session)
         }
     }
 
-    /// A labelled row of focusable Gold-Glass pills (replaces the cramped `.segmented` picker that
-    /// clipped longer labels like "Monospace" on tvOS). Pills size to their text, so nothing clips.
+    private var header: some View {
+        Text("Settings")
+            .font(.largeTitle.bold())
+            .foregroundStyle(Theme.Palette.textPrimary)
+            .frame(width: SettingsCard<EmptyView>.width, alignment: .leading)
+    }
+
+    // MARK: - Sections
+
+    private var subtitleAppearance: some View {
+        SettingsCard(title: "Subtitles", icon: "textformat.size") {
+            Text("Applies to every movie and show, from the next playback on.")
+                .settingsCaption()
+            pillRow("Size", SubtitlePreferences.Size.allCases, label: { $0.label }, selected: subtitleSize)
+            pillRow("Font", SubtitlePreferences.Font.allCases, label: { $0.label }, selected: subtitleFont)
+            pillRow("Color", SubtitlePreferences.Color.allCases, label: { $0.label }, selected: subtitleColor)
+        }
+    }
+
+    private var playback: some View {
+        SettingsCard(title: "Playback", icon: "play.rectangle.fill") {
+            Toggle("Autoplay trailers", isOn: Binding(
+                get: { session.trailerSettings.autoplayTrailers },
+                set: { session.trailerSettings.autoplayTrailers = $0 }))
+            Text("Play a muted trailer on a title's page automatically.")
+                .settingsCaption()
+        }
+    }
+
+    private var profile: some View {
+        SettingsCard(title: "Profile", icon: "person.crop.circle.fill") {
+            if let name = session.activeProfiles?.activeProfile?.name {
+                SettingsStatus(text: "Watching as \(name)", good: true)
+            }
+            SettingsStatus(text: session.profilesSyncedViaICloud ? "Synced via iCloud"
+                                                                 : "On this device only",
+                           good: session.profilesSyncedViaICloud)
+            Text("Each profile keeps its own Continue Watching and My List.")
+                .settingsCaption()
+            HStack(spacing: 24) {
+                if session.activeProfiles?.activeProfile != nil {
+                    Button("Edit Profile") { editingActive = true }
+                }
+                Button("Manage Profiles") { showingProfiles = true }
+            }
+        }
+    }
+
+    private var account: some View {
+        SettingsCard(title: "Account", icon: "person.badge.key.fill") {
+            SettingsStatus(text: "Signed in to Real‑Debrid", good: true)
+            Text("Seret streams directly from your Real‑Debrid account. Signing out clears the token from this Apple TV.")
+                .settingsCaption()
+            Button(role: .destructive) {
+                Task { await session.signOut() }
+            } label: {
+                Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
+            }
+        }
+    }
+
+    // MARK: - Controls
+
+    /// A labelled row of focusable Gold-Glass pills (a `.segmented` picker clips longer labels like
+    /// "Monospace" on tvOS). Pills size to their text, so nothing clips.
     @ViewBuilder
     private func pillRow<T: Hashable>(_ title: String, _ options: [T],
                                       label: @escaping (T) -> String,
