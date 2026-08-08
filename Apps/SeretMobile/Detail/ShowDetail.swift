@@ -22,6 +22,8 @@ struct ShowDetail: View {
     @State private var seasonStore: AddStore?
     @State private var downloadingEpisodeID: String?
     @State private var episodeError: String?
+    /// Finds, adds and plays an episode you do not have — the same engine the movie page uses.
+    @State private var acquisition: AcquisitionStore?
     private var item: MediaItem { store.item }
 
     /// Re-keys the season-pack lookup whenever the resolved imdbID or selected season changes.
@@ -82,6 +84,17 @@ struct ShowDetail: View {
             seasonStore = s
             await s?.loadStreams()
         }
+        // Rebuilt when the imdbID resolves — the engine cannot query the indexers without it.
+        .task(id: store.imdbID) {
+            acquisition = session.makeAcquisition(for: store.item, imdbID: store.imdbID,
+                                                  originalLanguage: store.originalLanguage)
+        }
+        .onChange(of: acquisition?.phase) { _, phase in
+            guard case let .ready(request) = phase else { return }
+            onSeasonAdded()          // refresh the library so the episode now reads as downloaded
+            acquisition?.reset()
+            onPlay(request)
+        }
         // Warm the season's episode stills as soon as its TMDB metadata lands (the id re-fires
         // when the meta count changes), so the list renders with images, not grey tiles.
         .task(id: "stills#\(store.selectedSeason)#\(store.episodeMeta[store.selectedSeason]?.count ?? 0)") {
@@ -115,7 +128,26 @@ struct ShowDetail: View {
                           systemImage: "play.fill")
                 }
                 .buttonStyle(GoldButtonStyle())
+            } else if let target = store.nextEpisodeTarget() {
+                // Nothing downloaded yet — Play still starts the show.
+                Button {
+                    playEpisode(season: target.season, number: target.number,
+                                id: "s\(target.season)e\(target.number)")
+                } label: {
+                    Label(acquiring ? "Finding…" : "Play S\(target.season)·E\(target.number)",
+                          systemImage: acquiring ? "hourglass" : "play.fill")
+                }
+                .buttonStyle(GoldButtonStyle())
+                .disabled(acquiring || acquisition == nil)
             }
+        }
+    }
+
+    /// True while a release is being found or added.
+    private var acquiring: Bool {
+        switch acquisition?.phase {
+        case .finding, .adding: true
+        default: false
         }
     }
 
@@ -162,21 +194,28 @@ struct ShowDetail: View {
         }
     }
 
-    /// Tap on a not-downloaded episode → add the best cached version, refresh the library, and play.
+    /// Tap on a not-downloaded episode → find it, add it, play it.
     private func downloadAndPlay(_ row: DetailStore.EpisodeRowInfo) {
-        guard let imdb = store.imdbID,
-              let add = makeEpisodeDownload(imdb, row.season, row.number, store.originalLanguage) else { return }
-        downloadingEpisodeID = row.id
+        playEpisode(season: row.season, number: row.number, id: row.id)
+    }
+
+    /// Acquire and play one episode, addressed by number so it works for a show you have not added
+    /// at all. `.ready` is handled by the `onChange` above, which the hero's Play shares.
+    private func playEpisode(season: Int, number: Int, id: String) {
+        guard let acquisition else { return }
+        downloadingEpisodeID = id
         Task {
-            await add.loadStreams()   // MUST run first: addBest() is a no-op on an empty `ranked` list
-            await add.addBest()
+            await acquisition.playBest(.episode(season: season, number: number))
             downloadingEpisodeID = nil
-            if case let .added(info) = add.state,
-               let req = store.playRequest(forAdded: info, season: row.season, number: row.number) {
-                onSeasonAdded()       // refresh the library so the episode now appears as downloaded
-                onPlay(req)
-            } else {
-                await startEpisodeDownload(row, using: add)
+            switch acquisition.phase {
+            case .noneCached:
+                await startEpisodeDownload(season: season, number: number, using: acquisition)
+                acquisition.reset()
+            case let .failed(message):
+                episodeError = message
+                acquisition.reset()
+            default:
+                break            // .ready is presented by onChange(of: acquisition?.phase)
             }
         }
     }
@@ -184,17 +223,18 @@ struct ShowDetail: View {
     /// Nothing cached for this episode — start a tracked Real-Debrid download instead of giving
     /// up. It cannot play now (it is still downloading), so progress surfaces on the Home
     /// "Downloading" rail rather than opening the player.
-    private func startEpisodeDownload(_ row: DetailStore.EpisodeRowInfo, using add: AddStore) async {
-        let candidates = await add.uncachedCandidates()
+    private func startEpisodeDownload(season: Int, number: Int,
+                                      using acquisition: AcquisitionStore) async {
+        let candidates = await acquisition.uncachedCandidates(
+            .episode(season: season, number: number))
         guard !candidates.isEmpty, let tmdb = store.item.tmdbID else {
             episodeError = "No version of this episode is available to download."
             return
         }
         await session.downloadStore?.request(
-            contentKey: DownloadKey.episode(showTmdbID: tmdb, season: row.season,
-                                            number: row.number),
+            contentKey: DownloadKey.episode(showTmdbID: tmdb, season: season, number: number),
             tmdbID: tmdb,
-            title: "\(store.item.title) S\(row.season)E\(row.number)",
+            title: "\(store.item.title) S\(season)E\(number)",
             kind: .show, candidates: candidates, posterPath: store.item.posterPath)
     }
 }
@@ -208,10 +248,12 @@ struct EpisodeRowView: View {
     let onPlay: (PlaybackRequest) -> Void
     let onDownload: (DetailStore.EpisodeRowInfo) -> Void
 
-    private var contentKey: String? {
-        row.ownedEpisode.map { WatchKey.content(forShow: store.item, episode: $0) }
+    /// Keyed by season/episode NUMBER, not by the file you own: an episode you have watched but
+    /// never downloaded still has watch state, and this row still has to show it.
+    private var contentKey: String {
+        WatchKey.content(forShow: store.item, season: row.season, number: row.number)
     }
-    private var watch: WatchState? { contentKey.flatMap { store.watchState(forKey: $0) } }
+    private var watch: WatchState? { store.watchState(forKey: contentKey) }
     private var isWatched: Bool { watch?.finished == true }
 
     var body: some View {
@@ -250,14 +292,13 @@ struct EpisodeRowView: View {
         }
         .buttonStyle(.plain)
         .disabled(isDownloading)
-        // Long-press a downloaded episode to mark it watched/unwatched. Empty (no menu) for a
-        // not-yet-downloaded episode — there's nothing to record against.
+        // Long-press to mark watched — including an episode you have not downloaded, which you may
+        // well have seen elsewhere.
         .contextMenu {
-            if let key = contentKey, let src = row.ownedSource {
-                Button(isWatched ? "Mark Unwatched" : "Mark Watched",
-                       systemImage: isWatched ? "checkmark.circle.fill" : "checkmark.circle") {
-                    Task { await store.setWatched(!isWatched, contentKey: key, source: src) }
-                }
+            Button(isWatched ? "Mark Unwatched" : "Mark Watched",
+                   systemImage: isWatched ? "checkmark.circle.fill" : "checkmark.circle") {
+                Task { await store.setWatched(!isWatched, contentKey: contentKey,
+                                              source: row.ownedSource) }
             }
         }
     }

@@ -18,6 +18,8 @@ struct MovieDetail: View {
     private var watch: WatchState? { store.watchState(forKey: contentKey) }
     private var isWatched: Bool { watch?.finished == true }
     @State private var pendingVersionRemoval: MediaSource?
+    /// Drives Play on a title that is not in the library: find the best cached release, add it, play.
+    @State private var acquisition: AcquisitionStore?
     @Environment(AppSession.self) private var session
 
     var body: some View {
@@ -28,6 +30,10 @@ struct MovieDetail: View {
                 VStack(alignment: .leading, spacing: Theme.Space.lg) {
                 Text(item.title).font(Theme.Typo.titleXL()).foregroundStyle(Theme.Palette.textPrimary)
                 Text(metaLine).font(Theme.Typo.body()).foregroundStyle(Theme.Palette.textSecondary)
+                if let franchise = store.franchise {
+                    Text("Film \(franchise.position) of \(franchise.count)  ·  \(franchise.name)")
+                        .font(Theme.Typo.body()).foregroundStyle(Theme.Palette.gold)
+                }
                 if let best = store.bestSource { QualityChipRow(parsed: best.parsed) }
                 RatingsRow(ratings: store.ratings, community: store.communityScore)
                 actions
@@ -35,6 +41,15 @@ struct MovieDetail: View {
                 WatchDatesLine(summary: store.watchSummary, since: store.historySince)
                     .task { await store.loadWatchSummary() }
                     .task { await store.loadPreferredVersion() }
+                    // Rebuilt when the imdbID resolves — the engine cannot query without it.
+                    .task(id: store.imdbID) {
+                        acquisition = session.makeAcquisition(for: store.item, imdbID: store.imdbID,
+                                                              originalLanguage: store.originalLanguage)
+                    }
+                if case let .failed(message) = acquisition?.phase {
+                    Label(message, systemImage: "exclamationmark.triangle")
+                        .font(Theme.Typo.caption()).foregroundStyle(.orange)
+                }
                 if let tmdb = item.tmdbID,
                    store.bestSource == nil
                     || session.downloadStore?
@@ -46,7 +61,13 @@ struct MovieDetail: View {
                     Text(overview).font(Theme.Typo.body())
                         .foregroundStyle(Theme.Palette.textSecondary).lineSpacing(3)
                 }
-                if !store.versions.isEmpty { versionsSection }
+                versionsSection
+                // Franchise sits above cast: which film in the series this is matters more than
+                // who is in it.
+                if let franchise = store.franchise {
+                    FranchiseRail(franchise: franchise, currentTmdbID: item.tmdbID,
+                                  onOpen: onOpenTitle)
+                }
                 // Gated on non-empty: the rails only appear once TMDB credits land, and they append
                 // BELOW everything else, so they never resize content already on screen.
                 if !store.cast.isEmpty { CastRail(cast: store.cast) }
@@ -65,6 +86,12 @@ struct MovieDetail: View {
         .background(CanvasBackground())
         .navigationTitle(item.title)
         .navigationBarTitleDisplayMode(.inline)
+        .onChange(of: acquisition?.phase) { _, phase in
+            guard case let .ready(request) = phase else { return }
+            session.libraryStore?.retry()      // a new torrent landed in RD
+            acquisition?.reset()
+            onPlay(request)
+        }
         .confirmationDialog(
             "Remove this version?",
             isPresented: Binding(get: { pendingVersionRemoval != nil },
@@ -105,18 +132,44 @@ struct MovieDetail: View {
                         Label("Play", systemImage: "play.fill")
                     }.buttonStyle(GoldButtonStyle())
                 }
-                Spacer(minLength: 0)
-                watchedMenu(best: best)
+            } else {
+                // Not in the library: Play still means play. It finds the best instantly-available
+                // release, adds it, and starts.
+                Button { Task { await acquisition?.playBest(.movie) } } label: {
+                    Label(acquiringLabel, systemImage: acquiring ? "hourglass" : "play.fill")
+                }
+                .buttonStyle(GoldButtonStyle())
+                .disabled(acquiring || acquisition == nil)
             }
+            Spacer(minLength: 0)
+            watchedMenu()
+        }
+    }
+
+    /// True while a release is being found or added.
+    private var acquiring: Bool {
+        switch acquisition?.phase {
+        case .finding, .adding: true
+        default: false
+        }
+    }
+
+    private var acquiringLabel: String {
+        switch acquisition?.phase {
+        case .finding: "Finding…"
+        case .adding: "Starting…"
+        default: "Play"
         }
     }
 
     /// A trailing "…" menu holding Mark Watched/Unwatched — off the primary Play path (mirrors the
-    /// tvOS Detail's More menu). Only shown when there's a source to record against.
-    private func watchedMenu(best: MediaSource) -> some View {
+    /// tvOS Detail's More menu). Available whether or not you own the title: a title you have not
+    /// added is marked by content key alone.
+    private func watchedMenu() -> some View {
         Menu {
             Button {
-                Task { await store.setWatched(!isWatched, contentKey: contentKey, source: best) }
+                Task { await store.setWatched(!isWatched, contentKey: contentKey,
+                                              source: store.bestSource) }
             } label: {
                 Label(isWatched ? "Mark Unwatched" : "Mark Watched",
                       systemImage: isWatched ? "checkmark.circle.fill" : "checkmark.circle")
@@ -141,12 +194,16 @@ struct MovieDetail: View {
     private var versionsSection: some View {
         VStack(alignment: .leading, spacing: Theme.Space.sm) {
             HStack {
-                Text("VERSIONS").font(Theme.Typo.label()).tracking(1.5)
+                // On a title you do not own there is nothing to list yet — the section becomes the
+                // way to GET one, so it stays on the page either way.
+                Text(store.versions.isEmpty ? "GET THIS TITLE" : "VERSIONS")
+                    .font(Theme.Typo.label()).tracking(1.5)
                     .foregroundStyle(Theme.Palette.gold)
                 Spacer()
                 if let hit = otherVersionsHit {
                     Button { onAddTitle(hit) } label: {
-                        Label("Find Other", systemImage: "square.stack.3d.up")
+                        Label(store.versions.isEmpty ? "Versions" : "Find Other",
+                              systemImage: "square.stack.3d.up")
                             .font(Theme.Typo.caption())
                     }
                     .buttonStyle(.plain)

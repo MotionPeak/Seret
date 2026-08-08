@@ -8,6 +8,8 @@ struct RootView: View {
 
     @State private var showSplash = true
     @State private var router = AppRouter()
+    /// Watched marks for every browse/search poster. Held here so all the grids share one cache.
+    @State private var tileMarks: TileWatchMarks?
 
     var body: some View {
         ZStack {
@@ -20,6 +22,8 @@ struct RootView: View {
             }
         }
         .environment(router)
+        .task { if tileMarks == nil { tileMarks = session.makeTileWatchMarks() } }
+        .environment(tileMarks ?? session.makeTileWatchMarks())
         // Detail (and the player nested in it) is presented HERE — above the TabView/SplitView —
         // so rotating the device doesn't dismiss it.
         .fullScreenCover(item: Binding(get: { router.detail }, set: { router.detail = $0 })) { item in
@@ -30,11 +34,6 @@ struct RootView: View {
                              ratings: session.ratingsProvider,
                              versionPrefs: session.versionPreferences)
             }
-        }
-        // The Add flow is presented here too (above the shell) so it and its nested player
-        // survive rotation, exactly like Detail.
-        .fullScreenCover(item: Binding(get: { router.addHit }, set: { router.addHit = $0 })) { hit in
-            AddScreen(hit: hit)
         }
         // Direct playback from a rail (Home's Resume) — same build recipe as DetailScreen's player
         // cover; presented here so it survives rotation. The closure runs once per presentation.

@@ -42,8 +42,8 @@ struct DownloadingTile: View {
     }
 }
 
-/// Where a download tile leads: the library Detail once the title is owned, otherwise the Add
-/// screen, which is where an unfinished title's versions and progress live.
+/// Where a download tile leads: the title's page — the owned item once it has landed, otherwise a
+/// placeholder, which shows the same page with its download progress on it.
 @MainActor
 func openDownload(_ tile: DownloadTile, library: LibraryStore?, router: AppRouter) {
     if let owned = (library?.movies ?? []).first(where: { $0.tmdbID == tile.tmdbID })
@@ -52,8 +52,8 @@ func openDownload(_ tile: DownloadTile, library: LibraryStore?, router: AppRoute
         return
     }
     let isShow = tile.status.contentKey.hasPrefix("show:")
-    router.addHit = SearchHit(result: TMDBSearchResult(
+    router.detail = .placeholder(for: SearchHit(result: TMDBSearchResult(
         id: tile.tmdbID, title: isShow ? nil : tile.title, name: isShow ? tile.title : nil,
         releaseDate: nil, firstAirDate: nil, posterPath: tile.posterPath,
-        overview: nil, voteAverage: nil), kind: isShow ? .show : .movie)
+        overview: nil, voteAverage: nil), kind: isShow ? .show : .movie))
 }

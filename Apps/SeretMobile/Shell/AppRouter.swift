@@ -12,10 +12,6 @@ final class AppRouter {
     /// The title shown full-screen in Detail. Set from Home/Library; presented by RootView.
     var detail: MediaItem?
 
-    /// The search hit shown full-screen in the Add flow. Set from Search; presented by RootView
-    /// (above the TabView/SplitView, so it — and its nested player — survive rotation).
-    var addHit: SearchHit?
-
     /// A playback request presented full-screen straight from a rail (Home's Resume) — no Detail
     /// detour. Presented by RootView above the shell so the player survives rotation, like Detail.
     var playback: PlaybackPresentation?

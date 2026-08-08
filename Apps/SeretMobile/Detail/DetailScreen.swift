@@ -18,7 +18,8 @@ struct DetailScreen: View {
     /// "More Like This" destinations. Presented from HERE, not through `AppRouter`: this screen is
     /// itself a cover owned by the shell, and the shell can't stack a second cover on top of it.
     @State private var similarDetail: MediaItem?
-    @State private var similarAdd: SearchHit?
+    /// The title whose full version list is open (from "Versions" / "Find Other").
+    @State private var versionsHit: SearchHit?
     @Environment(AppSession.self) private var session
     @Environment(\.dismiss) private var dismiss
 
@@ -43,7 +44,7 @@ struct DetailScreen: View {
                                             }
                                         },
                                         onOpenTitle: { similarDetail = $0 },
-                                        onAddTitle: { similarAdd = $0 })
+                                        onAddTitle: { versionsHit = $0 })
                 case .show:  ShowDetail(
                                 store: store, onPlay: present,
                                 makeSeasonDownload: { imdb, season, lang in
@@ -55,7 +56,7 @@ struct DetailScreen: View {
                                 },
                                 onSeasonAdded: { session.libraryStore?.retry() },
                                 onOpenTitle: { similarDetail = $0 },
-                                onAddTitle: { similarAdd = $0 })
+                                onAddTitle: { versionsHit = $0 })
                 }
             }
             .task {
@@ -124,9 +125,9 @@ struct DetailScreen: View {
                                      versionPrefs: session.versionPreferences))
             }
         }
-        // A suggested title that isn't in the library opens the Add flow.
-        .fullScreenCover(item: $similarAdd) { hit in
-            AddScreen(hit: hit)
+        // "Versions" — the full cached/uncached release list for this title, owned or not.
+        .fullScreenCover(item: $versionsHit) { hit in
+            VersionsScreen(hit: hit, onPlay: present)
         }
     }
 

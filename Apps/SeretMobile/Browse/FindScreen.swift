@@ -11,6 +11,7 @@ struct FindScreen: View {
 
     @Environment(AppSession.self) private var session
     @Environment(AppRouter.self) private var router
+    @Environment(TileWatchMarks.self) private var marks
     @Environment(\.horizontalSizeClass) private var hSize
     @State private var query = ""
 
@@ -138,6 +139,10 @@ struct FindScreen: View {
                 }
                 .padding(.vertical, Theme.Space.md)
             }
+            // One batched read across the visible rails; already-known titles cost nothing.
+            .task(id: "marks-\(browse.rows.count)") {
+                await marks.load(browse.rows.flatMap(\.hits))
+            }
         }
     }
 
@@ -161,26 +166,72 @@ struct FindScreen: View {
             }
             .padding(Theme.Space.lg)
         }
+        // One batched read for whatever this search turned up, so the posters can say what you
+        // have already seen.
+        .task(id: hits.map(\.id).joined()) { await marks.load(hits) }
     }
 
-    /// A poster that opens the Add flow, or — if already owned — shows an "In Library" badge and
-    /// opens the owned item's Detail instead. `cam` posters get a CAM tag (In Theatres section).
+    /// A poster that opens the title's page. Owned or not, it is the same page — an un-owned title
+    /// is a source-less placeholder that `DetailStore` fills in from TMDB. Owned posters carry an
+    /// In-Library badge, watched ones dim and tick, and `cam` posters get a CAM tag.
     private func tile(_ hit: SearchHit, width: CGFloat?, cam: Bool) -> some View {
         let owned = session.libraryStore?.ownedItem(tmdbID: hit.result.id)
+        let watched = marks.isWatched(hit)
         return Button {
-            if let owned { router.detail = owned } else { router.addHit = hit }
+            router.detail = owned ?? .placeholder(for: hit)
         } label: {
             PosterCard(title: hit.result.displayTitle,
                        posterURL: TMDBClient.imageURL(path: hit.result.posterPath, size: "w342"),
                        width: width)
+                .opacity(watched ? 0.55 : 1)          // a watched title reads as already-seen
                 .overlay(alignment: .topTrailing) {
-                    if owned != nil { inLibraryBadge.padding(6) }
+                    // Watched beats owned: having seen it is the more useful thing at a glance.
+                    if watched { watchedBadge.padding(6) }
+                    else if owned != nil { inLibraryBadge.padding(6) }
                 }
                 .overlay(alignment: .topLeading) {
                     if cam, owned == nil { camBadge.padding(6) }
                 }
         }
         .pressable()
+        .contextMenu {
+            Button(watched ? unmarkLabel(hit) : markLabel(hit),
+                   systemImage: watched ? "checkmark.circle.fill" : "checkmark.circle") {
+                toggleWatched(hit, watched: watched)
+            }
+        }
+    }
+
+    private func markLabel(_ hit: SearchHit) -> String {
+        hit.kind == .movie ? "Mark Watched" : "Mark Show Watched"
+    }
+    private func unmarkLabel(_ hit: SearchHit) -> String {
+        hit.kind == .movie ? "Mark Unwatched" : "Mark Show Unwatched"
+    }
+
+    /// The tick flips immediately; the write follows. A show fans out over every episode TMDB
+    /// lists, which is why it runs detached rather than blocking the gesture.
+    private func toggleWatched(_ hit: SearchHit, watched: Bool) {
+        marks.set(!watched, for: hit)
+        let profileID = session.activeProfileID ?? ""
+        Task {
+            switch hit.kind {
+            case .movie:
+                await session.watchStore?.setWatched(!watched, contentKey: hit.contentKey,
+                                                     sourceKey: "", profileID: profileID)
+            case .show:
+                await session.makeShowWatchMarker()?.mark(!watched, show: .placeholder(for: hit),
+                                                          profileID: profileID)
+            }
+        }
+    }
+
+    private var watchedBadge: some View {
+        Image(systemName: "checkmark.circle.fill")
+            .font(.system(size: 18, weight: .bold))
+            .foregroundStyle(Color(hex: 0x1A1400), Theme.Palette.gold)
+            .background(Circle().fill(.black.opacity(0.35)))
+            .accessibilityLabel("Watched")
     }
 
     private var inLibraryBadge: some View {
