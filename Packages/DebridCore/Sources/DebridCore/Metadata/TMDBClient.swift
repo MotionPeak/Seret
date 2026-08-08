@@ -163,6 +163,12 @@ public struct TMDBClient: Sendable {
         try await get("tv/\(tvID)/season/\(season)", [])
     }
 
+    /// Every film in a franchise (`/collection/{id}`). Called only when a movie's details carried a
+    /// `belongs_to_collection` reference, so it costs one request per franchise title opened.
+    public func collection(id: Int) async throws -> TMDBCollection {
+        try await get("collection/\(id)", [])
+    }
+
     /// Builds a TMDB image URL from a `poster_path`/`backdrop_path` (e.g. "/abc.jpg").
     /// Returns nil when `path` is nil. `size` is a TMDB size token like "w500" or "original".
     public static func imageURL(path: String?, size: String = "w500") -> URL? {

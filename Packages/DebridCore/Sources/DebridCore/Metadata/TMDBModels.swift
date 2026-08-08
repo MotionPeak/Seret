@@ -111,6 +111,49 @@ struct TMDBCreatedBy: Decodable { let name: String }
 /// obvious neighbours (Memento, The Illusionist). Verified on-device before switching.
 struct TMDBRecommendations: Decodable { let results: [TMDBSearchResult] }
 
+/// A movie's franchise reference, as it appears inline on `/movie/{id}` (`belongs_to_collection`).
+/// Present on every entry of a franchise; nil for a standalone film.
+public struct TMDBCollectionRef: Decodable, Sendable, Equatable, Hashable, Identifiable {
+    public let id: Int
+    public let name: String
+    public let posterPath: String?
+    public let backdropPath: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, name
+        case posterPath = "poster_path"
+        case backdropPath = "backdrop_path"
+    }
+
+    public init(id: Int, name: String, posterPath: String? = nil, backdropPath: String? = nil) {
+        self.id = id; self.name = name
+        self.posterPath = posterPath; self.backdropPath = backdropPath
+    }
+}
+
+/// A full franchise from `/collection/{id}` — the reference plus its member films, unordered as
+/// TMDB returns them. `FranchiseOrder` decides the order they are shown in.
+public struct TMDBCollection: Decodable, Sendable, Equatable, Identifiable {
+    public let id: Int
+    public let name: String
+    public let overview: String?
+    public let posterPath: String?
+    public let backdropPath: String?
+    public let parts: [TMDBSearchResult]
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, overview, parts
+        case posterPath = "poster_path"
+        case backdropPath = "backdrop_path"
+    }
+
+    public init(id: Int, name: String, overview: String? = nil, posterPath: String? = nil,
+                backdropPath: String? = nil, parts: [TMDBSearchResult] = []) {
+        self.id = id; self.name = name; self.overview = overview
+        self.posterPath = posterPath; self.backdropPath = backdropPath; self.parts = parts
+    }
+}
+
 public struct TMDBMovieDetails: Decodable, Sendable, Equatable, Identifiable {
     public let id: Int
     public let title: String
@@ -126,10 +169,14 @@ public struct TMDBMovieDetails: Decodable, Sendable, Equatable, Identifiable {
     public let cast: [TMDBCastMember]
     public let director: String?
     public let similar: [TMDBSearchResult]
+    /// The franchise this film belongs to, when it belongs to one. Rides along on the details call
+    /// we already make, so knowing a film is part of a series costs nothing.
+    public let collection: TMDBCollectionRef?
 
     enum CodingKeys: String, CodingKey {
         case id, title, overview, runtime, genres, credits
         case similar = "recommendations"
+        case collection = "belongs_to_collection"
         case releaseDate = "release_date"
         case posterPath = "poster_path"
         case backdropPath = "backdrop_path"
@@ -143,12 +190,13 @@ public struct TMDBMovieDetails: Decodable, Sendable, Equatable, Identifiable {
                 genres: [TMDBGenre], voteAverage: Double?,
                 originalLanguage: String? = nil, imdbID: String? = nil,
                 cast: [TMDBCastMember] = [], director: String? = nil,
-                similar: [TMDBSearchResult] = []) {
+                similar: [TMDBSearchResult] = [], collection: TMDBCollectionRef? = nil) {
         self.id = id; self.title = title; self.releaseDate = releaseDate
         self.overview = overview; self.posterPath = posterPath; self.backdropPath = backdropPath
         self.runtime = runtime; self.genres = genres; self.voteAverage = voteAverage
         self.originalLanguage = originalLanguage; self.imdbID = imdbID
         self.cast = cast; self.director = director; self.similar = similar
+        self.collection = collection
     }
 
     public init(from decoder: any Decoder) throws {
@@ -172,6 +220,7 @@ public struct TMDBMovieDetails: Decodable, Sendable, Equatable, Identifiable {
         let uniqueDirectors = directors.filter { seen.insert($0).inserted }
         director = uniqueDirectors.isEmpty ? nil : uniqueDirectors.joined(separator: ", ")
         similar = (try c.decodeIfPresent(TMDBRecommendations.self, forKey: .similar)?.results ?? [])
+        collection = try c.decodeIfPresent(TMDBCollectionRef.self, forKey: .collection)
     }
 }
 
