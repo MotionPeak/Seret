@@ -6,6 +6,13 @@ public protocol MediaDetailsProviding: Sendable {
     func movieDetails(tmdbID: Int) async throws -> TMDBMovieDetails
     func tvDetails(tmdbID: Int) async throws -> TMDBTVDetails
     func seasonEpisodes(tvID: Int, season: Int) async throws -> [TMDBEpisodeDetails]
+    /// Every film in a franchise. Defaulted below so fakes and non-TMDB providers need not
+    /// implement it — a provider with no answer simply has no franchise to show.
+    func collection(id: Int) async throws -> TMDBCollection?
+}
+
+extension MediaDetailsProviding {
+    public func collection(id: Int) async throws -> TMDBCollection? { nil }
 }
 
 /// Production conformance — delegates straight to `TMDBClient`.
@@ -20,5 +27,8 @@ public struct TMDBDetailsService: MediaDetailsProviding {
     }
     public func seasonEpisodes(tvID: Int, season: Int) async throws -> [TMDBEpisodeDetails] {
         try await client.tvSeasonDetails(tvID: tvID, season: season).episodes
+    }
+    public func collection(id: Int) async throws -> TMDBCollection? {
+        try await client.collection(id: id)
     }
 }

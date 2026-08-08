@@ -49,6 +49,11 @@ public final class DetailStore {
     public private(set) var similar: [TMDBSearchResult] = []
     /// Trakt's community average (0–10) — a fallback shown when OMDb produced no chips.
     public private(set) var communityScore: Double?
+    /// The franchise this film belongs to, once resolved. Movies only — TMDB has no collection
+    /// concept for television. Nil when the film is standalone or the fetch failed.
+    public private(set) var franchise: Franchise?
+    /// The collection reference from the details call, held so the franchise fetch has an id.
+    private var collectionRef: TMDBCollectionRef?
     /// The viewer's Trakt history rollup for this title, loaded lazily by the view.
     private let versionPrefs: VersionPreferring?
     /// The user's chosen source key for this title, once loaded. Nil = let the ranker decide.
@@ -181,6 +186,7 @@ public final class DetailStore {
                 cast = d.cast
                 director = d.director
                 similar = d.similar
+                collectionRef = d.collection
             case .show:
                 let d = try await details.tvDetails(tmdbID: tmdbID)
                 backdropPath = d.backdropPath ?? backdropPath
@@ -197,6 +203,7 @@ public final class DetailStore {
             await watchLoad
             richState = .loaded
             await loadRatings()
+            await loadFranchise()
         } catch {
             await watchLoad
             richState = .failed          // keep base info; no error wall
@@ -222,6 +229,20 @@ public final class DetailStore {
            let community = watch as? CommunityRatingProviding {
             communityScore = await community.communityRating(imdbID: imdb, kind: item.kind)
         }
+    }
+
+    /// Supplemental, non-blocking: resolve the franchise once TMDB has told us the film belongs to
+    /// one. Costs a single request, and only for films that are part of a series. Any failure just
+    /// leaves the badge and rail off the page.
+    private func loadFranchise() async {
+        guard item.kind == .movie, let ref = collectionRef, let tmdbID = item.tmdbID,
+              let collection = try? await details.collection(id: ref.id) else { return }
+        let ordered = FranchiseOrder.ordered(collection.parts, now: Date())
+        // Two released films or it is not a series worth naming, and the viewer's own film has to
+        // be one of them — otherwise "Film ? of 5" has nowhere to point.
+        guard ordered.count >= 2,
+              let position = FranchiseOrder.position(of: tmdbID, in: ordered) else { return }
+        franchise = Franchise(name: collection.name, parts: ordered, position: position)
     }
 
     /// The viewer's Trakt history rollup (play count, last watched, "in your history since").
