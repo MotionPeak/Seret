@@ -73,6 +73,7 @@ public struct TMDBCastMember: Decodable, Sendable, Equatable, Hashable, Identifi
 /// Internal decode shapes for the credits payloads (never exposed on the public model).
 struct TMDBMovieCredits: Decodable {
     struct Crew: Decodable {
+        let id: Int
         let name: String
         let job: String?
     }
@@ -100,7 +101,10 @@ struct TMDBAggregateCredits: Decodable {
     let cast: [AggCast]
 }
 
-struct TMDBCreatedBy: Decodable { let name: String }
+struct TMDBCreatedBy: Decodable {
+    let id: Int
+    let name: String
+}
 
 /// The payload behind `similar` on the detail models.
 ///
@@ -167,8 +171,15 @@ public struct TMDBMovieDetails: Decodable, Sendable, Equatable, Identifiable {
     public let originalLanguage: String?   // ISO 639-1
     public let imdbID: String?
     public let cast: [TMDBCastMember]
-    public let director: String?
+    /// Every credited director, with their TMDB ids — the ids are what make the credit navigable.
+    public let directors: [TMDBPersonRef]
     public let similar: [TMDBSearchResult]
+
+    /// The directors as one printable string, or nil when there are none. Kept so every existing
+    /// reader is unaffected by directors gaining ids.
+    public var director: String? {
+        directors.isEmpty ? nil : directors.map(\.name).joined(separator: ", ")
+    }
     /// The franchise this film belongs to, when it belongs to one. Rides along on the details call
     /// we already make, so knowing a film is part of a series costs nothing.
     public let collection: TMDBCollectionRef?
@@ -189,13 +200,13 @@ public struct TMDBMovieDetails: Decodable, Sendable, Equatable, Identifiable {
                 posterPath: String?, backdropPath: String?, runtime: Int?,
                 genres: [TMDBGenre], voteAverage: Double?,
                 originalLanguage: String? = nil, imdbID: String? = nil,
-                cast: [TMDBCastMember] = [], director: String? = nil,
+                cast: [TMDBCastMember] = [], directors: [TMDBPersonRef] = [],
                 similar: [TMDBSearchResult] = [], collection: TMDBCollectionRef? = nil) {
         self.id = id; self.title = title; self.releaseDate = releaseDate
         self.overview = overview; self.posterPath = posterPath; self.backdropPath = backdropPath
         self.runtime = runtime; self.genres = genres; self.voteAverage = voteAverage
         self.originalLanguage = originalLanguage; self.imdbID = imdbID
-        self.cast = cast; self.director = director; self.similar = similar
+        self.cast = cast; self.directors = directors; self.similar = similar
         self.collection = collection
     }
 
@@ -215,10 +226,13 @@ public struct TMDBMovieDetails: Decodable, Sendable, Equatable, Identifiable {
         let credits = try c.decodeIfPresent(TMDBMovieCredits.self, forKey: .credits)
         cast = (credits?.cast ?? []).sorted { ($0.order ?? .max) < ($1.order ?? .max) }
                                     .prefix(10).map { $0 }
-        let directors = (credits?.crew ?? []).filter { $0.job == "Director" }.map(\.name)
-        var seen = Set<String>()
-        let uniqueDirectors = directors.filter { seen.insert($0).inserted }
-        director = uniqueDirectors.isEmpty ? nil : uniqueDirectors.joined(separator: ", ")
+        // Deduped by person id, not by name: a co-director credited under two jobs would otherwise
+        // be listed twice, and two different people can share a name.
+        var seenDirectors = Set<Int>()
+        directors = (credits?.crew ?? [])
+            .filter { $0.job == "Director" }
+            .filter { seenDirectors.insert($0.id).inserted }
+            .map { TMDBPersonRef(id: $0.id, name: $0.name) }
         similar = (try c.decodeIfPresent(TMDBRecommendations.self, forKey: .similar)?.results ?? [])
         collection = try c.decodeIfPresent(TMDBCollectionRef.self, forKey: .collection)
     }
@@ -263,8 +277,12 @@ public struct TMDBTVDetails: Decodable, Sendable, Equatable, Identifiable {
     public let originalLanguage: String?   // ISO 639-1
     public let imdbID: String?             // from append_to_response=external_ids
     public let cast: [TMDBCastMember]
-    public let creators: [String]
+    /// Every credited creator, with their TMDB ids — a show's equivalent of a movie's director.
+    public let creatorRefs: [TMDBPersonRef]
     public let similar: [TMDBSearchResult]
+
+    /// The creators' names. Kept so every existing reader is unaffected by creators gaining ids.
+    public var creators: [String] { creatorRefs.map(\.name) }
 
     enum CodingKeys: String, CodingKey {
         case id, name, overview, genres
@@ -286,13 +304,13 @@ public struct TMDBTVDetails: Decodable, Sendable, Equatable, Identifiable {
                 posterPath: String?, backdropPath: String?, numberOfSeasons: Int?,
                 genres: [TMDBGenre], voteAverage: Double?,
                 originalLanguage: String? = nil, imdbID: String? = nil,
-                cast: [TMDBCastMember] = [], creators: [String] = [],
+                cast: [TMDBCastMember] = [], creatorRefs: [TMDBPersonRef] = [],
                 similar: [TMDBSearchResult] = []) {
         self.id = id; self.name = name; self.firstAirDate = firstAirDate
         self.overview = overview; self.posterPath = posterPath; self.backdropPath = backdropPath
         self.numberOfSeasons = numberOfSeasons; self.genres = genres; self.voteAverage = voteAverage
         self.originalLanguage = originalLanguage; self.imdbID = imdbID
-        self.cast = cast; self.creators = creators; self.similar = similar
+        self.cast = cast; self.creatorRefs = creatorRefs; self.similar = similar
     }
 
     public init(from decoder: any Decoder) throws {
@@ -311,7 +329,8 @@ public struct TMDBTVDetails: Decodable, Sendable, Equatable, Identifiable {
         let agg = try c.decodeIfPresent(TMDBAggregateCredits.self, forKey: .aggregateCredits)
         cast = (agg?.cast ?? []).sorted { ($0.order ?? .max) < ($1.order ?? .max) }
                                 .prefix(10).map { $0.normalized }
-        creators = (try c.decodeIfPresent([TMDBCreatedBy].self, forKey: .createdBy) ?? []).map(\.name)
+        creatorRefs = (try c.decodeIfPresent([TMDBCreatedBy].self, forKey: .createdBy) ?? [])
+            .map { TMDBPersonRef(id: $0.id, name: $0.name) }
         similar = (try c.decodeIfPresent(TMDBRecommendations.self, forKey: .similar)?.results ?? [])
     }
 }

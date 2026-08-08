@@ -163,6 +163,14 @@ public struct TMDBClient: Sendable {
         try await get("tv/\(tvID)/season/\(season)", [])
     }
 
+    /// A person and their whole filmography in ONE request — `combined_credits` is appended rather
+    /// than fetched separately, the same way `movieDetails` folds in credits and recommendations.
+    public func person(id: Int) async throws -> TMDBPersonDetails {
+        try await get("person/\(id)", [
+            URLQueryItem(name: "append_to_response", value: "combined_credits")
+        ])
+    }
+
     /// Every film in a franchise (`/collection/{id}`). Called only when a movie's details carried a
     /// `belongs_to_collection` reference, so it costs one request per franchise title opened.
     public func collection(id: Int) async throws -> TMDBCollection {

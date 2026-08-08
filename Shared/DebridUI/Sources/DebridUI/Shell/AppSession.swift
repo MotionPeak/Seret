@@ -36,6 +36,10 @@ public final class AppSession {
     /// On-demand TMDB detail provider for the Detail screen (nil while signed out).
     public private(set) var detailsProvider: MediaDetailsProviding?
 
+    /// Loads a person + their filmography. Nil while signed out — the TMDB client is built at
+    /// sign-in, like every other provider here.
+    public private(set) var personCredits: PersonCreditsProviding?
+
     /// On-demand OMDb ratings provider for the Detail screen (nil while signed out or no key).
     public private(set) var ratingsProvider: RatingsProviding?
 
@@ -176,6 +180,7 @@ public final class AppSession {
             onSignedIn: { [weak self] in self?.markSignedIn() })
         libraryStore = nil
         searchStore = nil
+        personCredits = nil
         moviesBrowse = nil
         showsBrowse = nil
         genreBrowsing = nil
@@ -572,6 +577,7 @@ public final class AppSession {
             Task { await downloadNotifier.requestAuthorization() }
         }
         detailsProvider = TMDBDetailsService(client: tmdb)
+        personCredits = TMDBPersonService(client: tmdb)
         let omdbKey = Secrets.omdbAPIKey
         ratingsProvider = omdbKey.isEmpty ? nil
             : OMDbRatingsService(client: OMDbClient(apiKey: omdbKey),
@@ -670,6 +676,14 @@ public final class AppSession {
     public func makeGenreGrid(kind: MediaKind, genre: DiscoverStore.Genre) -> GenreGridStore? {
         guard let genreBrowsing else { return nil }
         return GenreGridStore(kind: kind, genre: genre, browsing: genreBrowsing)
+    }
+
+    /// A fresh store for one person, or nil if not signed in. Not cached, for the same reason a
+    /// genre grid is not: a person page is a transient drill-down, and a cached one would show a
+    /// stale filmography.
+    public func makePersonStore(for ref: TMDBPersonRef) -> PersonStore? {
+        guard let personCredits else { return nil }
+        return PersonStore(ref: ref, credits: personCredits)
     }
 
     /// Build a fully-wired player for a playback request, or nil if not signed in. The platform

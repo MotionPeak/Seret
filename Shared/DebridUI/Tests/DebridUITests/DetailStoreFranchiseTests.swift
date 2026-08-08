@@ -20,7 +20,7 @@ private final class FranchiseDetails: MediaDetailsProviding {
         TMDBMovieDetails(id: tmdbID, title: "The Hunger Games", releaseDate: "2012-03-12",
                          overview: "o", posterPath: "/p.jpg", backdropPath: "/b.jpg",
                          runtime: 142, genres: [], voteAverage: 7.2, originalLanguage: "en",
-                         imdbID: "tt1392170", cast: [], director: nil, similar: [],
+                         imdbID: "tt1392170", cast: [], directors: [], similar: [],
                          collection: ref)
     }
     func tvDetails(tmdbID: Int) async throws -> TMDBTVDetails { throw FakeError.boom }

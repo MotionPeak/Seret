@@ -34,14 +34,15 @@ private func similarResult(_ id: Int, _ title: String) -> TMDBSearchResult {
             backdropPath: nil, runtime: 100, genres: [], voteAverage: 7.0,
             originalLanguage: "en", imdbID: "tt123",
             cast: [castMember(1, "Timothée Chalamet")],
-            director: "Denis Villeneuve",
+            directors: [TMDBPersonRef(id: 137427, name: "Denis Villeneuve")],
             similar: [similarResult(42, "Arrival")])
         var tv = TMDBTVDetails(
             id: 1399, name: "S", firstAirDate: "2011-01-01", overview: "o", posterPath: nil,
             backdropPath: nil, numberOfSeasons: 1, genres: [], voteAverage: 8.0,
             originalLanguage: "en", imdbID: "tt777",
             cast: [castMember(2, "Peter Dinklage")],
-            creators: ["David Benioff", "D. B. Weiss"],
+            creatorRefs: [TMDBPersonRef(id: 9813, name: "David Benioff"),
+                          TMDBPersonRef(id: 228068, name: "D. B. Weiss")],
             similar: [similarResult(77, "Rome")])
 
         func movieDetails(tmdbID: Int) async throws -> TMDBMovieDetails { movie }
@@ -89,6 +90,17 @@ private func similarResult(_ id: Int, _ title: String) -> TMDBSearchResult {
         #expect(store.cast.first?.name == "Timothée Chalamet")
         #expect(store.director == "Denis Villeneuve")
         #expect(store.similar.first?.id == 42)
+    }
+
+    /// The printable strings are not enough — a pressable credit needs the person's TMDB id.
+    @Test func carriesDirectorAndCreatorIDsSoTheyCanBeOpened() async {
+        let movieStore = DetailStore(item: movie(), details: RichDetails(), watch: nil)
+        await movieStore.load()
+        #expect(movieStore.directors == [TMDBPersonRef(id: 137427, name: "Denis Villeneuve")])
+
+        let showStore = DetailStore(item: show(), details: RichDetails(), watch: nil)
+        await showStore.load()
+        #expect(showStore.creatorRefs.map(\.id) == [9813, 228068])
     }
 
     @Test func loadPopulatesCastCreatorsSimilarForAShow() async {

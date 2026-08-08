@@ -45,7 +45,12 @@ public final class DetailStore {
     /// details call (`append_to_response`), so they cost no extra request.
     public private(set) var cast: [TMDBCastMember] = []
     public private(set) var director: String?
+    /// The same directors, with their TMDB ids — what a pressable director control navigates with.
+    /// `director` stays the printable form.
+    public private(set) var directors: [TMDBPersonRef] = []
     public private(set) var creators: [String] = []
+    /// A show's creators, with ids. Same relationship to `creators` as `directors` has to `director`.
+    public private(set) var creatorRefs: [TMDBPersonRef] = []
     public private(set) var similar: [TMDBSearchResult] = []
     /// Trakt's community average (0–10) — a fallback shown when OMDb produced no chips.
     public private(set) var communityScore: Double?
@@ -185,6 +190,7 @@ public final class DetailStore {
                 originalLanguage = d.originalLanguage
                 cast = d.cast
                 director = d.director
+                directors = d.directors
                 similar = d.similar
                 collectionRef = d.collection
             case .show:
@@ -197,6 +203,7 @@ public final class DetailStore {
                 numberOfSeasons = d.numberOfSeasons
                 cast = d.cast
                 creators = d.creators
+                creatorRefs = d.creatorRefs
                 similar = d.similar
                 await loadSeason(selectedSeason, tvID: tmdbID)
             }
