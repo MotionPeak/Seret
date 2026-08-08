@@ -13,6 +13,8 @@ struct ShowDetailView: View {
     var onSeasonAdded: () -> Void = {}
     /// A not-downloaded episode was selected → download-then-play (handled by DetailView).
     var onDownloadEpisode: (DetailStore.EpisodeRowInfo) -> Void = { _ in }
+    /// Play an episode by number — the hero's Play on a show with nothing downloaded.
+    var onPlayEpisode: (Int, Int) -> Void = { _, _ in }
     var downloadingEpisodeID: String? = nil
     @State private var seasonStore: AddStore?
     /// Which season pill has focus — moving across them switches the season live (no press).
@@ -117,6 +119,17 @@ struct ShowDetailView: View {
                 }
                 .buttonStyle(SeretActionButtonStyle(prominent: true))
                 .focused($initialFocus, equals: .play)
+            } else if let target = store.nextEpisodeTarget() {
+                // Nothing downloaded yet — Play still starts the show. Without this the page has no
+                // Play at all, `.defaultFocus` has nothing to focus, and the remote goes dead.
+                Button { onPlayEpisode(target.season, target.number) } label: {
+                    Label(downloadingEpisodeID == nil
+                          ? "Play S\(target.season)·E\(target.number)" : "Finding a version…",
+                          systemImage: downloadingEpisodeID == nil ? "play.fill" : "hourglass")
+                }
+                .buttonStyle(SeretActionButtonStyle(prominent: true))
+                .focused($initialFocus, equals: .play)
+                .disabled(downloadingEpisodeID != nil)
             }
 
             // Trailer + destructive Remove tucked off the primary path.
@@ -126,8 +139,10 @@ struct ShowDetailView: View {
                         Label("Trailer", systemImage: "play.rectangle.fill")
                     }
                 }
-                Button(role: .destructive) { onRemove() } label: {
-                    Label("Remove from Library", systemImage: "trash")
+                if !item.seasons.isEmpty {
+                    Button(role: .destructive) { onRemove() } label: {
+                        Label("Remove from Library", systemImage: "trash")
+                    }
                 }
             } label: {
                 Label("More", systemImage: "ellipsis")

@@ -13,8 +13,12 @@ struct EpisodeRow: View {
 
     private let width: CGFloat = 320
 
-    private var contentKey: String? { row.ownedEpisode.map { WatchKey.content(forShow: store.item, episode: $0) } }
-    private var watch: WatchState? { contentKey.flatMap { store.watchState(forKey: $0) } }
+    /// Keyed by season/episode NUMBER, not by the file you own: an episode you have watched but
+    /// never downloaded still has watch state, and this row still has to show it.
+    private var contentKey: String {
+        WatchKey.content(forShow: store.item, season: row.season, number: row.number)
+    }
+    private var watch: WatchState? { store.watchState(forKey: contentKey) }
     private var isWatched: Bool { watch?.finished == true }
 
     var body: some View {
@@ -26,13 +30,22 @@ struct EpisodeRow: View {
                 .buttonStyle(.card)
                 .contextMenu {
                     Button(isWatched ? "Mark Unwatched" : "Mark Watched") {
-                        Task { await store.setWatched(!isWatched, contentKey: contentKey ?? "", source: src) }
+                        Task { await store.setWatched(!isWatched, contentKey: contentKey, source: src) }
                     }
                 }
             } else {
+                // ⚠️ This branch swap (link ↔ button) is the shape that drops tvOS focus when the
+                // condition flips under the user. It only flips after a library refresh, exactly as
+                // before — do not make it flip more often.
                 Button { onDownload(row) } label: { still }
                     .buttonStyle(.card)
                     .disabled(isDownloading)
+                    .contextMenu {
+                        Button(isWatched ? "Mark Unwatched" : "Mark Watched") {
+                            Task { await store.setWatched(!isWatched, contentKey: contentKey,
+                                                          source: nil) }
+                        }
+                    }
             }
             HStack(spacing: 8) {
                 Text(title).cardTitle().lineLimit(1)

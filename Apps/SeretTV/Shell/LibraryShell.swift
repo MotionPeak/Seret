@@ -12,6 +12,9 @@ struct LibraryShell: View {
     @State private var path = NavigationPath()
     @State private var showingProfiles = false
     @FocusState private var menuFocus: SideMenuItem?
+    /// Watched marks for every browse/search poster. Held here so all the grids share one cache and
+    /// switching pages does not re-query what is already known.
+    @State private var tileMarks: TileWatchMarks?
 
 
     /// Whether the panel is widened.
@@ -47,13 +50,12 @@ struct LibraryShell: View {
                     .navigationDestination(for: BrowseDestination.self) { dest in
                         switch dest {
                         case .detail(let item): detailDestination(item)
-                        case .add(let hit): AddScreen(hit: hit)
                         case .search(let kind): SearchScreen(kind: kind)
                         case .versions(let hit): VersionsScreen(hit: hit)
                         }
                     }
                     .navigationDestination(for: SearchHit.self) { hit in
-                        AddScreen(hit: hit)
+                        detailDestination(.placeholder(for: hit))
                     }
                     .navigationDestination(for: MediaItem.self) { item in
                         detailDestination(item)
@@ -116,6 +118,8 @@ struct LibraryShell: View {
         .task(id: session.libraryStore?.attempt ?? -1) {
             await session.libraryStore?.load()
         }
+        .task { if tileMarks == nil { tileMarks = session.makeTileWatchMarks() } }
+        .environment(tileMarks ?? session.makeTileWatchMarks())
         .onChange(of: tab) { _, new in if new == .home { Task { await session.refreshHome() } } }
         .onChange(of: path.isEmpty) { _, empty in if empty { Task { await session.refreshHome() } } }
         .fullScreenCover(isPresented: $showingProfiles) {

@@ -20,6 +20,9 @@ struct MovieDetailView: View {
     private enum Field: Hashable { case play }
     @FocusState private var initialFocus: Field?
     @Environment(AppSession.self) private var session
+    /// Drives Play on a title that is not in the library: find the best cached release, add it, play.
+    @State private var acquisition: AcquisitionStore?
+    @State private var acquiredPlayback: AcquiredPlayback?
 
     var body: some View {
         ScrollView {
@@ -30,6 +33,12 @@ struct MovieDetailView: View {
                 VStack(alignment: .leading, spacing: 36) {
                     hero.frame(maxWidth: .infinity, alignment: .leading)
                     if !store.versions.isEmpty { versionsSection }
+                    // Franchise sits above cast: which film in the series this is matters more
+                    // than who is in it. Appends below the hero, so it never resizes what is
+                    // already on screen.
+                    if let franchise = store.franchise {
+                        FranchiseRail(franchise: franchise, currentTmdbID: item.tmdbID)
+                    }
                     // Gated on non-empty: the rail only ever appears once TMDB credits land, and it
                     // appends BELOW everything else, so it never resizes content already on screen.
                     if !store.cast.isEmpty { CastRail(cast: store.cast) }
@@ -42,7 +51,30 @@ struct MovieDetailView: View {
         }
         .defaultFocus($initialFocus, .play)
         .task { await store.loadPreferredVersion() }
+        // Rebuilt when the imdbID resolves — the engine cannot query the indexers without it.
+        .task(id: store.imdbID) {
+            acquisition = session.makeAcquisition(for: store.item, imdbID: store.imdbID,
+                                                  originalLanguage: store.originalLanguage)
+        }
+        .onChange(of: acquisition?.phase) { _, phase in
+            guard case let .ready(request) = phase else { return }
+            session.libraryStore?.retry()      // a new torrent landed in RD
+            acquiredPlayback = AcquiredPlayback(request: request)
+        }
         .background(CanvasBackground())
+        .fullScreenCover(item: $acquiredPlayback, onDismiss: {
+            acquisition?.reset()
+            Task { await store.reloadWatch() }
+        }) { presented in
+            let engine = VLCKitVideoPlayerEngine(preferences: session.subtitleSettings.preferences)
+            if let model = session.makePlayer(for: presented.request, engine: engine) {
+                PlayerView(model: model, engine: engine,
+                           backdropURL: TMDBClient.imageURL(path: presented.request.item.backdropPath,
+                                                            size: "original"))
+            } else {
+                Text("Unable to start playback.").font(.seretTitle2)
+            }
+        }
         .fullScreenCover(isPresented: $expandTrailer) {
             if let u = trailerURL { FullScreenTrailer(url: u) }
         }
@@ -52,6 +84,10 @@ struct MovieDetailView: View {
         VStack(alignment: .leading, spacing: 22) {
             Text(item.title).screenTitle()
             Text(metaLine).calloutText().foregroundStyle(Theme.Palette.textSecondary)
+            if let franchise = store.franchise {
+                Text("Film \(franchise.position) of \(franchise.count)  ·  \(franchise.name)")
+                    .calloutText().foregroundStyle(Theme.Palette.gold)
+            }
             if let director = store.director {
                 Text("Director: \(director)").calloutText()
                     .foregroundStyle(Theme.Palette.textSecondary)
@@ -62,6 +98,7 @@ struct MovieDetailView: View {
                 Text(overview).bodyText().frame(maxWidth: 1100, alignment: .leading).lineLimit(4)
             }
             actions
+            acquisitionStatus
             UserRatingRow(store: store)
             WatchDatesLine(summary: store.watchSummary, since: store.historySince)
                 .task { await store.loadWatchSummary() }
@@ -100,6 +137,24 @@ struct MovieDetailView: View {
                     }
                     .buttonStyle(SeretActionButtonStyle())
                 }
+            } else {
+                // Not in the library: Play still means play. It finds the best instantly-available
+                // release, adds it, and starts — the old Add screen's whole job, on this page.
+                Button { Task { await acquisition?.playBest(.movie) } } label: {
+                    Label(acquiringLabel, systemImage: acquiring ? "hourglass" : "play.fill")
+                }
+                .buttonStyle(SeretActionButtonStyle(prominent: true))
+                .focused($initialFocus, equals: .play)
+                .disabled(acquiring || acquisition == nil)
+            }
+
+            // Reachable whether or not you own the title — on an un-owned one it IS the way to pick
+            // a specific release.
+            if let hit = otherVersionsHit {
+                NavigationLink(value: BrowseDestination.versions(hit)) {
+                    Label("Versions", systemImage: "square.stack.3d.up")
+                }
+                .buttonStyle(SeretActionButtonStyle())
             }
 
             // Everything rare or destructive lives here — off the primary path so it can't be mis-hit.
@@ -107,13 +162,12 @@ struct MovieDetailView: View {
                 Button {
                     Task {
                         await store.setWatched(!isWatched, contentKey: contentKey,
-                                               source: store.bestSource ?? item.sources[0])
+                                               source: store.bestSource)
                     }
                 } label: {
                     Label(isWatched ? "Mark Unwatched" : "Mark Watched",
                           systemImage: isWatched ? "checkmark.circle.fill" : "checkmark.circle")
                 }
-                .disabled(item.sources.isEmpty)
 
                 Button {
                     Task { await store.toggleMyList(contentKey: item.id) }
@@ -128,8 +182,10 @@ struct MovieDetailView: View {
                     }
                 }
 
-                Button(role: .destructive) { onRemove() } label: {
-                    Label("Remove from Library", systemImage: "trash")
+                if !item.sources.isEmpty {
+                    Button(role: .destructive) { onRemove() } label: {
+                        Label("Remove from Library", systemImage: "trash")
+                    }
                 }
             } label: {
                 Label("More", systemImage: "ellipsis")
@@ -141,6 +197,38 @@ struct MovieDetailView: View {
         // Otherwise a control further right on the row below (a star, a version) has nothing above.
         .frame(maxWidth: .infinity, alignment: .leading)
         .focusSection()
+    }
+
+    /// True while a release is being found or added.
+    private var acquiring: Bool {
+        switch acquisition?.phase {
+        case .finding, .adding: true
+        default: false
+        }
+    }
+
+    private var acquiringLabel: String {
+        switch acquisition?.phase {
+        case .finding: "Finding a version…"
+        case .adding: "Starting…"
+        default: "Play"
+        }
+    }
+
+    /// What the acquisition is waiting on or failed at. `.noneCached` falls through to the existing
+    /// Request Download section below, which already renders whenever there is no playable source.
+    @ViewBuilder private var acquisitionStatus: some View {
+        switch acquisition?.phase {
+        case .noneCached:
+            Label("No instantly-playable version. Request a download below.",
+                  systemImage: "magnifyingglass")
+                .font(.seretCallout).foregroundStyle(Theme.Palette.textSecondary)
+        case let .failed(message):
+            Label(message, systemImage: "exclamationmark.triangle")
+                .font(.seretCallout).foregroundStyle(.orange)
+        default:
+            EmptyView()
+        }
     }
 
     private var resumeSeconds: Double? {
@@ -160,17 +248,9 @@ struct MovieDetailView: View {
 
     private var versionsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 24) {
-                Text("Versions").sectionTitle()
-                Spacer()
-                if let hit = otherVersionsHit {
-                    NavigationLink(value: BrowseDestination.versions(hit)) {
-                        Label("Find Other Versions", systemImage: "square.stack.3d.up")
-                    }
-                    .buttonStyle(SeretActionButtonStyle())
-                }
-            }
-            .frame(maxWidth: 1100)
+            // "Find Other Versions" moved up into the action row, where it is reachable on a title
+            // you do not own too (this section only renders once you own something).
+            Text("Versions").sectionTitle().frame(maxWidth: 1100, alignment: .leading)
             ForEach(store.versions, id: \.self) { src in
                 NavigationLink(value: store.playRequest(source: src, episode: nil, label: item.title)) {
                     HStack(spacing: 16) {
@@ -205,6 +285,12 @@ struct MovieDetailView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .focusSection()
     }
+}
+
+/// Wraps a just-acquired `PlaybackRequest` so it can drive `.fullScreenCover(item:)`.
+private struct AcquiredPlayback: Identifiable {
+    let id = UUID()
+    let request: PlaybackRequest
 }
 
 #Preview {

@@ -11,6 +11,8 @@ struct DetailView: View {
     @State private var downloadingEpisodeID: String?
     @State private var episodePlayback: EpisodePlayback?
     @State private var episodeError: String?
+    /// Finds, adds and plays an episode you do not have — the same engine the movie page uses.
+    @State private var acquisition: AcquisitionStore?
     @Environment(AppSession.self) private var session
     @Environment(\.dismiss) private var dismiss
 
@@ -38,8 +40,15 @@ struct DetailView: View {
                 },
                 onSeasonAdded: { session.libraryStore?.retry() },
                 onDownloadEpisode: downloadAndPlayEpisode,
+                onPlayEpisode: { season, number in
+                    playEpisode(season: season, number: number, id: "s\(season)e\(number)")
+                },
                 downloadingEpisodeID: downloadingEpisodeID)
             }
+        }
+        .task(id: store.imdbID) {
+            acquisition = session.makeAcquisition(for: store.item, imdbID: store.imdbID,
+                                                  originalLanguage: store.originalLanguage)
         }
         .task {
             await store.load()
@@ -131,42 +140,48 @@ struct DetailView: View {
         return parts.isEmpty ? "This version" : parts.joined(separator: " · ")
     }
 
-    /// A not-downloaded episode was selected → add the best cached version, refresh the library,
-    /// and present the player.
+    /// A not-downloaded episode was selected → find it, add it, play it.
     private func downloadAndPlayEpisode(_ row: DetailStore.EpisodeRowInfo) {
-        guard let imdb = store.imdbID,
-              let add = session.makeAddStore(imdbID: imdb,
-                                             kind: .series(season: row.season, episode: row.number),
-                                             originalLanguage: store.originalLanguage) else { return }
-        downloadingEpisodeID = row.id
+        playEpisode(season: row.season, number: row.number, id: row.id)
+    }
+
+    /// Acquire and play one episode, addressed by number so it works for a show you have not added
+    /// at all. Falls through to a tracked download when Real-Debrid has nothing instant.
+    private func playEpisode(season: Int, number: Int, id: String) {
+        guard let acquisition else { return }
+        downloadingEpisodeID = id
         Task {
-            await add.loadStreams()   // MUST run first: addBest() is a no-op on an empty `ranked` list
-            await add.addBest()
+            await acquisition.playBest(.episode(season: season, number: number))
             downloadingEpisodeID = nil
-            if case let .added(info) = add.state,
-               let req = store.playRequest(forAdded: info, season: row.season, number: row.number) {
-                session.libraryStore?.retry()
-                episodePlayback = EpisodePlayback(request: req)
-            } else {
-                await startEpisodeDownload(row, using: add)
+            switch acquisition.phase {
+            case let .ready(request):
+                session.libraryStore?.retry()      // a new torrent landed in RD
+                episodePlayback = EpisodePlayback(request: request)
+            case .noneCached:
+                await startEpisodeDownload(season: season, number: number, using: acquisition)
+            case let .failed(message):
+                episodeError = message
+            default:
+                break
             }
+            acquisition.reset()
         }
     }
 
     /// Nothing cached for this episode — start a tracked Real-Debrid download instead of giving
     /// up. It cannot play now (it is still downloading), so progress surfaces on the episode row
     /// and the Home "Downloading" rail rather than opening the player.
-    private func startEpisodeDownload(_ row: DetailStore.EpisodeRowInfo, using add: AddStore) async {
-        let candidates = await add.uncachedCandidates()
+    private func startEpisodeDownload(season: Int, number: Int,
+                                      using acquisition: AcquisitionStore) async {
+        let candidates = await acquisition.uncachedCandidates(.episode(season: season, number: number))
         guard !candidates.isEmpty, let tmdb = store.item.tmdbID else {
             episodeError = "No version of this episode is available to download."
             return
         }
         await session.downloadStore?.request(
-            contentKey: DownloadKey.episode(showTmdbID: tmdb, season: row.season,
-                                            number: row.number),
+            contentKey: DownloadKey.episode(showTmdbID: tmdb, season: season, number: number),
             tmdbID: tmdb,
-            title: "\(store.item.title) S\(row.season)E\(row.number)",
+            title: "\(store.item.title) S\(season)E\(number)",
             kind: .show, candidates: candidates, posterPath: store.item.posterPath)
     }
 }

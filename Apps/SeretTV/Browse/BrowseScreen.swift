@@ -11,6 +11,7 @@ struct BrowseScreen: View {
     let kind: MediaKind
 
     @Environment(AppSession.self) private var session
+    @Environment(TileWatchMarks.self) private var marks
     /// Which segment pill has focus. Focus only highlights; a Select press switches the section
     /// (commit-on-press — see `segmentPicker`).
     @FocusState private var focusedSegment: DiscoverStore.Segment?
@@ -103,6 +104,8 @@ struct BrowseScreen: View {
                 LazyHStack(spacing: 36) {
                     ForEach(hits) { BrowseTile(hit: $0, cam: cam || (browse?.isCAM($0.result) ?? false)) }
                 }
+                // One batched read per rail; already-known titles cost nothing.
+                .task(id: hits.map(\.id).joined()) { await marks.load(hits) }
                 .padding(.horizontal, Theme.Layout.contentMargin).padding(.vertical, 40)
             }
             .scrollClipDisabled()
@@ -142,18 +145,19 @@ private struct BrowseSkeleton: View {
     }
 }
 
-/// Where a browse/search poster goes: the owned item's library Detail, the Add flow, or the
-/// full-screen Search. ONE value type so a tile is ONE stable `NavigationLink` — see BrowseTile.
+/// Where a browse/search poster goes: the title's page, or the full-screen Search. ONE value type
+/// so a tile is ONE stable `NavigationLink` — see BrowseTile.
 enum BrowseDestination: Hashable {
     case detail(MediaItem)
-    case add(SearchHit)
     case search(MediaKind)
-    /// Straight to the full-screen versions list for a title you already own (skips the Add hero).
+    /// Straight to the full-screen versions list, skipping the page.
     case versions(SearchHit)
 }
 
-/// A focusable browse poster. Owned → pushes the library Detail; else the Add flow. Owned posters
-/// carry an "In Library" badge. Shared by Browse + Search.
+/// A focusable browse poster. Owned or not, it opens the SAME page — an un-owned title is a
+/// source-less placeholder that `DetailStore` fills in from TMDB exactly as it fills in a library
+/// item. Owned posters carry an "In Library" badge, watched ones dim and tick. Shared by Browse +
+/// Search.
 ///
 /// ⚠️ The link must be ONE stable view whose VALUE varies — not an owned/not-owned branch of two
 /// links. The background library load flips `ownedItem` while the user browses; a branch swap
@@ -163,23 +167,54 @@ struct BrowseTile: View {
     let hit: SearchHit
     var cam: Bool = false
     @Environment(AppSession.self) private var session
+    @Environment(TileWatchMarks.self) private var marks
     private let width: CGFloat = 220
     private let height: CGFloat = 330
 
     var body: some View {
         let owned = session.libraryStore?.ownedItem(tmdbID: hit.result.id)
+        let watched = marks.isWatched(hit)
         // No title label — posters already carry their title in the artwork.
-        return NavigationLink(value: owned.map(BrowseDestination.detail) ?? .add(hit)) {
-            poster(owned: owned != nil)
+        return NavigationLink(value: BrowseDestination.detail(owned ?? .placeholder(for: hit))) {
+            poster(owned: owned != nil, watched: watched)
         }
         .buttonStyle(.card)
+        // Press and hold to say you have seen it. `PosterCard` in the library grid already proves
+        // this works on a `.card` NavigationLink with the Siri remote.
+        .contextMenu {
+            Button(watched ? unmarkLabel : markLabel,
+                   systemImage: watched ? "checkmark.circle.fill" : "checkmark.circle") {
+                toggleWatched(watched)
+            }
+        }
     }
 
-    @ViewBuilder private func poster(owned: Bool) -> some View {
+    private var markLabel: String { hit.kind == .movie ? "Mark Watched" : "Mark Show Watched" }
+    private var unmarkLabel: String { hit.kind == .movie ? "Mark Unwatched" : "Mark Show Unwatched" }
+
+    /// The tick flips immediately; the write follows. A movie is one row. A show fans out over
+    /// every episode TMDB lists, which is why it runs detached rather than blocking the gesture.
+    private func toggleWatched(_ watched: Bool) {
+        marks.set(!watched, for: hit)
+        let profileID = session.activeProfileID ?? ""
+        Task {
+            switch hit.kind {
+            case .movie:
+                await session.watchStore?.setWatched(!watched, contentKey: hit.contentKey,
+                                                     sourceKey: "", profileID: profileID)
+            case .show:
+                await session.makeShowWatchMarker()?.mark(!watched, show: .placeholder(for: hit),
+                                                          profileID: profileID)
+            }
+        }
+    }
+
+    @ViewBuilder private func poster(owned: Bool, watched: Bool) -> some View {
         ZStack(alignment: .topTrailing) {
             if let url = TMDBClient.imageURL(path: hit.result.posterPath, size: "w500") {
                 RemoteImage(url: url)
                     .frame(width: width, height: height)
+                    .overlay { if watched { Color.black.opacity(0.45) } }   // dim a watched title
                     .clipShape(RoundedRectangle(cornerRadius: Theme.Layout.posterCorner, style: .continuous))
             } else {
                 RoundedRectangle(cornerRadius: Theme.Layout.posterCorner, style: .continuous)
@@ -190,7 +225,14 @@ struct BrowseTile: View {
                     }
                     .frame(width: width, height: height)
             }
-            if owned {
+            // Watched beats owned: having seen it is the more useful thing to know at a glance.
+            if watched {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 28, weight: .bold))
+                    .foregroundStyle(.black, Theme.Palette.gold)
+                    .padding(10)
+                    .accessibilityLabel("Watched")
+            } else if owned {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 28, weight: .bold))
                     .foregroundStyle(.black, .yellow)

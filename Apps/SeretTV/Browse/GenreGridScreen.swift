@@ -8,6 +8,7 @@ struct GenreGridScreen: View {
     let genre: DiscoverStore.Genre
 
     @Environment(AppSession.self) private var session
+    @Environment(TileWatchMarks.self) private var marks
     @State private var store: GenreGridStore?
     @FocusState private var focusedSort: GenreSort?
 
@@ -76,6 +77,7 @@ struct GenreGridScreen: View {
             .padding(.horizontal, Theme.Layout.contentMargin)
             .padding(.vertical, 30)
         }
+        .task(id: hits.map(\.id).joined()) { await marks.load(hits) }
         .frame(maxWidth: .infinity, alignment: .leading)
         .focusSection()
     }

@@ -11,6 +11,7 @@ struct SearchScreen: View {
     let initialKind: MediaKind
 
     @Environment(AppSession.self) private var session
+    @Environment(TileWatchMarks.self) private var marks
     @State private var query = ""
     @State private var kind: MediaKind
     @FocusState private var focusedKind: MediaKind?
@@ -95,6 +96,9 @@ struct SearchScreen: View {
             }
             .padding(Theme.Layout.contentMargin)
         }
+        // One batched read for whatever this search turned up, so the posters can say what you
+        // have already seen.
+        .task(id: hits.map(\.id).joined()) { await marks.load(hits) }
         .frame(maxWidth: .infinity, alignment: .leading)
         .focusSection()
     }
