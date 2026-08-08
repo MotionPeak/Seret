@@ -222,6 +222,8 @@ public final class PlayerModel {
     /// VLCKit actually discovers a different set (see `applyAudioPreference`).
     var audioSelectionSignature: [String] = []
 
+    /// `start()` has run. See `start()` — the screen's `.onAppear` can fire more than once.
+    var hasStarted = false
     var eventTask: Task<Void, Never>?
     var loadTask: Task<Void, Never>?
     var hideControlsTask: Task<Void, Never>?

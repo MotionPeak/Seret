@@ -9,8 +9,15 @@ extension PlayerModel {
     /// the engine's AsyncStream) and loads the first source. retry()/tryAnotherVersion() re-load
     /// WITHOUT relaunching the loop, so the single VLCKit stream is consumed continuously across
     /// source switches.
+    ///
+    /// Idempotent, because it is wired to the player screen's `.onAppear` and SwiftUI fires that
+    /// again on every re-appearance (a cover dismissing above it, a re-parented stack). A second
+    /// pass would `reload()` — throwing the viewer back to the start of the film mid-watch — and
+    /// re-register the Now Playing commands, doubling every press the iPhone Remote sends. Since
+    /// retry/tryAnotherVersion never come through here, the guard can be this blunt.
     public func start() {
-        eventTask?.cancel()
+        guard !hasStarted else { return }
+        hasStarted = true
         eventTask = Task { await self.consumeEvents() }
         activateNowPlaying()
         reload()

@@ -13,6 +13,28 @@ import DebridCore
                     recordProgress: { _, _, _, _ in }, subtitles: nil)
     }
 
+    /// `start()` is wired to the player screen's `.onAppear`, and SwiftUI fires that again whenever
+    /// the view re-appears — a cover dismissing above it, a re-parented navigation stack. A second
+    /// `start()` used to `reload()`, which throws the viewer back to the beginning of the film mid-
+    /// watch, and to re-register the Now Playing command handlers, which doubles every press the
+    /// iPhone Remote sends (a ±10s button that jumps 20). One playback session starts once.
+    @Test func startingTwiceDoesNotRestartPlayback() async {
+        let engine = FakeVideoPlayerEngine()
+        let model = makeModel(engine: engine)
+        model.start()
+        await model.waitForIdleForTesting()
+        engine.emit(.time(.init(position: 500, duration: 3600)))
+        engine.emit(.time(.init(position: 500.5, duration: 3600)))
+        await model.waitForIdleForTesting()
+        #expect(model.phase == .playing)
+
+        model.start()                             // the screen re-appeared
+        await model.waitForIdleForTesting()
+
+        #expect(model.phase == .playing)          // …not thrown back to .preparing
+        #expect(model.position == 500.5)          // …and not back to the top of the film
+    }
+
     @Test func pausedBeforePlayingClearsTheLoadingGate() async {
         // VLCKit can report .paused before it ever reports .playing (it renders the first frame
         // when it pauses). The overlay must not cover a video that is one play() away.
