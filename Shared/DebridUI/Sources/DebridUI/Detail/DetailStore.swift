@@ -89,13 +89,7 @@ public final class DetailStore {
     /// The version Play uses: the user's choice when it still resolves to an owned source,
     /// otherwise the quality ranker. A preference for a torrent since deleted from RD must fall
     /// back rather than leave Play permanently broken.
-    public var bestSource: MediaSource? {
-        if let key = preferredSourceKey,
-           let chosen = ownedSources.first(where: { WatchKey.source($0) == key }) {
-            return chosen
-        }
-        return ownedSources.best
-    }
+    public var bestSource: MediaSource? { ownedSources.preferred(preferredSourceKey) }
 
     /// Called after a version was deleted from Real-Debrid: drop it from this screen, and retire a
     /// "play this one by default" preference that now points at nothing.

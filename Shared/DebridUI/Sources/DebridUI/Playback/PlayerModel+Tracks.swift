@@ -21,7 +21,7 @@ extension PlayerModel {
     func applyTrackPreferencesIfNeeded() {
         guard let prefs = trackPreferences else { return }
         applyAudioPreference(prefs)
-        applySubtitlePreferenceOnce(prefs)
+        applySubtitlePreference(prefs)
     }
 
     /// The preferred audio language to hand the engine at LOAD time, so it opens the right track
@@ -113,27 +113,68 @@ extension PlayerModel {
         return desired.audioDecodeTier < current.audioDecodeTier              // else: only to escape a bad codec
     }
 
-    /// Apply the subtitle preference once per source (`reload()` re-arms it). Unlike audio this
-    /// must NOT repeat: the `.language` branch can kick off an on-demand download, and re-running
-    /// it on every `.tracksChanged` would re-hit a daily-capped account every episode of a binge.
-    func applySubtitlePreferenceOnce(_ prefs: TrackPreferenceStoring) {
-        guard !trackPrefsApplied, !audioTracks.isEmpty else { return }
-        trackPrefsApplied = true
+    /// Apply the subtitle preference, re-deciding for as long as the track set keeps growing.
+    ///
+    /// This used to run exactly once, gated on AUDIO tracks being present — and that is the bug
+    /// behind "I have to turn the subtitles on again every time". VLCKit discovers elementary
+    /// streams one at a time (the audio path above documents the same hazard), so at the moment the
+    /// first audio track appeared the subtitle set was routinely still empty: no match was found,
+    /// the latch closed, and the embedded track arriving a beat later was never looked at again.
+    ///
+    /// Selection is idempotent and free, so it simply re-runs whenever the subtitle set changes.
+    /// The DOWNLOAD fallback is the part that must stay one-shot — it spends a daily-capped
+    /// quota — so it is deferred to `arrangeSubtitleFallback` rather than fired the instant no
+    /// match is found among tracks that may not all have arrived.
+    func applySubtitlePreference(_ prefs: TrackPreferenceStoring) {
+        guard !subtitlePickedByUser else { return }
 
         switch prefs.preferredSubtitle {
         case .automatic:
-            break
+            return
         case .off:
+            // Asserted immediately — "off" needs no discovery — and RE-asserted whenever the track
+            // set changes, because a subtitle stream discovered later can be auto-enabled by the
+            // engine (a forced/default track), which would put subtitles back on screen after the
+            // viewer turned them off.
+            let signature = subtitleTracks.map(\.id)
+            guard !subtitleOffAsserted || signature != subtitleSelectionSignature else { return }
+            subtitleSelectionSignature = signature
+            subtitleOffAsserted = true
             engine.selectSubtitleTrack(id: nil)
             selectedSubtitleID = nil
         case .language(let lang):
-            if let match = subtitleTracks.first(where: { $0.language == lang }) {
-                engine.selectSubtitleTrack(id: match.id)
-                selectedSubtitleID = match.id
-            } else if ["he", "en"].contains(lang),
-                      subtitleRows.first(where: { $0.language == lang })?.state == .idle {
-                Task { await self.requestSubtitle(language: lang) }
-            }
+            let signature = subtitleTracks.map(\.id)
+            defer { arrangeSubtitleFallback(for: lang) }
+            guard signature != subtitleSelectionSignature else { return }
+            subtitleSelectionSignature = signature
+            guard let match = subtitleTracks.first(where: { $0.language == lang }) else { return }
+            subtitleFallbackTask?.cancel()          // an embedded track beat the download to it
+            subtitleFallbackTask = nil
+            subtitleFallbackRequested = true
+            guard match.id != selectedSubtitleID else { return }
+            engine.selectSubtitleTrack(id: match.id)
+            selectedSubtitleID = match.id
+        }
+    }
+
+    /// Arm the one-shot download fallback for a language with no embedded track.
+    ///
+    /// Deliberately delayed. There is no "track discovery finished" event, so firing the moment no
+    /// match is found cannot tell "this release has no subtitles" from "they have not been parsed
+    /// yet" — and getting that wrong spends a download from a daily-capped account on a file that
+    /// already carries the track. Waiting `subtitleFallbackDelay` lets discovery settle; an
+    /// embedded match arriving in the meantime cancels this.
+    func arrangeSubtitleFallback(for language: String) {
+        guard !subtitleFallbackRequested, subtitleFallbackTask == nil,
+              ["he", "en"].contains(language),
+              subtitleRows.first(where: { $0.language == language })?.state == .idle else { return }
+        subtitleFallbackTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            try? await Task.sleep(for: .seconds(subtitleFallbackDelay))
+            guard !Task.isCancelled, !subtitlePickedByUser, !subtitleFallbackRequested,
+                  !subtitleTracks.contains(where: { $0.language == language }) else { return }
+            subtitleFallbackRequested = true
+            await self.requestSubtitle(language: language)
         }
     }
 
@@ -156,11 +197,15 @@ extension PlayerModel {
     }
 
     public func selectSubtitle(id: String) {
+        subtitlePickedByUser = true       // stop the automatic choice from re-deciding over them
+        subtitleFallbackTask?.cancel()
         selectedSubtitleID = id
         engine.selectSubtitleTrack(id: id)
         recordPreferredSubtitle(forTrackID: id)
     }
     public func selectSubtitleOff() {
+        subtitlePickedByUser = true
+        subtitleFallbackTask?.cancel()
         selectedSubtitleID = nil
         engine.selectSubtitleTrack(id: nil)
         trackPreferences?.preferredSubtitle = .off

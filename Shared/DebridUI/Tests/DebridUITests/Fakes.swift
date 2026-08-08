@@ -45,6 +45,8 @@ final class FakeVideoPlayerEngine: VideoPlayerEngine {
     func setVolume(_ percent: Int) { volumesSet.append(percent) }
     func selectAudioTrack(id: String?) { selectedAudioID = id }
     func selectSubtitleTrack(id: String?) { selectedSubtitleID = id }
+    /// Forget what was last selected, so a test can prove a second pass does NOT re-issue it.
+    func clearSubtitleSelection() { selectedSubtitleID = nil }
     func addExternalSubtitle(url: URL) {
         addedSubtitles.append(url)
         // Simulate VLCKit surfacing the external sub as a new, generically-named slave track.

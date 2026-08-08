@@ -36,7 +36,7 @@ struct PlayerView: View {
             // not exist. Swapping the focused view's identity mid-playback is also the exact
             // anti-pattern that cost this app its Browse-tile focus (see CLAUDE.md).
             PlayerInputSurface(
-                isActive: !showSettings && !showEpisodes && !model.upNextVisible && !showSubtitleBrowser,
+                isActive: inputSurfaceActive,
                 // Click pauses AND arms scrubbing; a swipe while playing never seeks.
                 scrubEnabled: model.phase == .paused,
                 onTouchDown: { model.revealScrubBar() },
@@ -54,6 +54,7 @@ struct PlayerView: View {
                     else { model.skip(delta); model.revealScrubBar() }
                 },
                 onSelect: { model.togglePlayPause(); model.revealScrubBar() },
+                onPlayPause: { model.togglePlayPause() },
                 onUp: { model.revealScrubBar() },
                 onDown: { openSettingsOrEpisodes() },
                 onScanBegan: { direction in model.beginScan(direction: direction) },
@@ -128,7 +129,11 @@ struct PlayerView: View {
         // animate anything else in the stack.
         .animation(Theme.Anim.pageFade, value: model.phase)
         .animation(Theme.Anim.focus, value: model.skipFeedback)
-        .onPlayPauseCommand { model.togglePlayPause() }
+        // ONLY for the overlays. While watching, the play/pause press is handled by
+        // `PlayerInputSurface` — this modifier depends on SwiftUI's focus system owning the focused
+        // view, and the input surface is a focusable UIKit one. Guarding on the same condition
+        // means exactly one of the two paths is ever live, so a press can never toggle twice.
+        .onPlayPauseCommand { if !inputSurfaceActive { model.togglePlayPause() } }
         .onExitCommand {
             if model.isScrubbing { model.cancelScrub() }       // Menu abandons a scrub
             else if model.upNextVisible { model.dismissUpNext() }
@@ -151,6 +156,12 @@ struct PlayerView: View {
         .onChange(of: showSubtitleBrowser) { _, open in if !open { model.revealScrubBar() } }
         .onChange(of: model.shouldDismiss) { _, dismissNow in if dismissNow { dismiss() } }
         .onDisappear { Task { await model.teardown() } }
+    }
+
+    /// The input surface owns the remote whenever no focusable overlay is up. One source of truth,
+    /// because both the surface's own activation and the play/pause routing depend on it.
+    private var inputSurfaceActive: Bool {
+        !showSettings && !showEpisodes && !model.upNextVisible && !showSubtitleBrowser
     }
 
     /// Down from the stage: collapse the episode strip if it's open, else open the settings panel.

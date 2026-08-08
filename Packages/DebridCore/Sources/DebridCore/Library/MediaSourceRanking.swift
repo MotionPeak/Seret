@@ -17,4 +17,19 @@ public extension Array where Element == MediaSource {
 
     /// The single best source, or nil when empty.
     var best: MediaSource? { bestFirst().first }
+
+    /// **The version playback will actually use**: the viewer's chosen one when it still resolves,
+    /// otherwise the quality ranker.
+    ///
+    /// One definition, because more than one screen starts playback — the title page's Play button
+    /// and Home's Continue Watching — and they disagreed: Home resolved with `best` and never asked
+    /// for the preference, so a version chosen on the title page was silently ignored by the very
+    /// screen the viewer resumes from.
+    ///
+    /// The fallback is load-bearing: a preference pointing at a torrent since deleted from RD must
+    /// degrade to the ranker rather than leave Play permanently broken.
+    func preferred(_ sourceKey: String?) -> MediaSource? {
+        if let sourceKey, let chosen = first(where: { WatchKey.source($0) == sourceKey }) { return chosen }
+        return best
+    }
 }

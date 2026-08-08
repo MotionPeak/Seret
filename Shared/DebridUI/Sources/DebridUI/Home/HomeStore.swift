@@ -40,7 +40,14 @@ public final class HomeStore {
     public var activeProfileID: String?
 
     private let watch: WatchProgressProviding
-    public init(watch: WatchProgressProviding) { self.watch = watch }
+    /// The viewer's chosen version per title. Optional so a Home built without it (tests, a store
+    /// that failed to open) still composes — it just falls back to the quality ranker.
+    private let versionPrefs: VersionPreferring?
+
+    public init(watch: WatchProgressProviding, versionPrefs: VersionPreferring? = nil) {
+        self.watch = watch
+        self.versionPrefs = versionPrefs
+    }
 
     /// Recompute both rails for the active profile from the current library + watch progress.
     public func rebuild(movies: [MediaItem], shows: [MediaItem]) async {
@@ -48,20 +55,33 @@ public final class HomeStore {
             continueWatching = []; recentlyAdded = []; return
         }
         let states = (try? await watch.recentlyWatched(limit: 20, profileID: profileID)) ?? []
-        continueWatching = states.compactMap { Self.resolve($0, movies: movies, shows: shows) }
+        // Resolve each entry's chosen version before composing. Sequential rather than concurrent
+        // because the store behind this is a single SwiftData actor, which serialises anyway, and
+        // the rail is capped at 20.
+        var resumable: [HomeItem] = []
+        for state in states {
+            let chosen = await versionPrefs?.preferred(forContentKey: state.contentKey)
+            if let item = Self.resolve(state, movies: movies, shows: shows, preferredSourceKey: chosen) {
+                resumable.append(item)
+            }
+        }
+        continueWatching = resumable
         let all = movies + shows
         recentlyAdded = Array(all.filter { $0.addedAt != nil }
             .sorted { ($0.addedAt ?? .distantPast) > ($1.addedAt ?? .distantPast) }
             .prefix(20))
     }
 
-    static func resolve(_ s: WatchState, movies: [MediaItem], shows: [MediaItem]) -> HomeItem? {
+    /// `preferredSourceKey` is the viewer's chosen version for this title, if any — resuming must
+    /// use the same file the title page's Play button would.
+    static func resolve(_ s: WatchState, movies: [MediaItem], shows: [MediaItem],
+                        preferredSourceKey: String? = nil) -> HomeItem? {
         let fraction = s.durationSeconds > 0 ? min(1, s.positionSeconds / s.durationSeconds) : 0
         // Resume hint: only when there's real, unfinished progress to jump back to.
         let resume: Double? = (!s.finished && s.positionSeconds > 0) ? s.positionSeconds : nil
         if let movie = movies.first(where: { $0.id == s.contentKey }) {
             return HomeItem(item: movie, fraction: fraction, subtitle: "",
-                            episode: nil, source: movie.sources.best,
+                            episode: nil, source: movie.sources.preferred(preferredSourceKey),
                             contentKey: s.contentKey, resumeAt: resume)
         }
         if let show = shows.first(where: { s.contentKey.hasPrefix($0.id + ":") }) {

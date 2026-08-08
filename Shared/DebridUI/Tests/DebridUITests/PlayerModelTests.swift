@@ -15,13 +15,22 @@ import DebridCore
         resolveResume: ((String) async -> Double?)? = nil,
         prefetchLink: ((String) -> Void)? = nil,
         autoHideDelay: Double = 4,
-        seekCoalesceWindow: Double = 0.35
+        seekCoalesceWindow: Double = 0.35,
+        subtitleFallbackDelay: Double = 0.02
     ) -> PlayerModel {
         PlayerModel(request: request, engine: engine, unrestrict: unrestrict,
                     recordProgress: recorded, subtitles: subtitles,
                     trackPreferences: trackPreferences, resolveResume: resolveResume,
                     prefetchLink: prefetchLink, autoHideDelay: autoHideDelay,
-                    seekCoalesceWindow: seekCoalesceWindow)
+                    seekCoalesceWindow: seekCoalesceWindow,
+                    subtitleFallbackDelay: subtitleFallbackDelay)
+    }
+
+
+    /// The download fallback is deliberately deferred (see `arrangeSubtitleFallback`) so an
+    /// embedded track still being discovered can win it. Let that window elapse.
+    private func settleSubtitleFallback() async {
+        try? await Task.sleep(for: .seconds(0.12))
     }
 
     @Test func startUnrestrictsLoadsAndPlays() async {
@@ -1034,7 +1043,7 @@ import DebridCore
         engine.audioTracks = audioPair()
         engine.subtitleTracks = []                           // no embedded Hebrew
         engine.emit(.tracksChanged); await model.waitForIdleForTesting()
-        await model.waitForIdleForTesting()
+        await settleSubtitleFallback()
         #expect(subs.searchedLanguages.contains(["he"]))     // auto-kicked a Hebrew download
     }
 
@@ -1048,8 +1057,9 @@ import DebridCore
         model.start(); await model.waitForIdleForTesting()
         engine.audioTracks = audioPair()
         engine.emit(.tracksChanged); await model.waitForIdleForTesting()
-        await model.waitForIdleForTesting()
+        await settleSubtitleFallback()
         engine.emit(.tracksChanged); await model.waitForIdleForTesting()   // VLCKit re-fires
+        await settleSubtitleFallback()
         #expect(subs.searchedLanguages.filter { $0 == ["he"] }.count == 1) // applied once, not per event
     }
 
@@ -1207,5 +1217,62 @@ import DebridCore
         engine.emit(.time(.init(position: 1375, duration: 1400))); await model.waitForIdleForTesting()
         #expect(model.upNextVisible == true)
         #expect(prefetched == ["rd://e2"])                   // warmed as the bar appeared
+    }
+}
+
+/// The reported "I have to put the subtitles on again and again".
+///
+/// VLCKit discovers elementary streams one at a time, so the subtitle set is routinely still empty
+/// when the first audio track arrives. The preference used to be applied exactly once at that
+/// moment, so the embedded track that showed up a beat later was never matched.
+@MainActor
+@Suite struct SubtitlePreferenceDiscoveryTests {
+
+    private func model(_ engine: FakeVideoPlayerEngine, _ prefs: FakeTrackPreferences) -> PlayerModel {
+        PlayerModel(request: Fixture.request(), engine: engine,
+                    unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
+                    recordProgress: { _, _, _, _ in }, subtitles: nil,
+                    trackPreferences: prefs, subtitleFallbackDelay: 0.02)
+    }
+
+    /// THE regression test: audio arrives first, subtitles a beat later.
+    @Test func aSubtitleTrackDiscoveredAfterTheAudioTrackIsStillApplied() async {
+        let engine = FakeVideoPlayerEngine()
+        let m = model(engine, FakeTrackPreferences(subtitle: .language("he")))
+
+        engine.audioTracks = [MediaTrack(id: "audio/0", kind: .audio, name: "EN", language: "en", isSelected: true)]
+        m.refreshTracks()                                   // first .tracksChanged — no subs yet
+        #expect(engine.selectedSubtitleID == nil)
+
+        engine.subtitleTracks = [MediaTrack(id: "spu/0", kind: .subtitle, name: "Hebrew", language: "he")]
+        m.refreshTracks()                                   // subtitle stream discovered
+        #expect(engine.selectedSubtitleID == "spu/0")
+        #expect(m.selectedSubtitleID == "spu/0")
+    }
+
+    /// Re-deciding must not fight the viewer: once they choose by hand, the automatic pick stops.
+    @Test func aManualPickIsNotOverriddenByLaterDiscovery() async {
+        let engine = FakeVideoPlayerEngine()
+        let m = model(engine, FakeTrackPreferences(subtitle: .language("he")))
+        engine.audioTracks = [MediaTrack(id: "audio/0", kind: .audio, name: "EN", language: "en")]
+        engine.subtitleTracks = [MediaTrack(id: "spu/0", kind: .subtitle, name: "English", language: "en"),
+                                 MediaTrack(id: "spu/1", kind: .subtitle, name: "Hebrew", language: "he")]
+        m.selectSubtitle(id: "spu/0")                       // viewer chooses English by hand
+        engine.subtitleTracks.append(MediaTrack(id: "spu/2", kind: .subtitle, name: "Hebrew 2", language: "he"))
+        m.refreshTracks()
+        #expect(engine.selectedSubtitleID == "spu/0")
+    }
+
+    /// Re-running selection must not re-issue the same track on every event — that restarts the
+    /// renderer for nothing.
+    @Test func anAlreadySatisfiedPreferenceIsNotReapplied() async {
+        let engine = FakeVideoPlayerEngine()
+        let m = model(engine, FakeTrackPreferences(subtitle: .language("he")))
+        engine.audioTracks = [MediaTrack(id: "audio/0", kind: .audio, name: "EN", language: "en")]
+        engine.subtitleTracks = [MediaTrack(id: "spu/0", kind: .subtitle, name: "Hebrew", language: "he")]
+        m.refreshTracks()
+        engine.clearSubtitleSelection()
+        m.refreshTracks()                                   // same set → no re-selection
+        #expect(engine.selectedSubtitleID == nil)
     }
 }

@@ -44,6 +44,15 @@ struct PlayerInputSurface: UIViewRepresentable {
 
     var onSkip: (Double) -> Void
     var onSelect: () -> Void
+    /// The remote's DEDICATED play/pause button — a different press type from `.select`, and a
+    /// different delivery path from every gesture here.
+    ///
+    /// It lives on this surface rather than on SwiftUI's `.onPlayPauseCommand` because that
+    /// modifier fires only while SwiftUI's own focus system owns the focused view, and since this
+    /// surface became focusable (it received nothing at all otherwise) the focused view is a UIKit
+    /// one. The button did nothing on the Siri Remote AND in the iPhone Remote app, which both send
+    /// this same press.
+    var onPlayPause: () -> Void
     var onUp: () -> Void
     var onDown: () -> Void
     /// Hold-to-scan started in a direction (-1 back, +1 forward), and released.
@@ -130,6 +139,7 @@ struct PlayerInputSurface: UIViewRepresentable {
                 (.upArrow, #selector(handleUp)),
                 (.downArrow, #selector(handleDown)),
                 (.select, #selector(handleSelect)),
+                (.playPause, #selector(handlePlayPause)),
             ]
             recognizers += taps.map { type, action in
                 let tap = UITapGestureRecognizer(target: self, action: action)
@@ -259,6 +269,9 @@ struct PlayerInputSurface: UIViewRepresentable {
             guard !isScanning, CACurrentMediaTime() - lastScanEndedAt > scanTapGuard else { return }
             parent.onSkip(delta)
         }
+        /// Unlike `.select`, this never commits a scrub — the viewer reaching for play/pause is
+        /// asking about playback, not about the marker they are aiming with.
+        @objc private func handlePlayPause() { probePress("playPause"); parent.onPlayPause() }
         @objc private func handleUp()    { probePress("up");    parent.onUp() }
         @objc private func handleDown()  { probePress("down");  parent.onDown() }
         @objc private func handleSelect() {

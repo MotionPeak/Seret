@@ -184,9 +184,25 @@ public final class PlayerModel {
     /// App-global preferred audio/subtitle language. Recorded on a manual pick and auto-applied once
     /// per loaded source. Optional — nil disables persistence (no preference recorded or applied).
     let trackPreferences: TrackPreferenceStoring?
-    /// Whether the preferred SUBTITLE has been auto-applied for the current source (reset on
-    /// reload), so a later manual change isn't reverted by subsequent `.tracksChanged` events.
-    var trackPrefsApplied = false
+    /// The viewer picked a subtitle by hand — the automatic choice stops re-deciding, exactly as
+    /// `audioPickedByUser` does for audio.
+    var subtitlePickedByUser = false
+    /// The subtitle track ids the automatic choice was last computed from. The preference used to
+    /// be applied ONCE, gated on AUDIO tracks being present — but VLCKit discovers elementary
+    /// streams one at a time, so the subtitle set was routinely still empty at that moment. The
+    /// embedded track that arrived a beat later was never matched and the latch never reopened,
+    /// which is why a chosen subtitle language had to be re-picked on nearly every play.
+    var subtitleSelectionSignature: [String] = []
+    /// The on-demand download fallback has been used for this source. Kept strictly one-shot: the
+    /// OpenSubtitles account is daily-capped, so a binge must not spend a download per episode.
+    var subtitleFallbackRequested = false
+    /// An `.off` preference has been pushed to the engine for this source at least once.
+    var subtitleOffAsserted = false
+    var subtitleFallbackTask: Task<Void, Never>?
+    /// How long to let VLCKit finish discovering subtitle tracks before falling back to a download.
+    /// There is no "discovery finished" event, so this is the only thing separating "this file has
+    /// no subtitles" from "they haven't been parsed yet". Injectable so tests don't sleep.
+    let subtitleFallbackDelay: Double
     /// The viewer picked an audio track by hand — the automatic choice stops re-deciding.
     var audioPickedByUser = false
     /// The audio track ids the automatic choice was last computed from, so it re-runs only when
@@ -327,7 +343,9 @@ public final class PlayerModel {
          loadTimeout: Double = 30,
          seekCoalesceWindow: Double = 0.35,
          scanInterval: Double = 0.5,
-         scanMaxDuration: Double = 15) {
+         scanMaxDuration: Double = 15,
+         subtitleFallbackDelay: Double = 2) {
+        self.subtitleFallbackDelay = subtitleFallbackDelay
         self.autoHideDelay = autoHideDelay
         self.loadTimeout = loadTimeout
         self.seekCoalesceWindow = seekCoalesceWindow

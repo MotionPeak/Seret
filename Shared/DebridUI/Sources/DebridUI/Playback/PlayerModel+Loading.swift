@@ -169,9 +169,14 @@ extension PlayerModel {
         resumeFraction = 0
         pendingSeek = nil
         cancelCoalescedSeek()
-        trackPrefsApplied = false
         audioPickedByUser = false          // a new source re-decides audio from scratch
         audioSelectionSignature = []
+        subtitlePickedByUser = false       // …and so does the subtitle choice
+        subtitleSelectionSignature = []
+        subtitleFallbackRequested = false
+        subtitleOffAsserted = false
+        subtitleFallbackTask?.cancel()
+        subtitleFallbackTask = nil
         lastSavedPosition = -.infinity
         loadTask?.cancel()
         loadTask = Task { await self.loadCurrentSource() }

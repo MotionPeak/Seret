@@ -223,7 +223,7 @@ private struct InputProbePreview: View {
                 onTouchDown: {}, onTouchUp: {},
                 onScrubBegan: {}, onScrubMoved: { _ in },
                 onScrubEnded: {}, onScrubCancelled: {},
-                onSkip: { _ in }, onSelect: {}, onUp: {}, onDown: {},
+                onSkip: { _ in }, onSelect: {}, onPlayPause: {}, onUp: {}, onDown: {},
                 onScanBegan: { _ in }, onScanEnded: {}
             )
             .ignoresSafeArea()

@@ -576,7 +576,9 @@ public final class AppSession {
         ratingsProvider = omdbKey.isEmpty ? nil
             : OMDbRatingsService(client: OMDbClient(apiKey: omdbKey),
                                  cache: OMDbRatingsCache(directory: Self.dataDirectory))
-        home = watchStore.map { HomeStore(watch: $0) }
+        // Home resumes playback directly, so it needs the same version preference the title page's
+        // Play button uses — otherwise Continue Watching quietly plays a different file.
+        home = watchStore.map { HomeStore(watch: $0, versionPrefs: versionPreferences) }
         // Recompute the Home rails the moment a removal changes the library, so a deleted title
         // doesn't linger in Continue Watching / Recently Added until the Home tab is revisited.
         if let home {

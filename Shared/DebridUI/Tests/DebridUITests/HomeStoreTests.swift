@@ -78,3 +78,59 @@ private struct FakeWatch: WatchProgressProviding {
         #expect(store.recentlyAdded.map(\.id) == ["b", "a"])
     }
 }
+
+/// Continue Watching is the screen the viewer actually resumes from, so it — not just the title
+/// page's Play button — has to honour the version they chose. It used to resolve with the quality
+/// ranker and never ask, so a chosen version was silently ignored on every resume.
+@Suite struct HomeStoreVersionPreferenceTests {
+    private final class FakePrefs: VersionPreferring, @unchecked Sendable {
+        var stored: [String: String] = [:]
+        func preferred(forContentKey key: String) async -> String? { stored[key] }
+        func choose(contentKey: String, sourceKey: String) async { stored[contentKey] = sourceKey }
+        func clear(contentKey: String) async { stored[contentKey] = nil }
+    }
+
+    private func source(_ torrentID: String, _ resolution: String) -> MediaSource {
+        MediaSource(torrentID: torrentID, fileID: nil, restrictedLink: "l",
+                    parsed: ParsedRelease(title: "T", resolution: resolution))
+    }
+
+    private func movie(_ sources: [MediaSource]) -> MediaItem {
+        MediaItem(id: "movie:dune:2021", kind: .movie, title: "Dune", year: 2021,
+                  sources: sources, seasons: [])
+    }
+
+    private func states() -> [WatchState] {
+        [WatchState(contentKey: "movie:dune:2021", sourceKey: "t#f", positionSeconds: 30,
+                    durationSeconds: 120, finished: false, updatedAt: Date())]
+    }
+
+    @MainActor @Test func resumeUsesTheChosenVersionNotTheRanker() async {
+        let sd = source("sd", "1080p"), uhd = source("uhd", "2160p")
+        let prefs = FakePrefs()
+        prefs.stored["movie:dune:2021"] = WatchKey.source(sd)      // deliberately NOT the best
+        let store = HomeStore(watch: FakeWatch(states: states()), versionPrefs: prefs)
+        store.activeProfileID = "p1"
+        await store.rebuild(movies: [movie([uhd, sd])], shows: [])
+        #expect(store.continueWatching.first?.source?.torrentID == "sd")
+    }
+
+    @MainActor @Test func noPreferenceStillUsesTheRanker() async {
+        let sd = source("sd", "1080p"), uhd = source("uhd", "2160p")
+        let store = HomeStore(watch: FakeWatch(states: states()), versionPrefs: FakePrefs())
+        store.activeProfileID = "p1"
+        await store.rebuild(movies: [movie([sd, uhd])], shows: [])
+        #expect(store.continueWatching.first?.source?.torrentID == "uhd")
+    }
+
+    /// A preference pointing at a torrent since deleted from RD must fall back, not break Resume.
+    @MainActor @Test func aStalePreferenceFallsBackToTheRanker() async {
+        let sd = source("sd", "1080p"), uhd = source("uhd", "2160p")
+        let prefs = FakePrefs()
+        prefs.stored["movie:dune:2021"] = "gone#0"
+        let store = HomeStore(watch: FakeWatch(states: states()), versionPrefs: prefs)
+        store.activeProfileID = "p1"
+        await store.rebuild(movies: [movie([sd, uhd])], shows: [])
+        #expect(store.continueWatching.first?.source?.torrentID == "uhd")
+    }
+}
