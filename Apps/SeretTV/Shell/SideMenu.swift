@@ -26,8 +26,11 @@ struct SideMenu: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            profileRow
-            Spacer().frame(height: 58)
+            // Profiles are switched off — the rail starts at Search. See `ProfilesFeature`.
+            if ProfilesFeature.isEnabled {
+                profileRow
+                Spacer().frame(height: 58)
+            }
             ForEach(SideMenuItem.mainRows) { item in
                 SideMenuRow(item: item, selected: item == selected, expanded: expanded) {
                     onSelect(item)

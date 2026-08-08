@@ -4,9 +4,10 @@ import DebridCore
 
 /// Settings as one column of identical cards.
 ///
-/// Four sections, ordered by how often they are touched: how subtitles look, where they come from,
-/// who is watching, and the account. Trakt is gone — watch state is kept on the device and synced
-/// through iCloud, so the card was offering to mirror to a service the app no longer depends on.
+/// Ordered by how often they are touched: how subtitles look, where they come from, how playback
+/// behaves, who is watching, and the account. Trakt is gone — watch state is kept on the device and
+/// synced through iCloud, so the card was offering to mirror to a service the app no longer depends
+/// on. The profile card is hidden while [`ProfilesFeature`] is off.
 struct SettingsView: View {
     @Environment(AppSession.self) private var session
     @State private var model = SettingsModel(
@@ -23,7 +24,8 @@ struct SettingsView: View {
                     subtitleAppearance
                     OpenSubtitlesSection(model: model)
                     playback
-                    profile
+                    // Profiles are switched off — nothing to manage. See `ProfilesFeature`.
+                    if ProfilesFeature.isEnabled { profile }
                     account
                 }
                 .frame(maxWidth: .infinity)          // centre the fixed-width column

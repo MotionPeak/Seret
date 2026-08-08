@@ -31,11 +31,14 @@ struct HomeScreen: View {
                             Image(systemName: "gearshape").tint(Theme.Palette.textPrimary)
                         }
                     }
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button { showingProfiles = true } label: {
-                            ProfileAvatarImage(token: session.activeProfiles?.activeProfile?.avatar ?? "",
-                                               diameter: 32,
-                                               colorTag: session.activeProfiles?.activeProfile?.colorTag ?? "gold")
+                    // The avatar is gone while profiles are off. See `ProfilesFeature`.
+                    if ProfilesFeature.isEnabled {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button { showingProfiles = true } label: {
+                                ProfileAvatarImage(token: session.activeProfiles?.activeProfile?.avatar ?? "",
+                                                   diameter: 32,
+                                                   colorTag: session.activeProfiles?.activeProfile?.colorTag ?? "gold")
+                            }
                         }
                     }
                 }

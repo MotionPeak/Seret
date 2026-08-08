@@ -22,32 +22,35 @@ struct SettingsView: View {
             }
             .listRowBackground(Theme.Palette.surface1)
 
-            Section {
-                if session.activeProfiles?.activeProfile != nil {
-                    Button { editingActive = true } label: {
-                        Label("Edit Profile", systemImage: "pencil")
+            // Profiles are switched off — nothing to manage here. See `ProfilesFeature`.
+            if ProfilesFeature.isEnabled {
+                Section {
+                    if session.activeProfiles?.activeProfile != nil {
+                        Button { editingActive = true } label: {
+                            Label("Edit Profile", systemImage: "pencil")
+                                .foregroundStyle(Theme.Palette.textPrimary)
+                        }
+                    }
+                    Button { showingProfiles = true } label: {
+                        Label("Manage Profiles", systemImage: "person.2.crop.square.stack")
                             .foregroundStyle(Theme.Palette.textPrimary)
                     }
+                    Label(session.profilesSyncedViaICloud ? "Syncing via iCloud" : "On this device only",
+                          systemImage: session.profilesSyncedViaICloud ? "checkmark.icloud.fill" : "icloud.slash")
+                        .foregroundStyle(session.profilesSyncedViaICloud ? Theme.Palette.gold : Theme.Palette.textSecondary)
+                } header: {
+                    Text("Profile").foregroundStyle(Theme.Palette.gold)
+                } footer: {
+                    if let name = session.activeProfiles?.activeProfile?.name {
+                        Text("Watching as \(name). Add a profile so each viewer gets their own Continue Watching and My List.")
+                            .font(.footnote).foregroundStyle(Theme.Palette.textSecondary)
+                    } else {
+                        Text("Add a profile so each viewer gets their own Continue Watching and My List.")
+                            .font(.footnote).foregroundStyle(Theme.Palette.textSecondary)
+                    }
                 }
-                Button { showingProfiles = true } label: {
-                    Label("Manage Profiles", systemImage: "person.2.crop.square.stack")
-                        .foregroundStyle(Theme.Palette.textPrimary)
-                }
-                Label(session.profilesSyncedViaICloud ? "Syncing via iCloud" : "On this device only",
-                      systemImage: session.profilesSyncedViaICloud ? "checkmark.icloud.fill" : "icloud.slash")
-                    .foregroundStyle(session.profilesSyncedViaICloud ? Theme.Palette.gold : Theme.Palette.textSecondary)
-            } header: {
-                Text("Profile").foregroundStyle(Theme.Palette.gold)
-            } footer: {
-                if let name = session.activeProfiles?.activeProfile?.name {
-                    Text("Watching as \(name). Add a profile so each viewer gets their own Continue Watching and My List.")
-                        .font(.footnote).foregroundStyle(Theme.Palette.textSecondary)
-                } else {
-                    Text("Add a profile so each viewer gets their own Continue Watching and My List.")
-                        .font(.footnote).foregroundStyle(Theme.Palette.textSecondary)
-                }
+                .listRowBackground(Theme.Palette.surface1)
             }
-            .listRowBackground(Theme.Palette.surface1)
 
             Section {
                 if model.isConnected {

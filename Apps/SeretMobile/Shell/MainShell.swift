@@ -92,7 +92,8 @@ struct MainShell: View {
             }
             Spacer()
             settingsRow
-            profileRow
+            // Profiles are switched off — no chip to switch with. See `ProfilesFeature`.
+            if ProfilesFeature.isEnabled { profileRow }
         }
         .padding(Theme.Space.sm)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
