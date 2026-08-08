@@ -81,9 +81,8 @@ struct ShowDetailView: View {
         VStack(alignment: .leading, spacing: 22) {
             Text(item.title).screenTitle()
             Text(metaLine).calloutText().foregroundStyle(Theme.Palette.textSecondary)
-            if !store.creators.isEmpty {
-                Text("Created by: \(store.creators.joined(separator: ", "))").calloutText()
-                    .foregroundStyle(Theme.Palette.textSecondary)
+            if !store.creatorRefs.isEmpty {
+                CreditNamesRow(label: "Created by", people: store.creatorRefs)
             }
             RatingsRow(ratings: store.ratings, community: store.communityScore)
             if let overview = store.overview {

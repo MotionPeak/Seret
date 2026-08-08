@@ -16,6 +16,7 @@ import DebridCore
 ///   - `sidemenucollapsed` — the same menu at rest, for an A/B of the two states
 ///   - `opensubtitles` — the OpenSubtitles pairing card: QR, LAN address, keyboard fallback
 ///   - `gridfade`  — a pre-scrolled grid under a pinned header, for tuning the top fade
+///   - `person`    — the person page: header, As Actor / As Director, ranked credits
 ///
 /// Not compiled into release builds.
 struct PlayerUIPreview: View {
@@ -31,8 +32,57 @@ struct PlayerUIPreview: View {
         case "sidemenucollapsed":   SideMenuPreview(startExpanded: false)
         case "opensubtitles":       OpenSubtitlesPreview()
         case "gridfade":            GridTopFadePreview()
+        case "person":              PersonScreenPreview()
         default:           ScrubBarPreview()
         }
+    }
+}
+
+// MARK: - Person page
+
+/// The real `PersonScreen` on a fake credits provider, so the header, the two role sections and
+/// the grid's focus geometry can be screenshot-verified without a session or a network.
+///
+/// The fake deliberately includes a "Self" credit and a Producer credit — neither should appear,
+/// which makes this a visual check on the DebridCore ranking as well as on the layout.
+private struct PersonScreenPreview: View {
+    private static let ref = TMDBPersonRef(id: 1234, name: "Denis Villeneuve")
+
+    @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()))
+
+    var body: some View {
+        NavigationStack {
+            PersonScreen(ref: Self.ref,
+                         store: PersonStore(ref: Self.ref, credits: FakePersonCredits()))
+        }
+        .environment(session)
+        // `BrowseTile` reads this, and in the app the shell provides it above every pushed
+        // destination. Without it here the harness traps on a missing Observable.
+        .environment(session.makeTileWatchMarks())
+    }
+}
+
+private struct FakePersonCredits: PersonCreditsProviding {
+    func person(tmdbID: Int) async throws -> TMDBPersonDetails {
+        func credit(_ id: Int, _ title: String, _ popularity: Double,
+                    character: String? = nil, job: String? = nil) -> TMDBPersonCredit {
+            TMDBPersonCredit(
+                result: TMDBSearchResult(id: id, title: title, name: nil,
+                                         releaseDate: "2021-01-01", firstAirDate: nil,
+                                         posterPath: "/p.jpg", overview: nil, voteAverage: 7.5),
+                kind: .movie, character: character, job: job, popularity: popularity)
+        }
+        return TMDBPersonDetails(
+            id: tmdbID, name: "Denis Villeneuve", profilePath: nil,
+            knownForDepartment: "Directing",
+            castCredits: [credit(1, "Talk Show", 99, character: "Self"),      // must NOT appear
+                          credit(2, "Cameo Role", 20, character: "Man in Bar"),
+                          credit(3, "Bit Part", 10, character: "Officer")],
+            crewCredits: [credit(4, "Dune: Part Two", 140, job: "Director"),
+                          credit(5, "Arrival", 90, job: "Director"),
+                          credit(6, "Blade Runner 2049", 80, job: "Director"),
+                          credit(7, "Sicario", 70, job: "Director"),
+                          credit(8, "Produced Thing", 200, job: "Producer")]) // must NOT appear
     }
 }
 
@@ -179,12 +229,32 @@ private struct MovieDetailPreview: View {
     var body: some View {
         NavigationStack { MovieDetailView(store: store) }
             .environment(session)
+            // The similar/franchise rails render `BrowseTile`, which reads this.
+            .environment(session.makeTileWatchMarks())
+            // `DetailView` normally drives the rich load; rendering `MovieDetailView` directly
+            // skips it, and without it there is no cast and no director to look at.
+            .task { await store.load() }
     }
 }
 
 /// Inert details provider — the harness renders from the cached `MediaItem` alone.
 private struct PreviewDetails: MediaDetailsProviding {
-    func movieDetails(tmdbID: Int) async throws -> TMDBMovieDetails { throw CancellationError() }
+    /// Carries cast and a director so the harness can check the two controls that used to be inert
+    /// text: the focusable cast rail, and the pressable director pill.
+    func movieDetails(tmdbID: Int) async throws -> TMDBMovieDetails {
+        TMDBMovieDetails(
+            id: tmdbID, title: "The Odyssey", releaseDate: "2026-07-17", overview: nil,
+            posterPath: nil, backdropPath: nil, runtime: 168, genres: [], voteAverage: 7.4,
+            cast: [TMDBCastMember(id: 1, name: "Matt Damon", character: "Odysseus",
+                                  profilePath: nil, order: 0),
+                   TMDBCastMember(id: 2, name: "Tom Holland", character: "Telemachus",
+                                  profilePath: nil, order: 1),
+                   TMDBCastMember(id: 3, name: "Zendaya", character: "Melantho",
+                                  profilePath: nil, order: 2),
+                   TMDBCastMember(id: 4, name: "Anne Hathaway", character: "Penelope",
+                                  profilePath: nil, order: 3)],
+            directors: [TMDBPersonRef(id: 525, name: "Christopher Nolan")])
+    }
     func tvDetails(tmdbID: Int) async throws -> TMDBTVDetails { throw CancellationError() }
     func seasonEpisodes(tvID: Int, season: Int) async throws -> [TMDBEpisodeDetails] { [] }
 }

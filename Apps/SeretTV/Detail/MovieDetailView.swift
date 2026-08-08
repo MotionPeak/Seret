@@ -88,9 +88,9 @@ struct MovieDetailView: View {
                 Text("Film \(franchise.position) of \(franchise.count)  ·  \(franchise.name)")
                     .calloutText().foregroundStyle(Theme.Palette.gold)
             }
-            if let director = store.director {
-                Text("Director: \(director)").calloutText()
-                    .foregroundStyle(Theme.Palette.textSecondary)
+            if !store.directors.isEmpty {
+                CreditNamesRow(label: store.directors.count == 1 ? "Director" : "Directors",
+                               people: store.directors)
             }
             if let best = store.bestSource { QualityChips(parsed: best.parsed) }
             RatingsRow(ratings: store.ratings, community: store.communityScore)

@@ -153,6 +153,8 @@ private struct BrowseSkeleton: View {
 enum BrowseDestination: Hashable {
     case detail(MediaItem)
     case search(MediaKind)
+    /// An actor or director — their photo and the work of theirs you can watch.
+    case person(TMDBPersonRef)
     /// Straight to the full-screen versions list, skipping the page.
     case versions(SearchHit)
 }
