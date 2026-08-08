@@ -10,7 +10,14 @@ extension PlayerModel {
         revealScrubBar()
     }
 
-    public func skip(_ delta: Double) {
+    public func skip(_ delta: Double) { skip(delta, seekEngine: true) }
+
+    /// - Parameter seekEngine: `false` moves the DISPLAYED playhead only and just records where the
+    ///   engine should end up, leaving the actual seek to the next engine-bound skip or to
+    ///   `flushCoalescedSeek()`. Hold-to-scan uses it for the repeats in between its throttled seeks
+    ///   (see `scanSeekStride`) so a long hold can't ask libvlc for a network seek several times a
+    ///   second — which blocked the main thread and made the remote stop responding.
+    func skip(_ delta: Double, seekEngine: Bool) {
         let before = position
         let origin = pendingSeek?.from ?? position   // a burst keeps the ORIGINAL pre-seek origin
         let target = clamp(position + delta)
@@ -21,7 +28,7 @@ extension PlayerModel {
         if phase != .paused { isBuffering = true }
         lastTickPosition = target    // re-arm advance detection past the target
         pendingSeek = target != origin ? (from: origin, to: target) : nil   // hold the bar through stale ticks
-        scheduleCoalescedSeek(to: target)
+        if seekEngine { scheduleCoalescedSeek(to: target) } else { coalescedSeekTarget = target }
         accumulateSkipFeedback(target - before)         // this tap's real jump feeds the indicator
     }
     public func scrub(to seconds: Double) {
@@ -82,6 +89,16 @@ extension PlayerModel {
             coalescedSeekTarget = nil
             dispatchedSeekTarget = nil
         }
+    }
+
+    /// Land the coalesced target NOW and close the window. Used when the gesture that was producing
+    /// targets ends: the viewer has stopped asking for travel, so the last one must reach the engine
+    /// immediately instead of waiting out a window that exists only to absorb *more* input.
+    func flushCoalescedSeek() {
+        let target = coalescedSeekTarget
+        let dispatched = dispatchedSeekTarget
+        cancelCoalescedSeek()
+        if let target, target != dispatched { engine.seek(to: target) }
     }
 
     /// Drop any open coalescing window (a direct seek — scrub commit / reload — supersedes it).
@@ -160,15 +177,23 @@ extension PlayerModel {
     /// reuse the existing coalescing and the accumulating on-screen badge, so a hold reads as one
     /// growing jump instead of a stutter of separate ones.
     ///
+    /// Only every `scanSeekStride`-th repeat reaches the engine; the rest move the displayed
+    /// playhead alone and the release flushes the final target. Seeking on every repeat asked
+    /// libvlc to restart a 2s network pre-roll several times a second — it never completed one, and
+    /// `VLCMediaPlayer.time` blocks the main thread while the demuxer moves, so the remote itself
+    /// stopped responding for the length of the hold.
+    ///
     /// The loop stops itself after `scanMaxDuration`. That is defence in depth, not the fix: a
     /// scan is supposed to end when the remote reports the release, but a lost release event used
-    /// to leave this loop skipping forever with nothing on screen able to stop it. The real repair
-    /// is upstream in `PlayerInputSurface`, which now ends a scan when it hands the remote to an
-    /// overlay; this guarantees the failure is bounded however the release goes missing.
+    /// to leave this loop skipping forever with nothing on screen able to stop it. `isScanning`
+    /// is the real repair — every other input now calls a scan off (see `PlayerInputSurface` and
+    /// the player's Menu handling) — and this guarantees the failure is bounded however the
+    /// release goes missing.
     public func beginScan(direction: Double) {
         scanTask?.cancel()
         scanGeneration &+= 1
         let generation = scanGeneration
+        isScanning = true
         revealScrubBar()
         scanTask = Task { @MainActor [weak self] in
             var tick = 0
@@ -176,7 +201,8 @@ extension PlayerModel {
             while !Task.isCancelled {
                 guard let self else { return }
                 let step = Self.scanStep(atTick: tick)
-                self.skip(direction >= 0 ? step : -step)
+                self.skip(direction >= 0 ? step : -step,
+                          seekEngine: tick % self.scanSeekStride == 0)
                 try? await Task.sleep(for: .seconds(self.scanInterval))
                 guard !Task.isCancelled else { return }
                 elapsed += self.scanInterval
@@ -191,12 +217,21 @@ extension PlayerModel {
         }
     }
 
-    /// Release the scan.
+    /// Release the scan — on the arrow coming up, on any other press (a scan the viewer wants to be
+    /// over is a scan that is over), or on the loop running itself down. Idempotent.
     public func endScan() {
+        cancelScan()
+        flushCoalescedSeek()      // the throttled repeats only moved the bar — land the real target
+        revealScrubBar()
+    }
+
+    /// Stop a scan WITHOUT landing its target. For a media swap (`reload`) and teardown, where the
+    /// pending target belongs to the OUTGOING file and seeking the new one to it would be wrong.
+    func cancelScan() {
         scanTask?.cancel()
         scanTask = nil
         scanGeneration &+= 1
-        revealScrubBar()
+        isScanning = false
     }
 
     /// Reveal the thin scrub bar and re-arm a 5s sticky timer. Called on every player interaction

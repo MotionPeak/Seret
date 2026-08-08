@@ -73,6 +73,11 @@ public final class PlayerModel {
     var skipFeedbackClearTask: Task<Void, Never>?
     /// Hold-to-scan repeat loop (see `beginScan`).
     var scanTask: Task<Void, Never>?
+    /// A hold-to-scan is travelling right now. Published because every OTHER input has to be able to
+    /// call it off — a play/pause press, a click, Menu. Without that, the only things that could stop
+    /// a scan were releasing the arrow, an overlay taking the remote, and the loop's own timeout, so
+    /// a lost release left the viewer watching the film race away with no way to intervene.
+    public internal(set) var isScanning: Bool = false
     /// Bumped whenever a scan starts or ends, so a self-terminating scan can tell whether it is
     /// still the live one before tidying up — same guard as `seekGeneration`.
     var scanGeneration: UInt64 = 0
@@ -85,6 +90,14 @@ public final class PlayerModel {
     /// itself. Injectable so tests don't have to wait real seconds.
     let scanInterval: Double
     let scanMaxDuration: Double
+    /// How often a held scan is allowed to actually seek the ENGINE. Repeats are far quicker than
+    /// this: the rest of them move the displayed playhead only. A network seek costs libvlc a full
+    /// pipeline re-fill (2s of pre-roll on tvOS) and blocks the main thread while the demuxer moves,
+    /// so seeking on every repeat asked for a fill four times a second, never completed one, and
+    /// starved the remote of input for the length of the hold. See `scanSeekStride`.
+    let scanSeekInterval: Double
+    /// Repeats per engine seek — at least one, so a scan always seeks at the very first repeat.
+    var scanSeekStride: Int { max(1, Int((scanSeekInterval / max(scanInterval, 0.001)).rounded())) }
 
     /// Output volume as a percentage (100 = unity, up to 200 = VLC-style boost). Re-applied on every
     /// track refresh so a boost survives episode swaps and VLCKit's async audio-object creation.
@@ -343,6 +356,7 @@ public final class PlayerModel {
          loadTimeout: Double = 30,
          seekCoalesceWindow: Double = 0.35,
          scanInterval: Double = 0.5,
+         scanSeekInterval: Double = 1.5,
          scanMaxDuration: Double = 15,
          subtitleFallbackDelay: Double = 2) {
         self.subtitleFallbackDelay = subtitleFallbackDelay
@@ -350,6 +364,7 @@ public final class PlayerModel {
         self.loadTimeout = loadTimeout
         self.seekCoalesceWindow = seekCoalesceWindow
         self.scanInterval = scanInterval
+        self.scanSeekInterval = scanSeekInterval
         self.scanMaxDuration = scanMaxDuration
         self.details = details
         self.trackPreferences = trackPreferences

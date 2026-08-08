@@ -168,6 +168,7 @@ extension PlayerModel {
         resumeTicksSinceSeek = 0
         resumeFraction = 0
         pendingSeek = nil
+        cancelScan()            // a hold that outlived the swap would travel through the NEW media
         cancelCoalescedSeek()
         audioPickedByUser = false          // a new source re-decides audio from scratch
         audioSelectionSignature = []
@@ -277,7 +278,7 @@ extension PlayerModel {
         upNextTask?.cancel()
         seekDispatchTask?.cancel()
         loadWatchdog?.cancel()
-        scanTask?.cancel()
+        cancelScan()
         nowPlaying?.deactivate()
         await recordCurrentProgress()
         engine.stop()

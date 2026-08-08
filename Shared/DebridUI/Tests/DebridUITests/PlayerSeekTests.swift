@@ -9,12 +9,14 @@ import DebridCore
     private func makeModel(engine: FakeVideoPlayerEngine,
                            seekCoalesceWindow: Double = 0.05,
                            scanInterval: Double = 0.5,
+                           scanSeekInterval: Double = 1.5,
                            scanMaxDuration: Double = 15) -> PlayerModel {
         PlayerModel(request: Fixture.request(), engine: engine,
                     unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
                     recordProgress: { _, _, _, _ in }, subtitles: nil,
                     seekCoalesceWindow: seekCoalesceWindow,
-                    scanInterval: scanInterval, scanMaxDuration: scanMaxDuration)
+                    scanInterval: scanInterval, scanSeekInterval: scanSeekInterval,
+                    scanMaxDuration: scanMaxDuration)
     }
 
     /// Bring the model to a live, rendered, playing state at `position`.
@@ -86,16 +88,14 @@ import DebridCore
         // rate: libvlc has no reliable reverse playback, so a negative rate would simply do
         // nothing backwards. Repeated seeks behave identically in both directions.
         let engine = FakeVideoPlayerEngine()
-        let model = makeModel(engine: engine, seekCoalesceWindow: 0.01)
+        let model = makeModel(engine: engine, seekCoalesceWindow: 0.01, scanInterval: 0.2,
+                              scanSeekInterval: 0.4)
         await warmUp(model, engine, to: 1000)
-        let before = engine.seeks.count
 
         model.beginScan(direction: 1)
         try? await Task.sleep(for: .seconds(1.4))
+        #expect(model.position > 1000)             // it kept going while held, and moved forward
         model.endScan()
-        let during = engine.seeks.count - before
-        #expect(during >= 2)                       // it kept going while held
-        #expect(model.position > 1000)             // …and moved forward
 
         let afterRelease = engine.seeks.count
         try? await Task.sleep(for: .seconds(0.8))
@@ -112,6 +112,76 @@ import DebridCore
         model.endScan()
 
         #expect(model.position < 1000)
+    }
+
+    // MARK: - The hold must not hammer libvlc
+
+    /// A held scan repeats every `scanInterval` (0.5s in production), and it USED to hand every
+    /// single repeat to the engine. Each of those is a full network seek + re-fill — and on tvOS the
+    /// pipeline pre-roll is 2s, so libvlc was told to restart a 2s fill four times a second and never
+    /// finished one. Setting `VLCMediaPlayer.time` blocks the main thread while the demuxer moves, so
+    /// the whole UI — including the remote — went unresponsive for as long as the hold lasted. That
+    /// is the owner's "it keeps forwarding and won't let me exit until a couple of seconds later".
+    ///
+    /// The displayed playhead still moves on every repeat; only the ENGINE is throttled.
+    @Test func aHeldScanThrottlesTheEngineWhileTheBarKeepsMoving() async {
+        let engine = FakeVideoPlayerEngine()
+        let model = makeModel(engine: engine, seekCoalesceWindow: 0.01,
+                              scanInterval: 0.05, scanSeekInterval: 0.5)
+        await warmUp(model, engine, to: 1000)
+        let before = engine.seeks.count
+
+        model.beginScan(direction: 1)
+        try? await Task.sleep(for: .seconds(0.55))     // ~11 repeats
+        let seeksDuring = engine.seeks.count - before
+        let travelled = model.position - 1000.5
+        model.endScan()
+
+        #expect(travelled > 60)      // the bar travelled through many repeats…
+        #expect(seeksDuring <= 3)    // …on no more than a seek every ~0.5s
+    }
+
+    /// Releasing must land the final target AT ONCE. Throttling the engine means the last repeats
+    /// only moved the displayed playhead, so without an explicit flush on release the picture would
+    /// stay wherever the last throttled seek left it — the bar and the film disagreeing.
+    @Test func releasingAScanLandsTheFinalTargetImmediately() async {
+        let engine = FakeVideoPlayerEngine()
+        let model = makeModel(engine: engine, seekCoalesceWindow: 5,
+                              scanInterval: 0.05, scanSeekInterval: 5)
+        await warmUp(model, engine, to: 1000)
+
+        model.beginScan(direction: 1)
+        try? await Task.sleep(for: .seconds(0.35))
+        model.endScan()
+
+        #expect(engine.seeks.last == model.position)   // no waiting out a coalescing window
+    }
+
+    /// `isScanning` is what lets everything else — a play/pause press, Menu — know to call it off.
+    @Test func isScanningTracksTheHold() async {
+        let engine = FakeVideoPlayerEngine()
+        let model = makeModel(engine: engine, scanInterval: 0.05, scanMaxDuration: 10)
+        await warmUp(model, engine, to: 1000)
+
+        #expect(model.isScanning == false)
+        model.beginScan(direction: 1)
+        #expect(model.isScanning == true)
+        model.endScan()
+        #expect(model.isScanning == false)
+    }
+
+    /// …and a scan that runs itself down must clear the flag too, or every later Menu press would be
+    /// swallowed as "stop the scan" and the viewer could never leave the player.
+    @Test func aSelfTerminatingScanClearsIsScanning() async {
+        let engine = FakeVideoPlayerEngine()
+        let model = makeModel(engine: engine, seekCoalesceWindow: 0.01,
+                              scanInterval: 0.02, scanSeekInterval: 0.02, scanMaxDuration: 0.1)
+        await warmUp(model, engine, to: 100)
+
+        model.beginScan(direction: 1)          // …and deliberately never release
+        try? await Task.sleep(for: .seconds(0.4))
+
+        #expect(model.isScanning == false)
     }
 
     // MARK: - Runaway-scan guards

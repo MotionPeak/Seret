@@ -271,11 +271,20 @@ struct PlayerInputSurface: UIViewRepresentable {
         }
         /// Unlike `.select`, this never commits a scrub — the viewer reaching for play/pause is
         /// asking about playback, not about the marker they are aiming with.
-        @objc private func handlePlayPause() { probePress("playPause"); parent.onPlayPause() }
-        @objc private func handleUp()    { probePress("up");    parent.onUp() }
-        @objc private func handleDown()  { probePress("down");  parent.onDown() }
+        @objc private func handlePlayPause() {
+            probePress("playPause"); endScanIfRunning(); parent.onPlayPause()
+        }
+        @objc private func handleUp()   { probePress("up");   endScanIfRunning(); parent.onUp() }
+        @objc private func handleDown() { probePress("down"); endScanIfRunning(); parent.onDown() }
         @objc private func handleSelect() {
             probePress("select")
+            // Reaching for play/pause or the click MUST call off a scan, and this is the only place
+            // that reliably learns about it. Previously a scan ended on exactly three things — the
+            // arrow's own release, an overlay taking the remote, and the loop's 15s timeout — so if
+            // the release went missing the film raced away and every press the viewer made in
+            // protest did nothing until the timeout let go. Ending it here is free when no scan is
+            // running.
+            endScanIfRunning()
             if isScrubbing { isScrubbing = false; parent.onScrubEnded() }   // click commits early
             else { parent.onSelect() }
         }

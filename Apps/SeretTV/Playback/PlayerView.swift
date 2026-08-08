@@ -135,7 +135,12 @@ struct PlayerView: View {
         // means exactly one of the two paths is ever live, so a press can never toggle twice.
         .onPlayPauseCommand { if !inputSurfaceActive { model.togglePlayPause() } }
         .onExitCommand {
-            if model.isScrubbing { model.cancelScrub() }       // Menu abandons a scrub
+            // Menu is the universal "stop what you are doing". A scan first, for the same reason
+            // Menu abandons a scrub: whatever is travelling is what the viewer wants stopped, and
+            // dismissing the whole player out from under a runaway is not the same thing as
+            // stopping it.
+            if model.isScanning { model.endScan() }
+            else if model.isScrubbing { model.cancelScrub() }  // Menu abandons a scrub
             else if model.upNextVisible { model.dismissUpNext() }
             else if showSubtitleBrowser { showSubtitleBrowser = false }   // fallback; the browser also self-closes
             else if showSettings { showSettings = false }
