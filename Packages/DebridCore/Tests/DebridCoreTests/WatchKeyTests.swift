@@ -32,4 +32,14 @@ import Foundation
         #expect(WatchKey.source(noFile) == "T2#-")
     }
 
+    @Test func seasonNumberKeyMatchesTheOwnedEpisodeKey() {
+        let ep = show().seasons[0].episodes[0]
+        #expect(WatchKey.content(forShow: show(), season: 1, number: 2)
+                == WatchKey.content(forShow: show(), episode: ep))
+    }
+
+    @Test func seasonNumberKeyMatchesTraktsEpisodeKey() {
+        #expect(WatchKey.content(forShow: show(), season: 4, number: 9)
+                == TraktMapping.episodeContentKey(showTmdb: 1399, season: 4, number: 9))
+    }
 }

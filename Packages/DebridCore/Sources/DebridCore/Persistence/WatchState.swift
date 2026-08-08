@@ -37,6 +37,13 @@ public enum WatchKey {
         "\(show.id):\(episode.id)"
     }
 
+    /// The same episode key, derived from season/episode numbers alone — for an episode listed by
+    /// TMDB but not downloaded, which has no `Episode` because it has no file. Identical output to
+    /// `content(forShow:episode:)`, and tested for parity so the two can never drift.
+    public static func content(forShow show: MediaItem, season: Int, number: Int) -> String {
+        "\(show.id):s\(season)e\(number)"
+    }
+
     /// The exact file played: torrent id + file id (`-` when the torrent is single-file).
     public static func source(_ s: MediaSource) -> String {
         "\(s.torrentID)#\(s.fileID.map(String.init) ?? "-")"
