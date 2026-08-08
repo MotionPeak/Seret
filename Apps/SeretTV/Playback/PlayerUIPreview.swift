@@ -14,6 +14,7 @@ import DebridCore
 ///   - `detail`    — the Movie Detail page with a rating-capable stub store
 ///   - `sidemenu`  — the side menu EXPANDED over a stand-in page
 ///   - `sidemenucollapsed` — the same menu at rest, for an A/B of the two states
+///   - `opensubtitles` — the OpenSubtitles pairing card: QR, LAN address, keyboard fallback
 ///
 /// Not compiled into release builds.
 struct PlayerUIPreview: View {
@@ -27,7 +28,30 @@ struct PlayerUIPreview: View {
         case "detail":     MovieDetailPreview()
         case "sidemenu":            SideMenuPreview(startExpanded: true)
         case "sidemenucollapsed":   SideMenuPreview(startExpanded: false)
+        case "opensubtitles":       OpenSubtitlesPreview()
         default:           ScrubBarPreview()
+        }
+    }
+}
+
+// MARK: - OpenSubtitles pairing
+
+/// The pairing card on its own, so the QR can be verified without a signed-in session.
+///
+/// This exists because the alternative did not work: reaching Settings in the simulator means
+/// walking the focus engine down the nav rail, and synthesized key presses there land where they
+/// like — several attempts ended up in the page instead of on the gear. The card needs no session,
+/// so booting straight to it removes the navigation from the question entirely. It also exercises
+/// the real `LocalPairingServer`, so a blank QR here means the listener or the address lookup
+/// genuinely failed rather than the screenshot being mistimed.
+private struct OpenSubtitlesPreview: View {
+    @State private var model = SettingsModel(
+        secretStore: KeychainSecretStore(service: "com.solomons.seret.opensubtitles.preview"))
+
+    var body: some View {
+        ZStack {
+            CanvasBackground()
+            ScrollView { OpenSubtitlesSection(model: model).padding(.vertical, 60) }
         }
     }
 }

@@ -38,31 +38,52 @@ struct OpenSubtitlesSection: View {
     private var pairing: some View {
         HStack(alignment: .top, spacing: 36) {
             VStack(alignment: .leading, spacing: 14) {
-                Text("Scan to sign in with your phone")
+                Text(headline)
                     .font(.seret(.headline, .semibold))
                     .foregroundStyle(Theme.Palette.textPrimary)
-                Text(server?.address == nil
-                     ? "Preparing…"
-                     : "The page is served by this Apple TV on your own network — your password is never sent anywhere else.")
-                    .settingsCaption()
-                if let address = server?.address {
+                Text(caption).settingsCaption()
+                if case .ready(let address) = status {
                     Text(address)
                         .font(.seret(.callout, .semibold)).monospaced()
                         .foregroundStyle(Theme.Palette.gold)
                 }
-                Button(showingManualEntry ? "Hide keyboard entry" : "Type it here instead") {
-                    showingManualEntry.toggle()
+                // Hidden while pairing is available so it does not compete with the QR, and shown
+                // outright when it is the only way in.
+                if case .unavailable = status {
+                    manualEntry
+                } else {
+                    Button(showingManualEntry ? "Hide keyboard entry" : "Type it here instead") {
+                        showingManualEntry.toggle()
+                    }
+                    .padding(.top, 4)
+                    if showingManualEntry { manualEntry }
                 }
-                .padding(.top, 4)
-                if showingManualEntry { manualEntry }
             }
             Spacer(minLength: 0)
-            qr
+            if case .unavailable = status {} else { qr }
+        }
+    }
+
+    private var status: LocalPairingServer.Status { server?.status ?? .starting }
+
+    private var headline: String {
+        if case .unavailable = status { return "Sign in to OpenSubtitles" }
+        return "Scan to sign in with your phone"
+    }
+
+    private var caption: String {
+        switch status {
+        case .starting:
+            return "Preparing…"
+        case .ready:
+            return "The page is served by this Apple TV on your own network — your password is never sent anywhere else."
+        case .unavailable(let reason):
+            return "Phone sign-in is unavailable: \(reason) Enter your account here instead."
         }
     }
 
     @ViewBuilder private var qr: some View {
-        if let address = server?.address, let code = QRCode.image(from: address) {
+        if case .ready(let address) = status, let code = QRCode.image(from: address) {
             code.interpolation(.none).resizable()
                 .frame(width: 240, height: 240)
                 .padding(14)

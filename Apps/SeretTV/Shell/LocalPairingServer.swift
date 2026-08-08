@@ -39,8 +39,21 @@ final class LocalPairingServer {
     /// Included in the served form and required back on POST — see the type doc.
     private let submissionToken = UUID().uuidString
 
-    /// The address to encode in the QR, e.g. `http://192.168.1.42:8099`. nil until `start()`.
-    private(set) var address: String?
+    /// Where the listener got to.
+    ///
+    /// Modelled as three explicit states rather than an optional address, because "no address" has
+    /// two very different meanings — still starting, or cannot start at all — and collapsing them
+    /// leaves the card spinning on "Preparing…" for ever with nothing to act on. A failure names
+    /// itself and the card falls back to the on-screen keyboard.
+    enum Status: Equatable {
+        case starting
+        /// The URL to encode in the QR, e.g. `http://192.168.1.42:56213`.
+        case ready(String)
+        /// Why pairing is not available, in the viewer's terms.
+        case unavailable(String)
+    }
+
+    private(set) var status: Status = .starting
 
     init(onReceive: @escaping (Credentials) -> Void) {
         self.onReceive = onReceive
@@ -52,16 +65,33 @@ final class LocalPairingServer {
         guard listener == nil else { return }
         // Port 0 asks the system for a free one, so a second launch can never collide with a
         // lingering socket from the last.
-        guard let listener = try? NWListener(using: .tcp, on: .any) else { return }
+        let listener: NWListener
+        do {
+            listener = try NWListener(using: .tcp, on: .any)
+        } catch {
+            status = .unavailable("This Apple TV could not open a port (\(error.localizedDescription)).")
+            return
+        }
         self.listener = listener
         listener.newConnectionHandler = { [weak self] connection in
             Task { @MainActor in self?.accept(connection) }
         }
         listener.stateUpdateHandler = { [weak self] state in
-            guard case .ready = state else { return }
             Task { @MainActor in
-                guard let self, let port = self.listener?.port else { return }
-                self.address = Self.localAddress(port: port.rawValue)
+                guard let self else { return }
+                switch state {
+                case .ready:
+                    guard let port = self.listener?.port else {
+                        self.status = .unavailable("This Apple TV did not report a port.")
+                        return
+                    }
+                    self.status = Self.localAddress(port: port.rawValue).map(Status.ready)
+                        ?? .unavailable("This Apple TV has no address on your network yet.")
+                case .failed(let error), .waiting(let error):
+                    self.status = .unavailable(error.localizedDescription)
+                default:
+                    break
+                }
             }
         }
         listener.start(queue: .main)
@@ -72,7 +102,7 @@ final class LocalPairingServer {
         listener = nil
         for connection in connections { connection.cancel() }
         connections = []
-        address = nil
+        status = .starting
     }
 
     // MARK: - Connections
@@ -110,9 +140,14 @@ final class LocalPairingServer {
         let body: String
         if request.method == "POST", request.path == "/login" {
             let fields = Self.formFields(request.body)
-            if fields["token"] == submissionToken,
-               let username = fields["username"], !username.isEmpty,
-               let password = fields["password"], !password.isEmpty {
+            // A stale page and an empty field are different problems and must not share a message:
+            // telling someone to fill in fields they DID fill in sends them round the same loop.
+            // A mismatched token means this page was served by an earlier session.
+            if fields["token"] != submissionToken {
+                body = Self.formPage(token: submissionToken,
+                                     error: "This page is out of date. Scan the code on your TV again.")
+            } else if let username = fields["username"], !username.isEmpty,
+                      let password = fields["password"], !password.isEmpty {
                 onReceive(Credentials(username: username, password: password))
                 body = Self.donePage
             } else {
@@ -165,25 +200,42 @@ final class LocalPairingServer {
         s.replacingOccurrences(of: "+", with: " ").removingPercentEncoding ?? s
     }
 
-    /// This device's address on the LAN. Wi-Fi first, then wired — an Apple TV can be either.
+    /// Interfaces that carry an IPv4 address the phone can never reach us on.
+    ///
+    /// `utun`/`ipsec`/`ppp` are VPN tunnels — a Tailscale address here would produce a QR that
+    /// resolves to nothing from the sofa. `awdl`/`llw` are Apple's peer-to-peer radios, and `lo`
+    /// is loopback, which would point the phone at itself.
+    private static let unreachablePrefixes = ["lo", "awdl", "llw", "utun", "ipsec", "ppp"]
+
+    /// This device's address on the LAN.
+    ///
+    /// Every usable interface is considered rather than a hardcoded name. The first version looked
+    /// only at `en0`/`en1`, which is right on an Apple TV and wrong everywhere else — the Mac this
+    /// was verified on has its network on `en7`, so the lookup returned nil and the card sat on
+    /// "Preparing…". Wired and wireless also swap names between devices, so the name is a
+    /// preference (`en*` first), never a requirement.
     static func localAddress(port: UInt16) -> String? {
         var head: UnsafeMutablePointer<ifaddrs>?
         guard getifaddrs(&head) == 0, let first = head else { return nil }
         defer { freeifaddrs(head) }
-        var best: String?
+        var fallback: String?
         for ptr in sequence(first: first, next: { $0.pointee.ifa_next }) {
             let interface = ptr.pointee
-            guard interface.ifa_addr.pointee.sa_family == UInt8(AF_INET) else { continue }
+            guard let addr = interface.ifa_addr, addr.pointee.sa_family == UInt8(AF_INET) else { continue }
+            let flags = Int32(interface.ifa_flags)
+            guard flags & IFF_UP != 0, flags & IFF_LOOPBACK == 0 else { continue }
             let name = String(cString: interface.ifa_name)
-            guard name == "en0" || name == "en1" else { continue }
+            guard !unreachablePrefixes.contains(where: name.hasPrefix) else { continue }
             var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
-            guard getnameinfo(interface.ifa_addr, socklen_t(interface.ifa_addr.pointee.sa_len),
+            guard getnameinfo(addr, socklen_t(addr.pointee.sa_len),
                               &host, socklen_t(host.count), nil, 0, NI_NUMERICHOST) == 0 else { continue }
-            let address = String(decoding: host.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
-            if name == "en0" { return "http://\(address):\(port)" }   // Wi-Fi wins outright
-            best = "http://\(address):\(port)"
+            let ip = String(decoding: host.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
+            // Self-assigned: the interface is up but never got a lease, so nothing can route to it.
+            guard !ip.hasPrefix("169.254.") else { continue }
+            if name.hasPrefix("en") { return "http://\(ip):\(port)" }
+            fallback = fallback ?? "http://\(ip):\(port)"
         }
-        return best
+        return fallback
     }
 }
 
