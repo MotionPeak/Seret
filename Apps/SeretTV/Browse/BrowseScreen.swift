@@ -75,6 +75,9 @@ struct BrowseScreen: View {
                     }
                     .padding(.vertical, 20)
                 }
+                // Rails pass under the genre strip and the segment pills, which is the busiest
+                // pinned header in the app — so this is where the hard cut was most visible.
+                .gridTopFade()
             }
         }
     }
