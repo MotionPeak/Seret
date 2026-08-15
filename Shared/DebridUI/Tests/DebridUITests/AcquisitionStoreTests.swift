@@ -71,7 +71,7 @@ private func torrentInfo() -> TorrentInfo {
             Issue.record("expected .ready, got \(s.phase)"); return
         }
         #expect(request.contentKey == "show:tmdb:1399:s4e9")
-        #expect(request.contentKey == TraktMapping.episodeContentKey(showTmdb: 1399, season: 4, number: 9))
+        #expect(request.contentKey == DownloadKey.episode(showTmdbID: 1399, season: 4, number: 9))
         #expect(request.label == "Game of Thrones — S4·E9")
         #expect(request.episode?.season == 4)
         #expect(request.episode?.number == 9)

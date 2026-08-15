@@ -52,14 +52,12 @@ public final class DetailStore {
     /// A show's creators, with ids. Same relationship to `creators` as `directors` has to `director`.
     public private(set) var creatorRefs: [TMDBPersonRef] = []
     public private(set) var similar: [TMDBSearchResult] = []
-    /// Trakt's community average (0–10) — a fallback shown when OMDb produced no chips.
-    public private(set) var communityScore: Double?
     /// The franchise this film belongs to, once resolved. Movies only — TMDB has no collection
     /// concept for television. Nil when the film is standalone or the fetch failed.
     public private(set) var franchise: Franchise?
     /// The collection reference from the details call, held so the franchise fetch has an id.
     private var collectionRef: TMDBCollectionRef?
-    /// The viewer's Trakt history rollup for this title, loaded lazily by the view.
+    /// The viewer's history rollup for this title, loaded lazily by the view.
     private let versionPrefs: VersionPreferring?
     /// The user's chosen source key for this title, once loaded. Nil = let the ranker decide.
     public private(set) var preferredSourceKey: String?
@@ -211,7 +209,7 @@ public final class DetailStore {
             richState = .loaded
             // Overlapped, not sequential. Both add a row to the hero ABOVE the Play CTA, and run
             // one after the other they landed a network round-trip apart — so the page shifted
-            // under the button focus was just placed on, twice. They are independent (OMDb/Trakt
+            // under the button focus was just placed on, twice. They are independent (OMDb
             // by imdbID; TMDB by collection), so they now settle together and sooner.
             async let ratingsLoad: Void = loadRatings()
             async let franchiseLoad: Void = loadFranchise()
@@ -235,12 +233,6 @@ public final class DetailStore {
                 ratingsState = .failed
             }
         }
-        // Trakt community score — independent of OMDb (which is often unconfigured), and only as a
-        // FALLBACK when OMDb produced no chips: a title with IMDb/RT/Metacritic doesn't need it.
-        if ratings?.hasAny != true, let imdb = imdbID,
-           let community = watch as? CommunityRatingProviding {
-            communityScore = await community.communityRating(imdbID: imdb, kind: item.kind)
-        }
     }
 
     /// Supplemental, non-blocking: resolve the franchise once TMDB has told us the film belongs to
@@ -257,7 +249,7 @@ public final class DetailStore {
         franchise = Franchise(name: collection.name, parts: ordered, position: position)
     }
 
-    /// The viewer's Trakt history rollup (play count, last watched, "in your history since").
+    /// The viewer's history rollup (play count, last watched, "in your history since").
     /// Lazy — the views call it on appear, like `loadUserRating()`. Absent backend → stays nil.
     public func loadWatchSummary() async {
         guard let summaryProvider = watch as? WatchSummaryProviding else { return }
@@ -284,14 +276,14 @@ public final class DetailStore {
         await loadWatch()
     }
 
-    // MARK: - Personal rating (Trakt)
+    // MARK: - Personal rating
 
     /// The viewer's own 1–10 rating, or nil when unrated / unavailable. Distinct from `ratings`,
     /// which holds the aggregate public scores (IMDb / RT / Metacritic).
     public private(set) var userRating: Int?
 
-    /// Ratings ride on the same object that supplies watch state (the Trakt provider implements
-    /// both), so nothing extra has to be injected. nil for fakes and non-Trakt backends.
+    /// Ratings ride on the same object that supplies watch state (the local provider implements
+    /// both), so nothing extra has to be injected. nil for fakes that don't.
     private var ratingSync: WatchRatingProviding? { watch as? WatchRatingProviding }
 
     /// The key a title's personal rating hangs off: the item id, which is already the enricher's

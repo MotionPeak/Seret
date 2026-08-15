@@ -63,38 +63,11 @@ public final class AppSession {
     /// Preferred audio/subtitle language, persisted and auto-applied to every playback; survives
     /// sign-out (a device preference). Recorded by `PlayerModel` when the user picks a track.
     public let trackPreferences = TrackPreferences()
-    /// Legacy local watch store. No longer the watch-state source of truth (Trakt is) — kept only so
-    /// the one-time "push existing progress to Trakt" migration can still read the old rows.
+    // MARK: Watch state
 
-    // MARK: Watch state (local is the source of truth; Trakt mirrors when linked)
-
-    /// The on-device watch state — the truth behind `watchStore`. Survives Trakt being unreachable,
-    /// unlinked, or having its API app deleted, which is exactly why it exists.
+    /// The on-device watch state, and the only backing there is. It outlived Trakt, which is
+    /// exactly why it was built.
     public private(set) var localWatch: LocalWatchProvider?
-    /// Which profile linked Trakt. One Trakt account is shared by every profile, so only this
-    /// one's viewing is mirrored outward.
-    private var traktLinkedProfileID: String? {
-        get { UserDefaults.standard.string(forKey: "TraktLinkedProfileID") }
-        set { UserDefaults.standard.set(newValue, forKey: "TraktLinkedProfileID") }
-    }
-    /// Mirror only when Trakt is linked AND the active profile is the one that linked it. A nil
-    /// recorded profile means the link predates profile scoping — mirror it rather than silently
-    /// dropping the owner's scrobbles.
-    private var mirrorsToTrakt: Bool {
-        guard traktLinked else { return false }
-        guard let linked = traktLinkedProfileID else { return true }
-        return linked == (activeProfileID ?? "")
-    }
-
-    /// Trakt-backed watch state — now the mirror behind `watchStore`, not the source of truth.
-    public private(set) var traktProvider: TraktWatchProvider?
-    private var traktClient: TraktClient?
-    private var traktSession: TraktSession?
-    private var traktTokenStore: TraktTokenStoring?
-    /// True when a Trakt account is linked on this device (a token is in the Keychain).
-    public private(set) var traktLinked = false
-    /// True when the build carries a Trakt API app (Secrets.xcconfig). False = Trakt disabled.
-    public var traktConfigured: Bool { Secrets.traktConfigured }
     /// Profile roster store (CRUD) — used by the Who's-Watching / profile-manager UI (later slice).
     public private(set) var profileStore: ProfileStore?
     /// Per-profile "My List" store — claimed-title membership (later slice wires claim on add/play).
@@ -189,11 +162,6 @@ public final class AppSession {
         ratingsProvider = nil
         watchStore = nil
         home = nil
-        traktProvider = nil
-        traktClient = nil
-        traktSession = nil
-        traktTokenStore = nil
-        traktLinked = false
         torrents = nil
         linkCache = nil
         trailerResolver = nil
@@ -325,175 +293,25 @@ public final class AppSession {
         }
     }
 
-    /// Compose the Trakt stack and make it the watch-state source of truth. Two clients: a
     /// bootstrap one for the (unauthenticated) token refresh call, and the authed one everything
     /// else uses. Safe to build even when unlinked/unconfigured — reads then just come back empty,
     /// which is the designed "not linked" degradation (Play instead of Resume, empty rails).
-    private func makeTraktStack(local: LocalWatchStore?) {
-        let tokenStore = KeychainTraktTokenStore()
-        let bootClient = TraktClient(clientID: Secrets.traktClientID,
-                                     clientSecret: Secrets.traktClientSecret)
-        let session = TraktSession(store: tokenStore,
-                                   refresh: { token in try await bootClient.refresh(token) })
-        let client = TraktClient(clientID: Secrets.traktClientID,
-                                 clientSecret: Secrets.traktClientSecret,
-                                 token: session.tokenProvider())
-        let provider = TraktWatchProvider(api: client)
-        traktTokenStore = tokenStore
-        traktSession = session
-        traktClient = client
-        traktProvider = provider
-        traktLinked = ((try? tokenStore.load()) ?? nil) != nil
-        // Local is the source of truth; Trakt only mirrors. The profile resolver must spell a nil
-        // profile as "" — exactly what LibraryStore and DetailStore use — or reads miss writes.
+    /// Wire the watch stack. Local is the ONLY backing — Trakt was removed 2026-08-15, having been
+    /// rejected by its own API since July; every provider seam it satisfied is satisfied by
+    /// `LocalWatchProvider`, so nothing about what the app records or reads back changed.
+    ///
+    /// The profile resolver must spell a nil profile as "" — exactly what `LibraryStore` and
+    /// `DetailStore` use — or reads miss writes.
+    private func makeWatchStack(local: LocalWatchStore?) {
         localWatch = local.map { store in
             LocalWatchProvider(store: store,
                                profileID: { [weak self] in self?.activeProfileID ?? "" })
         }
-        // With no local store at all (the container failed to open) fall back to Trakt alone rather
-        // than losing watch state entirely.
-        watchStore = localWatch.map { lw in
-            MirroringWatchProvider(local: lw, trakt: provider,
-                                   shouldMirror: { [weak self] in self?.mirrorsToTrakt ?? false })
-        } ?? provider
-        if traktLinked { Task { await refreshTraktThenHome() } }
+        watchStore = localWatch
     }
 
-    /// Pull the Trakt caches, then refresh everything that reads them.
-    ///
-    /// Linking Trakt mid-session has to repaint more than Home: the library grid's watched ✓ comes
-    /// from `LibraryStore.watchByKey`, which is loaded separately and would otherwise stay empty
-    /// until the next library load (looking exactly like "my watch state didn't come back").
-    private func refreshTraktThenHome() async {
-        try? await traktProvider?.refresh()
-        await libraryStore?.reloadWatchStates()
-        await rebuildHome()
-    }
-
-    /// Outcome of the most recent manual Trakt sync, for the Settings row to display.
-    public enum SyncState: Equatable {
-        case idle
-        case syncing
-        case succeeded(ratings: Int, watched: Int)
-        case failed(String)
-    }
-
-    public private(set) var traktSyncState: SyncState = .idle
-
-    /// Manual "Sync Now": re-read Trakt ignoring the once-per-launch cache latch, then repaint
-    /// everything that reads it. Exists because reads otherwise fetch only once per launch, so
-    /// anything changed on Trakt mid-session (rated on the web, watched elsewhere, a bulk import)
-    /// would stay invisible until relaunch.
-    public func syncTraktNow() async {
-        guard let provider = traktProvider, traktLinked else {
-            traktSyncState = .failed("Trakt isn’t linked.")
-            return
-        }
-        traktSyncState = .syncing
-        do {
-            try await provider.forceRefresh()
-            await libraryStore?.reloadWatchStates()
-            await rebuildHome()
-            let counts = await provider.cacheCounts()
-            traktSyncState = .succeeded(ratings: counts.ratings, watched: counts.watched)
-        } catch {
-            // A 403 alone cannot say whether Trakt is throttling this network or has disowned our
-            // client id — and the two remedies are opposites ("wait" vs "get new credentials").
-            // One OAuth call settles it, and only ever on an explicit Sync Now, never on a read path.
-            var rejected = false
-            if Self.warrantsCredentialProbe(error) { rejected = await credentialsAreRejected() }
-            traktSyncState = .failed(Self.syncMessage(for: error, credentialsRejected: rejected))
-        }
-    }
-
-    /// Ask Trakt's OAuth layer whether it still knows this build's client id. `/oauth/device/code`
-    /// is the probe that actually discriminates — an authed API call answers 403 either way.
-    private func credentialsAreRejected() async -> Bool {
-        guard let client = traktClient else { return false }
-        do { _ = try await client.startDeviceCode(); return false }
-        catch { return (error as? TraktAuthError) == .unknownClient }
-    }
-
-    /// Say what actually went wrong. A blanket "check your connection" is worse than useless here:
-    /// an expired token, a revoked grant and a dead network all look identical, and the failure is
-    /// otherwise silent (reads swallow it and just render empty).
-    /// The one failure that no amount of waiting or relinking fixes, phrased as the actual remedy.
-    static let disownedCredentialsMessage =
-        "Trakt no longer recognises this app's credentials — the API app is gone, so syncing "
-        + "cannot work. Create a new API app at trakt.tv and put its Client ID and Secret in "
-        + "Secrets.xcconfig, then rebuild. Your watch state is safe on this device either way."
-
-    /// Whether a failure is ambiguous enough to be worth spending one OAuth call to disambiguate.
-    /// Only 403 qualifies: Trakt's edge serves it both to a throttled network and to a client id it
-    /// has never heard of, and telling those apart from the response alone is impossible.
-    static func warrantsCredentialProbe(_ error: Error) -> Bool {
-        guard case let .status(code, _)? = error as? HTTPError else { return false }
-        return code == 403
-    }
-
-    /// - Parameter credentialsRejected: an OAuth probe has confirmed Trakt disowns our client id,
-    ///   which overrides the otherwise-correct "wait it out" reading of a 403.
-    static func syncMessage(for error: Error, credentialsRejected: Bool = false) -> String {
-        if credentialsRejected || (error as? TraktAuthError) == .unknownClient {
-            return disownedCredentialsMessage
-        }
-        if error is TraktSessionError {
-            return "Trakt sign-in expired. Unlink and link again."
-        }
-        if let http = error as? HTTPError {
-            switch http {
-            case let .status(code, _):
-                switch code {
-                case 401: return "Trakt rejected the sign-in (401). Unlink and link again."
-                // NOT a relink prompt. Trakt's edge answers 403 to every request from a throttled
-                // network — a bogus API key and a valid one get the identical refusal, so it lands
-                // before the account is even considered. Relinking cannot fix it, and the extra auth
-                // calls prolong the block. Observed live: 403 on every API path from one IP while
-                // the same client worked elsewhere.
-                case 403:
-                    return "Trakt is refusing requests from this network (403). "
-                         + "This follows heavy retrying — wait a while, then try again. Don't unlink."
-                case 420, 429: return "Trakt is rate-limiting (\(code)). Wait a minute and retry."
-                default: return "Trakt returned HTTP \(code)."
-                }
-            case let .transport(detail):
-                return "Couldn’t reach Trakt: \(detail)"
-            case let .decoding(detail):
-                return "Trakt sent something unexpected: \(detail)"
-            }
-        }
-        return "Sync failed: \(error)"
-    }
 
     /// Key for the once-per-device flag guarding the legacy-progress hand-off.
-
-    /// A `TraktAuthModel` for the Settings "Link Trakt" flow (nil when unconfigured/signed out).
-    /// On success it flips `traktLinked` and warms the caches.
-    public func makeTraktAuthModel() -> TraktAuthModel? {
-        guard traktConfigured, let traktClient, let traktSession else { return nil }
-        return TraktAuthModel(flow: LiveTraktAuthFlow(client: traktClient, session: traktSession),
-                              onLinked: { [weak self] in
-                                  guard let self else { return }
-                                  self.traktLinked = true
-                                  // Remember WHICH profile linked it: one Trakt account is shared
-                                  // by every profile, and only this one's viewing mirrors outward.
-                                  self.traktLinkedProfileID = self.activeProfileID ?? ""
-                                  Task { await self.refreshTraktThenHome() }
-                              })
-    }
-
-    /// Unlink Trakt — drops the stored token and clears the cached watch state.
-    public func unlinkTrakt() async {
-        try? await traktSession?.signOut()
-        traktLinked = false
-        traktProvider = traktProvider.map { _ in TraktWatchProvider(api: traktClient!) }
-        // Rebuild the mirror around the fresh Trakt provider — local stays exactly as it was.
-        watchStore = localWatch.map { lw in
-            MirroringWatchProvider(local: lw, trakt: traktProvider,
-                                   shouldMirror: { [weak self] in self?.mirrorsToTrakt ?? false })
-        } ?? traktProvider
-        await rebuildHome()
-    }
 
     /// Re-run the profile load (owner migration + roster) and re-scope Home. Exposed so the
     /// Who's-Watching screen can offer a manual "Reload" while we diagnose.
@@ -532,7 +350,7 @@ public final class AppSession {
         // Local watch state is the source of truth and vends `watchStore` through the mirror, so
         // LibraryStore / HomeStore / DetailStore / the seed service consume the same seam
         // unchanged. Must come AFTER the stores above — it needs the local one.
-        makeTraktStack(local: stores?.watch)
+        makeWatchStack(local: stores?.watch)
         libraryStore = LibraryStore(library: service, watch: watchStore,
                                     profileID: { [weak self] in self?.activeProfileID })
         searchStore = SearchStore(search: TMDBSearchService(client: tmdb))
@@ -703,9 +521,6 @@ public final class AppSession {
     public func makePlayer(for request: PlaybackRequest,
                            engine: VideoPlayerEngine) -> PlayerModel? {
         guard let torrents else { return nil }
-        // No Trakt requirement any more: local watch state is the truth, so a player must be
-        // buildable with Trakt unlinked, throttled, or its API app deleted.
-        let resume = watchStore as? any ResumeFractionProviding
         let watch = watchStore
         // Captured once: a player outlives a profile switch, and its progress must keep landing
         // under the profile that started the playback.
@@ -716,11 +531,6 @@ public final class AppSession {
         if let myListStore, let pid = activeProfileID {
             let key = request.item.id
             Task { try? await myListStore.claim(profileID: pid, contentKey: key) }
-        }
-        // One scrobbler per played item. nil when the title has no TMDB id (unenriched) or Trakt
-        // isn't configured — playback then simply doesn't scrobble.
-        let scrobbler = traktClient.flatMap { client in
-            traktRef(for: request).map { TraktScrobbler(api: client, ref: $0) }
         }
         let cache = linkCache
         return PlayerModel(
@@ -734,9 +544,7 @@ public final class AppSession {
                 guard let url = URL(string: unrestricted.download) else { throw URLError(.badURL) }
                 return url
             },
-            // The 1s tick writes local state (the source of truth) and drives the Trakt heartbeat,
-            // which the scrobbler coalesces to one call a minute. Before this, the tick wrote ONLY
-            // to Trakt — so with the API app gone, playback recorded nothing anywhere.
+            // The 1s tick is what records playback.
             //
             // PlayerModel hands over the CURRENT contentKey + sourceKey, not the request's, so an
             // Up Next auto-advance records against the episode actually playing.
@@ -745,25 +553,18 @@ public final class AppSession {
                 try? await watch?.record(contentKey: contentKey, sourceKey: sourceKey,
                                          positionSeconds: position, durationSeconds: duration,
                                          finished: false, profileID: profile)
-                await scrobbler?.heartbeat(fraction: position / duration)
             },
             subtitles: subtitlesProvider,
             details: detailsProvider,
             trackPreferences: trackPreferences,
-            // Authoritative resume, Trakt-style: the paused percentage is re-read at load time (so
-            // playback can't race the screen's watch-state load), then turned into a seek target
-            // once the media reports its runtime.
-            resolveResumeFraction: { key in await resume?.resumeFraction(forContentKey: key) },
-            onScrobbleStart: { fraction in await scrobbler?.start(fraction: fraction) },
-            onScrobblePause: { fraction in await scrobbler?.pause(fraction: fraction) },
-            // Local finalisation happens on the 1s tick, NOT here: LocalWatchProvider applies the
-            // 80% rule (Trakt's own number) to every recordProgress write. Deliberately not writing
-            // local state here — this closure receives only a fraction, so it would have to
-            // finalise under `request.contentKey`, which after an Up Next auto-advance is the
-            // PREVIOUS episode. That would mark the wrong episode watched.
-            onScrobbleStop: { fraction in
-                await scrobbler?.stop(fraction: fraction)
-                try? await self.traktProvider?.refresh()   // repaint Trakt-derived UI
+            // Authoritative resume: the saved position is re-read at load time so playback can't
+            // race the screen's own watch-state load, or resume from a stale hint.
+            resolveResume: { key in
+                // One unwrap, not two: `try?` flattens the provider's optional return.
+                guard let watch,
+                      let saved = try? await watch.progress(forContentKey: key, profileID: profile),
+                      !saved.finished, saved.positionSeconds > 0 else { return nil }
+                return saved.positionSeconds
             },
             // Up Next warm-up: resolve the next episode's link while the countdown runs.
             prefetchLink: { link in
@@ -784,15 +585,6 @@ public final class AppSession {
         #else
         return nil
         #endif
-    }
-
-    /// The Trakt identity for a playback request — show+episode when playing an episode, else the
-    /// movie. nil for titles TMDB enrichment never matched (no tmdbID), which simply don't scrobble.
-    private func traktRef(for request: PlaybackRequest) -> TraktMediaRef? {
-        if let episode = request.episode {
-            return TraktMapping.ref(forShow: request.item, episode: episode)
-        }
-        return TraktMapping.ref(forMovie: request.item)
     }
 
     /// Warm the RD `unrestrict` for a source the user is likely to play next (fire-and-forget).

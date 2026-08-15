@@ -34,7 +34,7 @@ extension WatchProgressProviding {
     /// the player. Shared by `DetailStore` (per-title) and `LibraryStore` (grid long-press) so the
     /// record shape stays in one place.
     /// `sourceKey` is empty for a title you do not own: there is no file to name, and nothing
-    /// downstream keys off it — local storage and Trakt both address a title by `contentKey`.
+    /// downstream keys off it — watch state and download state both address a title by `contentKey`.
     public func setWatched(_ watched: Bool, contentKey: String, sourceKey: String,
                            profileID: String) async {
         try? await record(contentKey: contentKey, sourceKey: sourceKey,
@@ -50,5 +50,5 @@ extension WatchProgressProviding {
     }
 }
 
-// The SwiftData-backed conformance is gone — Trakt is the source of truth, and
-// `TraktWatchProvider` is the only implementation of this seam in the app.
+// `LocalWatchProvider` is the only implementation of this seam in the app: it is the watch-state
+// source of truth, and outlived the Trakt mirror that used to sit beside it.

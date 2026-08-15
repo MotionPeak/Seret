@@ -168,16 +168,6 @@ public final class PlayerModel {
     /// not-yet-loaded (tap Play right after Detail opens) or stale (immediate re-play) when the
     /// request was built. Also what lets retry/try-another-version resume where playback failed.
     let resolveResume: ((String) async -> Double?)?
-    /// Resume lookup for backends that store progress as a FRACTION of the runtime (Trakt stores a
-    /// percentage, not seconds). Resolved at load time, but converted to a seek target only once the
-    /// media reports its duration — at load `duration` is still 0, so seconds aren't computable yet.
-    /// Takes precedence over `resolveResume` when both are wired.
-    let resolveResumeFraction: ((String) async -> Double?)?
-    /// Scrobble lifecycle hooks (fraction 0…1 of the runtime). Optional: nil keeps the pre-Trakt
-    /// behavior exactly, which is what every existing caller and unit test relies on.
-    let onScrobbleStart: ((Double) async -> Void)?
-    let onScrobblePause: ((Double) async -> Void)?
-    let onScrobbleStop: ((Double) async -> Void)?
     /// Fire-and-forget unrestrict warm-up (PlayableLinkCache.prefetch) — called for the next
     /// episode's link when the Up Next bar appears, so a binge auto-advance starts instantly.
     let prefetchLink: ((String) -> Void)?
@@ -251,9 +241,6 @@ public final class PlayerModel {
     /// shut forever. After this many ticks we accept the playhead wherever it actually is.
     var resumeTicksSinceSeek = 0
     let resumeArrivalGraceTicks = 12
-    /// A pending fractional resume (0…1) awaiting a known duration — converted to `resumeTarget`
-    /// on the first tick that reports one, then cleared.
-    var resumeFraction: Double = 0
     /// A manual seek (skip/commitScrub) in flight: `to` is the optimistic target the bar already
     /// shows, `from` the pre-seek playhead. While set, `tick()` ignores VLCKit's stale pre-seek
     /// time echoes (which would snap the bar back) until a tick arrives nearer `to` than `from`.
@@ -363,10 +350,6 @@ public final class PlayerModel {
          details: MediaDetailsProviding? = nil,
          trackPreferences: TrackPreferenceStoring? = nil,
          resolveResume: ((String) async -> Double?)? = nil,
-         resolveResumeFraction: ((String) async -> Double?)? = nil,
-         onScrobbleStart: ((Double) async -> Void)? = nil,
-         onScrobblePause: ((Double) async -> Void)? = nil,
-         onScrobbleStop: ((Double) async -> Void)? = nil,
          prefetchLink: ((String) -> Void)? = nil,
          nowPlaying: NowPlayingControlling? = nil,
          autoHideDelay: Double = 4,
@@ -386,10 +369,6 @@ public final class PlayerModel {
         self.details = details
         self.trackPreferences = trackPreferences
         self.resolveResume = resolveResume
-        self.resolveResumeFraction = resolveResumeFraction
-        self.onScrobbleStart = onScrobbleStart
-        self.onScrobblePause = onScrobblePause
-        self.onScrobbleStop = onScrobbleStop
         self.prefetchLink = prefetchLink
         self.fromStart = request.fromStart
         self.item = request.item

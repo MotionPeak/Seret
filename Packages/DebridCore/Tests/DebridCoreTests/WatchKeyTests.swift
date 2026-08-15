@@ -38,8 +38,10 @@ import Foundation
                 == WatchKey.content(forShow: show(), episode: ep))
     }
 
-    @Test func seasonNumberKeyMatchesTraktsEpisodeKey() {
+    /// Watch keys and DOWNLOAD keys are one scheme: Detail reads both with the same string, so a
+    /// drift between them would show a downloaded episode as unwatched (or vice versa).
+    @Test func theEpisodeKeyMatchesTheDownloadKeyScheme() {
         #expect(WatchKey.content(forShow: show(), season: 4, number: 9)
-                == TraktMapping.episodeContentKey(showTmdb: 1399, season: 4, number: 9))
+                == DownloadKey.episode(showTmdbID: 1399, season: 4, number: 9))
     }
 }

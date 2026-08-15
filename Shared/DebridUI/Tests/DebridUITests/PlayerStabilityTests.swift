@@ -36,10 +36,12 @@ import DebridCore
         let model = PlayerModel(request: Fixture.showRequest(episodes: 3, playingEpisode: 1),
                                 engine: engine,
                                 unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
-                                recordProgress: { _, _, _, _ in }, subtitles: nil,
-                                // Stands in for the real stop hook: a Trakt scrobble-stop plus a
-                                // full re-sync, i.e. a guaranteed suspension point.
-                                onScrobbleStop: { _ in try? await Task.sleep(for: .seconds(0.05)) })
+                                // A slow write, i.e. a guaranteed suspension point — which is what
+                                // the real one is (a SwiftData write behind an actor).
+                                recordProgress: { _, _, _, _ in
+                                    try? await Task.sleep(for: .seconds(0.05))
+                                },
+                                subtitles: nil)
         await warmUp(model, engine, to: 100, duration: 200)
 
         engine.emit(.state(.ended))          // .stopping
@@ -59,8 +61,10 @@ import DebridCore
         let engine = FakeVideoPlayerEngine()
         let model = PlayerModel(request: Fixture.request(), engine: engine,
                                 unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
-                                recordProgress: { _, _, _, _ in }, subtitles: nil,
-                                onScrobbleStop: { _ in try? await Task.sleep(for: .seconds(0.3)) })
+                                recordProgress: { _, _, _, _ in
+                                    try? await Task.sleep(for: .seconds(0.3))
+                                },
+                                subtitles: nil)
         await warmUp(model, engine, to: 100)
 
         let teardown = Task { await model.teardown() }
@@ -140,26 +144,6 @@ import DebridCore
         #expect(model.position > 100, "the bar must track the real playhead again")
         #expect(model.position < 200, "…and not stay stuck at the target that never landed")
         #expect(model.isBuffering == false)
-    }
-
-    /// A fractional (Trakt) resume is stashed at load and converted to a seek target on the first
-    /// tick that reports a duration. `handleUserSeek` superseded `resumeTarget` but not
-    /// `resumeFraction`, so skipping during the cold open was silently undone a tick later — the
-    /// viewer skipped forward and got yanked back to the resume point.
-    @Test func aSeekDuringTheColdOpenIsNotUndoneByAFractionalResume() async {
-        let engine = FakeVideoPlayerEngine()
-        let model = PlayerModel(request: Fixture.request(), engine: engine,
-                                unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
-                                recordProgress: { _, _, _, _ in }, subtitles: nil,
-                                resolveResumeFraction: { _ in 0.5 })
-        model.start()
-        await model.waitForIdleForTesting()     // resumeFraction is armed, duration still unknown
-
-        model.skip(30)                          // the viewer skips before the first frame
-        engine.emit(.time(.init(position: 30, duration: 3600)))
-        await model.waitForIdleForTesting()
-
-        #expect(model.resumeTarget == 0, "the stashed fraction must not re-arm a resume seek")
     }
 
     // MARK: - Up Next

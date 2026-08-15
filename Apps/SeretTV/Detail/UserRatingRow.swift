@@ -2,9 +2,9 @@ import DebridCore
 import DebridUI
 import SwiftUI
 
-/// The viewer's own 1–10 Trakt rating, as a focusable row of stars. Distinct from `RatingsRow`,
+/// The viewer's own 1–10 rating, as a focusable row of stars. Distinct from `RatingsRow`,
 /// which shows the aggregate public scores (IMDb / Rotten Tomatoes / Metacritic). Hidden entirely
-/// when Trakt isn't linked, so an unlinked Apple TV sees no dead control.
+/// when there is no watch store, so the Apple TV never shows a dead control.
 struct UserRatingRow: View {
     let store: DetailStore
 

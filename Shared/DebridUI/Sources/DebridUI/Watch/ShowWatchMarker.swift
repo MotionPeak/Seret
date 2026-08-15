@@ -28,7 +28,7 @@ public struct ShowWatchMarker: Sendable {
               let seasonCount = tv.numberOfSeasons, seasonCount > 0 else { return }
 
         // Cancellable at every step. A long-running series is hundreds of episodes, and each one is
-        // a store write plus — when Trakt is linked — a request; with nothing checking for
+        // a store write; with nothing checking for
         // cancellation, backing out of the screen left it grinding through all of them anyway.
         for season in 1...seasonCount {
             guard !Task.isCancelled else { return }

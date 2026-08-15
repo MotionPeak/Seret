@@ -74,21 +74,26 @@ extension SwiftDataSuite {
             #expect(await p.rating(forContentKey: "movie:tmdb:7") == 9)
         }
 
-        @Test func resumeFractionIsPositionOverDuration() async throws {
+        /// The resume point is now read in SECONDS. It used to be a fraction, because Trakt stored
+        /// a percentage; with Trakt gone the player asks for the position directly.
+        @Test func theSavedPositionIsWhatPlaybackResumesFrom() async throws {
             let p = try provider()
             try await p.record(contentKey: "movie:tmdb:7", sourceKey: "T1#1",
                                positionSeconds: 150, durationSeconds: 600,
                                finished: false, profileID: "p1")
-            #expect(await p.resumeFraction(forContentKey: "movie:tmdb:7") == 0.25)
+            let state = try await p.progress(forContentKey: "movie:tmdb:7", profileID: "p1")
+            #expect(state?.positionSeconds == 150)
+            #expect(state?.finished == false)
         }
 
         /// A finished title has no resume point — Play, not Resume.
-        @Test func finishedTitlesHaveNoResumeFraction() async throws {
+        @Test func finishedTitlesAreMarkedSoThereIsNothingToResume() async throws {
             let p = try provider()
             try await p.record(contentKey: "movie:tmdb:7", sourceKey: "T1#1",
                                positionSeconds: 600, durationSeconds: 600,
                                finished: true, profileID: "p1")
-            #expect(await p.resumeFraction(forContentKey: "movie:tmdb:7") == nil)
+            let state = try await p.progress(forContentKey: "movie:tmdb:7", profileID: "p1")
+            #expect(state?.finished == true)
         }
 
         @Test func recentlyWatchedComesBackNewestFirst() async throws {

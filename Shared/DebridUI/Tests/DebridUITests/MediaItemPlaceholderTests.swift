@@ -13,17 +13,16 @@ import DebridCore
                   kind: kind)
     }
 
-    @Test func movieIDMatchesTheEnricherAndTrakt() {
+    @Test func movieIDMatchesTheEnricherAndTheWatchKey() {
         let item = MediaItem.placeholder(for: hit(70160, kind: .movie))
         #expect(item.id == "movie:tmdb:70160")
-        #expect(item.id == TraktMapping.movieContentKey(tmdb: 70160))
         #expect(item.id == WatchKey.content(forMovie: item))
+        #expect(item.id == DownloadKey.movie(tmdbID: 70160))
     }
 
-    @Test func showIDMatchesTrakt() {
+    @Test func showIDMatchesTheEnricherScheme() {
         let item = MediaItem.placeholder(for: hit(1399, kind: .show))
         #expect(item.id == "show:tmdb:1399")
-        #expect(item.id == TraktMapping.showContentKey(tmdb: 1399))
     }
 
     @Test func carriesWhatTheSearchResultKnows() {

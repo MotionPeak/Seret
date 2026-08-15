@@ -120,14 +120,13 @@ extension PlayerModel {
         }
     }
 
-    /// Called at every playback end-point: teardown, finish, and episode switches. With a scrobble
-    /// backend wired this is the `stop` event (Trakt finalizes the resume point / marks watched off
-    /// it); otherwise it falls back to the original progress write.
+    /// Called at every playback end-point: teardown, finish, and episode switches.
+    ///
+    /// It writes the same way the 1s tick does, so leaving the player finalises the position under
+    /// the episode ACTUALLY playing. It used to prefer a Trakt `stop` hook that received only a
+    /// fraction, which meant local state was never written here at all — the tick was the only
+    /// thing recording, and with Trakt's API app gone that hook wrote nowhere.
     func recordCurrentProgress() async {
-        if let onScrobbleStop {
-            await onScrobbleStop(currentFraction)
-        } else {
-            await recordProgress(contentKey, WatchKey.source(currentSource), position, duration)
-        }
+        await recordProgress(contentKey, WatchKey.source(currentSource), position, duration)
     }
 }

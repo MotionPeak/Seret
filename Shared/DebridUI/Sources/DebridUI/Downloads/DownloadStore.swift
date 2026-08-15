@@ -48,7 +48,7 @@ public final class DownloadStore {
 
     /// Extra delay added to the poll interval after a failure. RD rate-limits, and this loop now
     /// issues a recurring GET /torrents — without backoff a failing account becomes a request
-    /// storm, the same shape as the Trakt 429 storm.
+    /// storm.
     private(set) var pollBackoff: Duration = .zero
     private static let maxBackoff: Duration = .seconds(60)
 

@@ -14,7 +14,7 @@ private func similarResult(_ id: Int, _ title: String) -> TMDBSearchResult {
 }
 
 /// The rich-title-page fields on `DetailStore`: TMDB cast/director/creators/similar (free with the
-/// details call), the Trakt community score (a FALLBACK when OMDb has nothing), and the watch
+/// details call), and the watch
 /// history rollup. Every extra rides on providers obtained by downcast — nothing new is injected.
 @MainActor
 @Suite struct DetailStoreRichTests {
@@ -50,17 +50,14 @@ private func similarResult(_ id: Int, _ title: String) -> TMDBSearchResult {
         func seasonEpisodes(tvID: Int, season: Int) async throws -> [TMDBEpisodeDetails] { [] }
     }
 
-    /// A watch backend that ALSO supplies the community score and the history rollup — exactly the
-    /// shape of the real `TraktWatchProvider`, so the store's downcasts pick both up.
-    final class FakeRichWatch: WatchProgressProviding, CommunityRatingProviding,
+    /// A watch backend that also supplies the history rollup, so the store's downcast picks it up.
+    final class FakeRichWatch: WatchProgressProviding,
                                WatchSummaryProviding, @unchecked Sendable {
-        var community: Double?
         var summary: WatchSummary?
         var since: Date?
-        private(set) var communityCalls = 0
 
-        init(community: Double? = nil, summary: WatchSummary? = nil, since: Date? = nil) {
-            self.community = community; self.summary = summary; self.since = since
+        init(summary: WatchSummary? = nil, since: Date? = nil) {
+            self.summary = summary; self.since = since
         }
 
         func progress(forContentKey key: String, profileID: String) async throws -> WatchState? { nil }
@@ -69,10 +66,6 @@ private func similarResult(_ id: Int, _ title: String) -> TMDBSearchResult {
         func recentlyWatched(limit: Int, profileID: String) async throws -> [WatchState] { [] }
         func deleteProgress(forContentKeys keys: [String]) async throws {}
 
-        func communityRating(imdbID: String, kind: MediaKind) async -> Double? {
-            communityCalls += 1
-            return community
-        }
         func watchSummary(forContentKey key: String) async -> WatchSummary? { summary }
         func historySince(forContentKey key: String) async -> Date? { since }
     }
@@ -113,37 +106,6 @@ private func similarResult(_ id: Int, _ title: String) -> TMDBSearchResult {
 
     // MARK: - Community score
 
-    /// The production case: no OMDb key configured (`ratings == nil`). The Trakt score must STILL
-    /// load — it exists precisely to fill that gap.
-    @Test func communityScoreLoadsEvenWhenOMDbIsUnconfigured() async {
-        let watch = FakeRichWatch(community: 7.7)
-        let store = DetailStore(item: movie(), details: RichDetails(), watch: watch, ratings: nil)
-        await store.load()
-        #expect(store.communityScore == 7.7)
-        #expect(watch.communityCalls == 1)
-    }
-
-    /// A fallback, not an always-on fetch: with real OMDb chips there is nothing to fill in.
-    @Test func communityScoreIsNotFetchedWhenOMDbAlreadyHasRatings() async {
-        let watch = FakeRichWatch(community: 7.7)
-        let omdb = StubRatings(value: OMDbRatings(imdb: 8.7, rottenTomatoes: 88, metacritic: 73))
-        let store = DetailStore(item: movie(), details: RichDetails(), watch: watch, ratings: omdb)
-        await store.load()
-        #expect(store.ratings?.hasAny == true)
-        #expect(watch.communityCalls == 0)
-        #expect(store.communityScore == nil)
-    }
-
-    /// OMDb answered but with nothing usable → the community score still fills the gap.
-    @Test func communityScoreFillsInWhenOMDbHasNoScores() async {
-        let watch = FakeRichWatch(community: 6.4)
-        let omdb = StubRatings(value: OMDbRatings(imdb: nil, rottenTomatoes: nil, metacritic: nil))
-        let store = DetailStore(item: movie(), details: RichDetails(), watch: watch, ratings: omdb)
-        await store.load()
-        #expect(store.communityScore == 6.4)
-        #expect(watch.communityCalls == 1)
-    }
-
     // MARK: - Watch history rollup
 
     @Test func watchSummaryAndHistorySinceLoad() async {
@@ -163,7 +125,6 @@ private func similarResult(_ id: Int, _ title: String) -> TMDBSearchResult {
         await store.load()
         await store.loadWatchSummary()
         #expect(store.richState == .loaded)
-        #expect(store.communityScore == nil)
         #expect(store.watchSummary == nil)
         #expect(store.historySince == nil)
         #expect(store.ratingsState == .idle)

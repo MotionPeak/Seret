@@ -2,8 +2,8 @@ import DebridCore
 import DebridUI
 import SwiftUI
 
-/// The viewer's own 1–10 Trakt rating. Distinct from `RatingsRow`, which shows the aggregate
-/// public scores (IMDb / Rotten Tomatoes / Metacritic). Hidden entirely when Trakt isn't linked.
+/// The viewer's own 1–10 rating. Distinct from `RatingsRow`, which shows the aggregate
+/// public scores (IMDb / Rotten Tomatoes / Metacritic). Hidden entirely when there is no watch store.
 struct UserRatingRow: View {
     let store: DetailStore
 

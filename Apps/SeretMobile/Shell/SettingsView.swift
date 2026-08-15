@@ -81,52 +81,6 @@ struct SettingsView: View {
             .listRowBackground(Theme.Palette.surface1)
 
             Section {
-                if !session.traktConfigured {
-                    Label("Not configured in this build", systemImage: "exclamationmark.triangle")
-                        .foregroundStyle(Theme.Palette.textSecondary)
-                } else if session.traktLinked {
-                    Label("Linked to Trakt", systemImage: "checkmark.seal.fill")
-                        .foregroundStyle(Theme.Palette.textPrimary)
-                    // Reads fetch once per launch, so anything changed on Trakt afterwards
-                    // (rated on the web, watched elsewhere) needs an explicit re-read.
-                    Button {
-                        Task { await session.syncTraktNow() }
-                    } label: {
-                        HStack {
-                            Label("Sync Now", systemImage: "arrow.clockwise")
-                                .foregroundStyle(Theme.Palette.textPrimary)
-                            Spacer()
-                            if case .syncing = session.traktSyncState {
-                                ProgressView().tint(Theme.Palette.gold)
-                            }
-                        }
-                    }
-                    .disabled(session.traktSyncState == .syncing)
-                    syncStatus
-                    Button(role: .destructive) {
-                        Task { await session.unlinkTrakt() }
-                    } label: {
-                        Label("Unlink", systemImage: "rectangle.portrait.and.arrow.right")
-                    }
-                } else {
-                    NavigationLink {
-                        TraktLinkView()
-                    } label: {
-                        Label("Link Trakt", systemImage: "arrow.triangle.2.circlepath")
-                            .foregroundStyle(Theme.Palette.textPrimary)
-                    }
-                }
-            } header: {
-                Text("Trakt").foregroundStyle(Theme.Palette.gold)
-            } footer: {
-                Text(session.traktLinked
-                     ? "Watched history, resume position, and ratings sync with Trakt."
-                     : "Link Trakt to sync watched history, resume position, and ratings across devices.")
-                    .font(.footnote).foregroundStyle(Theme.Palette.textSecondary)
-            }
-            .listRowBackground(Theme.Palette.surface1)
-
-            Section {
                 Picker("Size", selection: subtitleSize) {
                     ForEach(SubtitlePreferences.Size.allCases, id: \.self) { Text($0.label).tag($0) }
                 }
@@ -205,21 +159,6 @@ struct SettingsView: View {
     private var subtitleColor: Binding<SubtitlePreferences.Color> {
         Binding(get: { session.subtitleSettings.preferences.color },
                 set: { session.subtitleSettings.preferences.color = $0 })
-    }
-
-    /// Result of the last manual sync. The counts matter: they distinguish "Trakt returned nothing"
-    /// from "it returned plenty but the screen still looks empty" — which is otherwise guesswork.
-    @ViewBuilder private var syncStatus: some View {
-        switch session.traktSyncState {
-        case .idle, .syncing:
-            EmptyView()
-        case let .succeeded(ratings, watched):
-            Label("\(ratings) ratings · \(watched) watched", systemImage: "checkmark.circle")
-                .font(.footnote).foregroundStyle(Theme.Palette.textSecondary)
-        case let .failed(message):
-            Label(message, systemImage: "exclamationmark.triangle")
-                .font(.footnote).foregroundStyle(Theme.Palette.textSecondary)
-        }
     }
 
     private var appVersion: String {

@@ -90,7 +90,7 @@ struct ShowDetailView: View {
             if !store.creatorRefs.isEmpty {
                 CreditNamesRow(label: "Created by", people: store.creatorRefs)
             }
-            RatingsRow(ratings: store.ratings, community: store.communityScore)
+            RatingsRow(ratings: store.ratings)
             if let overview = store.overview {
                 Text(overview).bodyText().frame(maxWidth: 1100, alignment: .leading).lineLimit(4)
             }

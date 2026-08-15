@@ -211,7 +211,7 @@ private struct SideMenuPreview: View {
 // MARK: - Movie Detail
 
 /// The real `MovieDetailView` on a stub store that reports a linked rating service, so the star row
-/// renders (it's hidden when Trakt isn't linked) alongside the Versions header. Sign-in free, which
+/// renders (it's hidden without a watch store) alongside the Versions header. Sign-in free, which
 /// is what makes the star styling and the focus geometry between them verifiable in the simulator.
 private struct MovieDetailPreview: View {
     @State private var store: DetailStore = {

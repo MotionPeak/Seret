@@ -39,7 +39,7 @@ struct MovieDetail: View {
                         .font(Theme.Typo.body()).foregroundStyle(Theme.Palette.gold)
                 }
                 if let best = store.bestSource { QualityChipRow(parsed: best.parsed) }
-                RatingsRow(ratings: store.ratings, community: store.communityScore)
+                RatingsRow(ratings: store.ratings)
                 actions
                 UserRatingRow(store: store)
                 WatchDatesLine(summary: store.watchSummary, since: store.historySince)

@@ -51,10 +51,6 @@ extension PlayerModel {
             refreshTracks()
             armAutoHide()
             pushNowPlaying()          // rate changed — the system cannot infer that itself
-            if let onScrobbleStart {
-                let f = currentFraction
-                Task { await onScrobbleStart(f) }   // the scrobbler dedups repeat starts
-            }
         case .paused:
             phase = .paused
             isBuffering = false
@@ -69,10 +65,6 @@ extension PlayerModel {
             // A paused player emits no more time events, so this is the ONLY chance to tell the
             // system playback stopped — without it the Remote app keeps advancing a frozen playhead.
             pushNowPlaying()
-            if let onScrobblePause {
-                let f = currentFraction
-                Task { await onScrobblePause(f) }
-            }
         case .ended:
             Task { await finish() }
         case .failed(let reason):
@@ -83,13 +75,6 @@ extension PlayerModel {
     func tick(_ t: PlaybackTime) async {
         duration = t.duration
 
-        // A fractional resume (Trakt stores a percentage) becomes a real seek target the moment the
-        // media reports its length — this is the earliest point seconds are computable. From here the
-        // existing resumeTarget path below owns the seek/arrival handling unchanged.
-        if resumeFraction > 0, t.duration > 0 {
-            resumeTarget = resumeFraction * t.duration
-            resumeFraction = 0
-        }
 
         // Resume: the load path already issued a best-effort seek. Arrival is checked FIRST so
         // that when VLC honored it (first ticks land at the point) no second seek fires; when it
@@ -169,7 +154,7 @@ extension PlayerModel {
         // the viewer had rewound FROM.
         //
         // And fire-and-forget, because this runs inside the single event-consumption loop: the real
-        // closure is a SwiftData write plus a Trakt heartbeat (an HTTP POST), and awaiting it here
+        // closure is a SwiftData write behind an actor, and awaiting it here
         // stalled every time update and state change behind it — the scrub bar froze and the
         // transport stopped answering for the length of the request. One write at a time, so they
         // can neither pile up nor land out of order.
@@ -199,7 +184,6 @@ extension PlayerModel {
         resumeTarget = fromStart ? 0 : max(resumeAt ?? 0, 0)
         resumeSeekIssued = false
         resumeTicksSinceSeek = 0
-        resumeFraction = 0
         pendingSeek = nil
         pendingSeekTicks = 0
         isFinishing = false     // a new media may end again
@@ -230,13 +214,7 @@ extension PlayerModel {
         do {
             // The resume lookup first (a local store read, single-digit ms), then unrestrict —
             // which is instant anyway when the link was prefetched (PlayableLinkCache).
-            if !fromStart, let resolveResumeFraction {
-                // Fractional backend (Trakt): stash the fraction; tick() turns it into a seek
-                // target as soon as the media reports a duration (it's 0 here).
-                let f = await resolveResumeFraction(contentKey) ?? 0
-                resumeFraction = (f > 0 && f < 1) ? f : 0
-                resumeTarget = 0
-            } else if !fromStart, let resolveResume {
+            if !fromStart, let resolveResume {
                 let saved = await resolveResume(contentKey) ?? 0
                 resumeTarget = saved > 0 ? saved : 0     // authoritative: overrides the UI hint
             }
@@ -332,11 +310,11 @@ extension PlayerModel {
         subtitleAttachTimeoutTask?.cancel()
         cancelScan()
         nowPlaying?.deactivate()
-        // Stop the picture and sound FIRST. `recordCurrentProgress()` is a Trakt scrobble-stop plus
-        // a full re-sync, and awaiting it before this left the film's audio playing over the Detail
-        // page for as long as the network took — seconds on a weak connection, up to URLSession's
-        // 60s timeout on a stalled socket. It reads only model state (`position`/`duration`), never
-        // the engine, so stopping first records exactly the same values.
+        // Stop the picture and sound FIRST. `recordCurrentProgress()` is a store write, and awaiting
+        // it before this left the film's audio playing over the Detail page for as long as it took
+        // — which, when this closure still went to Trakt, was up to URLSession's 60s timeout. It
+        // reads only model state (`position`/`duration`), never the engine, so stopping first
+        // records exactly the same values.
         engine.stop()
         await recordCurrentProgress()
     }

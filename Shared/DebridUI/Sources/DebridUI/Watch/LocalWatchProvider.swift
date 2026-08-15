@@ -3,7 +3,8 @@ import Foundation
 
 /// Watch state backed by the on-device store — the source of truth.
 ///
-/// No cache, deliberately. `TraktWatchProvider`'s cache, `loaded` latch and cooldowns exist to hide
+/// No cache, deliberately. The Trakt mirror this replaced needed a cache, a `loaded` latch and
+/// cooldowns to hide
 /// a network; a local store has none to hide, and porting that machinery would be inventing a
 /// problem to solve.
 ///
@@ -80,15 +81,5 @@ extension LocalWatchProvider: WatchRatingProviding {
 
     public func setRating(_ value: Int?, forContentKey key: String) async {
         try? await store.setRating(value, contentKey: key, profileID: await profileID())
-    }
-}
-
-extension LocalWatchProvider: ResumeFractionProviding {
-    /// Nil for anything finished or unstarted — those get Play, not Resume.
-    public func resumeFraction(forContentKey key: String) async -> Double? {
-        guard let state = try? await store.state(forContentKey: key, profileID: await profileID()),
-              !state.finished,
-              state.durationSeconds > 0, state.positionSeconds > 0 else { return nil }
-        return state.positionSeconds / state.durationSeconds
     }
 }

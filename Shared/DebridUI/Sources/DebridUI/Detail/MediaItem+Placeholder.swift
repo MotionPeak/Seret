@@ -10,8 +10,8 @@ extension MediaItem {
     /// A title you do not own yet, shaped so the Detail page can render it exactly like one you do.
     ///
     /// The id is the canonical `movie:tmdb:…` / `show:tmdb:…` form that `MetadataEnricher` gives a
-    /// library item and `TraktMapping` speaks. Getting this wrong is not cosmetic: the Add flow used
-    /// to key playback as `tmdb:123`, so nothing — resume, Continue Watching, Trakt — could find
+    /// library item speaks. Getting this wrong is not cosmetic: the Add flow used to key playback as
+    /// `tmdb:123`, so nothing — resume, Continue Watching, downloads — could find
     /// what you had watched.
     ///
     /// `sources` and `seasons` are empty by definition. `DetailStore.load()` fills in everything

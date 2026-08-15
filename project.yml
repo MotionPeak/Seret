@@ -39,8 +39,6 @@ targets:
         TMDBAPIKey: "$(TMDB_API_KEY)"
         OpenSubtitlesAPIKey: "$(OPENSUBTITLES_API_KEY)"
         OMDBAPIKey: "$(OMDB_API_KEY)"
-        TraktClientID: "$(TRAKT_CLIENT_ID)"
-        TraktClientSecret: "$(TRAKT_CLIENT_SECRET)"
         LSApplicationQueriesSchemes: [youtube, vnd.youtube]
         UIBackgroundModes: [remote-notification]
         # Rubik is BOTH the app's UI face and the subtitle face VLCKit resolves by family name.
@@ -105,8 +103,6 @@ targets:
         TMDBAPIKey: "$(TMDB_API_KEY)"
         OpenSubtitlesAPIKey: "$(OPENSUBTITLES_API_KEY)"
         OMDBAPIKey: "$(OMDB_API_KEY)"
-        TraktClientID: "$(TRAKT_CLIENT_ID)"
-        TraktClientSecret: "$(TRAKT_CLIENT_SECRET)"
         UIBackgroundModes: [remote-notification]
         UIAppFonts: [Rubik-Regular.ttf]      # registers Rubik so VLCKit can use it for subtitles
         UILaunchScreen: {}

@@ -46,7 +46,7 @@ struct ShowDetail: View {
                 if !store.creatorRefs.isEmpty {
                     CreditNamesRow(label: "By", people: store.creatorRefs)
                 }
-                RatingsRow(ratings: store.ratings, community: store.communityScore)
+                RatingsRow(ratings: store.ratings)
                 if let overview = store.overview {
                     Text(overview).font(Theme.Typo.body())
                         .foregroundStyle(Theme.Palette.textSecondary).lineLimit(4)

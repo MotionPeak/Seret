@@ -1,6 +1,6 @@
 import Foundation
 
-/// A per-title rollup of the viewer's Trakt watch history.
+/// A per-title rollup of the viewer's watch history, from the on-device store.
 public struct WatchSummary: Sendable, Equatable {
     public let plays: Int
     public let lastWatchedAt: Date?
@@ -17,7 +17,7 @@ public struct WatchSummary: Sendable, Equatable {
 public protocol WatchSummaryProviding: Sendable {
     /// Play count + last-watched date, drawn from the already-fetched `/sync/watched` payloads.
     func watchSummary(forContentKey key: String) async -> WatchSummary?
-    /// The earliest date this title appears in the viewer's Trakt history (one lazy network hop).
+    /// The earliest date this title appears in the viewer's history.
     /// Nil when unknown or unavailable.
     func historySince(forContentKey key: String) async -> Date?
 }

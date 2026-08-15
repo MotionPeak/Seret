@@ -7,26 +7,10 @@ import SwiftUI
 /// Renders only the scores that exist; the row disappears when there are none.
 struct RatingsRow: View {
     let ratings: OMDbRatings?
-    /// Trakt's community average (0–10). A FALLBACK only: it renders when OMDb gave us no chips,
-    /// so a title with IMDb/RT/Metacritic never grows a fourth, weaker score.
-    var community: Double? = nil
-
-    private var showsCommunity: Bool { ratings?.hasAny != true && community != nil }
 
     var body: some View {
-        if ratings?.hasAny == true || showsCommunity {
+        if ratings?.hasAny == true {
             HStack(spacing: 14) {
-                if let community, showsCommunity {
-                    chip {
-                        Image(systemName: "star.fill")
-                            .font(.system(size: 16))
-                            .foregroundStyle(Theme.Palette.gold)
-                        value(String(format: "%.1f", community))
-                        Text("Trakt")
-                            .font(.seret(15, .semibold))
-                            .foregroundStyle(Theme.Palette.textSecondary)
-                    }
-                }
                 if let r = ratings {
                     if let imdb = r.imdb {
                         chip {
