@@ -114,6 +114,18 @@ enum Fixture {
         MediaSource(torrentID: torrent, fileID: nil, restrictedLink: "rd://\(torrent)",
                     parsed: ParsedRelease(title: "The Show", resolution: nil))
     }
+    /// An n-episode show request currently playing the given episode number. Three or more is what
+    /// it takes to tell "advanced once" from "advanced twice".
+    static func showRequest(episodes: Int, playingEpisode number: Int) -> PlaybackRequest {
+        let eps = (1...episodes).map { Episode(season: 1, number: $0, source: episodeSource("e\($0)")) }
+        let item = MediaItem(id: "s1", kind: .show, title: "The Show", year: 2023,
+                             sources: [], seasons: [Season(number: 1, episodes: eps)], tmdbID: 1399)
+        let playing = eps[number - 1]
+        return PlaybackRequest(item: item, source: playing.source, resumeAt: nil,
+                               label: "The Show — S\(playing.season)·E\(playing.number)",
+                               contentKey: WatchKey.content(forShow: item, episode: playing), episode: playing)
+    }
+
     /// A two-episode show (S1E1, S1E2) request currently playing the given episode number.
     static func showRequest(playingEpisode number: Int = 1) -> PlaybackRequest {
         let ep1 = Episode(season: 1, number: 1, source: episodeSource("e1"))

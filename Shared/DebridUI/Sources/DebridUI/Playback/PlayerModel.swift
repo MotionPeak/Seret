@@ -224,6 +224,15 @@ public final class PlayerModel {
 
     /// `start()` has run. See `start()` — the screen's `.onAppear` can fire more than once.
     var hasStarted = false
+    /// `finish()` is past its guards. Closed synchronously, because VLCKit reports the end of a file
+    /// twice (`.stopping` then `.stopped`) and both reach `finish()` before its first `await`.
+    var isFinishing = false
+    /// A progress write is in flight. The write is fire-and-forget so it cannot stall the event
+    /// loop, and this keeps exactly one of them running so they can't reorder or pile up.
+    var isSavingProgress = false
+    /// Fallback timer for a subtitle download VLCKit never attaches. Held so it can be cancelled —
+    /// an orphan from a previous episode used to fire against the CURRENT one's pending attach.
+    var subtitleAttachTimeoutTask: Task<Void, Never>?
     var eventTask: Task<Void, Never>?
     var loadTask: Task<Void, Never>?
     var hideControlsTask: Task<Void, Never>?
@@ -249,6 +258,12 @@ public final class PlayerModel {
     /// shows, `from` the pre-seek playhead. While set, `tick()` ignores VLCKit's stale pre-seek
     /// time echoes (which would snap the bar back) until a tick arrives nearer `to` than `from`.
     var pendingSeek: (from: Double, to: Double)?
+    /// Ticks seen since the manual seek was issued. libvlc can DROP a seek outright — an unseekable
+    /// stretch, a stalled socket — and then no tick ever lands nearer the target, so the displayed
+    /// playhead froze at a time the film never reached, the loading hint stuck, and progress stopped
+    /// being written for the rest of the session. Same bounded-wait shape as `resumeTicksSinceSeek`.
+    var pendingSeekTicks = 0
+    let pendingSeekGraceTicks = 12
     /// True from the moment we swap episodes until the new media renders its first frame. The OLD
     /// media can emit a late `.ended` during that window; this flag makes `finish()` swallow it so a
     /// stale end can't auto-advance/exit a second time (the "it keeps jumping/restarting" bug).

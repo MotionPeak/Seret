@@ -108,14 +108,23 @@ extension PlayerModel {
         selectedSubtitleID = newID
         setRow(pending.language, .attached(newID))
         pendingSubtitleAttach = nil
+        subtitleAttachTimeoutTask?.cancel()      // it landed — nothing left to time out
+        subtitleAttachTimeoutTask = nil
     }
 
     /// Fallback if VLCKit never attaches the slave (e.g. an unreadable file): clear the pending
     /// download after a grace period so its row stops spinning and shows the retry-able error.
+    ///
+    /// Held and cancelled, because it re-checks only the LANGUAGE. Left running it outlived the
+    /// episode that armed it: E1's timer would wake eight seconds later, match E2's freshly-pending
+    /// Hebrew download by name, clear it and mark the row `.error` — so E2 got no subtitles at all
+    /// and an error badge on a download that had in fact succeeded.
     func scheduleSubtitleAttachTimeout(language: String) {
-        Task { @MainActor [weak self] in
+        subtitleAttachTimeoutTask?.cancel()
+        subtitleAttachTimeoutTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(8))
-            guard let self, self.pendingSubtitleAttach?.language == language else { return }
+            guard !Task.isCancelled, let self,
+                  self.pendingSubtitleAttach?.language == language else { return }
             self.pendingSubtitleAttach = nil
             self.setRow(language, .error)
         }

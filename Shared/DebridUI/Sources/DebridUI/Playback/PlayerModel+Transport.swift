@@ -44,6 +44,11 @@ extension PlayerModel {
     ///     yank the viewer to the next episode mid-scene.
     func handleUserSeek(to target: Double) {
         if resumeTarget > 0 { resumeTarget = 0; resumeSeekIssued = true }
+        // …and the fraction it would have been computed FROM. A Trakt resume is stashed as a
+        // fraction at load and only becomes a seek target once the media reports its duration, so
+        // clearing `resumeTarget` alone left the resume armed: a viewer who skipped during the cold
+        // open was yanked back to the resume point a tick later.
+        if resumeFraction > 0 { resumeFraction = 0; resumeSeekIssued = true }
         if upNextVisible, let threshold = upNextThreshold, target < threshold {
             upNextTask?.cancel()
             upNextVisible = false

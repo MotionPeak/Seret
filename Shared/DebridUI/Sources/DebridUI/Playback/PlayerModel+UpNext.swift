@@ -21,6 +21,12 @@ extension PlayerModel {
             while upNextSecondsRemaining > 0 {
                 try? await Task.sleep(for: .seconds(1))
                 if Task.isCancelled { return }
+                // Only a PLAYING film runs the clock down. `maybeShowUpNext()` checks the phase to
+                // start the countdown but nothing re-checked it afterwards, so pausing on the bar —
+                // to read the next episode's title, or to answer the door — did not hold it: it
+                // reached zero and started the next episode over the viewer's paused frame. Holding
+                // rather than cancelling keeps the bar and its number exactly as they look now.
+                guard phase == .playing else { continue }
                 upNextSecondsRemaining -= 1
             }
             playNext()                      // countdown elapsed → advance

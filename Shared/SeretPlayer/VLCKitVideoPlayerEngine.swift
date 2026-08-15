@@ -179,7 +179,13 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
     /// Gated on BOTH the app's intent and libvlc's own state, so a resume-seek issued while the
     /// media is still opening cannot trip it.
     func seek(to seconds: Double) {
-        player.time = VLCTime(int: Int32(seconds * 1000))
+        // `Int32(Double)` TRAPS on NaN, on infinity and on anything past ~24.8 days of milliseconds.
+        // Every caller clamps to the media's length today, but this is the hottest path in the app
+        // and the failure mode is an uncatchable crash, so the conversion defends itself: a resume
+        // point restored from a corrupt store, or a length VLCKit has not reported yet, must land
+        // somewhere sane rather than kill the process.
+        let ms = (seconds * 1000).isFinite ? min(max(seconds * 1000, 0), Double(Int32.max)) : 0
+        player.time = VLCTime(int: Int32(ms))
         guard !playbackRequested.withLock({ $0 }), player.state == .paused else { return }
         player.gotoNextFrame()
     }

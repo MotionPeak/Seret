@@ -133,9 +133,21 @@ extension PlayerModel {
         // `lastTickPosition` was set to the target when the seek was issued, so advance detection
         // below still fires on the landing tick.
         if let seek = pendingSeek {
-            guard abs(t.position - seek.to) < abs(t.position - seek.from) else { return }
-            pendingSeek = nil                           // landed → resume live tracking
-            isBuffering = false                         // …and the loading hint comes down
+            if abs(t.position - seek.to) < abs(t.position - seek.from) {
+                pendingSeek = nil                       // landed → resume live tracking
+                pendingSeekTicks = 0
+                isBuffering = false                     // …and the loading hint comes down
+            } else {
+                // libvlc can DROP a seek (an unseekable stretch, a stalled socket) and then no tick
+                // ever lands nearer the target. Waiting forever froze the bar at a time the film
+                // never reached and stopped progress being written for the rest of the session, so
+                // give up after a bounded wait and follow the real playhead again.
+                pendingSeekTicks += 1
+                guard pendingSeekTicks >= pendingSeekGraceTicks else { return }
+                pendingSeek = nil
+                pendingSeekTicks = 0
+                isBuffering = false
+            }
         }
 
         position = t.position
@@ -152,9 +164,23 @@ extension PlayerModel {
                 armAutoHide()
             }
         }
-        if position - lastSavedPosition >= saveInterval {
+        // `abs`, because the old forward-only test meant a rewind wrote nothing again until the
+        // playhead had climbed all the way back — so leaving after a rewind resumed at the point
+        // the viewer had rewound FROM.
+        //
+        // And fire-and-forget, because this runs inside the single event-consumption loop: the real
+        // closure is a SwiftData write plus a Trakt heartbeat (an HTTP POST), and awaiting it here
+        // stalled every time update and state change behind it — the scrub bar froze and the
+        // transport stopped answering for the length of the request. One write at a time, so they
+        // can neither pile up nor land out of order.
+        if abs(position - lastSavedPosition) >= saveInterval, !isSavingProgress {
             lastSavedPosition = position
-            await recordProgress(contentKey, WatchKey.source(currentSource), position, duration)
+            isSavingProgress = true
+            let (key, source, at, length) = (contentKey, WatchKey.source(currentSource), position, duration)
+            Task { @MainActor [weak self] in
+                await self?.recordProgress(key, source, at, length)
+                self?.isSavingProgress = false
+            }
         }
         maybeShowUpNext()
         pushNowPlaying()
@@ -175,8 +201,16 @@ extension PlayerModel {
         resumeTicksSinceSeek = 0
         resumeFraction = 0
         pendingSeek = nil
+        pendingSeekTicks = 0
+        isFinishing = false     // a new media may end again
         cancelScan()            // a hold that outlived the swap would travel through the NEW media
         cancelCoalescedSeek()
+        // libvlc's track ids are POSITIONAL ("audio/0", "spu/0") and so collide between two releases
+        // of the same title. Leaving the mirrored ids set made the preference matcher compare the
+        // new media's track against the old id, find them equal, and never tell the engine — so
+        // "Try another version" played with subtitles off while the panel still showed them ticked.
+        selectedAudioID = nil
+        selectedSubtitleID = nil
         audioPickedByUser = false          // a new source re-decides audio from scratch
         audioSelectionSignature = []
         subtitlePickedByUser = false       // …and so does the subtitle choice
@@ -185,6 +219,8 @@ extension PlayerModel {
         subtitleOffAsserted = false
         subtitleFallbackTask?.cancel()
         subtitleFallbackTask = nil
+        subtitleAttachTimeoutTask?.cancel()   // an orphan would fire against the NEW media's attach
+        subtitleAttachTimeoutTask = nil
         lastSavedPosition = -.infinity
         loadTask?.cancel()
         loadTask = Task { await self.loadCurrentSource() }
@@ -245,6 +281,13 @@ extension PlayerModel {
     func finish() async {
         guard phase != .ended else { return }   // VLCKit can emit .stopped + .ended; finish once
         guard !isSwitching else { return }      // ignore the OLD media's late `.ended` mid-swap
+        // Both of those guards read state that only changes AFTER the await below, and VLCKit
+        // reports the end of a file twice (`.stopping` then `.stopped` — the engine folds both into
+        // `.ended`), so two Tasks got past them and both advanced: the viewer finished E1 and landed
+        // on E3. This latch closes synchronously, before any suspension point. `reload()` clears it,
+        // which covers every path that legitimately re-arms an ending.
+        guard !isFinishing else { return }
+        isFinishing = true
         // VLCKit maps BOTH end-of-file and a failed open to `.stopped`/`.stopping` → `.ended`.
         // A media that never rendered a frame and never moved the playhead did not END — it never
         // STARTED. Treating that as EOF records progress at 0 and silently auto-advances to the
@@ -285,9 +328,16 @@ extension PlayerModel {
         upNextTask?.cancel()
         seekDispatchTask?.cancel()
         loadWatchdog?.cancel()
+        subtitleFallbackTask?.cancel()          // else it spends OpenSubtitles quota on a dead engine
+        subtitleAttachTimeoutTask?.cancel()
         cancelScan()
         nowPlaying?.deactivate()
-        await recordCurrentProgress()
+        // Stop the picture and sound FIRST. `recordCurrentProgress()` is a Trakt scrobble-stop plus
+        // a full re-sync, and awaiting it before this left the film's audio playing over the Detail
+        // page for as long as the network took — seconds on a weak connection, up to URLSession's
+        // 60s timeout on a stalled socket. It reads only model state (`position`/`duration`), never
+        // the engine, so stopping first records exactly the same values.
         engine.stop()
+        await recordCurrentProgress()
     }
 }
