@@ -191,7 +191,9 @@ struct ShowDetail: View {
     }
 
     private var episodeList: some View {
-        VStack(spacing: 0) {
+        // Lazy: a season is up to two dozen rows, each with a still to fetch and decode, and a
+        // non-lazy stack built every one of them before the first was on screen.
+        LazyVStack(spacing: 0) {
             ForEach(store.episodes(forSeason: store.selectedSeason)) { row in
                 EpisodeRowView(store: store, row: row, isDownloading: downloadingEpisodeID == row.id,
                                onPlay: onPlay, onDownload: downloadAndPlay)

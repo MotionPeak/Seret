@@ -26,7 +26,9 @@ struct SimilarRail: View {
             Text("MORE LIKE THIS")
                 .font(Theme.Typo.label()).tracking(1.5).foregroundStyle(Theme.Palette.gold)
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(alignment: .top, spacing: Theme.Space.md) {
+                // Lazy: `similar` is a whole TMDB page, and a non-lazy row built and image-loaded
+                // every one of them the moment the page appeared, however few were on screen.
+                LazyHStack(alignment: .top, spacing: Theme.Space.md) {
                     ForEach(titles) { tile($0) }
                 }
             }

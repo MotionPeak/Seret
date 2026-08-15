@@ -19,7 +19,7 @@ struct CastRail: View {
         VStack(alignment: .leading, spacing: Theme.Space.sm) {
             Text("CAST").font(Theme.Typo.label()).tracking(1.5).foregroundStyle(Theme.Palette.gold)
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(alignment: .top, spacing: Theme.Space.lg) {
+                LazyHStack(alignment: .top, spacing: Theme.Space.lg) {
                     ForEach(cast) { member in
                         NavigationLink {
                             PersonScreen(ref: TMDBPersonRef(id: member.id, name: member.name))
