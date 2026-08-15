@@ -67,6 +67,12 @@ public struct MagnetLink: Sendable, Equatable {
             }
         }
         guard bytes.count == 20 else { return nil }
-        return bytes.map { String(format: "%02x", $0) }.joined()
+        // Stdlib radix conversion rather than String(format:) — this package must compile for
+        // Linux (SeretServer), where format strings go through corelibs-foundation's CVarArg
+        // path. Zero-padding by hand keeps it locale-free and dependency-free.
+        return bytes.map { byte in
+            let hex = String(byte, radix: 16)
+            return byte < 0x10 ? "0" + hex : hex
+        }.joined()
     }
 }
