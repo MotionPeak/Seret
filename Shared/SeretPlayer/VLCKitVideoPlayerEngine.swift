@@ -138,25 +138,19 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
             return
         }
         for (k, v) in headers { media.addOption(":http-\(k.lowercased())=\(v)") } // unused for RD CDN
-        // network-caching is the ONE knob behind two things that pull opposite ways: how much slack
-        // playback has against a network dip, and how long a start or a ±10s skip takes to draw.
-        // libvlc offers no way to separate them — the post-seek pre-roll IS this buffer refilling —
-        // so the value is a straight trade, and it has to be picked for the worst file the owner
-        // actually plays, not the average one.
+        // network-caching becomes libvlc's `pts_delay`: the depth filled before playback starts,
+        // after every seek, AND after every clock reset.
         //
-        // tvOS is back to 3s after 2s stalled on the Apple TV: the picture froze for about two
-        // seconds roughly every two minutes, which is a drained pipeline refilling its whole depth.
-        // Two seconds was chosen to take a third off skip latency and was never verified on the
-        // device. It should not be cut again without a device measurement — the Apple TV's link
-        // sustains only a little over the bitrate of a 60 Mbps remux (an audio fault on a 63 GB /
-        // ~61 Mbps file traced to the same thin margin), so the buffer is what absorbs every dip.
-        // If it still stalls at 3s the margin, not this constant, is the problem: go deeper here
-        // and accept slower skips, or play a smaller version.
-        #if os(tvOS)
-        media.addOption(":network-caching=3000")
-        #else
+        // It is NOT the lever for the periodic mid-film freeze, and that is settled rather than
+        // assumed. Raising tvOS 2000 → 3000 to chase that bug changed nothing on the device, and
+        // `-vlcLog` then showed why — the freeze is `ES_OUT_RESET_PCR`, a clock reset that late
+        // pictures provoke, and the refill it forces is this depth. So a DEEPER buffer makes every
+        // freeze LONGER. Both platforms now run the same 1.5s: it halves how long each stall lasts
+        // and makes skips twice as responsive, and the 3s experiment is the evidence that input
+        // starvation is not what is happening (a starved pipeline would have improved).
+        //
+        // Fix the LATE PICTURES, not this number. Both directions have now been tried.
         media.addOption(":network-caching=1500")
-        #endif
         media.addOption(":input-fast-seek")   // land on the nearest keyframe — skips respond fast
         media.addOption(":http-reconnect")    // transparently re-open a dropped CDN connection
         // Pick the audio track HERE, during setup, rather than switching after playback starts.
