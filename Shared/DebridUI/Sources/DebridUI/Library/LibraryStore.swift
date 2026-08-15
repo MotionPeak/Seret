@@ -71,6 +71,7 @@ public final class LibraryStore {
             try? await watch?.deleteProgress(forContentKeys: Self.contentKeys(for: item))
             movies.removeAll { $0.id == item.id }
             shows.removeAll { $0.id == item.id }
+            reindexOwned()
             if movies.isEmpty && shows.isEmpty { state = .empty }
             removal = .idle
             await onContentChanged?()
@@ -90,6 +91,7 @@ public final class LibraryStore {
             if remaining.isEmpty {
                 movies.removeAll { $0.id == item.id }
                 shows.removeAll { $0.id == item.id }
+                reindexOwned()
                 try? await watch?.deleteProgress(forContentKeys: Self.contentKeys(for: item))
                 if movies.isEmpty && shows.isEmpty { state = .empty }
             } else {
@@ -100,6 +102,7 @@ public final class LibraryStore {
                                         backdropPath: item.backdropPath, overview: item.overview,
                                         addedAt: item.addedAt)
                 movies = movies.map { $0.id == item.id ? updated : $0 }
+                reindexOwned()
             }
             removal = .idle
             await onContentChanged?()
@@ -174,10 +177,19 @@ public final class LibraryStore {
     private func apply(_ items: [MediaItem]) {
         movies = items.filter { $0.kind == .movie }
         shows = items.filter { $0.kind == .show }
-        // First one wins, matching the linear `first(where:)` this replaced.
-        ownedByTMDBID = Dictionary(items.compactMap { item in item.tmdbID.map { ($0, item) } },
-                                   uniquingKeysWith: { first, _ in first })
+        reindexOwned()
         state = (movies.isEmpty && shows.isEmpty) ? .empty : .loaded
+    }
+
+    /// Rebuild the ownership index from the current arrays. Must run after EVERY mutation of
+    /// `movies`/`shows` — the removal paths edit them directly rather than going through
+    /// `apply(_:)`, and while the index was only built there, a deleted title kept its "In Library"
+    /// badge in Browse and its poster still opened a Detail with a live Play button over a torrent
+    /// that no longer existed.
+    private func reindexOwned() {
+        // First one wins, matching the linear `first(where:)` this replaced.
+        ownedByTMDBID = Dictionary((movies + shows).compactMap { item in item.tmdbID.map { ($0, item) } },
+                                   uniquingKeysWith: { first, _ in first })
     }
 
     private static func message(for error: Error) -> String {

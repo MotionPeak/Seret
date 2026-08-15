@@ -35,7 +35,7 @@ enum ImageMemoryCache {
     /// Warm the cache for a batch of URLs in the background — call when a list's data loads (e.g. a
     /// season's episode stills) so the cards render with images instead of sitting grey until each one
     /// scrolls into view. No-op for already-cached URLs; failures are silent (the on-appear load still
-    /// fetches as a fallback).
+    /// fetches as a fallback — see `RemoteImage`, which re-claims a URL whose prefetch died).
     static func prefetch(_ urls: [URL]) {
         for url in urls where shared.object(forKey: url as NSURL) == nil {
             guard claimInFlight(url) else { continue }   // already downloading — don't fetch it twice
@@ -112,9 +112,12 @@ struct RemoteImage<Placeholder: View>: View {
             // their result rather than starting a second download. Waiting is not optional: `body`
             // reads the cache synchronously, so without setting `loaded` here nothing would
             // re-render when their copy landed and this tile would stay on its placeholder.
-            guard ImageMemoryCache.claimInFlight(url) else {
-                loaded = await ImageMemoryCache.awaitCached(url)
-                return
+            if !ImageMemoryCache.claimInFlight(url) {
+                if let theirs = await ImageMemoryCache.awaitCached(url) { loaded = theirs; return }
+                // Their fetch failed, or outran the wait. Take the claim and do it ourselves —
+                // giving up here left the tile on its placeholder for good, because `body` reads
+                // the cache synchronously and nothing would re-render it.
+                guard ImageMemoryCache.claimInFlight(url) else { return }
             }
             defer { ImageMemoryCache.releaseInFlight(url) }
             guard let (data, _) = try? await URLSession.shared.data(from: url) else { return }

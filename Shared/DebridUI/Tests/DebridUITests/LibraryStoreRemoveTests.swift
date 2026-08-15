@@ -97,4 +97,37 @@ private actor RecordingWatch: WatchProgressProviding {
         await store.remove(store.movies[0])
         #expect(notifications == 0)   // nothing changed, so no rebuild
     }
+
+    /// The ownership index behind `ownedItem`/`ownedTMDBIDs` is what every Browse, Search, Similar,
+    /// Franchise and Person tile asks "do I already have this?". The removal paths edit `movies`/
+    /// `shows` directly instead of going through `apply(_:)`, so an index rebuilt only there went
+    /// stale the moment you deleted something: the poster kept its "In Library" badge and still
+    /// opened a Detail with a live Play button over a torrent that no longer existed.
+    @Test func removingATitleClearsItFromTheOwnershipIndex() async {
+        let m = MediaItem(id: "1", kind: .movie, title: "Dune", year: 2024,
+                          sources: [], seasons: [], tmdbID: 693134)
+        let store = LibraryStore(library: RemoveFakeLibrary(cached: [m]))
+        await store.load()
+        #expect(store.ownedItem(tmdbID: 693134) != nil)
+
+        await store.remove(m)
+
+        #expect(store.ownedItem(tmdbID: 693134) == nil)
+        #expect(store.ownedTMDBIDs.isEmpty)
+    }
+
+    /// …and dropping ONE version must leave the index pointing at the trimmed item, not the one
+    /// that still lists the version whose torrent was just deleted.
+    @Test func removingOneVersionUpdatesTheOwnershipIndex() async {
+        let src = { (t: String) in MediaSource(torrentID: t, fileID: nil, restrictedLink: "l",
+                                               parsed: ParsedRelease(title: "Dune")) }
+        let m = MediaItem(id: "1", kind: .movie, title: "Dune", year: 2024,
+                          sources: [src("t1"), src("t2")], seasons: [], tmdbID: 693134)
+        let store = LibraryStore(library: RemoveFakeLibrary(cached: [m]))
+        await store.load()
+
+        await store.removeVersion(m, source: src("t1"))
+
+        #expect(store.ownedItem(tmdbID: 693134)?.sources.map(\.torrentID) == ["t2"])
+    }
 }

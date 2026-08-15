@@ -126,6 +126,15 @@ struct PlayerInputSurface: UIViewRepresentable {
         private var isScanning: Bool {
             scanHolds.contains { $0.state == .began || $0.state == .changed }
         }
+        /// The arrow is physically still down. Set and cleared ONLY by the hold recogniser, so —
+        /// unlike a flag other handlers also clear — it cannot get stuck; UIKit always delivers an
+        /// end state, including `.cancelled` when the recogniser is disabled.
+        ///
+        /// It exists because the derived `isScanning` above reads the recogniser's state, and UIKit
+        /// promises nothing about whether the release TAP's action or the hold's `.ended` runs
+        /// first. If the tap goes first the hold may already read `.ended`, and the tap would sail
+        /// through as a fresh ±10s on top of the scan.
+        private var scanHoldLive = false
         /// When the last scan ended. A hold fires the long-press AND, on release, the tap for the
         /// same arrow; without a short guard every scan landed a stray ±10s on top of itself.
         private var lastScanEndedAt: CFTimeInterval = -.greatestFiniteMagnitude
@@ -284,7 +293,8 @@ struct PlayerInputSurface: UIViewRepresentable {
         /// to stand down for the scan's own release. Time-based rather than ordered, because UIKit
         /// makes no promise about which of two simultaneous recognisers reports first.
         private func skipUnlessScanning(_ delta: Double) {
-            guard !isScanning, CACurrentMediaTime() - lastScanEndedAt > scanTapGuard else { return }
+            guard !isScanning, !scanHoldLive,
+                  CACurrentMediaTime() - lastScanEndedAt > scanTapGuard else { return }
             parent.onSkip(delta)
         }
         /// Unlike `.select`, this never commits a scrub — the viewer reaching for play/pause is
@@ -325,9 +335,16 @@ struct PlayerInputSurface: UIViewRepresentable {
         private func scan(_ g: UILongPressGestureRecognizer, direction: Double) {
             switch g.state {
             case .began:
+                scanHoldLive = true
                 scanNotified = true
                 parent.onScanBegan(direction)
             case .ended, .cancelled, .failed:
+                // Stamp the guard here, NOT inside `endScanIfRunning` — that returns early once
+                // something else has already called the scan off (a play/pause press mid-hold), and
+                // then the arrow's own release would find a stale timestamp and land a stray ±10s
+                // on top of the travel it just did.
+                lastScanEndedAt = CACurrentMediaTime()
+                scanHoldLive = false
                 endScanIfRunning()
             default:
                 break

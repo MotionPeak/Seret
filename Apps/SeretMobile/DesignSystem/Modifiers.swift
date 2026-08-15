@@ -102,9 +102,12 @@ struct RemoteImage<Placeholder: View>: View {
             // their result rather than starting a second download. Waiting is not optional: `body`
             // reads the cache synchronously, so without setting `loaded` here nothing would
             // re-render when their copy landed and this tile would stay on its placeholder.
-            guard ImageMemoryCache.claimInFlight(url) else {
-                loaded = await ImageMemoryCache.awaitCached(url)
-                return
+            if !ImageMemoryCache.claimInFlight(url) {
+                if let theirs = await ImageMemoryCache.awaitCached(url) { loaded = theirs; return }
+                // Their fetch failed, or outran the wait. Take the claim and do it ourselves —
+                // giving up here left the tile on its placeholder for good, because `body` reads
+                // the cache synchronously and nothing would re-render it.
+                guard ImageMemoryCache.claimInFlight(url) else { return }
             }
             defer { ImageMemoryCache.releaseInFlight(url) }
             guard let (data, _) = try? await URLSession.shared.data(from: url) else { return }
