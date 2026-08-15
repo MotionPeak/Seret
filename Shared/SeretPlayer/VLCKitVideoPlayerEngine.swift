@@ -138,17 +138,22 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
             return
         }
         for (k, v) in headers { media.addOption(":http-\(k.lowercased())=\(v)") } // unused for RD CDN
-        // network-caching is the pre-roll VLC fills before playback starts AND after every seek —
-        // it is the floor on start latency and skip latency. The RD CDN sustains high-bitrate
-        // remuxes easily, so iOS runs a 1.5s pipeline for snappy starts/skips.
+        // network-caching is the ONE knob behind two things that pull opposite ways: how much slack
+        // playback has against a network dip, and how long a start or a ±10s skip takes to draw.
+        // libvlc offers no way to separate them — the post-seek pre-roll IS this buffer refilling —
+        // so the value is a straight trade, and it has to be picked for the worst file the owner
+        // actually plays, not the average one.
         //
-        // tvOS ran 3s, which made every ±10s skip wait three seconds before the picture came back
-        // ("it loads for a very long time"). 2s takes a third off that floor while keeping ~500ms
-        // of headroom over iOS for the high-bitrate remuxes the deeper buffer was added for — a
-        // 63 GB / ~61 Mbps sustained file is on record here. If stalls return on the Apple TV,
-        // this constant is the revert.
+        // tvOS is back to 3s after 2s stalled on the Apple TV: the picture froze for about two
+        // seconds roughly every two minutes, which is a drained pipeline refilling its whole depth.
+        // Two seconds was chosen to take a third off skip latency and was never verified on the
+        // device. It should not be cut again without a device measurement — the Apple TV's link
+        // sustains only a little over the bitrate of a 60 Mbps remux (an audio fault on a 63 GB /
+        // ~61 Mbps file traced to the same thin margin), so the buffer is what absorbs every dip.
+        // If it still stalls at 3s the margin, not this constant, is the problem: go deeper here
+        // and accept slower skips, or play a smaller version.
         #if os(tvOS)
-        media.addOption(":network-caching=2000")
+        media.addOption(":network-caching=3000")
         #else
         media.addOption(":network-caching=1500")
         #endif
