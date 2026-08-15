@@ -204,6 +204,17 @@ public final class AppSession {
         downloadMonitor = nil
         downloadStore = nil
         subtitlesProvider = nil
+        // The SwiftData-backed stores too. Every one of these holds the same CloudKit-mirrored
+        // `ModelContainer`, and sign-in unconditionally builds a NEW one — so leaving them alive
+        // meant signing out and back in left two containers open over the same store file, each
+        // registering its own CloudKit sync. That is the hazard `purgeLegacyDefaultStore` was
+        // written for, arrived at from the other direction.
+        profileStore = nil
+        myListStore = nil
+        versionPreferences = nil
+        activeProfiles = nil
+        localWatch = nil
+        profileStoreMode = "none"
         state = .signedOut
     }
 

@@ -40,7 +40,7 @@ public final class LibraryStore {
 
     #if DEBUG
     /// Test-only: seed the split arrays without a network/library round-trip.
-    func setForTest(movies: [MediaItem], shows: [MediaItem]) { self.movies = movies; self.shows = shows }
+    func setForTest(movies: [MediaItem], shows: [MediaItem]) { apply(movies + shows) }
     #endif
 
     public func load() async {
@@ -123,13 +123,20 @@ public final class LibraryStore {
         }
     }
 
+    /// TMDB id → library item, rebuilt only when the library itself changes.
+    ///
+    /// Both lookups below are read from a poster's `body`, once per tile. They used to build a
+    /// fresh `movies + shows` array — the WHOLE library — and scan it linearly, every call. A
+    /// browse page is dozens of posters and tvOS re-evaluates them on every focus move, so a large
+    /// account was copying its entire library hundreds of times a second just to decide whether to
+    /// draw an "In Library" badge.
+    private var ownedByTMDBID: [Int: MediaItem] = [:]
+
     /// TMDB ids of every title currently in the library — for the "In Library" badge in Browse.
-    public var ownedTMDBIDs: Set<Int> { Set((movies + shows).compactMap { $0.tmdbID }) }
+    public var ownedTMDBIDs: Set<Int> { Set(ownedByTMDBID.keys) }
 
     /// The library item for a TMDB id, if owned — so a Browse poster can open its Detail.
-    public func ownedItem(tmdbID: Int) -> MediaItem? {
-        (movies + shows).first { $0.tmdbID == tmdbID }
-    }
+    public func ownedItem(tmdbID: Int) -> MediaItem? { ownedByTMDBID[tmdbID] }
 
     // MARK: - Watch state (movies only)
 
@@ -167,6 +174,9 @@ public final class LibraryStore {
     private func apply(_ items: [MediaItem]) {
         movies = items.filter { $0.kind == .movie }
         shows = items.filter { $0.kind == .show }
+        // First one wins, matching the linear `first(where:)` this replaced.
+        ownedByTMDBID = Dictionary(items.compactMap { item in item.tmdbID.map { ($0, item) } },
+                                   uniquingKeysWith: { first, _ in first })
         state = (movies.isEmpty && shows.isEmpty) ? .empty : .loaded
     }
 
