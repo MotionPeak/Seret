@@ -91,8 +91,11 @@ struct ShowDetailView: View {
             heroActions
             UserRatingRow(store: store)
             WatchDatesLine(summary: store.watchSummary, since: store.historySince)
-                .task { await store.loadWatchSummary() }
         }
+        // On the container, not on WatchDatesLine: that view renders NOTHING until the summary it
+        // is waiting for arrives, so hanging the load that produces it off a conditionally-empty
+        // body makes it depend on SwiftUI keeping an empty view in the tree.
+        .task { await store.loadWatchSummary() }
     }
 
     private var metaLine: String {

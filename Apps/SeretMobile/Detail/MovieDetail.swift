@@ -43,13 +43,6 @@ struct MovieDetail: View {
                 actions
                 UserRatingRow(store: store)
                 WatchDatesLine(summary: store.watchSummary, since: store.historySince)
-                    .task { await store.loadWatchSummary() }
-                    .task { await store.loadPreferredVersion() }
-                    // Rebuilt when the imdbID resolves — the engine cannot query without it.
-                    .task(id: store.imdbID) {
-                        acquisition = session.makeAcquisition(for: store.item, imdbID: store.imdbID,
-                                                              originalLanguage: store.originalLanguage)
-                    }
                 if case let .failed(message) = acquisition?.phase {
                     Label(message, systemImage: "exclamationmark.triangle")
                         .font(Theme.Typo.caption()).foregroundStyle(.orange)
@@ -86,6 +79,17 @@ struct MovieDetail: View {
             .padding(.bottom, Theme.Space.xxl)
             .frame(maxWidth: .infinity, alignment: .leading)
             }
+        }
+        // On the ScrollView, not on WatchDatesLine. That view renders NOTHING until the summary it
+        // is waiting for arrives, and hanging the load that produces it — plus the version lookup
+        // and the acquisition engine — off a view with a conditionally-empty body makes all three
+        // depend on SwiftUI choosing to keep an empty view in the tree.
+        .task { await store.loadWatchSummary() }
+        .task { await store.loadPreferredVersion() }
+        // Rebuilt when the imdbID resolves — the engine cannot query without it.
+        .task(id: store.imdbID) {
+            acquisition = session.makeAcquisition(for: store.item, imdbID: store.imdbID,
+                                                  originalLanguage: store.originalLanguage)
         }
         .background(CanvasBackground())
         .navigationTitle(item.title)

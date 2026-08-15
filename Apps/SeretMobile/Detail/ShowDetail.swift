@@ -48,7 +48,6 @@ struct ShowDetail: View {
                 heroAction
                 UserRatingRow(store: store)
                 WatchDatesLine(summary: store.watchSummary, since: store.historySince)
-                    .task { await store.loadWatchSummary() }
                 seasonPicker
                 markSeasonButton
                 SeasonDownloadButton(store: seasonStore, onAdded: onSeasonAdded,
@@ -98,6 +97,10 @@ struct ShowDetail: View {
             acquisition?.reset()
             onPlay(request)
         }
+        // On the container, not on WatchDatesLine: that view renders NOTHING until the summary it
+        // is waiting for arrives, so hanging the load that produces it off a conditionally-empty
+        // body makes it depend on SwiftUI keeping an empty view in the tree.
+        .task { await store.loadWatchSummary() }
         // Warm the season's episode stills as soon as its TMDB metadata lands (the id re-fires
         // when the meta count changes), so the list renders with images, not grey tiles.
         .task(id: "stills#\(store.selectedSeason)#\(store.episodeMeta[store.selectedSeason]?.count ?? 0)") {

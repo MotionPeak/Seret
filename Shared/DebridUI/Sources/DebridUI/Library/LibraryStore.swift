@@ -44,7 +44,8 @@ public final class LibraryStore {
     #endif
 
     public func load() async {
-        if let cached = library.loadCached() { apply(cached); await reloadWatchStates() } else { state = .loading }
+        if let cached = await library.loadCachedOffMain() { apply(cached); await reloadWatchStates() }
+        else { state = .loading }
         do {
             let items = try await library.refresh()
             try Task.checkCancellation()   // a retry cancels the old task — don't apply a stale result
