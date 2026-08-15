@@ -189,12 +189,17 @@ public final class DiscoverStore {
                 if next < specs.count { addTask(next); next += 1 } else { running -= 1 }
             }
         }
+        // A cancelled load goes back to `.idle`, never stays `.loaded`. The guard at the top refuses
+        // to start from `.loaded`, so leaving Browse mid-load — the ordinary way to leave it — used
+        // to freeze the page on whichever rails happened to have finished, permanently.
+        guard !Task.isCancelled else { statesBySegment[segment] = .idle; return }
         if rowsBySegment[segment]?.isEmpty ?? true { statesBySegment[segment] = .failed }
     }
 
     // MARK: - Row specs per segment
 
-    private struct RowSpec {
+    /// Internal (not private) so the progressive-assembly ordering can be unit-tested directly.
+    struct RowSpec {
         let id: String
         let title: String
         let fetch: @Sendable () async -> [TMDBSearchResult]
@@ -269,14 +274,21 @@ public final class DiscoverStore {
 
     // MARK: - Progressive assembly
 
-    /// Builds the visible rows from whatever rails have completed so far, in spec order, dropping
-    /// empties and deduping poster ids ACROSS rails (a title settles into its earliest rail). Called
-    /// after each rail completes, so the list grows as the segment loads.
-    private static func assemble(specs: [RowSpec], completed: [Int: [SearchHit]]) -> [Row] {
+    /// Builds the visible rows from the completed PREFIX of the specs, dropping empties and
+    /// deduping poster ids ACROSS rails (a title settles into its earliest rail). Called after each
+    /// rail completes, so the list grows as the segment loads.
+    ///
+    /// It stops at the first unfinished rail rather than skipping past it, and that is the whole
+    /// point: rails finish out of order, so filling gaps in afterwards INSERTED a rail above ones
+    /// already on screen — the page jumped under the viewer — and re-running the cross-rail dedup
+    /// with a new earliest claimant pulled posters out of a rail they were already showing in.
+    /// Growing only at the bottom means nothing on screen ever moves, and the finished layout is
+    /// identical either way.
+    static func assemble(specs: [RowSpec], completed: [Int: [SearchHit]]) -> [Row] {
         var seen = Set<Int>()
         var rows: [Row] = []
         for i in specs.indices {
-            guard let hits0 = completed[i] else { continue }   // rail not finished yet
+            guard let hits0 = completed[i] else { break }      // rail not finished yet
             let hits = hits0.filter { seen.insert($0.result.id).inserted }
             if hits.isEmpty { continue }
             rows.append(Row(id: specs[i].id, title: specs[i].title, hits: hits))

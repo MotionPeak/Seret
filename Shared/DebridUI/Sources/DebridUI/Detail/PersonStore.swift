@@ -44,13 +44,18 @@ public final class PersonStore {
         state = .loading
         do {
             let details = try await credits.person(tmdbID: ref.id)
-            guard !Task.isCancelled else { return }
+            // Back to `.idle`, not left `.loading`. The guard above refuses to start from
+            // `.loading`, so a load cancelled by leaving the page — which is the ordinary way to
+            // leave it — pinned the person page on its spinner for the rest of the session.
+            guard !Task.isCancelled else { state = .idle; return }
             person = details
             acting = details.castCredits.actingFilmography().map(Self.hit)
             directing = details.crewCredits.directingFilmography().map(Self.hit)
             state = acting.isEmpty && directing.isEmpty ? .empty : .loaded
+        } catch is CancellationError {
+            state = .idle
         } catch {
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else { state = .idle; return }
             state = .failed("Couldn't load \(ref.name).")
         }
     }

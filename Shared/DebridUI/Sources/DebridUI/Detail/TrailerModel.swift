@@ -42,15 +42,18 @@ public final class TrailerModel {
     public func prepare(tmdbID: Int, kind: MediaKind) async {
         guard state == .idle else { return }
         state = .resolving
+        // A cancelled resolve goes back to `.idle` rather than `.unavailable`: the guard above
+        // starts only from `.idle`, so treating "the viewer left the page" as "this title has no
+        // trailer" left the Trailer button dead for that title for the rest of the session.
         guard let key = await trailers.trailerKey(tmdbID: tmdbID, kind: kind) else {
-            state = .unavailable
+            state = Task.isCancelled ? .idle : .unavailable
             return
         }
         youTubeKey = key
         if let url = await resolver.streamURL(youTubeKey: key) {
             state = .ready(url)
         } else {
-            state = .unavailable
+            state = Task.isCancelled ? .idle : .unavailable
         }
     }
 }

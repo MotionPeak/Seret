@@ -45,6 +45,12 @@ public struct HTTPClient: Sendable {
         do {
             (data, response) = try await session.data(for: request)
         } catch {
+            // Cancellation is not a transport failure, and it must stay recognisable as
+            // cancellation: every `catch is CancellationError` in the app was dead while this
+            // rewrapped it, so callers treated "the viewer navigated away" as "the request failed"
+            // and latched screens into an error or half-loaded state they could not leave.
+            if error is CancellationError { throw error }
+            if (error as? URLError)?.code == .cancelled { throw CancellationError() }
             throw HTTPError.transport(String(describing: error))
         }
         guard let http = response as? HTTPURLResponse else {
@@ -88,6 +94,12 @@ public struct HTTPClient: Sendable {
         do {
             (data, response) = try await session.data(for: request)
         } catch {
+            // Cancellation is not a transport failure, and it must stay recognisable as
+            // cancellation: every `catch is CancellationError` in the app was dead while this
+            // rewrapped it, so callers treated "the viewer navigated away" as "the request failed"
+            // and latched screens into an error or half-loaded state they could not leave.
+            if error is CancellationError { throw error }
+            if (error as? URLError)?.code == .cancelled { throw CancellationError() }
             throw HTTPError.transport(String(describing: error))
         }
         guard let http = response as? HTTPURLResponse else {
@@ -112,6 +124,12 @@ public struct HTTPClient: Sendable {
         do {
             (data, response) = try await session.data(for: request)
         } catch {
+            // Cancellation is not a transport failure, and it must stay recognisable as
+            // cancellation: every `catch is CancellationError` in the app was dead while this
+            // rewrapped it, so callers treated "the viewer navigated away" as "the request failed"
+            // and latched screens into an error or half-loaded state they could not leave.
+            if error is CancellationError { throw error }
+            if (error as? URLError)?.code == .cancelled { throw CancellationError() }
             throw HTTPError.transport(String(describing: error))
         }
         guard let http = response as? HTTPURLResponse else {
@@ -132,6 +150,12 @@ public struct HTTPClient: Sendable {
         do {
             (data, response) = try await session.data(for: request)
         } catch {
+            // Cancellation is not a transport failure, and it must stay recognisable as
+            // cancellation: every `catch is CancellationError` in the app was dead while this
+            // rewrapped it, so callers treated "the viewer navigated away" as "the request failed"
+            // and latched screens into an error or half-loaded state they could not leave.
+            if error is CancellationError { throw error }
+            if (error as? URLError)?.code == .cancelled { throw CancellationError() }
             throw HTTPError.transport(String(describing: error))
         }
         guard let http = response as? HTTPURLResponse else {
