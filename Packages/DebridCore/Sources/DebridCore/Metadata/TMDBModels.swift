@@ -224,7 +224,13 @@ public struct TMDBMovieDetails: Decodable, Sendable, Equatable, Identifiable {
         originalLanguage = try c.decodeIfPresent(String.self, forKey: .originalLanguage)
         imdbID = try c.decodeIfPresent(String.self, forKey: .imdbID)
         let credits = try c.decodeIfPresent(TMDBMovieCredits.self, forKey: .credits)
+        // Deduped by person id BEFORE the cap, for the same reason `directors` is: TMDB lists a
+        // person once per role, so an actor playing two parts arrived twice. `TMDBCastMember`'s id
+        // IS the person id and the Cast rail is a plain `ForEach(cast)`, so a duplicate meant
+        // duplicate SwiftUI identities — which on tvOS leaves stale, unfocusable cells behind.
+        var seenCast = Set<Int>()
         cast = (credits?.cast ?? []).sorted { ($0.order ?? .max) < ($1.order ?? .max) }
+                                    .filter { seenCast.insert($0.id).inserted }
                                     .prefix(10).map { $0 }
         // Deduped by person id, not by name: a co-director credited under two jobs would otherwise
         // be listed twice, and two different people can share a name.
@@ -327,7 +333,10 @@ public struct TMDBTVDetails: Decodable, Sendable, Equatable, Identifiable {
         originalLanguage = try c.decodeIfPresent(String.self, forKey: .originalLanguage)
         imdbID = try c.decodeIfPresent(ExternalIDs.self, forKey: .externalIDs)?.imdb_id
         let agg = try c.decodeIfPresent(TMDBAggregateCredits.self, forKey: .aggregateCredits)
+        // Deduped by person id before the cap — see the movie initializer above.
+        var seenCast = Set<Int>()
         cast = (agg?.cast ?? []).sorted { ($0.order ?? .max) < ($1.order ?? .max) }
+                                .filter { seenCast.insert($0.id).inserted }
                                 .prefix(10).map { $0.normalized }
         creatorRefs = (try c.decodeIfPresent([TMDBCreatedBy].self, forKey: .createdBy) ?? [])
             .map { TMDBPersonRef(id: $0.id, name: $0.name) }

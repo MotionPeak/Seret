@@ -27,10 +27,15 @@ public struct ShowWatchMarker: Sendable {
         guard let tv = try? await details.tvDetails(tmdbID: tmdbID),
               let seasonCount = tv.numberOfSeasons, seasonCount > 0 else { return }
 
+        // Cancellable at every step. A long-running series is hundreds of episodes, and each one is
+        // a store write plus — when Trakt is linked — a request; with nothing checking for
+        // cancellation, backing out of the screen left it grinding through all of them anyway.
         for season in 1...seasonCount {
+            guard !Task.isCancelled else { return }
             guard let episodes = try? await details.seasonEpisodes(tvID: tmdbID, season: season)
             else { continue }
             for episode in episodes {
+                guard !Task.isCancelled else { return }
                 await watch.setWatched(watched,
                                        contentKey: WatchKey.content(forShow: show, season: season,
                                                                     number: episode.episodeNumber),

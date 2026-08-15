@@ -49,8 +49,17 @@ public final class HomeStore {
         self.versionPrefs = versionPrefs
     }
 
+    /// Bumped per rebuild, so only the newest one may publish. Home triggers a rebuild from half a
+    /// dozen places — the screen appearing, the library's movies and shows landing separately, the
+    /// profile resolving, the player closing — and several of those fire in the same turn. Without
+    /// this, a pass that started against an empty library could finish LAST and blank the rails the
+    /// good pass had just filled.
+    private var rebuildGeneration: UInt64 = 0
+
     /// Recompute both rails for the active profile from the current library + watch progress.
     public func rebuild(movies: [MediaItem], shows: [MediaItem]) async {
+        rebuildGeneration &+= 1
+        let generation = rebuildGeneration
         guard let profileID = activeProfileID else {
             continueWatching = []; recentlyAdded = []; return
         }
@@ -65,6 +74,7 @@ public final class HomeStore {
                 resumable.append(item)
             }
         }
+        guard generation == rebuildGeneration else { return }   // a newer rebuild owns the rails
         continueWatching = resumable
         let all = movies + shows
         recentlyAdded = Array(all.filter { $0.addedAt != nil }

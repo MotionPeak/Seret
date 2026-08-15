@@ -84,6 +84,37 @@ extension MockTests {
             #expect(details.director == "Denis Villeneuve")   // still a printable string
         }
 
+        /// TMDB lists a person once per ROLE, so an actor playing two parts comes back twice.
+        /// `TMDBCastMember`'s id IS the person id and the Cast rail is a plain `ForEach(cast)`, so a
+        /// duplicate meant two SwiftUI identities for one view — which on tvOS is the exact shape
+        /// that leaves stale, unfocusable cells behind in a lazy container.
+        @Test func movieCastIsDedupedByPerson() throws {
+            let json = #"""
+            {"id":693134,"title":"Dune: Part Two","genres":[],
+             "credits":{"cast":[{"id":5,"name":"Twin Actor","character":"Twin A","order":0},
+                                {"id":5,"name":"Twin Actor","character":"Twin B","order":1},
+                                {"id":7,"name":"Other","character":"Other","order":2}],
+               "crew":[]}}
+            """#
+            let details = try JSONDecoder().decode(TMDBMovieDetails.self, from: Data(json.utf8))
+
+            #expect(details.cast.map(\.id) == [5, 7])
+            #expect(details.cast.first?.character == "Twin A")   // the best-ordered credit survives
+        }
+
+        @Test func tvCastIsDedupedByPerson() throws {
+            let json = #"""
+            {"id":1399,"name":"Game of Thrones","genres":[],
+             "aggregate_credits":{"cast":[
+                {"id":5,"name":"A","roles":[{"character":"X"}],"order":0},
+                {"id":5,"name":"A","roles":[{"character":"Y"}],"order":1},
+                {"id":8,"name":"B","roles":[{"character":"Z"}],"order":2}]}}
+            """#
+            let details = try JSONDecoder().decode(TMDBTVDetails.self, from: Data(json.utf8))
+
+            #expect(details.cast.map(\.id) == [5, 8])
+        }
+
         @Test func tvDetailsCarriesCreatorIDsAndStillPrintsTheirNames() throws {
             let json = #"""
             {"id":1399,"name":"Game of Thrones","genres":[],

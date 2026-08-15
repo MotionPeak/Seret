@@ -99,15 +99,21 @@ struct PlayerView: View {
     private var pullToDismiss: some Gesture {
         DragGesture(minimumDistance: 18)
             .onChanged { value in
-                if value.translation.height > 0, value.translation.height > abs(value.translation.width) {
+                if isDownward(value.translation) {
                     dragOffset = value.translation.height        // follow the finger 1:1
                 }
             }
             .onEnded { value in
-                if value.translation.height > 140 { onExit() }
+                // The SAME dominance test the drag used. Without it a long, mostly-horizontal swipe
+                // that drifted 140pt down exited the film — the player never moved on the way (the
+                // drag test rejected it), so it vanished with no warning at all.
+                if isDownward(value.translation), value.translation.height > 140 { onExit() }
                 else { withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) { dragOffset = 0 } }
             }
     }
+
+    /// A deliberate downward pull, not a horizontal swipe that happened to drift.
+    private func isDownward(_ t: CGSize) -> Bool { t.height > 0 && t.height > abs(t.width) }
 
     private func tapZone(skip seconds: Double) -> some View {
         Color.clear

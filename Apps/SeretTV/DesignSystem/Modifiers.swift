@@ -38,12 +38,48 @@ enum ImageMemoryCache {
     /// fetches as a fallback).
     static func prefetch(_ urls: [URL]) {
         for url in urls where shared.object(forKey: url as NSURL) == nil {
+            guard claimInFlight(url) else { continue }   // already downloading — don't fetch it twice
             Task.detached(priority: .utility) {
+                defer { releaseInFlight(url) }
                 guard let (data, _) = try? await URLSession.shared.data(from: url),
                       let img = UIImage(data: data)?.preparingForDisplay() else { return }
                 shared.setObject(img, forKey: url as NSURL, cost: cost(of: img))
             }
         }
+    }
+
+    /// URLs currently being fetched, so the same poster is not downloaded and decoded twice.
+    ///
+    /// Nothing coordinated the prefetch with `RemoteImage`'s own `.task`, or with a second prefetch
+    /// of the same rail, and the cache is only populated at the END of a download — so every still
+    /// and headshot a screen warmed was routinely fetched and decoded two or three times over,
+    /// which on a rail of thirty images is most of what made a page feel slow to settle.
+    private nonisolated(unsafe) static let inFlight = NSMutableSet()
+    private static let inFlightLock = NSLock()
+
+    static func claimInFlight(_ url: URL) -> Bool {
+        inFlightLock.withLock {
+            guard !inFlight.contains(url) else { return false }
+            inFlight.add(url)
+            return true
+        }
+    }
+    static func releaseInFlight(_ url: URL) {
+        inFlightLock.withLock { inFlight.remove(url) }
+    }
+    private static func isInFlight(_ url: URL) -> Bool {
+        inFlightLock.withLock { inFlight.contains(url) }
+    }
+
+    /// Wait for whoever already claimed `url` to finish, and hand back what they cached. Bounded,
+    /// so a fetch that dies without publishing degrades to an empty tile rather than a hung task.
+    static func awaitCached(_ url: URL, attempts: Int = 40) async -> UIImage? {
+        for _ in 0..<attempts {
+            if let image = shared.object(forKey: url as NSURL) { return image }
+            if !isInFlight(url) { break }              // they finished, or failed
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        return shared.object(forKey: url as NSURL)
     }
 }
 
@@ -71,6 +107,16 @@ struct RemoteImage<Placeholder: View>: View {
         .onChange(of: url) { loaded = nil }     // a reused cell pointed at a new url → drop the old
         .task(id: url) {
             guard let url, ImageMemoryCache.shared.object(forKey: url as NSURL) == nil else { return }
+            // Claim it, so a prefetch of the same rail does not fetch and decode this one again.
+            // Losing the claim means someone else is already fetching this exact image — wait for
+            // their result rather than starting a second download. Waiting is not optional: `body`
+            // reads the cache synchronously, so without setting `loaded` here nothing would
+            // re-render when their copy landed and this tile would stay on its placeholder.
+            guard ImageMemoryCache.claimInFlight(url) else {
+                loaded = await ImageMemoryCache.awaitCached(url)
+                return
+            }
+            defer { ImageMemoryCache.releaseInFlight(url) }
             guard let (data, _) = try? await URLSession.shared.data(from: url) else { return }
             // Decode off the main actor — decoding a whole screen of posters on main is what made
             // the grid feel like it "loads for a long time".
