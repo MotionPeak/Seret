@@ -11,7 +11,11 @@ struct BrowseScreen: View {
     let kind: MediaKind
 
     @Environment(AppSession.self) private var session
-    @Environment(TileWatchMarks.self) private var marks
+    /// OPTIONAL, deliberately. A non-optional `@Environment` read of an `@Observable` TRAPS when
+    /// the object is not in the environment, and it does not reliably cross a presentation
+    /// boundary — which is the `EnvironmentValues.subscript.getter → assertionFailure` SIGTRAP in
+    /// this app's crash reports. Absent marks must mean "no ticks yet", never a dead process.
+    @Environment(TileWatchMarks.self) private var marks: TileWatchMarks?
     /// Which segment pill has focus. Focus only highlights; a Select press switches the section
     /// (commit-on-press — see `segmentPicker`).
     @FocusState private var focusedSegment: DiscoverStore.Segment?
@@ -108,7 +112,7 @@ struct BrowseScreen: View {
                     ForEach(hits) { BrowseTile(hit: $0, cam: cam || (browse?.isCAM($0.result) ?? false)) }
                 }
                 // One batched read per rail; already-known titles cost nothing.
-                .task(id: hits.map(\.id).joined()) { await marks.load(hits) }
+                .task(id: hits.map(\.id).joined()) { await marks?.load(hits) }
                 .padding(.horizontal, Theme.Layout.contentMargin).padding(.vertical, 40)
             }
             .scrollClipDisabled()
@@ -172,13 +176,17 @@ struct BrowseTile: View {
     let hit: SearchHit
     var cam: Bool = false
     @Environment(AppSession.self) private var session
-    @Environment(TileWatchMarks.self) private var marks
+    /// OPTIONAL, deliberately. A non-optional `@Environment` read of an `@Observable` TRAPS when
+    /// the object is not in the environment, and it does not reliably cross a presentation
+    /// boundary — which is the `EnvironmentValues.subscript.getter → assertionFailure` SIGTRAP in
+    /// this app's crash reports. Absent marks must mean "no ticks yet", never a dead process.
+    @Environment(TileWatchMarks.self) private var marks: TileWatchMarks?
     private let width: CGFloat = 220
     private let height: CGFloat = 330
 
     var body: some View {
         let owned = session.libraryStore?.ownedItem(tmdbID: hit.result.id)
-        let watched = marks.isWatched(hit)
+        let watched = marks?.isWatched(hit) ?? false
         // No title label — posters already carry their title in the artwork.
         return NavigationLink(value: BrowseDestination.detail(owned ?? .placeholder(for: hit))) {
             poster(owned: owned != nil, watched: watched)
@@ -200,7 +208,7 @@ struct BrowseTile: View {
     /// The tick flips immediately; the write follows. A movie is one row. A show fans out over
     /// every episode TMDB lists, which is why it runs detached rather than blocking the gesture.
     private func toggleWatched(_ watched: Bool) {
-        marks.set(!watched, for: hit)
+        marks?.set(!watched, for: hit)
         let profileID = session.activeProfileID ?? ""
         Task {
             switch hit.kind {

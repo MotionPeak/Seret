@@ -11,7 +11,11 @@ struct FindScreen: View {
 
     @Environment(AppSession.self) private var session
     @Environment(AppRouter.self) private var router
-    @Environment(TileWatchMarks.self) private var marks
+    /// OPTIONAL, deliberately. A non-optional `@Environment` read of an `@Observable` TRAPS when
+    /// the object is not in the environment, and it does not reliably cross a presentation
+    /// boundary — which is the `EnvironmentValues.subscript.getter → assertionFailure` SIGTRAP in
+    /// this app's crash reports. Absent marks must mean "no ticks yet", never a dead process.
+    @Environment(TileWatchMarks.self) private var marks: TileWatchMarks?
     @Environment(\.horizontalSizeClass) private var hSize
     @State private var query = ""
 
@@ -141,7 +145,7 @@ struct FindScreen: View {
             }
             // One batched read across the visible rails; already-known titles cost nothing.
             .task(id: "marks-\(browse.rows.count)") {
-                await marks.load(browse.rows.flatMap(\.hits))
+                await marks?.load(browse.rows.flatMap(\.hits))
             }
         }
     }
@@ -168,7 +172,7 @@ struct FindScreen: View {
         }
         // One batched read for whatever this search turned up, so the posters can say what you
         // have already seen.
-        .task(id: hits.map(\.id).joined()) { await marks.load(hits) }
+        .task(id: hits.map(\.id).joined()) { await marks?.load(hits) }
     }
 
     /// A poster that opens the title's page. Owned or not, it is the same page — an un-owned title
@@ -176,7 +180,7 @@ struct FindScreen: View {
     /// In-Library badge, watched ones dim and tick, and `cam` posters get a CAM tag.
     private func tile(_ hit: SearchHit, width: CGFloat?, cam: Bool) -> some View {
         let owned = session.libraryStore?.ownedItem(tmdbID: hit.result.id)
-        let watched = marks.isWatched(hit)
+        let watched = marks?.isWatched(hit) ?? false
         return Button {
             router.detail = owned ?? .placeholder(for: hit)
         } label: {
@@ -212,7 +216,7 @@ struct FindScreen: View {
     /// The tick flips immediately; the write follows. A show fans out over every episode TMDB
     /// lists, which is why it runs detached rather than blocking the gesture.
     private func toggleWatched(_ hit: SearchHit, watched: Bool) {
-        marks.set(!watched, for: hit)
+        marks?.set(!watched, for: hit)
         let profileID = session.activeProfileID ?? ""
         Task {
             switch hit.kind {

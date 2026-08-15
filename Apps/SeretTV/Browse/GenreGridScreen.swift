@@ -8,7 +8,11 @@ struct GenreGridScreen: View {
     let genre: DiscoverStore.Genre
 
     @Environment(AppSession.self) private var session
-    @Environment(TileWatchMarks.self) private var marks
+    /// OPTIONAL, deliberately. A non-optional `@Environment` read of an `@Observable` TRAPS when
+    /// the object is not in the environment, and it does not reliably cross a presentation
+    /// boundary — which is the `EnvironmentValues.subscript.getter → assertionFailure` SIGTRAP in
+    /// this app's crash reports. Absent marks must mean "no ticks yet", never a dead process.
+    @Environment(TileWatchMarks.self) private var marks: TileWatchMarks?
     @State private var store: GenreGridStore?
     /// The genre `store` was built for. `.task(id:)` re-runs on every re-appearance, not only when
     /// the id changes — and coming back from a title is a re-appearance — so without this the grid
@@ -85,7 +89,7 @@ struct GenreGridScreen: View {
             .padding(.vertical, 30)
         }
         .gridTopFade()
-        .task(id: hits.map(\.id).joined()) { await marks.load(hits) }
+        .task(id: hits.map(\.id).joined()) { await marks?.load(hits) }
         .frame(maxWidth: .infinity, alignment: .leading)
         .focusSection()
     }
