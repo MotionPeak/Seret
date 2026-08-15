@@ -107,11 +107,25 @@ struct PlayerInputSurface: UIViewRepresentable {
         /// threshold: a thumb drifting off-axis mid-scrub must not open the panel.
         private let swipeThreshold: CGFloat = 45
         private var isScrubbing = false
+        /// The current drag already committed its scrub via a clickpad press, so it must not re-arm.
+        /// Without this the pan recogniser — still live, because the thumb never left the glass —
+        /// saw `isScrubbing == false` with a displacement already past the threshold, entered scrub
+        /// mode again, and committed a SECOND seek of the same distance on lift.
+        private var scrubConsumedByPress = false
         /// One vertical action per drag — a long swipe must not fire `onDown` repeatedly.
         private var verticalFired = false
-        /// A hold-to-scan is running. Tracked here (not just in the model) because this surface is
-        /// what learns the gesture ended — including when it ends by the surface being deactivated.
-        private var isScanning = false
+        /// The scan callbacks have been delivered and `onScanEnded` is still owed. This is only
+        /// about pairing the two callbacks; whether a scan is actually RUNNING is asked of the
+        /// recognisers (`isScanning`), which UIKit always resets.
+        private var scanNotified = false
+        /// The hold recognisers, so "is a scan running" can be read from the gesture system rather
+        /// than from a flag of our own. A flag desynchronised the moment anything else ended the
+        /// scan — Menu, a play/pause press, the model's own timeout — and because arrow taps are
+        /// suppressed while scanning, a stuck flag silently killed every ±10s skip after it.
+        private var scanHolds: [UILongPressGestureRecognizer] = []
+        private var isScanning: Bool {
+            scanHolds.contains { $0.state == .began || $0.state == .changed }
+        }
         /// When the last scan ended. A hold fires the long-press AND, on release, the tap for the
         /// same arrow; without a short guard every scan landed a stray ±10s on top of itself.
         private var lastScanEndedAt: CFTimeInterval = -.greatestFiniteMagnitude
@@ -152,12 +166,13 @@ struct PlayerInputSurface: UIViewRepresentable {
                 (.leftArrow, #selector(handleScanBack(_:))),
                 (.rightArrow, #selector(handleScanForward(_:))),
             ]
-            recognizers += holds.map { type, action in
+            scanHolds = holds.map { type, action in
                 let hold = UILongPressGestureRecognizer(target: self, action: action)
                 hold.allowedPressTypes = [NSNumber(value: type.rawValue)]
                 hold.minimumPressDuration = 0.6
                 return hold
             }
+            recognizers += scanHolds
 
             for recognizer in recognizers {
                 recognizer.delegate = self
@@ -186,8 +201,8 @@ struct PlayerInputSurface: UIViewRepresentable {
         /// Stop a hold-to-scan exactly once, and remember when, so the release tap is not counted
         /// as a fresh skip.
         private func endScanIfRunning() {
-            guard isScanning else { return }
-            isScanning = false
+            guard scanNotified else { return }
+            scanNotified = false
             lastScanEndedAt = CACurrentMediaTime()
             parent.onScanEnded()
         }
@@ -222,6 +237,7 @@ struct PlayerInputSurface: UIViewRepresentable {
             switch g.state {
             case .began:
                 verticalFired = false
+                scrubConsumedByPress = false
             case .changed:
                 // A VERTICAL swipe is its own gesture, not a failed horizontal one. Until now only
                 // `dx` was read, so swiping down did nothing at all — the settings panel was
@@ -238,7 +254,7 @@ struct PlayerInputSurface: UIViewRepresentable {
 
                 // Only a PAUSED player scrubs. While playing, a swipe still wakes the transport bar
                 // (the long-press recogniser does that on touch-down) but never seeks.
-                if !isScrubbing, parent.scrubEnabled, abs(dx) >= scrubThreshold {
+                if !isScrubbing, !scrubConsumedByPress, parent.scrubEnabled, abs(dx) >= scrubThreshold {
                     isScrubbing = true
                     #if DEBUG
                     InputProbe.shared.scrubBegan()
@@ -248,9 +264,11 @@ struct PlayerInputSurface: UIViewRepresentable {
                 if isScrubbing { parent.onScrubMoved(Double(dx)) }
             case .ended:
                 verticalFired = false
+                scrubConsumedByPress = false
                 if isScrubbing { isScrubbing = false; parent.onScrubEnded() }
             case .cancelled, .failed:
                 verticalFired = false
+                scrubConsumedByPress = false
                 if isScrubbing { isScrubbing = false; parent.onScrubCancelled() }
             default:
                 break
@@ -285,8 +303,13 @@ struct PlayerInputSurface: UIViewRepresentable {
             // protest did nothing until the timeout let go. Ending it here is free when no scan is
             // running.
             endScanIfRunning()
-            if isScrubbing { isScrubbing = false; parent.onScrubEnded() }   // click commits early
-            else { parent.onSelect() }
+            if isScrubbing {
+                isScrubbing = false
+                scrubConsumedByPress = true      // the thumb is still down; don't re-arm on it
+                parent.onScrubEnded()            // click commits early
+            } else {
+                parent.onSelect()
+            }
         }
 
         /// No-op in release; the probe compiles out entirely.
@@ -302,7 +325,7 @@ struct PlayerInputSurface: UIViewRepresentable {
         private func scan(_ g: UILongPressGestureRecognizer, direction: Double) {
             switch g.state {
             case .began:
-                isScanning = true
+                scanNotified = true
                 parent.onScanBegan(direction)
             case .ended, .cancelled, .failed:
                 endScanIfRunning()

@@ -15,6 +15,9 @@ struct PlayerView: View {
     @State private var showSubtitleBrowser = false
     /// The playhead when the current scrub gesture started — scrub displacement is relative to it.
     @State private var scrubOrigin: Double = 0
+    /// Arrow nudges applied during the current scrub, folded into the origin so the next pan
+    /// movement (which recomputes the target absolutely) does not discard them.
+    @State private var scrubNudge: Double = 0
     @FocusState private var focus: PlayerFocus?
     @Environment(\.dismiss) private var dismiss
     let backdropURL: URL?
@@ -41,35 +44,39 @@ struct PlayerView: View {
                 scrubEnabled: model.phase == .paused,
                 onTouchDown: { model.revealScrubBar() },
                 onTouchUp: {},
-                onScrubBegan: { model.beginScrub() },
+                // The origin is captured HERE, not from an `.onChange(of: model.isScrubbing)`.
+                // The pan handler calls `onScrubBegan` and `onScrubMoved` in the same turn, and
+                // `.onChange` does not run until SwiftUI's next update — so the first movement of
+                // every scrub was measured from the PREVIOUS gesture's origin (or from 0 on the
+                // first one). A quick flick past the threshold and a lift committed the seek to
+                // that wrong time.
+                onScrubBegan: { scrubOrigin = model.position; scrubNudge = 0; model.beginScrub() },
                 onScrubMoved: { displacement in
-                    let target = scrubOrigin + ScrubGain.seconds(forDisplacement: displacement,
-                                                                 duration: model.duration)
+                    let target = scrubOrigin + scrubNudge
+                        + ScrubGain.seconds(forDisplacement: displacement, duration: model.duration)
                     model.updateScrub(by: target - model.scrubTarget)
                 },
                 onScrubEnded: { model.commitScrub() },
                 onScrubCancelled: { model.cancelScrub() },
                 onSkip: { delta in
-                    if model.isScrubbing { model.updateScrub(by: delta) }
+                    // An arrow nudge mid-scrub has to move the ORIGIN, not just the target: the
+                    // next pan movement recomputes the target absolutely from the origin, which
+                    // silently threw the nudge away.
+                    if model.isScrubbing { scrubNudge += delta; model.updateScrub(by: delta) }
                     else { model.skip(delta); model.revealScrubBar() }
                 },
                 onSelect: { model.togglePlayPause(); model.revealScrubBar() },
                 onPlayPause: { model.togglePlayPause() },
-                onUp: { model.revealScrubBar() },
+                onUp: { openEpisodesOrRevealBar() },
                 onDown: { openSettingsOrEpisodes() },
                 onScanBegan: { direction in model.beginScan(direction: direction) },
                 onScanEnded: { model.endScan() }
             )
             .ignoresSafeArea()
-            .onChange(of: model.isScrubbing) { _, scrubbing in
-                if scrubbing { scrubOrigin = model.position }
-            }
 
             // One bottom-anchored column: thin scrub bar on top, the episode strip beneath.
             // Stacking them means the bar AUTOMATICALLY rides up as the strip grows.
-            PlayerBottomBar(model: model, showEpisodes: $showEpisodes,
-                            focus: $focus,
-                            onEpisodes: { openEpisodes() })
+            PlayerBottomBar(model: model, showEpisodes: $showEpisodes, focus: $focus)
 
             // Loading is now an OVERLAY above a live interaction layer, never a replacement for it.
             // And it is gated on a COLD open: an episode auto-advance also reloads (clearing
@@ -165,8 +172,16 @@ struct PlayerView: View {
 
     /// The input surface owns the remote whenever no focusable overlay is up. One source of truth,
     /// because both the surface's own activation and the play/pause routing depend on it.
+    ///
+    /// The error overlay counts. It puts Retry / Try another / Back on screen as focusable buttons,
+    /// and while the surface stayed armed the two competed for focus — and the arrows still drove
+    /// skip and hold-to-scan on a player that had already failed.
     private var inputSurfaceActive: Bool {
-        !showSettings && !showEpisodes && !model.upNextVisible && !showSubtitleBrowser
+        !showSettings && !showEpisodes && !model.upNextVisible && !showSubtitleBrowser && !hasFailed
+    }
+
+    private var hasFailed: Bool {
+        if case .failed = model.phase { return true } else { return false }
     }
 
     /// Down from the stage: collapse the episode strip if it's open, else open the settings panel.
@@ -175,9 +190,17 @@ struct PlayerView: View {
         else { showSettings = true }
     }
 
-    /// The Episodes transport button (shows only): lift the full selectable strip.
-    private func openEpisodes() {
-        guard model.isEpisode, !model.seasonEpisodes.isEmpty else { return }
+    /// Up from the stage: lift the episode strip on a show, otherwise just wake the bar.
+    ///
+    /// This is what the resting peek has always advertised — a "⌃ Episodes" hint under the scrub
+    /// bar — but nothing was wired to it: `onEpisodes` was passed to `PlayerBottomBar` and never
+    /// called from there, and `openSettingsOrEpisodes` only ever CLOSES the strip. So `showEpisodes`
+    /// could never become true and the whole in-player episode picker was unreachable.
+    private func openEpisodesOrRevealBar() {
+        guard model.isEpisode, !model.seasonEpisodes.isEmpty, !showEpisodes else {
+            model.revealScrubBar()
+            return
+        }
         showEpisodes = true
         Task { await model.loadSeasonEpisodes() }
     }
@@ -243,7 +266,6 @@ private struct PlayerBottomBar: View {
     @Bindable var model: PlayerModel
     @Binding var showEpisodes: Bool
     var focus: FocusState<PlayerFocus?>.Binding
-    let onEpisodes: () -> Void
 
     // The bar is up while the viewer is interacting, mid-buffer, or the strip is open.
     // Paused keeps the bar up for as long as the pause lasts. Pausing IS how you arm scrubbing now,
