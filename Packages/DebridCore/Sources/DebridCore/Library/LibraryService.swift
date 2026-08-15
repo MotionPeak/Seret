@@ -36,14 +36,17 @@ public struct LibraryService: Sendable {
         let snapshot = store.load()
         let cached = snapshot?.items ?? []
         let seen = Set(snapshot?.seenTorrentIDs ?? [])
-        let rdTorrentIDs = Set(try await torrents.allTorrents().map(\.id))
+        let rdTorrents = try await torrents.allTorrents()
+        let rdTorrentIDs = Set(rdTorrents.map(\.id))
         // Compare against the persisted seen-id set (exact), NOT ids derived from items — otherwise
         // a non-video torrent looks "new" forever and re-runs the whole info fan-out every launch.
         guard reconciler.hasDelta(seenTorrentIDs: seen, rdTorrentIDs: rdTorrentIDs) else {
             return cached
         }
 
-        let infos = try await torrents.allTorrentInfos()
+        // Reuses the list fetched just above. It used to call the no-argument version, which
+        // paginates the whole account a SECOND time on every refresh that finds a delta.
+        let infos = try await torrents.allTorrentInfos(from: rdTorrents)
         let fresh = builder.group(infos)
         let plan = reconciler.reconcile(fresh: fresh, cached: cached)
 
@@ -90,8 +93,15 @@ public struct LibraryService: Sendable {
                 continue   // already deleted — treat as success
             }
         }
-        let remaining = (store.load()?.items ?? []).filter { $0.id != item.id }
-        try store.save(LibrarySnapshot(items: remaining))
+        // Carry the seen-torrent set forward, minus what was just deleted. Dropping it (the
+        // default is empty) made the very next `refresh()` see every torrent as new and re-run the
+        // whole `/torrents/info` fan-out plus a full re-enrichment — so removing one title rebuilt
+        // the entire library.
+        let snapshot = store.load()
+        let remaining = (snapshot?.items ?? []).filter { $0.id != item.id }
+        let deleted = Set(Self.torrentIDs(for: item))
+        let seen = (snapshot?.seenTorrentIDs ?? []).filter { !deleted.contains($0) }
+        try store.save(LibrarySnapshot(items: remaining, seenTorrentIDs: seen))
     }
 
     /// Remove ONE version (a single `MediaSource`) from a movie: deletes its backing torrent on
@@ -113,8 +123,10 @@ public struct LibraryService: Sendable {
                                     tmdbID: item.tmdbID, posterPath: item.posterPath,
                                     backdropPath: item.backdropPath, overview: item.overview,
                                     addedAt: item.addedAt)
-        let updated = (store.load()?.items ?? []).map { $0.id == item.id ? updatedItem : $0 }
-        try store.save(LibrarySnapshot(items: updated))
+        let snapshot = store.load()
+        let updated = (snapshot?.items ?? []).map { $0.id == item.id ? updatedItem : $0 }
+        let seen = (snapshot?.seenTorrentIDs ?? []).filter { $0 != source.torrentID }
+        try store.save(LibrarySnapshot(items: updated, seenTorrentIDs: seen))
     }
 
     /// The unique set of RD torrent ids backing an item: a movie's source torrents, or every

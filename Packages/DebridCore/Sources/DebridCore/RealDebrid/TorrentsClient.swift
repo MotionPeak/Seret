@@ -184,7 +184,13 @@ public struct TorrentsClient: Sendable {
     /// Every torrent's detailed info (files + links), fetched concurrently. A torrent whose
     /// info fetch fails is skipped rather than failing the whole load.
     public func allTorrentInfos(maxConcurrent: Int = 5) async throws -> [TorrentInfo] {
-        let list = try await allTorrents()
+        try await allTorrentInfos(from: try await allTorrents(), maxConcurrent: maxConcurrent)
+    }
+
+    /// Same, for a caller that has ALREADY paginated the torrent list. `LibraryService.refresh()`
+    /// fetches it to decide whether anything changed at all, and then used the no-argument version
+    /// above — so every refresh with a delta paginated the whole account twice.
+    public func allTorrentInfos(from list: [Torrent], maxConcurrent: Int = 5) async throws -> [TorrentInfo] {
         // Bounded fan-out: at most `maxConcurrent` `/torrents/info` calls in flight. An unbounded
         // burst (one per torrent) tripped RD's rate limit on larger libraries → 429 thrash + stalls.
         let infos = await withTaskGroup(of: TorrentInfo?.self) { group in

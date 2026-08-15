@@ -50,6 +50,39 @@ extension MockTests {
             #expect(svc.loadCached()?.map(\.id) == ["keep"])
         }
 
+        /// The seen-torrent set is what makes the next refresh cheap. Rewriting the snapshot
+        /// without it (the initializer defaults it to empty) meant the very next `refresh()` saw
+        /// every torrent in the account as new and re-ran the whole `/torrents/info` fan-out plus a
+        /// full re-enrichment — so removing one title rebuilt the entire library.
+        @Test func removingATitleKeepsTheSeenTorrentSet() async throws {
+            let dir = tempDir()
+            let svc = service(directory: dir)
+            try LibrarySnapshotStore(directory: dir).save(
+                LibrarySnapshot(items: [movie("keep", torrents: ["K1"]),
+                                        movie("gone", torrents: ["A", "B"])],
+                                seenTorrentIDs: ["K1", "A", "B", "NONVIDEO"]))
+            MockURLProtocol.handler = { req in Self.resp(req, 204) }
+
+            try await svc.remove(movie("gone", torrents: ["A", "B"]))
+
+            let seen = Set(LibrarySnapshotStore(directory: dir).load()?.seenTorrentIDs ?? [])
+            #expect(seen == ["K1", "NONVIDEO"])   // survivors kept, deleted ids dropped
+        }
+
+        @Test func removingOneVersionKeepsTheSeenTorrentSet() async throws {
+            let dir = tempDir()
+            let svc = service(directory: dir)
+            try LibrarySnapshotStore(directory: dir).save(
+                LibrarySnapshot(items: [movie("m", torrents: ["A", "B"])],
+                                seenTorrentIDs: ["A", "B", "NONVIDEO"]))
+            MockURLProtocol.handler = { req in Self.resp(req, 204) }
+
+            try await svc.removeVersion(movie("m", torrents: ["A", "B"]), source: src("A"))
+
+            let seen = Set(LibrarySnapshotStore(directory: dir).load()?.seenTorrentIDs ?? [])
+            #expect(seen == ["B", "NONVIDEO"])
+        }
+
         @Test func treats404AsSuccess() async throws {
             let dir = tempDir()
             let svc = service(directory: dir)

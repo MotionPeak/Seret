@@ -17,6 +17,11 @@ struct ShowDetailView: View {
     var onPlayEpisode: (Int, Int) -> Void = { _, _ in }
     var downloadingEpisodeID: String? = nil
     @State private var seasonStore: AddStore?
+    /// The key `seasonStore` was built for. `.task(id:)` re-runs on every re-appearance, not only
+    /// when the id changes — and coming back from the player is a re-appearance — so without this
+    /// the indexer query ran again and the status line flashed back to "Checking…" over an answer
+    /// it already had.
+    @State private var loadedSeasonKey: String?
     /// Which season pill has focus — moving across them switches the season live (no press).
     @FocusState private var focusedSeason: Int?
     /// Forces INITIAL focus onto the Play CTA. Without it, the action row sits below the tall hero
@@ -63,7 +68,8 @@ struct ShowDetailView: View {
             if let u = trailerURL { FullScreenTrailer(url: u) }
         }
         .task(id: seasonDownloadKey) {
-            guard let imdb = store.imdbID else { return }
+            guard let imdb = store.imdbID, loadedSeasonKey != seasonDownloadKey else { return }
+            loadedSeasonKey = seasonDownloadKey
             let s = makeSeasonDownload(imdb, store.selectedSeason, store.originalLanguage)
             seasonStore = s
             await s?.loadStreams()
