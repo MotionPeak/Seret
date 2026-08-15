@@ -282,6 +282,7 @@ private struct MovieDownloadSection: View {
     let originalLanguage: String?
     @Environment(AppSession.self) private var session
     @State private var requesting = false
+    @State private var showingMagnet = false
 
     var body: some View {
         let status = session.downloadStore?.status(forContentKey: DownloadKey.movie(tmdbID: tmdbID))
@@ -301,15 +302,32 @@ private struct MovieDownloadSection: View {
                 Label(reason, systemImage: "exclamationmark.triangle")
                     .font(Theme.Typo.body()).foregroundStyle(.orange)
                 requestButton("Try Another Version")
+                magnetButton
             } else {
                 Label("Not in your library yet", systemImage: "arrow.down.circle")
                     .font(Theme.Typo.body()).foregroundStyle(Theme.Palette.textSecondary)
                 Text("No cached version exists. Start a download and it'll appear here when it's ready.")
                     .font(Theme.Typo.caption()).foregroundStyle(Theme.Palette.textTertiary)
                 requestButton("Request Download")
+                magnetButton
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .sheet(isPresented: $showingMagnet) {
+            MagnetAddSheet(target: .init(contentKey: DownloadKey.movie(tmdbID: tmdbID),
+                                         tmdbID: tmdbID, title: title,
+                                         kind: .movie, posterPath: posterPath))
+                .environment(session)
+        }
+    }
+
+    /// The escape hatch for a title no indexer carries — old Israeli TV, anything off the public
+    /// trackers. Paste the magnet and RD downloads it under this title's key.
+    private var magnetButton: some View {
+        Button { showingMagnet = true } label: {
+            Label("Add by Magnet", systemImage: "link.badge.plus")
+        }
+        .buttonStyle(GhostButtonStyle())
     }
 
     private func requestButton(_ label: String) -> some View {

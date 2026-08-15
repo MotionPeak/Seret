@@ -40,3 +40,6 @@ Apps/SeretTV/Info.plist
 # Internal contributor docs — kept local, not published (not needed to build or run Seret)
 CLAUDE.md
 docs/
+
+# Claude Code worktrees (local isolation, never committed)
+.claude/worktrees/
