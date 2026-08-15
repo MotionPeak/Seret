@@ -34,6 +34,48 @@ import Foundation
         #expect(try store.load()?.accessToken == "NEW")
     }
 
+    /// Trakt not recognising this build's client id is not something retrying fixes, and every
+    /// authed call went through here — the scrobbler alone reaches it on start, on pause, on every
+    /// heartbeat and on stop. Without a latch each of those paid for a full doomed round-trip.
+    @Test func aPermanentlyRejectedTokenIsOnlyRetriedOnce() async throws {
+        let store = MemoryStore()
+        try store.save(token(created: 1_000, expires: 100))       // expired → forces a refresh
+        let attempts = Counter()
+        let session = TraktSession(store: store,
+                                   refresh: { _ in
+                                       await attempts.bump()
+                                       throw TraktAuthError.unknownClient
+                                   },
+                                   now: { Date(timeIntervalSince1970: 2_000) })
+
+        for _ in 0..<5 { _ = try? await session.validAccessToken() }
+
+        #expect(await attempts.count == 1)
+    }
+
+    /// …but a dropped connection is not permanent. Latching on that would unlink a perfectly good
+    /// account the moment the Wi-Fi blinked.
+    @Test func aTransientRefreshFailureKeepsBeingRetried() async throws {
+        let store = MemoryStore()
+        try store.save(token(created: 1_000, expires: 100))
+        let attempts = Counter()
+        let session = TraktSession(store: store,
+                                   refresh: { _ in
+                                       await attempts.bump()
+                                       throw HTTPError.transport("offline")
+                                   },
+                                   now: { Date(timeIntervalSince1970: 2_000) })
+
+        for _ in 0..<3 { _ = try? await session.validAccessToken() }
+
+        #expect(await attempts.count == 3)
+    }
+
+    actor Counter {
+        private(set) var count = 0
+        func bump() { count += 1 }
+    }
+
     @Test func throwsWhenNotSignedIn() async throws {
         let session = TraktSession(store: MemoryStore(),
                                    refresh: { $0 }, now: { Date() })

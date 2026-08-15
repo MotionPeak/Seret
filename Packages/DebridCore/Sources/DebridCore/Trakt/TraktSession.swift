@@ -9,6 +9,12 @@ public actor TraktSession {
     private let now: @Sendable () -> Date
     private let skew: TimeInterval
     private var refreshTask: Task<TraktToken, Error>?
+    /// A refresh that failed for a reason retrying cannot fix — Trakt does not recognise this
+    /// build's client id, or the refresh token itself is dead. Latched so the doomed POST is fired
+    /// ONCE rather than on every authed call: the scrobbler alone reaches this on start, on pause,
+    /// on every heartbeat and on stop, so a permanently-rejected token hung a full failed
+    /// round-trip off each of them. Cleared when a new token is established.
+    private var permanentFailure: (any Error)?
 
     public init(store: TraktTokenStoring,
                 refresh: @escaping @Sendable (TraktToken) async throws -> TraktToken,
@@ -20,10 +26,17 @@ public actor TraktSession {
         self.skew = skew
     }
 
-    public func establish(_ token: TraktToken) throws { try store.save(token) }
-    public func signOut() throws { try store.clear() }
+    public func establish(_ token: TraktToken) throws {
+        permanentFailure = nil          // a fresh link deserves a fresh verdict
+        try store.save(token)
+    }
+    public func signOut() throws {
+        permanentFailure = nil
+        try store.clear()
+    }
 
     public func validAccessToken() async throws -> String {
+        if let permanentFailure { throw permanentFailure }
         guard let token = try store.load() else { throw TraktSessionError.notSignedIn }
         if !isExpired(token) { return token.accessToken }
         return try await refreshed(token).accessToken
@@ -43,7 +56,20 @@ public actor TraktSession {
         }
         refreshTask = task
         defer { refreshTask = nil }
-        return try await task.value
+        do {
+            return try await task.value
+        } catch {
+            if Self.isPermanent(error) { permanentFailure = error }
+            throw error
+        }
+    }
+
+    /// Whether a refresh failure is one that retrying can never fix. A dropped connection is not —
+    /// latching on that would strand a perfectly good account the moment the Wi-Fi blinked.
+    private static func isPermanent(_ error: Error) -> Bool {
+        if error is TraktAuthError { return true }                       // .unknownClient
+        guard case let .status(code, body)? = error as? HTTPError, code == 401 else { return false }
+        return body.contains("invalid_grant") || body.contains("invalid_client")
     }
 }
 

@@ -126,7 +126,11 @@ public actor OpenSubtitlesProvider: SubtitleProvider {
         let response: OSDownloadResponse = try await http.post(
             Self.base.appending(path: "download"),
             json: ["file_id": fileID], headers: authHeaders(token))
-        if let remaining = response.remaining, remaining <= 0 {
+        // `remaining == 0` means this request was the LAST of the day, not that it was refused —
+        // OpenSubtitles charges the quota for this POST and still returns the link. Throwing here
+        // spent a download and threw away what it bought, so the final subtitle of every day
+        // failed for no reason. Report the cap only when there is nothing usable to show for it.
+        if let remaining = response.remaining, remaining <= 0, response.link.isEmpty {
             throw SubtitleError.dailyCapReached(resetTime: Self.parseResetTime(response.resetTimeUTC))
         }
         return response

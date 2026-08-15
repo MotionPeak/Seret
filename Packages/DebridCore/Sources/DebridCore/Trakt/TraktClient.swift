@@ -104,11 +104,15 @@ public struct TraktClient: Sendable {
         for code: TraktDeviceCode,
         sleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
     ) async throws -> TraktToken {
+        // Floored, because the interval comes off the wire. Trakt answering (or a payload decoding
+        // to) 0 turned this into a tight loop: a zero sleep, a decrement of nothing, and `remaining`
+        // never moving — so it hammered the poll endpoint forever instead of ever expiring.
+        let interval = max(1, code.interval)
         var remaining = code.expiresIn
         while remaining > 0 {
             if let token = try await pollToken(deviceCode: code.deviceCode) { return token }
-            try await sleep(.seconds(code.interval))
-            remaining -= code.interval
+            try await sleep(.seconds(interval))
+            remaining -= interval
         }
         throw TraktAuthError.deviceCodeExpired
     }

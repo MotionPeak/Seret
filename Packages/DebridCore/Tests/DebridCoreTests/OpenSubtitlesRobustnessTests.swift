@@ -20,11 +20,29 @@ extension MockTests {
             (HTTPURLResponse(url: req.url!, statusCode: status, httpVersion: nil, headerFields: nil)!, Data(body.utf8))
         }
 
-        @Test func dailyCapWhenRemainingZero() async throws {
+        /// `remaining: 0` alongside a link means "here is your file, and that was your last one
+        /// today" — OpenSubtitles charges the quota for the POST and answers 200 with the link;
+        /// being genuinely out of downloads is a 406, which `dailyCapWhenForbidden` covers. So the
+        /// link must be USED. Throwing it away spent a download and delivered nothing, which made
+        /// the last subtitle of every day fail for no reason.
+        @Test func theFinalDownloadOfTheDayIsStillDelivered() async throws {
             MockURLProtocol.handler = { req in
                 let url = req.url!.absoluteString
                 if url.contains("/login")    { return Self.resp(req, 200, #"{"token":"T1"}"#) }
                 if url.contains("/download") { return Self.resp(req, 200, #"{"link":"https://cdn/x.srt","remaining":0,"reset_time_utc":"2026-06-03T00:00:00Z"}"#) }
+                if url.contains("cdn")       { return Self.resp(req, 200, "1\n00:00:01,000 --> 00:00:02,000\nhi\n") }
+                return Self.resp(req, 200, "{}")
+            }
+            let url = try await provider().download(result(1))
+            #expect(FileManager.default.fileExists(atPath: url.path))
+        }
+
+        /// …but a capped response with nothing usable in it is still a cap.
+        @Test func dailyCapWhenRemainingZeroAndNoLink() async throws {
+            MockURLProtocol.handler = { req in
+                let url = req.url!.absoluteString
+                if url.contains("/login")    { return Self.resp(req, 200, #"{"token":"T1"}"#) }
+                if url.contains("/download") { return Self.resp(req, 200, #"{"link":"","remaining":0,"reset_time_utc":"2026-06-03T00:00:00Z"}"#) }
                 return Self.resp(req, 200, "{}")
             }
             do {
