@@ -53,6 +53,8 @@ struct LibraryShell: View {
                         case .search(let kind): SearchScreen(kind: kind)
                         case .versions(let hit): VersionsScreen(hit: hit)
                         case .person(let ref): PersonScreen(ref: ref)
+                        case .play(let request):
+                            PlayerHost(request: request, app: session, backdropSize: "original")
                         }
                     }
                     .navigationDestination(for: SearchHit.self) { hit in

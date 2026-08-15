@@ -161,6 +161,13 @@ enum BrowseDestination: Hashable {
     case person(TMDBPersonRef)
     /// Straight to the full-screen versions list, skipping the page.
     case versions(SearchHit)
+    /// Straight into playback, skipping the page — what a Continue Watching card means.
+    ///
+    /// A destination CASE rather than pushing a bare `PlaybackRequest`, because a link must offer
+    /// one value type: Home has to choose between resuming and (when the file no longer resolves)
+    /// opening the page, and choosing between two differently-typed links would swap the identity
+    /// of a focused view, which is how this app has lost focus before.
+    case play(PlaybackRequest)
 }
 
 /// A focusable browse poster. Owned or not, it opens the SAME page — an un-owned title is a

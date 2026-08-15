@@ -44,7 +44,7 @@ struct HomeScreen: View {
                     if !home.continueWatching.isEmpty {
                         HomeRail(title: "Continue Watching") {
                             ForEach(home.continueWatching) { hi in
-                                NavigationLink(value: hi.item) {
+                                NavigationLink(value: resumeDestination(hi)) {
                                     LandscapeProgressCard(title: hi.item.title, subtitle: hi.subtitle,
                                                           imageURL: backdropURL(hi.item), fraction: hi.fraction)
                                 }.buttonStyle(.card)
@@ -79,9 +79,22 @@ struct HomeScreen: View {
         }
     }
 
+    /// Where a Continue Watching card goes: straight into the film, or — only when the file can no
+    /// longer be resolved (the version was removed since it was last watched) — to its page.
+    ///
+    /// It used to push `hi.item` unconditionally, so the hero's "▶ Resume" and every card in the
+    /// rail opened a Detail page instead of resuming: the button said Resume and loaded the same
+    /// title's page every time. For a SHOW it was worse — `hi.item` is the series, so the episode
+    /// you were part-way through was dropped entirely. The mobile app has resumed directly from
+    /// here for a while; this is the same behaviour, expressed as tvOS value-based navigation
+    /// (`LibraryShell` already routes a `PlaybackRequest` to the player).
+    private func resumeDestination(_ hi: HomeItem) -> BrowseDestination {
+        hi.playbackRequest().map { .play($0) } ?? .detail(hi.item)
+    }
+
     @ViewBuilder private func hero(_ home: HomeStore) -> some View {
         if let f = home.featured {
-            NavigationLink(value: f.item) {
+            NavigationLink(value: resumeDestination(f)) {
                 ZStack(alignment: .bottomLeading) {
                     RemoteImage(url: backdropURL(f.item))
                         .frame(height: 620).frame(maxWidth: .infinity).clipped()
