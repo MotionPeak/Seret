@@ -24,6 +24,7 @@ struct ShowDetail: View {
     @State private var episodeError: String?
     /// Finds, adds and plays an episode you do not have — the same engine the movie page uses.
     @State private var acquisition: AcquisitionStore?
+    @State private var showingMagnet = false
     private var item: MediaItem { store.item }
 
     /// Re-keys the season-pack lookup whenever the resolved imdbID or selected season changes.
@@ -56,6 +57,7 @@ struct ShowDetail: View {
                                      season: store.selectedSeason,
                                      showTitle: store.item.title,
                                      posterPath: store.item.posterPath)
+                magnetButton
                 episodeList
                 // Gated on non-empty: the rails only appear once TMDB credits land, and they append
                 // BELOW everything else, so they never resize content already on screen.
@@ -174,6 +176,27 @@ struct ShowDetail: View {
 
     /// One tap to mark the whole selected season watched/unwatched (its downloaded episodes).
     /// Hidden when the season has no downloaded episodes to mark.
+    /// The escape hatch for a season no indexer carries — old Israeli TV, anything off the public
+    /// trackers. Keyed to the selected season, matching `SeasonDownloadButton` above it: a pasted
+    /// pack is what these releases actually come as, and RD expands it into episodes when it lands.
+    @ViewBuilder private var magnetButton: some View {
+        if let tmdb = item.tmdbID {
+            Button { showingMagnet = true } label: {
+                Label("Add by Magnet", systemImage: "link.badge.plus")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(GhostButtonStyle())
+            .sheet(isPresented: $showingMagnet) {
+                MagnetAddSheet(target: .init(
+                    contentKey: DownloadKey.season(showTmdbID: tmdb, season: store.selectedSeason),
+                    tmdbID: tmdb,
+                    title: "\(item.title) Season \(store.selectedSeason)",
+                    kind: .show, posterPath: item.posterPath))
+                    .environment(session)
+            }
+        }
+    }
+
     @ViewBuilder private var markSeasonButton: some View {
         if store.hasOwnedEpisodes(inSeason: store.selectedSeason) {
             let watched = store.isSeasonWatched(store.selectedSeason)
