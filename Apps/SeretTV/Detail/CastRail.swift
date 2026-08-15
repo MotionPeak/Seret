@@ -25,7 +25,10 @@ struct CastRail: View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Cast").sectionTitle()
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(alignment: .top, spacing: 36) {
+                // Lazy, like the in-player episode strip and every grid in the app. Uniform tiles
+                // and no skeleton/real branch inside, so it cannot hit the id-collision trap that
+                // leaves stale unfocusable cells behind.
+                LazyHStack(alignment: .top, spacing: 36) {
                     ForEach(cast) { member in
                         NavigationLink(value: BrowseDestination.person(
                             TMDBPersonRef(id: member.id, name: member.name))) {

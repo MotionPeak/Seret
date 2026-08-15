@@ -20,7 +20,9 @@ struct SimilarRail: View {
         VStack(alignment: .leading, spacing: 16) {
             Text("More Like This").sectionTitle()
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(alignment: .top, spacing: 36) {
+                // Lazy: `similar` is a whole TMDB page, so a non-lazy row fetched and decoded
+                // ~20 posters the moment the page appeared, however few were on screen.
+                LazyHStack(alignment: .top, spacing: 36) {
                     ForEach(titles) { title in
                         BrowseTile(hit: SearchHit(result: title, kind: parentKind))
                     }

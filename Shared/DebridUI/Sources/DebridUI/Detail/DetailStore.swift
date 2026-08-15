@@ -209,8 +209,13 @@ public final class DetailStore {
             }
             await watchLoad
             richState = .loaded
-            await loadRatings()
-            await loadFranchise()
+            // Overlapped, not sequential. Both add a row to the hero ABOVE the Play CTA, and run
+            // one after the other they landed a network round-trip apart — so the page shifted
+            // under the button focus was just placed on, twice. They are independent (OMDb/Trakt
+            // by imdbID; TMDB by collection), so they now settle together and sooner.
+            async let ratingsLoad: Void = loadRatings()
+            async let franchiseLoad: Void = loadFranchise()
+            _ = await (ratingsLoad, franchiseLoad)
         } catch {
             await watchLoad
             richState = .failed          // keep base info; no error wall
