@@ -91,4 +91,19 @@ import DebridCore
             specs: specs, completed: [0: [hit(10)], 1: [hit(11)], 2: [hit(20)], 3: [hit(30)]])
         #expect(whenAllIn.map(\.id) == ["r0", "r1", "r2", "r3"], "…and the finished page is unchanged")
     }
+
+    /// "Stop at the first rail that has not FINISHED" must not become "stop at the first rail that
+    /// is empty" — a genre with no results is a completed rail, and holding the page behind it
+    /// would leave a whole segment blank.
+    @Test func anEmptyRailDoesNotBlockTheOnesBehindIt() {
+        let specs = (0..<3).map { i in
+            DiscoverStore.RowSpec(id: "r\(i)", title: "Rail \(i)", fetch: { [] })
+        }
+        let hit = { (id: Int) in SearchHit(result: Self.result(id), kind: .movie) }
+
+        let rows = DiscoverStore.assemble(specs: specs,
+                                          completed: [0: [], 1: [hit(11)], 2: [hit(22)]])
+
+        #expect(rows.map(\.id) == ["r1", "r2"])
+    }
 }
