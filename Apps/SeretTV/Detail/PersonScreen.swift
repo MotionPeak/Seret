@@ -43,6 +43,11 @@ struct PersonScreen: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(CanvasBackground())
+        // Hand the page's own marks to its tiles. `BrowseTile` reads `TileWatchMarks` from the
+        // environment, so without this the batched read below loaded into an object nothing on
+        // screen consulted — an actor's page was the one grid in the app where a title you had
+        // already watched showed no tick.
+        .environment(marks ?? .placeholder)
         .task {
             if marks == nil { marks = session.makeTileWatchMarks() }
             if store == nil { store = session.makePersonStore(for: ref) }

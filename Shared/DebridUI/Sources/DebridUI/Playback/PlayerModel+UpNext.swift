@@ -29,6 +29,10 @@ extension PlayerModel {
                 guard phase == .playing else { continue }
                 upNextSecondsRemaining -= 1
             }
+            // Re-checked after the loop, not only inside it. Dismissing on the final second
+            // cancelled this task while it was already past its last cancellation check, so the
+            // advance went ahead anyway — the viewer pressed Dismiss and the next episode started.
+            guard !Task.isCancelled, !upNextDismissed else { return }
             playNext()                      // countdown elapsed → advance
         }
     }
