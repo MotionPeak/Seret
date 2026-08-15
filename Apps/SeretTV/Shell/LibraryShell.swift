@@ -62,13 +62,7 @@ struct LibraryShell: View {
                         detailDestination(item)
                     }
                     .navigationDestination(for: PlaybackRequest.self) { request in
-                        let engine = VLCKitVideoPlayerEngine(preferences: session.subtitleSettings.preferences)
-                        if let model = session.makePlayer(for: request, engine: engine) {
-                            PlayerView(model: model, engine: engine,
-                                       backdropURL: TMDBClient.imageURL(path: request.item.backdropPath, size: "original"))
-                        } else {
-                            PlaybackUnavailableView()
-                        }
+                        PlayerHost(request: request, app: session, backdropSize: "original")
                     }
             }
             // The menu hides while a Detail/Player is pushed so those stay full-screen.
@@ -174,17 +168,3 @@ struct LibraryShell: View {
     }
 }
 
-/// Shown only if a player can't be built while signed in (e.g. the SwiftData container failed).
-/// Gives the user a way back instead of a soft-locked blank screen.
-private struct PlaybackUnavailableView: View {
-    @Environment(\.dismiss) private var dismiss
-    var body: some View {
-        VStack(spacing: 20) {
-            Image(systemName: "exclamationmark.triangle").font(.system(size: 54))
-            Text("Unable to start playback.").font(.seretTitle2)
-            Button("Back") { dismiss() }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onExitCommand { dismiss() }
-    }
-}

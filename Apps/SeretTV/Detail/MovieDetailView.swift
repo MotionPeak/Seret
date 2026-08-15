@@ -66,14 +66,7 @@ struct MovieDetailView: View {
             acquisition?.reset()
             Task { await store.reloadWatch() }
         }) { presented in
-            let engine = VLCKitVideoPlayerEngine(preferences: session.subtitleSettings.preferences)
-            if let model = session.makePlayer(for: presented.request, engine: engine) {
-                PlayerView(model: model, engine: engine,
-                           backdropURL: TMDBClient.imageURL(path: presented.request.item.backdropPath,
-                                                            size: "original"))
-            } else {
-                Text("Unable to start playback.").font(.seretTitle2)
-            }
+            PlayerHost(request: presented.request, app: session, backdropSize: "original")
         }
         .fullScreenCover(isPresented: $expandTrailer) {
             if let u = trailerURL { FullScreenTrailer(url: u) }

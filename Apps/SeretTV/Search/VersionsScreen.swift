@@ -46,14 +46,7 @@ struct VersionsScreen: View {
             phase = versions.isEmpty ? .empty : .ready
         }
         .fullScreenCover(item: $player) { presented in
-            let engine = VLCKitVideoPlayerEngine(preferences: session.subtitleSettings.preferences)
-            if let model = session.makePlayer(for: presented.request, engine: engine) {
-                PlayerView(model: model, engine: engine,
-                           backdropURL: TMDBClient.imageURL(path: presented.request.item.backdropPath,
-                                                            size: "original"))
-            } else {
-                Text("Unable to start playback.").font(.seretTitle2)
-            }
+            PlayerHost(request: presented.request, app: session, backdropSize: "original")
         }
     }
 

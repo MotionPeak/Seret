@@ -62,13 +62,7 @@ struct DetailView: View {
         // so Resume · <time> reflects the position the player just recorded.
         .onAppear { Task { await store.reloadWatch() } }
         .fullScreenCover(item: $episodePlayback) { presented in
-            let engine = VLCKitVideoPlayerEngine(preferences: session.subtitleSettings.preferences)
-            if let model = session.makePlayer(for: presented.request, engine: engine) {
-                PlayerView(model: model, engine: engine,
-                           backdropURL: TMDBClient.imageURL(path: presented.request.item.backdropPath, size: "w1280"))
-            } else {
-                Text("Unable to start playback.").font(.seretTitle2)
-            }
+            PlayerHost(request: presented.request, app: session, backdropSize: "w1280")
         }
         .alert("Remove \u{201C}\(store.item.title)\u{201D}?", isPresented: $confirmingRemove) {
             Button("Remove", role: .destructive) { performRemove() }

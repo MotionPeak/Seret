@@ -105,14 +105,7 @@ struct DetailScreen: View {
         // Re-read watch state when the player closes so Resume · <time> reflects the position
         // the player just recorded (the underlying screen's .task does not re-run on dismiss).
         .fullScreenCover(item: $playback, onDismiss: { Task { await store.reloadWatch() } }) { presented in
-            let engine = VLCKitVideoPlayerEngine(preferences: session.subtitleSettings.preferences)
-            if let model = session.makePlayer(for: presented.request, engine: engine) {
-                PlayerView(model: model, engine: engine,
-                           backdropURL: TMDBClient.imageURL(path: presented.request.item.backdropPath, size: "w1280"),
-                           onExit: { playback = nil })
-            } else {
-                PlayerPlaceholder(request: presented.request)
-            }
+            PlayerHost(request: presented.request, app: session, onExit: { playback = nil })
         }
         // A suggested title the viewer already owns opens its own Detail on top of this one.
         // `AnyView` is load-bearing: without it DetailScreen's body type would contain itself.
