@@ -842,7 +842,8 @@ public final class AppSession {
     /// Watched marks for browse/search posters. One instance is shared by every grid, so switching
     /// tabs does not re-query what is already known.
     public func makeTileWatchMarks() -> TileWatchMarks {
-        TileWatchMarks(watch: watchStore, profileID: { [weak self] in self?.activeProfileID ?? "" })
+        TileWatchMarks(watch: { [weak self] in self?.watchStore },
+                       profileID: { [weak self] in self?.activeProfileID ?? "" })
     }
 
     /// Marks a whole series watched. Nil until there is a details provider and a watch store.

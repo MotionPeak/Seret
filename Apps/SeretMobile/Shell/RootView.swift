@@ -23,7 +23,7 @@ struct RootView: View {
         }
         .environment(router)
         .task { if tileMarks == nil { tileMarks = session.makeTileWatchMarks() } }
-        .environment(tileMarks ?? session.makeTileWatchMarks())
+        .environment(tileMarks ?? .placeholder)
         // Detail (and the player nested in it) is presented HERE — above the TabView/SplitView —
         // so rotating the device doesn't dismiss it.
         .fullScreenCover(item: Binding(get: { router.detail }, set: { router.detail = $0 })) { item in

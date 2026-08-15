@@ -10,6 +10,10 @@ struct GenreGridScreen: View {
     @Environment(AppSession.self) private var session
     @Environment(TileWatchMarks.self) private var marks
     @State private var store: GenreGridStore?
+    /// The genre `store` was built for. `.task(id:)` re-runs on every re-appearance, not only when
+    /// the id changes — and coming back from a title is a re-appearance — so without this the grid
+    /// threw away every page it had loaded and dropped the viewer back at the top of page 1.
+    @State private var loadedGenreID: Int?
     @FocusState private var focusedSort: GenreSort?
 
     var body: some View {
@@ -18,8 +22,11 @@ struct GenreGridScreen: View {
             content
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        // Rebuild the store when the genre changes — each grid is a fresh drill-down.
+        // Rebuild the store when the genre actually changes — each grid is a fresh drill-down, but
+        // merely coming back to this one is not.
         .task(id: genre.tmdbID) {
+            guard loadedGenreID != genre.tmdbID else { return }
+            loadedGenreID = genre.tmdbID
             let s = session.makeGenreGrid(kind: kind, genre: genre)
             store = s
             await s?.load()

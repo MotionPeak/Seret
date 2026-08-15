@@ -114,7 +114,7 @@ struct LibraryShell: View {
             await session.libraryStore?.load()
         }
         .task { if tileMarks == nil { tileMarks = session.makeTileWatchMarks() } }
-        .environment(tileMarks ?? session.makeTileWatchMarks())
+        .environment(tileMarks ?? .placeholder)
         .onChange(of: tab) { _, new in if new == .home { Task { await session.refreshHome() } } }
         .onChange(of: path.isEmpty) { _, empty in if empty { Task { await session.refreshHome() } } }
         .fullScreenCover(isPresented: $showingProfiles) {

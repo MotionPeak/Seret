@@ -12,20 +12,30 @@ public final class TileWatchMarks {
     private var finished: Set<String> = []
     private var known: Set<String> = []
 
-    private let watch: WatchProgressProviding?
+    /// Resolved on every read, NOT captured once.
+    ///
+    /// This object is built when the shell first appears, which is before sign-in has produced a
+    /// watch store — so capturing the store by value captured `nil`, for the whole session, and no
+    /// browse or search poster ever showed a watched tick.
+    private let watch: @MainActor () -> WatchProgressProviding?
     private let profileID: @MainActor () -> String
 
-    public init(watch: WatchProgressProviding?, profileID: @escaping @MainActor () -> String) {
+    public init(watch: @escaping @MainActor () -> WatchProgressProviding?,
+                profileID: @escaping @MainActor () -> String) {
         self.watch = watch
         self.profileID = profileID
     }
+
+    /// A no-op instance for the single render before the shell's real one exists. Static, so a body
+    /// re-evaluation does not allocate and discard a fresh object on every pass.
+    public static let placeholder = TileWatchMarks(watch: { nil }, profileID: { "" })
 
     public func isWatched(_ hit: SearchHit) -> Bool { finished.contains(hit.contentKey) }
 
     /// Read watch state for any of these titles we have not read yet. Idempotent: calling it again
     /// with the same grid costs nothing.
     public func load(_ hits: [SearchHit]) async {
-        guard let watch else { return }
+        guard let watch = watch() else { return }
         let keys = Array(Set(hits.map(\.contentKey)).subtracting(known))
         guard !keys.isEmpty else { return }
         known.formUnion(keys)
