@@ -63,6 +63,40 @@ enum ImageMemoryCache {
 
     /// Wait for whoever already claimed `url` to finish, and hand back what they cached. Bounded,
     /// so a fetch that dies without publishing degrades to an empty tile rather than a hung task.
+    /// One image load, end to end: cache → claim → wait for whoever holds the claim → fetch →
+    /// decode → cache. `nil` means the image genuinely could not be produced.
+    ///
+    /// Losing the claim twice used to end the load in a bare `return`, leaving the tile on its
+    /// placeholder for good with no retry (`.task(id: url)` never re-fires while the url is
+    /// unchanged). The race that hit it: `prefetch()` claims the url, this loses the claim,
+    /// `awaitCached` polls its budget and gives up, and the re-claim fails too because the prefetch
+    /// still holds it. So we now fetch anyway — a rare duplicate download costs far less than a
+    /// tile that never loads. (Same fix as tvOS; see that copy, which is regression-tested.)
+    static func load(
+        _ url: URL,
+        waitAttempts: Int = 40,
+        fetch: @Sendable (URL) async throws -> Data = { try await URLSession.shared.data(from: $0).0 }
+    ) async -> UIImage? {
+        if let hit = shared.object(forKey: url as NSURL) { return hit }
+
+        var holdsClaim = claimInFlight(url)
+        if !holdsClaim {
+            if let theirs = await awaitCached(url, attempts: waitAttempts) { return theirs }
+            holdsClaim = claimInFlight(url)     // free by now? take it. Still held? fetch regardless.
+        }
+        defer { if holdsClaim { releaseInFlight(url) } }   // only release what we actually took
+
+        guard let data = try? await fetch(url) else { return nil }
+        // Decode off the main actor — decoding a whole screen of posters on main is what makes a
+        // grid feel like it "loads for a long time".
+        let decoded = await Task.detached(priority: .userInitiated) {
+            UIImage(data: data)?.preparingForDisplay()
+        }.value
+        guard let decoded else { return nil }
+        shared.setObject(decoded, forKey: url as NSURL, cost: cost(of: decoded))
+        return decoded
+    }
+
     static func awaitCached(_ url: URL, attempts: Int = 40) async -> UIImage? {
         for _ in 0..<attempts {
             if let image = shared.object(forKey: url as NSURL) { return image }
@@ -97,29 +131,9 @@ struct RemoteImage<Placeholder: View>: View {
         .onChange(of: url) { loaded = nil }     // a reused cell pointed at a new url → drop the old
         .task(id: url) {
             guard let url, ImageMemoryCache.shared.object(forKey: url as NSURL) == nil else { return }
-            // Claim it, so a prefetch of the same rail does not fetch and decode this one again.
-            // Losing the claim means someone else is already fetching this exact image — wait for
-            // their result rather than starting a second download. Waiting is not optional: `body`
-            // reads the cache synchronously, so without setting `loaded` here nothing would
-            // re-render when their copy landed and this tile would stay on its placeholder.
-            if !ImageMemoryCache.claimInFlight(url) {
-                if let theirs = await ImageMemoryCache.awaitCached(url) { loaded = theirs; return }
-                // Their fetch failed, or outran the wait. Take the claim and do it ourselves —
-                // giving up here left the tile on its placeholder for good, because `body` reads
-                // the cache synchronously and nothing would re-render it.
-                guard ImageMemoryCache.claimInFlight(url) else { return }
-            }
-            defer { ImageMemoryCache.releaseInFlight(url) }
-            guard let (data, _) = try? await URLSession.shared.data(from: url) else { return }
-            // Decode off the main actor — decoding a whole screen of posters on main is what
-            // makes a grid feel like it "loads for a long time".
-            let decoded = await Task.detached(priority: .userInitiated) {
-                UIImage(data: data)?.preparingForDisplay()
-            }.value
-            guard let decoded, !Task.isCancelled else { return }
-            ImageMemoryCache.shared.setObject(decoded, forKey: url as NSURL,
-                                              cost: ImageMemoryCache.cost(of: decoded))
-            loaded = decoded
+            let image = await ImageMemoryCache.load(url)
+            guard !Task.isCancelled else { return }
+            loaded = image
         }
     }
 }
