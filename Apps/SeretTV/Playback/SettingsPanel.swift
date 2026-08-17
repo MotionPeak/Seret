@@ -10,9 +10,15 @@ struct SettingsPanel: View {
     let onSearchSubtitles: () -> Void
     let onClose: () -> Void
 
+    /// The panel's own inner gutter. Deliberately NOT `Theme.Layout.contentMargin`: it is the same
+    /// number today, but it means "space inside this card", not "the page's overscan-safe inset",
+    /// and the two must stay free to move independently. (The margin token IS correct on the
+    /// padding below the background, which positions the card on the page.)
+    private static let innerGutter: CGFloat = 60
+
     var body: some View {
         PlaybackColumns(model: model, onSearchSubtitles: onSearchSubtitles, onPick: onClose)
-            .padding(.horizontal, Theme.Layout.contentMargin)
+            .padding(.horizontal, Self.innerGutter)
             .padding(.vertical, 40)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(

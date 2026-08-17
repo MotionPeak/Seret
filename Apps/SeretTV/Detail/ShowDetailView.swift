@@ -177,7 +177,7 @@ struct ShowDetailView: View {
                 .padding(.horizontal, Theme.Layout.contentMargin)    // align with the page + leave room for the focus scale,
             }
             .padding(.horizontal, -Theme.Layout.contentMargin)       // while the ScrollView runs edge-to-edge so a focused
-                                             // pill's scaled side isn't clipped at the row edge.
+                                                     // pill's scaled side isn't clipped at the row edge.
             .onChange(of: focusedSeason) { _, new in
                 if let new, new != store.selectedSeason { Task { await store.selectSeason(new) } }
             }
