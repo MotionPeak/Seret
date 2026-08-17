@@ -7,6 +7,13 @@ import SwiftUI
 struct HomeScreen: View {
     @Environment(AppSession.self) private var session
 
+    /// The hero's "Resume" capsule is painted content inside a `.card` link, not a Button, so it had
+    /// no way to know whether the hero held focus — it drew a full gold gradient and a permanent
+    /// glow at all times. On a screen where the Search pill starts focused that reads as two
+    /// focused things at once, and the capsule looks pressable when it is only decoration. Tracking
+    /// the link's focus lets the capsule use the same resting/focused treatment as every real CTA.
+    @FocusState private var heroFocused: Bool
+
     /// True once there's anything to show.
     private var homeReady: Bool {
         guard let h = session.home else { return false }
@@ -111,13 +118,20 @@ struct HomeScreen: View {
                         HStack(spacing: 10) { Image(systemName: "play.fill"); Text("Resume") }
                             .font(.seret(.title3, .semibold)).foregroundStyle(.black)
                             .padding(.vertical, 14).padding(.horizontal, 40)
-                            .background(Theme.Palette.goldGradient, in: Capsule())
-                            .goldGlow(16, opacity: 0.4)
+                            .background(heroFocused ? AnyShapeStyle(Theme.Palette.goldGradient)
+                                                    : AnyShapeStyle(Theme.Palette.goldDeep),
+                                        in: Capsule())
+                            .overlay(Capsule().strokeBorder(
+                                heroFocused ? Theme.Palette.goldBright : .white.opacity(0.10),
+                                lineWidth: heroFocused ? 3 : 1))
+                            .goldGlow(heroFocused ? 16 : 0, opacity: 0.4)
+                            .animation(Theme.Anim.focus, value: heroFocused)
                     }
                     .padding(60)
                 }
             }
             .buttonStyle(.card)
+            .focused($heroFocused)
         }
     }
 
