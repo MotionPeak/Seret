@@ -26,7 +26,7 @@ struct SeretPillStyle: ButtonStyle {
                 .background(fill, in: Capsule())
                 .scaleEffect(focused ? 1.06 : 1)
                 .opacity(configuration.isPressed ? 0.7 : 1)
-                .animation(.easeOut(duration: 0.15), value: focused)
+                .animation(Theme.Anim.focus, value: focused)
         }
         private var textColor: Color {
             if focused { return .black }

@@ -65,7 +65,7 @@ struct SideMenuRowStyle: ButtonStyle {
                 .background(focused ? Theme.Palette.gold.opacity(0.16) : .clear,
                             in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 .opacity(configuration.isPressed ? 0.7 : 1)
-                .animation(.easeOut(duration: 0.15), value: focused)
+                .animation(Theme.Anim.focus, value: focused)
         }
 
         private var tint: Color {

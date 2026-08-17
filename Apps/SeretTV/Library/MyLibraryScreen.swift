@@ -93,12 +93,12 @@ private struct DownloadingStrip: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Downloading").font(.seret(.title3, .bold))
-                .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 60)
+                .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, Theme.Layout.contentMargin)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 30) {
                     ForEach(tiles) { DownloadingTile(tile: $0) }
                 }
-                .padding(.horizontal, 60)
+                .padding(.horizontal, Theme.Layout.contentMargin)
             }
         }
     }

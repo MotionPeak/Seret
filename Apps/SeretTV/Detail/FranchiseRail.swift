@@ -22,9 +22,9 @@ struct FranchiseRail: View {
                     }
                 }
                 .padding(.vertical, 16)      // room for the focus lift
-                .padding(.horizontal, 60)    // align + room for the focus scale at the edges
+                .padding(.horizontal, Theme.Layout.contentMargin)    // align + room for the focus scale at the edges
             }
-            .padding(.horizontal, -60)       // edge-to-edge so a focused poster isn't clipped
+            .padding(.horizontal, -Theme.Layout.contentMargin)       // edge-to-edge so a focused poster isn't clipped
         }
         // Widen the focus target to the page BEFORE sectioning — a section only counts when its
         // frame intersects the direction of travel.

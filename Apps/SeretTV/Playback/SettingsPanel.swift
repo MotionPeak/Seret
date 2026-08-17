@@ -12,7 +12,7 @@ struct SettingsPanel: View {
 
     var body: some View {
         PlaybackColumns(model: model, onSearchSubtitles: onSearchSubtitles, onPick: onClose)
-            .padding(.horizontal, 60)
+            .padding(.horizontal, Theme.Layout.contentMargin)
             .padding(.vertical, 40)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
@@ -21,7 +21,7 @@ struct SettingsPanel: View {
                     .fill(Theme.Palette.canvas.opacity(0.92))
                     .overlay(RoundedRectangle(cornerRadius: 24).stroke(Theme.Palette.gold.opacity(0.18), lineWidth: 1))
             )
-            .padding(.horizontal, 60)
+            .padding(.horizontal, Theme.Layout.contentMargin)
             .padding(.top, 40)                // sits at the top of the screen
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
@@ -237,7 +237,7 @@ private struct SettingsRowButtonStyle: ButtonStyle {
                 .overlay { if focused { Capsule().strokeBorder(Theme.Palette.gold, lineWidth: 2) } }
                 .scaleEffect(focused ? 1.02 : 1)
                 .opacity(configuration.isPressed ? 0.7 : 1)
-                .animation(.easeOut(duration: 0.15), value: focused)
+                .animation(Theme.Anim.focus, value: focused)
         }
     }
 }

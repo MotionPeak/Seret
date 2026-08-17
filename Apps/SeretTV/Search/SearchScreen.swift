@@ -49,13 +49,15 @@ struct SearchScreen: View {
         .background(CanvasBackground())
     }
 
-    /// Movies / Shows in place. Commit-on-press like every other pill row in the app.
+    /// Movies / TV Shows in place. Commit-on-press like every other pill row in the app — and the
+    /// same words and rhythm as My Library's, which said "TV Shows" at 24pt while this said
+    /// "Shows" at 16pt. One control should not change its name between two screens.
     private var kindToggle: some View {
-        HStack(spacing: 16) {
+        HStack(spacing: 24) {
             Button("Movies") { kind = .movie }
                 .buttonStyle(SeretPillStyle(selected: kind == .movie))
                 .focused($focusedKind, equals: .movie)
-            Button("Shows") { kind = .show }
+            Button("TV Shows") { kind = .show }
                 .buttonStyle(SeretPillStyle(selected: kind == .show))
                 .focused($focusedKind, equals: .show)
         }

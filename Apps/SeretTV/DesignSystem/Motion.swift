@@ -7,7 +7,14 @@ import SwiftUI
 extension Theme {
     enum Anim {
         /// Focus lift on pills / tiles / buttons — quick but not instant.
+        ///
+        /// Route EVERY focus transition through this. Six sites used to hardcode their own 0.15,
+        /// so focus moved at a different speed depending on which screen you were looking at —
+        /// exactly the drift this namespace exists to prevent.
         static let focus = Animation.easeOut(duration: 0.18)
+        /// Chrome that opens or reveals — the side menu expanding, its scrim fading in. Slower than
+        /// focus on purpose: a panel sliding is a bigger movement than a tile lifting.
+        static let panel = Animation.easeOut(duration: 0.22)
         /// Route crossfade — splash → shell, sign-in → shell.
         static let pageFade = Animation.easeInOut(duration: 0.30)
         /// The one "delightful" spring — hero & profile motion.

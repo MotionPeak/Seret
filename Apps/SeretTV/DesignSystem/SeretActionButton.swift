@@ -33,7 +33,7 @@ struct SeretActionButtonStyle: ButtonStyle {
                 .animation(Theme.Anim.focus, value: focused)
         }
 
-        private var redColor: Color { Color(hex: 0xEF4444) }
+        private var redColor: Color { Theme.Palette.destructive }
 
         private var textColor: Color {
             if focused { return destructive ? .white : .black }

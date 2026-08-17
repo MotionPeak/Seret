@@ -31,7 +31,7 @@ struct VersionsScreen: View {
                 downloadStatus
                 content
             }
-            .padding(.horizontal, 60).padding(.vertical, 50)
+            .padding(.horizontal, Theme.Layout.contentMargin).padding(.vertical, 50)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(CanvasBackground())

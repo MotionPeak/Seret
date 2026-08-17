@@ -25,6 +25,17 @@ enum Theme {
         static let chipFill    = Color.white.opacity(0.12)
         static let textPrimary   = Color(hex: 0xF5F5F7)
         static let textSecondary = Color(hex: 0x9A9AA0)
+        /// Destructive intent (Remove, Disconnect, Sign Out).
+        static let destructive   = Color(hex: 0xEF4444)
+        /// The wash behind an open side menu — a touch deeper than `canvas` so page content reads
+        /// as being *under* the menu rather than replaced by it.
+        static let scrim         = Color(hex: 0x040406)
+
+        /// Critic-score colours (Metacritic-style banding). Ad-hoc hexes at the call site meant the
+        /// only greens and reds in the app lived outside the palette.
+        static let ratingGood = Color(hex: 0x00CE7A)
+        static let ratingMid  = Color(hex: 0xFFCC33)
+        static let ratingBad  = Color(hex: 0xFF6874)
 
         static let goldGradient = LinearGradient(
             colors: [goldLight, gold, goldDeep], startPoint: .topLeading, endPoint: .bottomTrailing)

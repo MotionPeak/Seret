@@ -46,7 +46,7 @@ struct SideMenu: View {
         .padding(.vertical, 60)
         .frame(width: expanded ? Self.panelWidth : Self.railWidth, alignment: .topLeading)
         .frame(maxHeight: .infinity, alignment: .top)
-        .animation(.easeOut(duration: 0.22), value: expanded)
+        .animation(Theme.Anim.panel, value: expanded)
         // ONE focus target spanning the full height, so LEFT from the first item of any row lands
         // here. A section widens a target; it does not trap focus.
         .focusSection()
@@ -80,16 +80,19 @@ struct SideMenuScrim: View {
     let visible: Bool
 
     var body: some View {
+        // The opaque plateau has to clear the WIDEST menu label, not the panel edge. It used to end
+        // at 0.24 while the labels run past that, so a rail title behind the menu ("Trending Now")
+        // read straight through "Search". 0.96 also left 4% of the page showing under the text.
         LinearGradient(
             stops: [
-                .init(color: Color(hex: 0x040406, alpha: 0.96), location: 0),
-                .init(color: Color(hex: 0x040406, alpha: 0.96), location: 0.24),
-                .init(color: Color(hex: 0x040406, alpha: 0.0), location: 0.53),
+                .init(color: Theme.Palette.scrim, location: 0),
+                .init(color: Theme.Palette.scrim, location: 0.32),
+                .init(color: Theme.Palette.scrim.opacity(0.0), location: 0.58),
             ],
             startPoint: .leading, endPoint: .trailing)
         .ignoresSafeArea()
         .opacity(visible ? 1 : 0)
-        .animation(.easeOut(duration: 0.22), value: visible)
+        .animation(Theme.Anim.panel, value: visible)
         .allowsHitTesting(false)
     }
 }

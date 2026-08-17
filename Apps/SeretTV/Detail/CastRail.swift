@@ -102,7 +102,7 @@ private struct CastCardStyle: ButtonStyle {
                 .scaleEffect(focused ? 1.08 : 1)
                 .brightness(focused ? 0.08 : 0)
                 .opacity(configuration.isPressed ? 0.7 : 1)
-                .animation(.easeOut(duration: 0.15), value: focused)
+                .animation(Theme.Anim.focus, value: focused)
         }
     }
 }
