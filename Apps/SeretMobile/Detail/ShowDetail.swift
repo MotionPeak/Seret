@@ -173,7 +173,7 @@ struct ShowDetail: View {
                         let selected = n == store.selectedSeason
                         Button("Season \(n)") { Task { await store.selectSeason(n) } }
                             .font(Theme.Typo.headline())
-                            .foregroundStyle(selected ? Color(hex: 0x1A1400) : Theme.Palette.textSecondary)
+                            .foregroundStyle(selected ? Theme.Palette.onGold : Theme.Palette.textSecondary)
                             .padding(.vertical, 7).padding(.horizontal, Theme.Space.lg)
                             .background(selected ? AnyShapeStyle(Theme.Palette.goldGradient)
                                                  : AnyShapeStyle(Theme.Palette.surface2), in: Capsule())

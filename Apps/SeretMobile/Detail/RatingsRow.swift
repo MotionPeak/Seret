@@ -62,6 +62,6 @@ struct RatingsRow: View {
 
     /// Metacritic's own convention: green (≥61), yellow (40–60), red (<40).
     private func metacriticColor(_ score: Int) -> Color {
-        score >= 61 ? Color(hex: 0x00CE7A) : score >= 40 ? Color(hex: 0xFFCC33) : Color(hex: 0xFF6874)
+        score >= 61 ? Theme.Palette.ratingGood : score >= 40 ? Theme.Palette.ratingMid : Theme.Palette.ratingBad
     }
 }

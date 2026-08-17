@@ -150,7 +150,7 @@ struct HomeScreen: View {
                     // The pill resumes playback directly; tapping the hero art (below) opens Detail.
                     Button { resume(f) } label: {
                         HStack(spacing: 6) { Image(systemName: "play.fill"); Text("Resume") }
-                            .font(Theme.Typo.headline()).foregroundStyle(Color(hex: 0x1A1400))
+                            .font(Theme.Typo.headline()).foregroundStyle(Theme.Palette.onGold)
                             .padding(.vertical, 9).padding(.horizontal, Theme.Space.xl)
                             .background(Theme.Palette.goldGradient, in: Capsule())
                             .goldGlow(12, opacity: 0.4).padding(.top, 2)

@@ -1,54 +1,53 @@
+import DebridUI
 import SwiftUI
 
-extension Color {
-    init(hex: UInt, alpha: Double = 1) {
-        self.init(.sRGB,
-                  red: Double((hex >> 16) & 0xFF) / 255,
-                  green: Double((hex >> 8) & 0xFF) / 255,
-                  blue: Double(hex & 0xFF) / 255,
-                  opacity: alpha)
-    }
-}
-
-/// Single source of truth for the mobile "Gold Glass" look. tvOS is unaffected.
+/// The mobile "Gold Glass" look.
+///
+/// The brand colours live once, in `DebridUI.SeretPalette`, so they cannot drift from tvOS.
+/// `Palette` re-exposes them under the name every view already uses (`Theme.Palette.gold`), which
+/// is why sharing them did not touch a single call site.
+///
+/// `Typo`, `Space`, `Radius` and `Motion` stay here: they are handheld values with nothing
+/// meaningful in common with a ten-foot type ramp.
 enum Theme {
     enum Palette {
-        static let gold        = Color(hex: 0xEBC11D)
-        static let goldLight   = Color(hex: 0xF6D24A)
-        static let goldBright  = Color(hex: 0xFDE98A)
-        static let goldDeep    = Color(hex: 0xC8930A)
-        static let goldGlow    = Color(hex: 0xEBC11D, alpha: 0.40)
-        static let canvas      = Color(hex: 0x08080A)
-        static let trueBlack   = Color.black
-        static let surface1    = Color(hex: 0x141416)
-        static let surface2    = Color(hex: 0x1C1C1F)
-        static let hairline    = Color.white.opacity(0.09)
-        static let chipFill    = Color.white.opacity(0.12)
-        static let textPrimary   = Color(hex: 0xF5F5F7)
-        static let textSecondary = Color(hex: 0x8A8A90)
-        static let textTertiary  = Color(hex: 0x5A5A60)
+        static let gold        = SeretPalette.gold
+        static let goldLight   = SeretPalette.goldLight
+        static let goldBright  = SeretPalette.goldBright
+        static let goldDeep    = SeretPalette.goldDeep
+        static let goldGlow    = SeretPalette.goldGlow
+        static let canvas      = SeretPalette.canvas
+        static let surface1    = SeretPalette.surface1
+        static let surface2    = SeretPalette.surface2
+        static let chipFill    = SeretPalette.chipFill
+        static let textPrimary  = SeretPalette.textPrimary
+        static let textTertiary = SeretPalette.textTertiary
+        static let onGold       = SeretPalette.onGold
+        static let destructive  = SeretPalette.destructive
+        static let ratingGood   = SeretPalette.ratingGood
+        static let ratingMid    = SeretPalette.ratingMid
+        static let ratingBad    = SeretPalette.ratingBad
 
-        static let goldGradient = LinearGradient(
-            colors: [goldLight, gold, goldDeep],
-            startPoint: .topLeading, endPoint: .bottomTrailing)
-        static let markGradient = LinearGradient(
-            colors: [goldBright, goldDeep],
-            startPoint: .topLeading, endPoint: .bottomTrailing)
-        /// Faint top glow used as a screen background wash.
+        static let goldGradient = SeretPalette.goldGradient
+        static let markGradient = SeretPalette.markGradient
+
+        static let trueBlack = Color.black
+
+        // --- Deliberately NOT shared: these differ from tvOS on purpose. ---
+
+        /// 0.09 here, 0.10 on tvOS.
+        static let hairline = Color.white.opacity(0.09)
+        /// Darker than the tvOS value: this sits in a three-step ramp with `textTertiary` below it,
+        /// and is read at arm's length rather than across a room.
+        static let textSecondary = Color(hex: 0x8A8A90)
+        /// Faint top glow used as a screen background wash. The radius scales with the screen —
+        /// 520 here against 1300 on a TV.
         static let canvasGlow = RadialGradient(
             colors: [Color(hex: 0xEBC11D, alpha: 0.14), .clear],
             center: .init(x: 0.8, y: -0.05), startRadius: 0, endRadius: 520)
 
         /// Maps a profile's `colorTag` to its avatar color; defaults to gold.
-        static func color(for tag: String) -> Color {
-            switch tag {
-            case "blue":   return Color(hex: 0x3B82F6)
-            case "green":  return Color(hex: 0x22C55E)
-            case "red":    return Color(hex: 0xEF4444)
-            case "purple": return Color(hex: 0xA855F7)
-            default:        return gold
-            }
-        }
+        static func color(for tag: String) -> Color { SeretPalette.color(for: tag) }
     }
 
     enum Typo {

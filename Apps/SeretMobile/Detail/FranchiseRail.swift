@@ -69,7 +69,7 @@ struct FranchiseRail: View {
     private var inLibraryBadge: some View {
         Image(systemName: "checkmark.circle.fill")
             .font(.system(size: 18, weight: .bold))
-            .foregroundStyle(Color(hex: 0x1A1400), Theme.Palette.gold)
+            .foregroundStyle(Theme.Palette.onGold, Theme.Palette.gold)
             .background(Circle().fill(.black.opacity(0.35)))
             .accessibilityLabel("In Library")
     }

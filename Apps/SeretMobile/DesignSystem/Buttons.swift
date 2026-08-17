@@ -5,7 +5,7 @@ struct GoldButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(Theme.Typo.headline())
-            .foregroundStyle(Color(hex: 0x1A1400))
+            .foregroundStyle(Theme.Palette.onGold)
             .padding(.vertical, 11).padding(.horizontal, Theme.Space.xl)
             .background(Theme.Palette.goldGradient, in: Capsule())
             .goldGlow(14, opacity: configuration.isPressed ? 0.2 : 0.4)

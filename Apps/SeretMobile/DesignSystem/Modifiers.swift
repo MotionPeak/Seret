@@ -61,8 +61,6 @@ enum ImageMemoryCache {
         inFlightLock.withLock { inFlight.contains(url) }
     }
 
-    /// Wait for whoever already claimed `url` to finish, and hand back what they cached. Bounded,
-    /// so a fetch that dies without publishing degrades to an empty tile rather than a hung task.
     /// One image load, end to end: cache → claim → wait for whoever holds the claim → fetch →
     /// decode → cache. `nil` means the image genuinely could not be produced.
     ///
@@ -97,6 +95,8 @@ enum ImageMemoryCache {
         return decoded
     }
 
+    /// Wait for whoever already claimed `url` to finish, and hand back what they cached. Bounded,
+    /// so a fetch that dies without publishing degrades to an empty tile rather than a hung task.
     static func awaitCached(_ url: URL, attempts: Int = 40) async -> UIImage? {
         for _ in 0..<attempts {
             if let image = shared.object(forKey: url as NSURL) { return image }
@@ -159,7 +159,7 @@ struct MediaPlaceholder: View {
 extension View {
     /// Soft gold halo for active/interactive elements.
     func goldGlow(_ radius: CGFloat = 16, opacity: Double = 0.45) -> some View {
-        shadow(color: Color(hex: 0xEBC11D, alpha: opacity), radius: radius)
+        shadow(color: Theme.Palette.gold.opacity(opacity), radius: radius)
     }
 
     /// Dark frosted bar/sheet background (blur + black tint + hairline top).

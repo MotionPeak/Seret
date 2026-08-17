@@ -103,7 +103,7 @@ struct PlayerSettingsSheet: View {
                 if selected { Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)) }
                 Text(title).font(.system(size: 14, weight: .semibold))
             }
-            .foregroundStyle(selected ? Color(hex: 0x1A1400) : Theme.Palette.textPrimary)
+            .foregroundStyle(selected ? Theme.Palette.onGold : Theme.Palette.textPrimary)
             .padding(.vertical, 9).padding(.horizontal, 15)
             .background(selected ? AnyShapeStyle(Theme.Palette.goldGradient)
                                  : AnyShapeStyle(Theme.Palette.surface2), in: Capsule())

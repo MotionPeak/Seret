@@ -1,60 +1,49 @@
+import DebridUI
 import SwiftUI
 
-extension Color {
-    init(hex: UInt, alpha: Double = 1) {
-        self.init(.sRGB,
-                  red: Double((hex >> 16) & 0xFF) / 255,
-                  green: Double((hex >> 8) & 0xFF) / 255,
-                  blue: Double(hex & 0xFF) / 255,
-                  opacity: alpha)
-    }
-}
-
-/// tvOS "Gold Glass" tokens — mirrors the iPhone/iPad design system so the apps match.
+/// tvOS "Gold Glass" tokens.
+///
+/// The brand colours live once, in `DebridUI.SeretPalette`, so they cannot drift between the two
+/// apps. `Palette` re-exposes them under the name every view already uses (`Theme.Palette.gold`),
+/// which is why sharing them did not touch a single call site.
+///
+/// The type ramp (`Typography`), `Layout` and `Anim` stay here on purpose: they are tuned for a
+/// ten-foot viewing distance and have nothing meaningful in common with the handheld values.
 enum Theme {
     enum Palette {
-        static let gold        = Color(hex: 0xEBC11D)
-        static let goldLight   = Color(hex: 0xF6D24A)
-        static let goldBright  = Color(hex: 0xFDE98A)
-        static let goldDeep    = Color(hex: 0xC8930A)
-        static let goldGlow    = Color(hex: 0xEBC11D, alpha: 0.40)
-        static let canvas      = Color(hex: 0x08080A)
-        static let surface1    = Color(hex: 0x141416)
-        static let surface2    = Color(hex: 0x1C1C1F)
-        static let hairline    = Color.white.opacity(0.10)
-        static let chipFill    = Color.white.opacity(0.12)
-        static let textPrimary   = Color(hex: 0xF5F5F7)
+        static let gold        = SeretPalette.gold
+        static let goldLight   = SeretPalette.goldLight
+        static let goldBright  = SeretPalette.goldBright
+        static let goldDeep    = SeretPalette.goldDeep
+        static let goldGlow    = SeretPalette.goldGlow
+        static let canvas      = SeretPalette.canvas
+        static let surface1    = SeretPalette.surface1
+        static let surface2    = SeretPalette.surface2
+        static let chipFill    = SeretPalette.chipFill
+        static let textPrimary = SeretPalette.textPrimary
+        static let destructive = SeretPalette.destructive
+        static let scrim       = SeretPalette.scrim
+        static let ratingGood  = SeretPalette.ratingGood
+        static let ratingMid   = SeretPalette.ratingMid
+        static let ratingBad   = SeretPalette.ratingBad
+
+        static let goldGradient = SeretPalette.goldGradient
+        static let markGradient = SeretPalette.markGradient
+
+        // --- Deliberately NOT shared: these differ from mobile on purpose. ---
+
+        /// 0.10 here, 0.09 on mobile.
+        static let hairline = Color.white.opacity(0.10)
+        /// Lighter than mobile's, which sits in a three-step ramp; this one has to read across a
+        /// room.
         static let textSecondary = Color(hex: 0x9A9AA0)
-        /// Destructive intent (Remove, Disconnect, Sign Out).
-        static let destructive   = Color(hex: 0xEF4444)
-        /// The wash behind an open side menu — a touch deeper than `canvas` so page content reads
-        /// as being *under* the menu rather than replaced by it.
-        static let scrim         = Color(hex: 0x040406)
-
-        /// Critic-score colours (Metacritic-style banding). Ad-hoc hexes at the call site meant the
-        /// only greens and reds in the app lived outside the palette.
-        static let ratingGood = Color(hex: 0x00CE7A)
-        static let ratingMid  = Color(hex: 0xFFCC33)
-        static let ratingBad  = Color(hex: 0xFF6874)
-
-        static let goldGradient = LinearGradient(
-            colors: [goldLight, gold, goldDeep], startPoint: .topLeading, endPoint: .bottomTrailing)
-        static let markGradient = LinearGradient(
-            colors: [goldBright, goldDeep], startPoint: .topLeading, endPoint: .bottomTrailing)
+        /// The radius scales with the screen — 1300 on a TV against mobile's 520.
         static let canvasGlow = RadialGradient(
             colors: [Color(hex: 0xEBC11D, alpha: 0.16), .clear],
             center: .init(x: 0.85, y: -0.1), startRadius: 0, endRadius: 1300)
 
         /// Maps a profile's `colorTag` to its avatar color; defaults to gold.
-        static func color(for tag: String) -> Color {
-            switch tag {
-            case "blue":   return Color(hex: 0x3B82F6)
-            case "green":  return Color(hex: 0x22C55E)
-            case "red":    return Color(hex: 0xEF4444)
-            case "purple": return Color(hex: 0xA855F7)
-            default:        return gold
-            }
-        }
+        static func color(for tag: String) -> Color { SeretPalette.color(for: tag) }
     }
 }
 
