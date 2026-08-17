@@ -143,7 +143,10 @@ struct RemoteImage<Placeholder: View>: View {
             if let image {
                 Image(uiImage: image).resizable().aspectRatio(contentMode: contentMode).transition(.opacity)
             } else {
-                placeholder(failed)
+                // A nil url is not "loading" — there is nothing to wait for, so a spinner would
+                // spin until the view goes away. That is how a title TMDB could not match got a
+                // permanent spinner instead of a settled "no artwork" tile.
+                placeholder(failed || url == nil)
             }
         }
         .animation(Theme.Anim.imageFade, value: image != nil)

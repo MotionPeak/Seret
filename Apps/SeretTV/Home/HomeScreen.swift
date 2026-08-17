@@ -135,9 +135,25 @@ struct HomeScreen: View {
         }
     }
 
+    @ViewBuilder
     private func posterCard(_ item: MediaItem, watched: Bool = false) -> some View {
-        // No title label — posters already carry their title in the artwork.
-        RemoteImage(url: TMDBClient.imageURL(path: item.posterPath, size: "w500"))
+        // No title label — posters already carry their title in the artwork. Which is exactly why
+        // a title TMDB could not match needs one drawn: with no poster AND no label the tile was
+        // unidentifiable, and (before RemoteImage learned that a nil url has nothing to wait for)
+        // it sat spinning for good. Mirrors PosterCard's noPoster fallback.
+        Group {
+            if let url = TMDBClient.imageURL(path: item.posterPath, size: "w500") {
+                RemoteImage(url: url)
+            } else {
+                Theme.Palette.surface1.overlay {
+                    Text(item.title)
+                        .cardTitle()
+                        .foregroundStyle(Theme.Palette.textSecondary)
+                        .multilineTextAlignment(.center)
+                        .padding(12)
+                }
+            }
+        }
             .frame(width: 220, height: 330)
             .overlay { if watched { Color.black.opacity(0.45) } }   // dim a watched movie
             .clipShape(RoundedRectangle(cornerRadius: Theme.Layout.posterCorner, style: .continuous))
