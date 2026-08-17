@@ -158,6 +158,61 @@ public struct TMDBCollection: Decodable, Sendable, Equatable, Identifiable {
     }
 }
 
+/// One artwork entry from TMDB's `images` block.
+///
+/// `iso_639_1` is the tell: it is set when the artwork has text burned into it (a language-specific
+/// title treatment) and null when the plate is clean. TMDB's default `backdrop_path` is very often
+/// a titled one, which is why a hero could render a title twice — once as art inside the image and
+/// again as the label drawn over it.
+public struct TMDBImageRef: Decodable, Sendable, Equatable {
+    public let filePath: String
+    /// nil == no burned-in text.
+    public let languageCode: String?
+    public let voteAverage: Double?
+    public let width: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case filePath = "file_path"
+        case languageCode = "iso_639_1"
+        case voteAverage = "vote_average"
+        case width
+    }
+
+    public init(filePath: String, languageCode: String?, voteAverage: Double? = nil,
+                width: Int? = nil) {
+        self.filePath = filePath; self.languageCode = languageCode
+        self.voteAverage = voteAverage; self.width = width
+    }
+}
+
+/// The `images` block appended to a details call.
+public struct TMDBImageSet: Decodable, Sendable, Equatable {
+    public let backdrops: [TMDBImageRef]
+
+    public init(backdrops: [TMDBImageRef]) { self.backdrops = backdrops }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        backdrops = try c.decodeIfPresent([TMDBImageRef].self, forKey: .backdrops) ?? []
+    }
+
+    enum CodingKeys: String, CodingKey { case backdrops }
+
+    /// The best plate with no burned-in text, or nil when every backdrop is titled.
+    ///
+    /// Rated first, then widest — TMDB starts most artwork at vote 0, so without the width
+    /// tie-break the choice would be arbitrary, and a hero is shown full-bleed on a 4K panel.
+    public var textlessBackdropPath: String? {
+        backdrops
+            .filter { $0.languageCode == nil }
+            .max { a, b in
+                let (av, bv) = (a.voteAverage ?? 0, b.voteAverage ?? 0)
+                return av == bv ? (a.width ?? 0) < (b.width ?? 0) : av < bv
+            }?
+            .filePath
+    }
+}
+
 public struct TMDBMovieDetails: Decodable, Sendable, Equatable, Identifiable {
     public let id: Int
     public let title: String
@@ -183,9 +238,17 @@ public struct TMDBMovieDetails: Decodable, Sendable, Equatable, Identifiable {
     /// The franchise this film belongs to, when it belongs to one. Rides along on the details call
     /// we already make, so knowing a film is part of a series costs nothing.
     public let collection: TMDBCollectionRef?
+    /// Artwork, when the details call asked for it. Rides along the same way `collection` does.
+    public let images: TMDBImageSet?
+
+    /// The backdrop a hero should use: the clean plate when TMDB has one, otherwise whatever
+    /// `backdrop_path` gave us. Preferring textless must never mean showing nothing.
+    public var preferredBackdropPath: String? {
+        images?.textlessBackdropPath ?? backdropPath
+    }
 
     enum CodingKeys: String, CodingKey {
-        case id, title, overview, runtime, genres, credits
+        case id, title, overview, runtime, genres, credits, images
         case similar = "recommendations"
         case collection = "belongs_to_collection"
         case releaseDate = "release_date"
@@ -201,13 +264,14 @@ public struct TMDBMovieDetails: Decodable, Sendable, Equatable, Identifiable {
                 genres: [TMDBGenre], voteAverage: Double?,
                 originalLanguage: String? = nil, imdbID: String? = nil,
                 cast: [TMDBCastMember] = [], directors: [TMDBPersonRef] = [],
-                similar: [TMDBSearchResult] = [], collection: TMDBCollectionRef? = nil) {
+                similar: [TMDBSearchResult] = [], collection: TMDBCollectionRef? = nil,
+                images: TMDBImageSet? = nil) {
         self.id = id; self.title = title; self.releaseDate = releaseDate
         self.overview = overview; self.posterPath = posterPath; self.backdropPath = backdropPath
         self.runtime = runtime; self.genres = genres; self.voteAverage = voteAverage
         self.originalLanguage = originalLanguage; self.imdbID = imdbID
         self.cast = cast; self.directors = directors; self.similar = similar
-        self.collection = collection
+        self.collection = collection; self.images = images
     }
 
     public init(from decoder: any Decoder) throws {
@@ -241,6 +305,7 @@ public struct TMDBMovieDetails: Decodable, Sendable, Equatable, Identifiable {
             .map { TMDBPersonRef(id: $0.id, name: $0.name) }
         similar = (try c.decodeIfPresent(TMDBRecommendations.self, forKey: .similar)?.results ?? [])
         collection = try c.decodeIfPresent(TMDBCollectionRef.self, forKey: .collection)
+        images = try c.decodeIfPresent(TMDBImageSet.self, forKey: .images)
     }
 }
 
@@ -290,8 +355,17 @@ public struct TMDBTVDetails: Decodable, Sendable, Equatable, Identifiable {
     /// The creators' names. Kept so every existing reader is unaffected by creators gaining ids.
     public var creators: [String] { creatorRefs.map(\.name) }
 
+    /// Artwork, when the details call asked for it.
+    public let images: TMDBImageSet?
+
+    /// The backdrop a hero should use: the clean plate when TMDB has one, otherwise whatever
+    /// `backdrop_path` gave us. Preferring textless must never mean showing nothing.
+    public var preferredBackdropPath: String? {
+        images?.textlessBackdropPath ?? backdropPath
+    }
+
     enum CodingKeys: String, CodingKey {
-        case id, name, overview, genres
+        case id, name, overview, genres, images
         case similar = "recommendations"
         case firstAirDate = "first_air_date"
         case posterPath = "poster_path"
@@ -311,12 +385,13 @@ public struct TMDBTVDetails: Decodable, Sendable, Equatable, Identifiable {
                 genres: [TMDBGenre], voteAverage: Double?,
                 originalLanguage: String? = nil, imdbID: String? = nil,
                 cast: [TMDBCastMember] = [], creatorRefs: [TMDBPersonRef] = [],
-                similar: [TMDBSearchResult] = []) {
+                similar: [TMDBSearchResult] = [], images: TMDBImageSet? = nil) {
         self.id = id; self.name = name; self.firstAirDate = firstAirDate
         self.overview = overview; self.posterPath = posterPath; self.backdropPath = backdropPath
         self.numberOfSeasons = numberOfSeasons; self.genres = genres; self.voteAverage = voteAverage
         self.originalLanguage = originalLanguage; self.imdbID = imdbID
         self.cast = cast; self.creatorRefs = creatorRefs; self.similar = similar
+        self.images = images
     }
 
     public init(from decoder: any Decoder) throws {
@@ -332,6 +407,7 @@ public struct TMDBTVDetails: Decodable, Sendable, Equatable, Identifiable {
         voteAverage = try c.decodeIfPresent(Double.self, forKey: .voteAverage)
         originalLanguage = try c.decodeIfPresent(String.self, forKey: .originalLanguage)
         imdbID = try c.decodeIfPresent(ExternalIDs.self, forKey: .externalIDs)?.imdb_id
+        images = try c.decodeIfPresent(TMDBImageSet.self, forKey: .images)
         let agg = try c.decodeIfPresent(TMDBAggregateCredits.self, forKey: .aggregateCredits)
         // Deduped by person id before the cap — see the movie initializer above.
         var seenCast = Set<Int>()

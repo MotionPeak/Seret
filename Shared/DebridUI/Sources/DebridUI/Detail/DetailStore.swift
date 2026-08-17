@@ -180,7 +180,7 @@ public final class DetailStore {
             switch item.kind {
             case .movie:
                 let d = try await details.movieDetails(tmdbID: tmdbID)
-                backdropPath = d.backdropPath ?? backdropPath
+                backdropPath = d.preferredBackdropPath ?? backdropPath
                 runtime = d.runtime
                 genres = d.genres.map(\.name)
                 overview = d.overview ?? overview
@@ -193,7 +193,7 @@ public final class DetailStore {
                 collectionRef = d.collection
             case .show:
                 let d = try await details.tvDetails(tmdbID: tmdbID)
-                backdropPath = d.backdropPath ?? backdropPath
+                backdropPath = d.preferredBackdropPath ?? backdropPath
                 genres = d.genres.map(\.name)
                 overview = d.overview ?? overview
                 imdbID = d.imdbID

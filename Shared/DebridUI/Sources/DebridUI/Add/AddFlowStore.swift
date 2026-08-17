@@ -73,7 +73,7 @@ public final class AddFlowStore {
         title = d.title
         year = yearFrom(d.releaseDate)
         posterPath = d.posterPath ?? hit.result.posterPath
-        backdropPath = d.backdropPath
+        backdropPath = d.preferredBackdropPath
         overview = d.overview
         imdbID = imdb
         originalLanguage = d.originalLanguage
@@ -92,7 +92,7 @@ public final class AddFlowStore {
         title = d.name
         year = yearFrom(d.firstAirDate)
         posterPath = d.posterPath ?? hit.result.posterPath
-        backdropPath = d.backdropPath
+        backdropPath = d.preferredBackdropPath
         overview = d.overview
         imdbID = imdb
         originalLanguage = d.originalLanguage
