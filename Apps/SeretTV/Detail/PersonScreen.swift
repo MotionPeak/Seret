@@ -100,7 +100,8 @@ struct PersonScreen: View {
 
     private func header(_ store: PersonStore) -> some View {
         HStack(alignment: .center, spacing: 40) {
-            RemoteImage(url: TMDBClient.imageURL(path: store.profilePath, size: "h632")) {
+            // The glyph is right whether the headshot is still loading or never arrives.
+            RemoteImage(url: TMDBClient.imageURL(path: store.profilePath, size: "h632")) { _ in
                 Theme.Palette.surface2.overlay {
                     Image(systemName: "person.fill")
                         .font(.system(size: 80))

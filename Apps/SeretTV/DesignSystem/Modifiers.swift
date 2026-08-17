@@ -81,6 +81,45 @@ enum ImageMemoryCache {
         }
         return shared.object(forKey: url as NSURL)
     }
+
+    /// One image load, end to end: cache → claim → wait for whoever holds the claim → fetch →
+    /// decode → cache. `nil` means the image genuinely could not be produced, which is what lets a
+    /// caller settle into a "no image" state instead of a spinner that never stops.
+    ///
+    /// This used to be inlined in `RemoteImage`'s `.task`, where every failure was a bare `return`
+    /// and the tile was left on its placeholder for good. The path that actually shipped was a race
+    /// with `prefetch()`: prefetch claims the url, `RemoteImage` loses the claim, `awaitCached`
+    /// polls for its budget and gives up, the re-claim fails too because the prefetch STILL holds
+    /// it — and the load returned having done nothing. Exactly the images whose prefetch outran the
+    /// wait hung forever, which is why it was always a consistent minority of tiles.
+    ///
+    /// So losing the claim twice no longer ends the load: we fetch anyway. A rare duplicate
+    /// download costs far less than a tile that never loads.
+    static func load(
+        _ url: URL,
+        waitAttempts: Int = 40,
+        fetch: @Sendable (URL) async throws -> Data = { try await URLSession.shared.data(from: $0).0 }
+    ) async -> UIImage? {
+        if let hit = shared.object(forKey: url as NSURL) { return hit }
+
+        var holdsClaim = claimInFlight(url)
+        if !holdsClaim {
+            if let theirs = await awaitCached(url, attempts: waitAttempts) { return theirs }
+            holdsClaim = claimInFlight(url)     // free by now? take it. Still held? fetch regardless.
+        }
+        // Only release what we actually took, or we would free someone else's claim.
+        defer { if holdsClaim { releaseInFlight(url) } }
+
+        guard let data = try? await fetch(url) else { return nil }
+        // Decode off the main actor — decoding a whole screen of posters on main is what made the
+        // grid feel like it "loads for a long time".
+        let decoded = await Task.detached(priority: .userInitiated) {
+            UIImage(data: data)?.preparingForDisplay()
+        }.value
+        guard let decoded else { return nil }
+        shared.setObject(decoded, forKey: url as NSURL, cost: cost(of: decoded))
+        return decoded
+    }
 }
 
 /// An image that crossfades in from a dark surface placeholder — no hard pop-in (the #1 source of
@@ -90,8 +129,12 @@ enum ImageMemoryCache {
 struct RemoteImage<Placeholder: View>: View {
     let url: URL?
     var contentMode: ContentMode = .fill
-    @ViewBuilder var placeholder: () -> Placeholder
+    /// Receives `true` once the load has genuinely failed, so the placeholder can stop pretending
+    /// to be busy. A tile that spins forever reads as "the app is broken"; a settled one reads as
+    /// "there is no artwork for this".
+    @ViewBuilder var placeholder: (_ failed: Bool) -> Placeholder
     @State private var loaded: UIImage?
+    @State private var failed = false
 
     var body: some View {
         // Synchronous cache check (current url first) → no placeholder flash when a page reappears.
@@ -100,36 +143,17 @@ struct RemoteImage<Placeholder: View>: View {
             if let image {
                 Image(uiImage: image).resizable().aspectRatio(contentMode: contentMode).transition(.opacity)
             } else {
-                placeholder()
+                placeholder(failed)
             }
         }
         .animation(Theme.Anim.imageFade, value: image != nil)
-        .onChange(of: url) { loaded = nil }     // a reused cell pointed at a new url → drop the old
+        .onChange(of: url) { loaded = nil; failed = false }   // reused cell, new url → drop the old
         .task(id: url) {
             guard let url, ImageMemoryCache.shared.object(forKey: url as NSURL) == nil else { return }
-            // Claim it, so a prefetch of the same rail does not fetch and decode this one again.
-            // Losing the claim means someone else is already fetching this exact image — wait for
-            // their result rather than starting a second download. Waiting is not optional: `body`
-            // reads the cache synchronously, so without setting `loaded` here nothing would
-            // re-render when their copy landed and this tile would stay on its placeholder.
-            if !ImageMemoryCache.claimInFlight(url) {
-                if let theirs = await ImageMemoryCache.awaitCached(url) { loaded = theirs; return }
-                // Their fetch failed, or outran the wait. Take the claim and do it ourselves —
-                // giving up here left the tile on its placeholder for good, because `body` reads
-                // the cache synchronously and nothing would re-render it.
-                guard ImageMemoryCache.claimInFlight(url) else { return }
-            }
-            defer { ImageMemoryCache.releaseInFlight(url) }
-            guard let (data, _) = try? await URLSession.shared.data(from: url) else { return }
-            // Decode off the main actor — decoding a whole screen of posters on main is what made
-            // the grid feel like it "loads for a long time".
-            let decoded = await Task.detached(priority: .userInitiated) {
-                UIImage(data: data)?.preparingForDisplay()
-            }.value
-            guard let decoded, !Task.isCancelled else { return }
-            ImageMemoryCache.shared.setObject(decoded, forKey: url as NSURL,
-                                              cost: ImageMemoryCache.cost(of: decoded))
-            loaded = decoded
+            failed = false
+            let image = await ImageMemoryCache.load(url)
+            guard !Task.isCancelled else { return }
+            if let image { loaded = image } else { failed = true }
         }
     }
 }
@@ -137,17 +161,25 @@ struct RemoteImage<Placeholder: View>: View {
 extension RemoteImage where Placeholder == PosterPlaceholder {
     /// Convenience: the standard dark poster/backdrop placeholder.
     init(url: URL?, contentMode: ContentMode = .fill) {
-        self.init(url: url, contentMode: contentMode) { PosterPlaceholder() }
+        self.init(url: url, contentMode: contentMode) { PosterPlaceholder(failed: $0) }
     }
 }
 
-/// The default loading tile for posters/backdrops — a palette surface + gold spinner, so empty
-/// tiles read as "loading" and stay on-brand instead of flashing a raw system grey.
+/// The default tile for posters/backdrops — a palette surface that spins while it is genuinely
+/// loading and settles to a muted glyph once the load has failed, so a broken image never
+/// impersonates a busy one.
 struct PosterPlaceholder: View {
+    var failed = false
     var body: some View {
         ZStack {
             Theme.Palette.surface2
-            ProgressView().tint(Theme.Palette.gold)
+            if failed {
+                Image(systemName: "photo")
+                    .font(.system(size: 44))
+                    .foregroundStyle(Theme.Palette.textSecondary.opacity(0.45))
+            } else {
+                ProgressView().tint(Theme.Palette.gold)
+            }
         }
     }
 }

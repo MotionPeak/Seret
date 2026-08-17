@@ -367,7 +367,7 @@ private struct EpisodeStripExpanded: View {
         let isCurrent = ep.season == model.currentEpisode?.season && ep.number == model.currentEpisode?.number
         return VStack(alignment: .leading, spacing: 6) {
             RemoteImage(url: TMDBClient.imageURL(path: ep.stillPath, size: "w300"),
-                        contentMode: .fill) { Rectangle().fill(.white.opacity(0.08)) }
+                        contentMode: .fill) { _ in Rectangle().fill(.white.opacity(0.08)) }
                 .frame(width: 200, height: 112)
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .overlay(alignment: .topLeading) {

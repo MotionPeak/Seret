@@ -56,7 +56,8 @@ struct CastRail: View {
 
     private func card(for member: TMDBCastMember) -> some View {
         VStack(spacing: 12) {
-            RemoteImage(url: TMDBClient.imageURL(path: member.profilePath, size: "h632")) {
+            // The glyph is right whether the headshot is still loading or never arrives.
+            RemoteImage(url: TMDBClient.imageURL(path: member.profilePath, size: "h632")) { _ in
                 Theme.Palette.surface2.overlay {
                     Image(systemName: "person.fill")
                         .font(.system(size: 60))
