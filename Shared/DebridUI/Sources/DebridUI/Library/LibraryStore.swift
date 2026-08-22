@@ -20,6 +20,16 @@ public final class LibraryStore {
     /// episodes are marked inside Detail).
     public private(set) var watchByKey: [String: WatchState] = [:]
 
+    /// Bumped by every successful removal. A `load()` captures it at entry and refuses to apply a
+    /// result fetched before that removal happened.
+    ///
+    /// Opening the grid starts a refresh, and it spends a second or two inside RD's paginated
+    /// torrent list — which is exactly when a viewer long-presses a tile and removes it. The
+    /// deletion went through at RD, the grid dropped the tile, and then the in-flight refresh
+    /// applied the list it had already fetched and put the tile straight back. Nothing was wrong
+    /// with the removal; it just looked like it had never happened.
+    private var contentGeneration = 0
+
     private let library: LibraryProviding
     private let watch: WatchProgressProviding?
     /// The active profile whose progress the badges reflect — a closure (not a stored id) because
@@ -44,11 +54,19 @@ public final class LibraryStore {
     #endif
 
     public func load() async {
-        if let cached = await library.loadCachedOffMain() { apply(cached); await reloadWatchStates() }
-        else { state = .loading }
+        let generation = contentGeneration
+        if let cached = await library.loadCachedOffMain(), generation == contentGeneration {
+            apply(cached)
+            await reloadWatchStates()
+        } else if movies.isEmpty, shows.isEmpty {
+            state = .loading
+        }
         do {
             let items = try await library.refresh()
             try Task.checkCancellation()   // a retry cancels the old task — don't apply a stale result
+            // …and a removal that happened while this was in flight outranks it. See
+            // `contentGeneration`: without this the deleted title came straight back.
+            guard generation == contentGeneration else { return }
             apply(items)
             await reloadWatchStates()
         } catch is CancellationError {
@@ -68,6 +86,7 @@ public final class LibraryStore {
         removal = .removing(item)
         do {
             try await library.remove(item)
+            contentGeneration += 1     // outrank any refresh fetched before this deletion
             try? await watch?.deleteProgress(forContentKeys: Self.contentKeys(for: item))
             movies.removeAll { $0.id == item.id }
             shows.removeAll { $0.id == item.id }
@@ -87,6 +106,7 @@ public final class LibraryStore {
         removal = .removing(item)
         do {
             try await library.removeVersion(item, source: source)
+            contentGeneration += 1     // …same for a single version
             let remaining = item.sources.filter { $0 != source }
             if remaining.isEmpty {
                 movies.removeAll { $0.id == item.id }
