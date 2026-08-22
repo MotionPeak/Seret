@@ -255,6 +255,20 @@ public final class PlayerModel {
     /// media can emit a late `.ended` during that window; this flag makes `finish()` swallow it so a
     /// stale end can't auto-advance/exit a second time (the "it keeps jumping/restarting" bug).
     var isSwitching = false
+    /// The engine is holding the media THIS load resolved. False from `reload()` until
+    /// `loadCurrentSource()` has actually called `engine.load(...)`.
+    ///
+    /// That gap is not small: `reload()` returns immediately, but the load behind it awaits the
+    /// resume lookup and then an RD unrestrict — seconds on a cold link. For all of it the engine
+    /// is still playing the OUTGOING file and still emitting its `.time` events, and `tick()` had
+    /// no way to tell those from the new episode's. It attributed the old file's near-end playhead
+    /// to the incoming episode, and every consequence followed from that one mis-attribution:
+    /// `maybeShowUpNext()` compared a stale position against a threshold built from the stale
+    /// duration and re-armed the bar, whose countdown then advanced AGAIN (pick E1, land on E3);
+    /// the progress write put ~99% of E1's runtime under E2's content key, marking an unwatched
+    /// episode finished and destroying its resume point; and `markRendered()` disarmed the load
+    /// watchdog guarding the incoming episode, so a dead link sat on the spinner with no Retry.
+    var engineHoldsCurrentMedia = false
     /// Persist the resume point every second of playback so Continue Watching / cross-device resume
     /// is never more than ~1s stale (SwiftData writes are cheap and CloudKit coalesces the sync).
     let saveInterval: Double = 1
@@ -398,7 +412,7 @@ public final class PlayerModel {
     /// episode's position best-effort, then swaps in-place. No-op past the last episode.
     public func playNext() {
         guard hasNextEpisode else { return }
-        Task { await self.recordCurrentProgress() }
+        recordOutgoingProgress()
         advanceToNextEpisode()
     }
 

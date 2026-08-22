@@ -73,6 +73,10 @@ extension PlayerModel {
     }
 
     func tick(_ t: PlaybackTime) async {
+        // Until the engine has been handed THIS load's media, every time event still belongs to the
+        // outgoing file (see `engineHoldsCurrentMedia`). Not even the duration may be taken from
+        // one: `upNextThreshold` is derived from it, so a stale duration re-arms the Up Next bar.
+        guard engineHoldsCurrentMedia else { return }
         duration = t.duration
 
 
@@ -178,6 +182,7 @@ extension PlayerModel {
         hasRenderedFrame = false
         isBuffering = true
         lastTickPosition = 0
+        engineHoldsCurrentMedia = false   // the engine still holds the OUTGOING media until load()
         // The request's resumeAt is only the FALLBACK — loadCurrentSource() re-resolves the
         // saved position from the store (when a provider is wired) so resume can't race the
         // screen's watch-state load or go stale after a previous playback.
@@ -221,6 +226,7 @@ extension PlayerModel {
             let url = try await unrestrict(currentSource.restrictedLink)
             guard !Task.isCancelled else { return }   // superseded by a newer reload()
             engine.load(url: url, headers: [:], audioLanguage: preferredAudioLanguageOption)
+            engineHoldsCurrentMedia = true   // from here, time events describe THIS source
             engine.play()
             armLoadWatchdog()
             // Resume: a best-effort seek right at load — when VLC honors it while opening, the

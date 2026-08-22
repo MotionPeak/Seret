@@ -93,7 +93,7 @@ extension PlayerModel {
     /// position when partially watched (the resume provider decides); otherwise from the start.
     public func play(_ ep: Episode) {
         guard ep.season != episode?.season || ep.number != episode?.number else { return }
-        Task { await self.recordCurrentProgress() }
+        recordOutgoingProgress()
         switchTo(ep, resumeAt: nil)
     }
 
@@ -128,5 +128,17 @@ extension PlayerModel {
     /// thing recording, and with Trakt's API app gone that hook wrote nowhere.
     func recordCurrentProgress() async {
         await recordProgress(contentKey, WatchKey.source(currentSource), position, duration)
+    }
+
+    /// Finalise the episode playing RIGHT NOW, then let the caller swap without waiting.
+    ///
+    /// The keys and the playhead are read SYNCHRONOUSLY, before the write is handed to a Task.
+    /// `playNext()`/`play(_:)` used to defer `recordCurrentProgress()` and then swap episodes
+    /// synchronously underneath it, so by the time the write ran, `contentKey`, `position` and
+    /// `duration` had all been replaced by `switchTo()`/`reload()`: the episode the viewer had just
+    /// finished was never finalised, and a position of 0 was filed under the INCOMING episode's key.
+    func recordOutgoingProgress() {
+        let (key, source, at, length) = (contentKey, WatchKey.source(currentSource), position, duration)
+        Task { await self.recordProgress(key, source, at, length) }
     }
 }
