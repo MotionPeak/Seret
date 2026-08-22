@@ -29,8 +29,20 @@ struct SeretTVApp: App {
                 RootView().environment(session)
                 #endif
             } else {
+                #if DEBUG
+                // The harness is attached ONLY when the flag is present. Attaching it
+                // unconditionally would hijack every debug launch into playback.
+                if let index = Self.autoPlayIndex {
+                    RootView()
+                        .environment(session)
+                        .modifier(AutoPlayHarness(session: session, index: index))
+                } else {
+                    RootView().environment(session)
+                }
+                #else
                 RootView()
                     .environment(session)
+                #endif
             }
         }
     }
@@ -39,6 +51,14 @@ struct SeretTVApp: App {
     /// (true for both XCTest and Swift Testing runs).
     private static var isRunningTests: Bool {
         ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+    }
+
+    /// The index after `-autoPlay`, or 0 when the flag is present with no number. nil = absent.
+    /// See `AutoPlayHarness` — DEBUG-only, for capturing a device playback log without a remote.
+    private static var autoPlayIndex: Int? {
+        let args = ProcessInfo.processInfo.arguments
+        guard let i = args.firstIndex(of: "-autoPlay") else { return nil }
+        return i + 1 < args.count ? Int(args[i + 1]) ?? 0 : 0
     }
 
     /// The value after `-uiPreview` in the launch arguments, if any. DEBUG-only visual harnesses.
