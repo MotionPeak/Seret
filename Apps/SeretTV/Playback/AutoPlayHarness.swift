@@ -76,7 +76,14 @@ struct AutoPlayHarness: ViewModifier {
     /// point: if it settles back near the idle figure the memory is playback working set and the
     /// device is simply full; if it stays high, the player is not giving it back.
     private func runMemoryTimeline(item: MediaItem, source: MediaSource) async {
-        await sample("idle", seconds: 20, every: 5)
+        await sample("idle", seconds: 10, every: 5)
+
+        // Browsing is the missing half of the earlier measurement, which went straight to playback
+        // and so never filled the poster cache — the very thing `PlaybackMemoryRelief` trims. Warm
+        // it the way scrolling the library does, so the numbers either side of the player mean
+        // something.
+        await warmPosterCache()
+        await sample("browsed", seconds: 10, every: 5)
 
         request = PlaybackRequest(item: item, source: source, resumeAt: nil,
                                   label: item.title,
@@ -88,6 +95,20 @@ struct AutoPlayHarness: ViewModifier {
         print("[mem] player dismissed")
         await sample("after-exit", seconds: 45, every: 5)
         print("[mem] done")
+    }
+
+    /// Decode a realistic number of posters and backdrops into the image cache.
+    private func warmPosterCache() async {
+        guard let store = session.libraryStore else { return }
+        let items = (store.movies + store.shows).prefix(80)
+        var warmed = 0
+        for item in items {
+            for (path, size) in [(item.posterPath, "w500"), (item.backdropPath, "w1280")] {
+                guard let url = TMDBClient.imageURL(path: path, size: size) else { continue }
+                if await ImageMemoryCache.load(url) != nil { warmed += 1 }
+            }
+        }
+        print("[mem] warmed \(warmed) images from \(items.count) titles")
     }
 
     private func sample(_ phase: String, seconds: Int, every: Int) async {
