@@ -104,28 +104,43 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
     private static func attachVLCLogger(to player: VLCMediaPlayer) {
         #if DEBUG
         guard ProcessInfo.processInfo.arguments.contains("-vlcLog") else { return }
-        // A FILE logger, not the console one: VLCConsoleLogger's output does not reach os_log, so
-        // `simctl spawn … log stream` captures nothing at all. A file in Documents can be pulled
-        // straight out of the container with `simctl get_app_container … data`, on a simulator or
-        // a real device via Xcode.
-        guard let dir = try? FileManager.default.url(for: .documentDirectory, in: .userDomainMask,
-                                                     appropriateFor: nil, create: true)
-        else { return }
-        let path = dir.appendingPathComponent("vlc.log")
-        if !FileManager.default.fileExists(atPath: path.path) {
-            FileManager.default.createFile(atPath: path.path, contents: nil)
-        }
-        guard let handle = try? FileHandle(forWritingTo: path) else { return }
-        handle.seekToEndOfFile()
-        let fileLogger = VLCFileLogger.create(with: handle)
-        fileLogger.level = .debug
-        // Console too: its output does not reach os_log, but it DOES reach stdout, which Xcode's
-        // console shows for a scheme-launched run. That is the zero-friction path — run with the
-        // argument, reproduce, copy the console — with the file as the fallback for a run that
-        // wasn't started from Xcode.
+
+        // The CONSOLE logger goes on first, and unconditionally.
+        //
+        // It used to go on last, behind two `guard … else { return }`s that set up a file logger.
+        // On a real Apple TV the first of those always failed — tvOS gives an app no usable
+        // Documents directory — so `-vlcLog` silently attached NOTHING on the one device whose log
+        // anyone actually needed. The flag looked like it worked (the app ran, libvlc's own stderr
+        // still trickled out) while the debug-level stream that answers the decode question never
+        // existed. Diagnostics must not be able to fail quietly; the fallible half is now strictly
+        // additive.
+        //
+        // Its output does not reach os_log, so `log stream` captures nothing — but it DOES reach
+        // stdout, which both Xcode's console and
+        // `devicectl device process launch --console` show.
         let consoleLogger = VLCConsoleLogger()
         consoleLogger.level = .debug
-        player.libraryInstance.loggers = [fileLogger, consoleLogger]
+        var loggers: [VLCLogging] = [consoleLogger]
+
+        // A file as well, when somewhere writable exists — for a run that was not started from a
+        // console. Caches, not Documents: it is the location that actually exists on tvOS, and it
+        // still sits inside the app data container, so
+        // `devicectl device copy from --source Library/Caches/vlc.log` reaches it.
+        if let dir = try? FileManager.default.url(for: .cachesDirectory, in: .userDomainMask,
+                                                  appropriateFor: nil, create: true) {
+            let path = dir.appendingPathComponent("vlc.log")
+            if !FileManager.default.fileExists(atPath: path.path) {
+                FileManager.default.createFile(atPath: path.path, contents: nil)
+            }
+            if let handle = try? FileHandle(forWritingTo: path) {
+                handle.seekToEndOfFile()
+                let fileLogger = VLCFileLogger.create(with: handle)
+                fileLogger.level = .debug
+                loggers.append(fileLogger)
+            }
+        }
+        // Attach to THIS PLAYER's library, not `VLCLibrary.shared()` — see the note above `init`.
+        player.libraryInstance.loggers = loggers
         #endif
     }
 
