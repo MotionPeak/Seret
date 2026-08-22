@@ -212,6 +212,15 @@ public final class PlayerModel {
     /// VLCKit actually discovers a different set (see `applyAudioPreference`).
     var audioSelectionSignature: [String] = []
 
+    #if DEBUG
+    /// Time events seen this session. `pendingSeekGraceTicks` is denominated in ticks, so how long
+    /// that window actually IS depends entirely on how often VLCKit reports time — which is a
+    /// libvlc implementation detail, not something the app sets. Counting them is the only way to
+    /// know whether the window is generous or nearly zero.
+    var debugTickCount = 0
+    /// The `-autoSeek` probe has fired for this session (see `PlayerModel+SeekProbe`).
+    var seekProbeStarted = false
+    #endif
     /// `start()` has run. See `start()` — the screen's `.onAppear` can fire more than once.
     var hasStarted = false
     /// `finish()` is past its guards. Closed synchronously, because VLCKit reports the end of a file

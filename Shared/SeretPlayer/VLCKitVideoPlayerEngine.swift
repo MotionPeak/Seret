@@ -166,7 +166,12 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
         //
         // Fix the LATE PICTURES, not this number. Both directions have now been tried.
         media.addOption(":network-caching=1500")
-        media.addOption(":input-fast-seek")   // land on the nearest keyframe — skips respond fast
+        // DEBUG `-noFastSeek` drops this, so a run with and a run without can be compared. Fast
+        // seek lands on the nearest KEYFRAME rather than seeking precisely, which is the standing
+        // suspect for "skip a long way and it doesn't drop you off at that point".
+        if !ProcessInfo.processInfo.arguments.contains("-noFastSeek") {
+            media.addOption(":input-fast-seek")   // land on the nearest keyframe — skips respond fast
+        }
         media.addOption(":http-reconnect")    // transparently re-open a dropped CDN connection
         // Pick the audio track HERE, during setup, rather than switching after playback starts.
         // libvlc's own log made the cost plain: a REMUX whose first audio track is Spanish

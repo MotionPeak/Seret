@@ -77,6 +77,9 @@ extension PlayerModel {
         // outgoing file (see `engineHoldsCurrentMedia`). Not even the duration may be taken from
         // one: `upNextThreshold` is derived from it, so a stale duration re-arms the Up Next bar.
         guard engineHoldsCurrentMedia else { return }
+        #if DEBUG
+        debugTickCount += 1
+        #endif
         duration = t.duration
 
 
@@ -249,6 +252,9 @@ extension PlayerModel {
         loadWatchdog?.cancel()     // the load succeeded — disarm the timeout
         loadWatchdog = nil
         isSwitching = false        // the new episode's media is on screen → end events are real again
+        #if DEBUG
+        startSeekProbeIfRequested()
+        #endif
     }
 
     /// Arm the load watchdog. Disarmed by `markRendered()` (first frame) and `teardown()`.
