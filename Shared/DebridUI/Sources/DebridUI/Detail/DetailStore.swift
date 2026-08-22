@@ -348,9 +348,7 @@ public final class DetailStore {
                      fromStart: Bool = false) -> PlaybackRequest {
         let key = episode.map { WatchKey.content(forShow: item, episode: $0) }
             ?? WatchKey.content(forMovie: item)
-        let resume: Double? = fromStart ? nil : watchByKey[key].flatMap {
-            (!$0.finished && $0.positionSeconds > 0) ? $0.positionSeconds : nil
-        }
+        let resume: Double? = fromStart ? nil : watchByKey[key]?.resumePosition
         // `resume` is only a hint — the player re-resolves the saved position from the store at
         // load time (see PlayerModel.resolveResume). `fromStart` carries the explicit intent.
         return PlaybackRequest(item: item, source: source, resumeAt: resume, label: label,

@@ -228,8 +228,7 @@ struct MovieDetailView: View {
     }
 
     private var resumeSeconds: Double? {
-        guard let w = watch, !w.finished, w.positionSeconds > 0 else { return nil }
-        return w.positionSeconds
+        return watch?.resumePosition
     }
     private var isWatched: Bool { watch?.finished == true }
 

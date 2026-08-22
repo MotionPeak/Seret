@@ -132,7 +132,7 @@ struct ShowDetail: View {
         HStack(spacing: Theme.Space.md) {
             if let next = store.nextEpisode() {
                 let resume = store.watchState(forKey: WatchKey.content(forShow: item, episode: next))
-                    .flatMap { (!$0.finished && $0.positionSeconds > 0) ? $0.positionSeconds : nil }
+                    .flatMap { $0.resumePosition }
                 Button {
                     onPlay(store.playRequest(source: next.source, episode: next,
                                              label: "\(item.title) — S\(next.season)·E\(next.number)"))

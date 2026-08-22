@@ -22,6 +22,26 @@ public struct WatchState: Sendable, Equatable {
         self.finished = finished
         self.updatedAt = updatedAt
     }
+
+    /// Within this many seconds of the end there is nothing worth coming back to — the credits are
+    /// rolling. Deliberately near the `PlayerModel` credits lead rather than near the 80% mark.
+    public static let resumeTailSeconds: Double = 90
+
+    /// Where playback should pick up, or nil to start from the beginning.
+    ///
+    /// This is NOT `finished`. That flag answers "does this count as watched", and it flips at 80%
+    /// so a title you have effectively seen stops sitting in Continue Watching. Reusing it to
+    /// decide resume threw away the position for the whole last fifth of a title — twenty-odd
+    /// minutes of a feature — so stopping at 1:45 of a 2:10 film and coming back offered "Play",
+    /// from zero. The two questions have different answers and now have different code.
+    ///
+    /// A length of 0 means nobody measured it (`setWatched` records the flag alone), and then the
+    /// flag really is all there is to go on.
+    public var resumePosition: Double? {
+        guard positionSeconds > 0 else { return nil }
+        guard durationSeconds > 0 else { return finished ? nil : positionSeconds }
+        return durationSeconds - positionSeconds > Self.resumeTailSeconds ? positionSeconds : nil
+    }
 }
 
 /// Derives the stable keys used to look up watch state.

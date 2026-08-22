@@ -562,9 +562,9 @@ public final class AppSession {
             resolveResume: { key in
                 // One unwrap, not two: `try?` flattens the provider's optional return.
                 guard let watch,
-                      let saved = try? await watch.progress(forContentKey: key, profileID: profile),
-                      !saved.finished, saved.positionSeconds > 0 else { return nil }
-                return saved.positionSeconds
+                      let saved = try? await watch.progress(forContentKey: key, profileID: profile)
+                else { return nil }
+                return saved.resumePosition
             },
             // Up Next warm-up: resolve the next episode's link while the countdown runs.
             prefetchLink: { link in

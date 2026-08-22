@@ -88,7 +88,7 @@ public final class HomeStore {
                         preferredSourceKey: String? = nil) -> HomeItem? {
         let fraction = s.durationSeconds > 0 ? min(1, s.positionSeconds / s.durationSeconds) : 0
         // Resume hint: only when there's real, unfinished progress to jump back to.
-        let resume: Double? = (!s.finished && s.positionSeconds > 0) ? s.positionSeconds : nil
+        let resume: Double? = s.resumePosition
         if let movie = movies.first(where: { $0.id == s.contentKey }) {
             return HomeItem(item: movie, fraction: fraction, subtitle: "",
                             episode: nil, source: movie.sources.preferred(preferredSourceKey),

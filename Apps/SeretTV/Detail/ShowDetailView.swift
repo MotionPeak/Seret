@@ -117,7 +117,7 @@ struct ShowDetailView: View {
         HStack(spacing: 16) {
             if let next = store.nextEpisode() {
                 let resume = store.watchState(forKey: WatchKey.content(forShow: item, episode: next))
-                    .flatMap { (!$0.finished && $0.positionSeconds > 0) ? $0.positionSeconds : nil }
+                    .flatMap { $0.resumePosition }
                 NavigationLink(value: store.playRequest(
                     source: next.source, episode: next,
                     label: "\(item.title) — S\(next.season)·E\(next.number)")) {
