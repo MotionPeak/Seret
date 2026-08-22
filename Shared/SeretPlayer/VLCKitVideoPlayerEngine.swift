@@ -144,7 +144,7 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
         #endif
     }
 
-    func load(url: URL, headers: [String: String], audioLanguage: String?) {
+    func load(url: URL, headers: [String: String], audioLanguage: String?, audioTrackID: String?) {
         // `VLCMedia(url:)` is failable (nullable initWithURL:). A malformed/empty URL yields nil;
         // without this guard `media` stays nil, `play()` no-ops, VLCKit emits no `.error`, and the
         // model would spin on the loading overlay forever. Surface a failure so it offers Retry.
@@ -175,9 +175,51 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
         // `removing "audio decoder"` → `codec (ac3) started`, three times before the film had
         // begun. Every one of those is silence. Told up front, libvlc simply opens the right track.
         if let audioLanguage { media.addOption(":audio-language=\(audioLanguage)") }
+        // …and when this file has been played before, name the exact track rather than a language.
+        // A language is all libvlc can be told about audio otherwise, and a REMUX lists its
+        // LOSSLESS track first — so it opens DTS-HD MA, the model corrects it to the AC-3 track a
+        // moment later, and that correction is a `killing decoder` → rebuild. Measured on the Apple
+        // TV: naming the track takes that from 1 teardown to 0, and the audio decoders built during
+        // startup from 4 to 2. The id is libvlc 4's STRING form ("audio/3") — the integer ES id the
+        // option historically took does nothing here, which is why it is passed through verbatim
+        // rather than parsed.
+        if let audioTrackID { media.addOption(":audio-track-id=\(audioTrackID)") }
+        Self.applyAudioTrackProbe(to: media)
         embeddedTextTrackIDs = []          // a new media has its own muxed track set
         player.media = media
         player.currentSubTitleFontScale = subtitleScale   // global size preference (1.0 = VLCKit default)
+    }
+
+    /// DEBUG: force a specific audio track at LOAD time, whatever the ranking would choose.
+    ///
+    /// This is how `:audio-track-id` was shown to work at all before anything was built on it —
+    /// libvlc 4 identifies tracks by STRING ("audio/3") while that option historically took an
+    /// integer ES id, and only the string form bites. It stays because it is the way to answer
+    /// "would this file be fine on its other track?" for a report about wrong or missing audio,
+    /// without having to play the file first to teach the preference store. Each candidate costs a
+    /// run, not a rebuild:
+    ///
+    ///     … -- -vlcLog -autoPlay -audioTrackID 3
+    ///     … -- -vlcLog -autoPlay -audioTrackID audio/3
+    ///     … -- -vlcLog -autoPlay -audioTrackIndex 1
+    ///
+    /// A working form shows `ES track selected: 'audio/3'` up front and NO `killing decoder`.
+    private static func applyAudioTrackProbe(to media: VLCMedia) {
+        #if DEBUG
+        let args = ProcessInfo.processInfo.arguments
+        func value(after flag: String) -> String? {
+            guard let i = args.firstIndex(of: flag), i + 1 < args.count else { return nil }
+            return args[i + 1]
+        }
+        if let id = value(after: "-audioTrackID") {
+            media.addOption(":audio-track-id=\(id)")
+            print("[audio] probe :audio-track-id=\(id)")
+        }
+        if let index = value(after: "-audioTrackIndex") {
+            media.addOption(":audio-track=\(index)")
+            print("[audio] probe :audio-track=\(index)")
+        }
+        #endif
     }
 
     func play()  { playbackRequested.withLock { $0 = true };  player.play() }

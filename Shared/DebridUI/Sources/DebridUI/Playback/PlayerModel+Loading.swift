@@ -225,7 +225,8 @@ extension PlayerModel {
             }
             let url = try await unrestrict(currentSource.restrictedLink)
             guard !Task.isCancelled else { return }   // superseded by a newer reload()
-            engine.load(url: url, headers: [:], audioLanguage: preferredAudioLanguageOption)
+            engine.load(url: url, headers: [:], audioLanguage: preferredAudioLanguageOption,
+                        audioTrackID: rememberedAudioTrackID)
             engineHoldsCurrentMedia = true   // from here, time events describe THIS source
             engine.play()
             armLoadWatchdog()

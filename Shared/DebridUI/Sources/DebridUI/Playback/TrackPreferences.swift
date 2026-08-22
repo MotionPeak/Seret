@@ -32,6 +32,17 @@ public protocol TrackPreferenceStoring: AnyObject {
     /// Record a manual pick against this title AND as the new library-wide default.
     func record(audio: TrackChoice, forTitle titleID: String)
     func record(subtitle: TrackChoice, forTitle titleID: String)
+
+    /// The audio track that played well for one exact FILE, keyed by `WatchKey.source`.
+    ///
+    /// Deliberately per-file and by raw track id, which is the opposite of everything above — and
+    /// for the opposite reason. `TrackChoice` is stored by language precisely because `audio/0` is
+    /// positional and meaningless across files. Here the file IS the key, so the positional id is
+    /// exactly right, and it is the only thing libvlc will accept at load time to open a specific
+    /// track. The track list can only be learned by playing, so this is how a second play of a file
+    /// avoids the decoder teardown the first one paid for.
+    func audioTrackID(forSource sourceKey: String) -> String?
+    func record(audioTrackID: String, forSource sourceKey: String)
 }
 
 /// Defaults so a store that only holds the global preference (a test fake) still satisfies the
@@ -43,6 +54,8 @@ public extension TrackPreferenceStoring {
     func resolvedSubtitle(forTitle titleID: String) -> TrackChoice { preferredSubtitle }
     func record(audio: TrackChoice, forTitle titleID: String) { preferredAudio = audio }
     func record(subtitle: TrackChoice, forTitle titleID: String) { preferredSubtitle = subtitle }
+    func audioTrackID(forSource sourceKey: String) -> String? { nil }
+    func record(audioTrackID: String, forSource sourceKey: String) {}
 }
 
 /// Observable, `UserDefaults`-persisted track preferences. App-global (one preferred audio +
@@ -87,6 +100,30 @@ public final class TrackPreferences: TrackPreferenceStoring {
     public func record(subtitle: TrackChoice, forTitle titleID: String) {
         preferredSubtitle = subtitle
         store(subtitle, forTitle: titleID, key: Self.titleSubtitleKey)
+    }
+
+    // MARK: - Per-file audio track
+
+    /// Bounded so a large library cannot grow this map without limit — it is a latency
+    /// optimisation, not a record worth keeping forever, and the oldest entries are the least
+    /// likely to be played again.
+    private static let sourceTrackKey = "seret.sourceAudioTrackIDs"
+    private static let sourceTrackLimit = 400
+
+    public func audioTrackID(forSource sourceKey: String) -> String? {
+        map(Self.sourceTrackKey)[sourceKey]
+    }
+
+    public func record(audioTrackID: String, forSource sourceKey: String) {
+        var m = map(Self.sourceTrackKey)
+        guard m[sourceKey] != audioTrackID else { return }
+        if m.count >= Self.sourceTrackLimit, m[sourceKey] == nil {
+            // No timestamps to age on, and adding them to buy a perfect eviction order is not worth
+            // it: every entry is individually re-learnable by playing the file once.
+            m.removeAll()
+        }
+        m[sourceKey] = audioTrackID
+        defaults.set(m, forKey: Self.sourceTrackKey)
     }
 
     private func map(_ key: String) -> [String: String] {

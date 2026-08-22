@@ -21,6 +21,8 @@ final class FakeVideoPlayerEngine: VideoPlayerEngine {
 
     /// The audio language passed at load — asserted by the "no mid-playback switch" tests.
     private(set) var loadedAudioLanguage: String?
+    /// The audio TRACK named at load, when the file has been played before.
+    private(set) var loadedAudioTrackID: String?
     var audioTracks: [MediaTrack] = []
     var subtitleTracks: [MediaTrack] = []
 
@@ -33,9 +35,11 @@ final class FakeVideoPlayerEngine: VideoPlayerEngine {
     }
     func emit(_ e: PlaybackEvent) { continuation.yield(e) }
 
-    func load(url: URL, headers: [String: String], audioLanguage: String?) {
+    func load(url: URL, headers: [String: String], audioLanguage: String?,
+              audioTrackID: String?) {
         loadedURL = url
         loadedAudioLanguage = audioLanguage
+        loadedAudioTrackID = audioTrackID
     }
     func play() { playCalled = true }
     func pause() {}
@@ -62,6 +66,12 @@ final class FakeVideoPlayerEngine: VideoPlayerEngine {
 final class FakeTrackPreferences: TrackPreferenceStoring {
     var preferredAudio: TrackChoice
     var preferredSubtitle: TrackChoice
+    /// Per-FILE remembered audio track, keyed by `WatchKey.source`.
+    var recordedTrackIDs: [String: String] = [:]
+    func audioTrackID(forSource sourceKey: String) -> String? { recordedTrackIDs[sourceKey] }
+    func record(audioTrackID: String, forSource sourceKey: String) {
+        recordedTrackIDs[sourceKey] = audioTrackID
+    }
     init(audio: TrackChoice = .automatic, subtitle: TrackChoice = .automatic) {
         preferredAudio = audio
         preferredSubtitle = subtitle
@@ -98,6 +108,9 @@ enum Fixture {
         MediaSource(torrentID: "t1", fileID: nil, restrictedLink: link,
                     parsed: ParsedRelease(title: "Dune", resolution: nil))
     }
+    /// The `WatchKey.source` of the movie fixture — what a per-file preference is filed under.
+    static var sourceKey: String { WatchKey.source(movieSource()) }
+
     static func movie(sources: [MediaSource]) -> MediaItem {
         MediaItem(id: "m1", kind: .movie, title: "Dune: Part Two", year: 2024,
                   sources: sources, seasons: [], tmdbID: 693134)

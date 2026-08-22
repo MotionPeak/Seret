@@ -24,7 +24,8 @@ final class MockPlayerEngine: VideoPlayerEngine {
         continuation = c
     }
 
-    func load(url: URL, headers: [String: String], audioLanguage: String?) { loaded = (url, headers) }
+    func load(url: URL, headers: [String: String], audioLanguage: String?,
+              audioTrackID: String?) { loaded = (url, headers) }
     func play() { didPlay = true; continuation.yield(.state(.playing)) }
     func pause() { didPause = true }
     func stop() { didStop = true; continuation.finish() }
@@ -52,7 +53,7 @@ final class MockPlayerEngine: VideoPlayerEngine {
         engine.subtitleTracks = [MediaTrack(id: "s1", kind: .subtitle, name: "Hebrew", language: "he")]
 
         engine.load(url: URL(string: "https://rd/x.mkv")!, headers: ["Authorization": "Bearer T"],
-                    audioLanguage: nil)
+                    audioLanguage: nil, audioTrackID: nil)
         engine.seek(to: 42)
         engine.selectSubtitleTrack(id: "s1")
         engine.addExternalSubtitle(url: URL(fileURLWithPath: "/tmp/x.srt"))

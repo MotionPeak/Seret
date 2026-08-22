@@ -30,6 +30,22 @@ extension PlayerModel {
     /// Both spellings are offered because containers tag either way — an MKV may say `eng` or `en`
     /// — and libvlc matches this string against whatever the container wrote. `.automatic` means
     /// English, matching the runtime rule below; `.off` leaves the engine's own choice alone.
+    /// The audio track this exact file taught us to open, if it has been played before.
+    ///
+    /// Per FILE, not per title: the id is positional (`audio/3`), so it is meaningful only for the
+    /// release it was learned from — which is why it is keyed by `WatchKey.source`. A stale or
+    /// wrong id is safe: libvlc falls back to the language option, and `applyAudioPreference` still
+    /// runs afterwards as it always did.
+    var rememberedAudioTrackID: String? {
+        trackPreferences?.audioTrackID(forSource: WatchKey.source(currentSource))
+    }
+
+    /// Remember the track that ended up playing this file, so the next play opens it directly
+    /// instead of opening the wrong one and tearing the decoder down to fix it.
+    func rememberAudioTrack(_ id: String) {
+        trackPreferences?.record(audioTrackID: id, forSource: WatchKey.source(currentSource))
+    }
+
     var preferredAudioLanguageOption: String? {
         switch trackPreferences?.resolvedAudio(forTitle: item.id) {
         case .language(let lang): return Self.languageSpellings(lang)
@@ -185,6 +201,9 @@ extension PlayerModel {
         guard track.id != selectedAudioID else { return }
         engine.selectAudioTrack(id: track.id)
         selectedAudioID = track.id
+        // This override is the expensive answer to "which track should have been opened", and it is
+        // only ever learned by playing. Keep it so the next play of this file skips the teardown.
+        rememberAudioTrack(track.id)
     }
 
     public func selectAudio(id: String) {
@@ -194,6 +213,7 @@ extension PlayerModel {
         if let lang = audioTracks.first(where: { $0.id == id })?.language {
             trackPreferences?.record(audio: .language(lang), forTitle: item.id)
         }
+        rememberAudioTrack(id)      // the strongest signal there is about THIS file
     }
 
     public func selectSubtitle(id: String) {

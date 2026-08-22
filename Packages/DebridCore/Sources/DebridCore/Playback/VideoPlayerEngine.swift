@@ -16,7 +16,13 @@ public protocol VideoPlayerEngine: AnyObject {
     /// selecting a track after playback has begun makes libvlc kill the audio decoder and build a
     /// new one, which is an audible drop-out. Real releases make this routine — a REMUX whose first
     /// audio track is Spanish would otherwise start in Spanish and lurch into English.
-    func load(url: URL, headers: [String: String], audioLanguage: String?)
+    /// - Parameter audioTrackID: the engine-specific track to open, when this exact file has been
+    ///   played before and taught us which one works. A language is the only thing libvlc's
+    ///   load-time options can express about audio, and a REMUX lists its LOSSLESS track first — so
+    ///   on a release carrying DTS-HD MA and AC-3 in the same language it opens the one this
+    ///   hardware handles worst, and the correction afterwards costs a decoder teardown. Naming the
+    ///   track removes that. nil for a file never played, which behaves exactly as before.
+    func load(url: URL, headers: [String: String], audioLanguage: String?, audioTrackID: String?)
     func play()
     func pause()
     /// Halt playback and release the underlying player. After `stop()`, the engine is done —
