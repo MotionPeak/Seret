@@ -10,6 +10,9 @@ struct HomeScreen: View {
     @Environment(AppRouter.self) private var router
     @State private var showingProfiles = false
     @State private var showingSettings = false
+    /// A title awaiting removal confirmation, and the failure to surface if RD refuses.
+    @State private var pendingRemoval: MediaItem?
+    @State private var removeErrorMessage: String?
 
     private var isRegular: Bool { hSize == .regular }
     // Recently Added is a grid now — its cards size to the column, so no poster width here.
@@ -23,6 +26,9 @@ struct HomeScreen: View {
                 content
             }
             .navigationTitle("Home")
+            .libraryRemovalConfirmation(pending: $pendingRemoval,
+                                        errorMessage: $removeErrorMessage,
+                                        store: session.libraryStore)
             .toolbar {
                 // iPhone: profile avatar + Settings gear in the nav bar (iPad uses the sidebar).
                 if !isRegular {
@@ -109,24 +115,17 @@ struct HomeScreen: View {
                             // horizontal rail hides everything past the first few posters.
                             GridSection(title: "Recently Added") {
                                 ForEach(home.recentlyAdded) { item in
-                                    let isWatched = item.kind == .movie
-                                        && session.libraryStore?.watchState(for: item)?.finished == true
+                                    let isWatched = session.libraryStore?.watchState(for: item)?.finished == true
                                     Button { router.detail = item } label: {
                                         // width: nil → the card fills its grid column.
                                         PosterCard(title: item.title, posterURL: posterURL(item),
                                                    width: nil, watched: isWatched)
                                     }
                                     .pressable()
-                                    .contextMenu {
-                                        // Long-press a recently-added MOVIE to mark it watched
-                                        // (reuses LibraryStore — recentlyAdded movies are library movies).
-                                        if item.kind == .movie, let store = session.libraryStore {
-                                            Button(isWatched ? "Mark Unwatched" : "Mark Watched",
-                                                   systemImage: isWatched ? "checkmark.circle.fill" : "checkmark.circle") {
-                                                Task { await store.setWatched(!isWatched, for: item) }
-                                            }
-                                        }
-                                    }
+                                    // The same actions the library grid offers. This rail used to
+                                    // mark a movie watched and nothing else.
+                                    .libraryTitleMenu(for: item, session: session,
+                                                      onRemove: { pendingRemoval = $0 })
                                 }
                             }
                         }

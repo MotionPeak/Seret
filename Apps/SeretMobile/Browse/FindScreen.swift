@@ -18,6 +18,9 @@ struct FindScreen: View {
     @Environment(TileWatchMarks.self) private var marks: TileWatchMarks?
     @Environment(\.horizontalSizeClass) private var hSize
     @State private var query = ""
+    /// A title awaiting removal confirmation, and the failure to surface if RD refuses.
+    @State private var pendingRemoval: MediaItem?
+    @State private var removeErrorMessage: String?
 
     private var browse: DiscoverStore? { kind == .movie ? session.moviesBrowse : session.showsBrowse }
 
@@ -54,6 +57,9 @@ struct FindScreen: View {
             .padding(.leading, hSize == .regular ? Theme.Space.xl : 0)
         }
         .navigationTitle("")                       // we render our own inset title above
+        .libraryRemovalConfirmation(pending: $pendingRemoval,
+                                    errorMessage: $removeErrorMessage,
+                                    store: session.libraryStore)
         .navigationBarTitleDisplayMode(.inline)
     }
 
@@ -202,6 +208,13 @@ struct FindScreen: View {
             Button(watched ? unmarkLabel(hit) : markLabel(hit),
                    systemImage: watched ? "checkmark.circle.fill" : "checkmark.circle") {
                 toggleWatched(hit, watched: watched)
+            }
+            // Only for a title you actually own — a Find result you have not added has nothing to
+            // remove. Find could mark watched but never remove.
+            if let owned {
+                Button("Remove from Library", systemImage: "trash", role: .destructive) {
+                    pendingRemoval = owned
+                }
             }
         }
     }

@@ -6,11 +6,10 @@ import SwiftUI
 /// sits *below* the card as plain text — no grey caption box — so the grid reads cleanly.
 struct PosterCard: View {
     let item: MediaItem
-    /// A finished MOVIE — dims the poster + shows a ✓ badge, and flips the menu's toggle label.
+    /// Finished — dims the poster + shows a ✓ badge, and flips the menu's toggle label.
     var watched: Bool = false
+    let session: AppSession
     var onRemove: (MediaItem) -> Void = { _ in }
-    /// Press-and-hold → mark a movie watched/unwatched (movies only; shows are marked per-episode).
-    var onToggleWatched: (MediaItem) -> Void = { _ in }
 
     private let width: CGFloat = 220
     private let height: CGFloat = 330
@@ -21,17 +20,7 @@ struct PosterCard: View {
             NavigationLink(value: item) { poster }
                 .buttonStyle(.card)
                 .focused($focused)
-                .contextMenu {
-                    if item.kind == .movie {
-                        Button(watched ? "Mark Unwatched" : "Mark Watched",
-                               systemImage: watched ? "checkmark.circle.fill" : "checkmark.circle") {
-                            onToggleWatched(item)
-                        }
-                    }
-                    Button("Remove from Library", systemImage: "trash", role: .destructive) {
-                        onRemove(item)
-                    }
-                }
+                .libraryTitleMenu(for: item, session: session, onRemove: onRemove)
             // The title ties to its poster: it brightens when the card is focused, so the focused
             // cell reads as one unit instead of a lone lifted poster over grey text.
             Text(item.title)

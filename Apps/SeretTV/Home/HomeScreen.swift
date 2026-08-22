@@ -14,6 +14,11 @@ struct HomeScreen: View {
     /// the link's focus lets the capsule use the same resting/focused treatment as every real CTA.
     @FocusState private var heroFocused: Bool
 
+    /// A title awaiting removal confirmation, and the failure to surface if RD refuses. Home hosts
+    /// these itself because a rail is a place you remove from, not only a place you browse.
+    @State private var pendingRemoval: MediaItem?
+    @State private var removeErrorMessage: String?
+
     /// True once there's anything to show.
     private var homeReady: Bool {
         guard let h = session.home else { return false }
@@ -31,6 +36,9 @@ struct HomeScreen: View {
         // The active profile resolves asynchronously after sign-in; rebuild once it's known so
         // Continue Watching isn't stuck on the empty (no-profile) state.
         .onChange(of: session.activeProfileID) { _, _ in Task { await rebuild() } }
+        .libraryRemovalConfirmation(pending: $pendingRemoval,
+                                    errorMessage: $removeErrorMessage,
+                                    store: session.libraryStore)
     }
 
     @ViewBuilder private var content: some View {
@@ -61,20 +69,13 @@ struct HomeScreen: View {
                     if !home.recentlyAdded.isEmpty {
                         HomeRail(title: "Recently Added") {
                             ForEach(home.recentlyAdded) { item in
-                                let isWatched = item.kind == .movie
-                                    && session.libraryStore?.watchState(for: item)?.finished == true
+                                let isWatched = session.libraryStore?.watchState(for: item)?.finished == true
                                 NavigationLink(value: item) { posterCard(item, watched: isWatched) }
                                     .buttonStyle(.card)
-                                    .contextMenu {
-                                        // Press-and-hold a recently-added MOVIE to mark it watched
-                                        // (reuses LibraryStore — recentlyAdded movies are library movies).
-                                        if item.kind == .movie, let store = session.libraryStore {
-                                            Button(isWatched ? "Mark Unwatched" : "Mark Watched",
-                                                   systemImage: isWatched ? "checkmark.circle.fill" : "checkmark.circle") {
-                                                Task { await store.setWatched(!isWatched, for: item) }
-                                            }
-                                        }
-                                    }
+                                    // The same actions the library grid offers. This rail used to
+                                    // mark a movie watched and nothing else — no shows, no removal.
+                                    .libraryTitleMenu(for: item, session: session,
+                                                      onRemove: { pendingRemoval = $0 })
                             }
                         }
                     }

@@ -9,6 +9,9 @@ import SwiftUI
 struct LibraryShell: View {
     @Environment(AppSession.self) private var session
     @State private var tab: SideMenuItem = .home
+    /// Removal requested by a poster anywhere under the shell — see `requestLibraryRemoval`.
+    @State private var pendingRemoval: MediaItem?
+    @State private var removeErrorMessage: String?
     @State private var path = NavigationPath()
     @State private var showingProfiles = false
     @FocusState private var menuFocus: SideMenuItem?
@@ -159,6 +162,11 @@ struct LibraryShell: View {
             if tab == .settings { SettingsView() }
         }
         .focusSection()
+        // Removal is offered by posters all over the app; the confirmation lives here once.
+        .environment(\.requestLibraryRemoval, { pendingRemoval = $0 })
+        .libraryRemovalConfirmation(pending: $pendingRemoval,
+                                    errorMessage: $removeErrorMessage,
+                                    store: session.libraryStore)
     }
 
     @ViewBuilder private func keptAlive<V: View>(_ visible: Bool, @ViewBuilder _ make: () -> V) -> some View {

@@ -15,9 +15,9 @@ public final class LibraryStore {
     /// Bumped by `retry()`; drives the shell's `.task(id:)` so a retry re-runs `load()`.
     public private(set) var attempt = 0
     public private(set) var removal: Removal = .idle
-    /// Watched state for the library's MOVIES, keyed by `WatchKey.content(forMovie:)` — drives the
-    /// grid's watched badge. Shows aren't tracked here (a series isn't one watchable unit; its
-    /// episodes are marked inside Detail).
+    /// Watched state for the library's titles, keyed by `WatchKey.content(forMovie:)` — drives the
+    /// grid's watched badge. A show hangs off the series key its marker writes, so a show marked
+    /// watched anywhere reads as watched here too.
     public private(set) var watchByKey: [String: WatchState] = [:]
 
     /// Bumped by every successful removal. A `load()` captures it at entry and refuses to apply a
@@ -167,10 +167,13 @@ public final class LibraryStore {
     /// profile falls back to "", the same key `AppSession.makePlayer` saves under).
     private var watchProfileID: String { profileID() ?? "" }
 
-    /// Watched state for a library item — MOVIES only (a show poster isn't one watchable unit).
+    /// Watched state for a library item, movie or show.
+    ///
+    /// A show hangs off its own id — the series key `ShowWatchMarker` writes alongside the episode
+    /// fan-out, and the same shape `WatchKey.content(forMovie:)` produces. Browse has always read
+    /// it; My Library did not, so one title showed a tick in one grid and not the other.
     public func watchState(for item: MediaItem) -> WatchState? {
-        guard item.kind == .movie else { return nil }
-        return watchByKey[WatchKey.content(forMovie: item)]
+        watchByKey[WatchKey.content(forMovie: item)]
     }
 
     /// Re-read every movie's watched state in one batched call. Called at the end of `load()` and by
@@ -178,7 +181,7 @@ public final class LibraryStore {
     /// for the newly-active profile). Degrades to empty with no watch seam.
     public func reloadWatchStates() async {
         guard let watch else { watchByKey = [:]; return }
-        let keys = movies.map { WatchKey.content(forMovie: $0) }
+        let keys = (movies + shows).map { WatchKey.content(forMovie: $0) }
         guard !keys.isEmpty else { watchByKey = [:]; return }
         watchByKey = (try? await watch.progress(forContentKeys: keys, profileID: watchProfileID)) ?? [:]
     }

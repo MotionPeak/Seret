@@ -11,9 +11,9 @@ struct LibraryScreen: View {
     let items: [MediaItem]
     let state: LibraryStore.State
     let onRetry: () -> Void
-    var watchedMovieIDs: Set<String> = []
+    var watchedIDs: Set<String> = []
+    let session: AppSession
     var onRemove: (MediaItem) -> Void = { _ in }
-    var onToggleWatched: (MediaItem) -> Void = { _ in }
 
     var body: some View {
         ZStack {
@@ -35,8 +35,8 @@ struct LibraryScreen: View {
             if items.isEmpty {
                 message("No \(title.lowercased()) yet.", systemImage: "tray", action: nil)
             } else {
-                PosterGrid(items: items, watchedMovieIDs: watchedMovieIDs,
-                           onRemove: onRemove, onToggleWatched: onToggleWatched)
+                PosterGrid(items: items, watchedIDs: watchedIDs,
+                           session: session, onRemove: onRemove)
             }
         }
     }

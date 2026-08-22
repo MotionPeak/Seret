@@ -19,8 +19,8 @@ struct MyLibraryScreen: View {
         kind == .movie ? store.movies : store.shows
     }
 
-    /// Finished-movie ids for the ✓ badge (movies only; a movie's content key IS its id).
-    private func watchedMovieIDs(_ store: LibraryStore) -> Set<String> {
+    /// Finished ids for the ✓ badge — a title's content key IS its id, for movies and shows alike.
+    private func watchedIDs(_ store: LibraryStore) -> Set<String> {
         Set(store.watchByKey.filter { $0.value.finished }.map(\.key))
     }
 
@@ -49,33 +49,13 @@ struct MyLibraryScreen: View {
                     items: items(store),
                     state: store.state,
                     onRetry: { store.retry() },
-                    watchedMovieIDs: watchedMovieIDs(store),
-                    onRemove: { pendingRemoval = $0 },
-                    onToggleWatched: { item in
-                        let isWatched = store.watchByKey[item.id]?.finished == true
-                        Task { await store.setWatched(!isWatched, for: item) }
-                    })
+                    watchedIDs: watchedIDs(store),
+                    session: session,
+                    onRemove: { pendingRemoval = $0 })
                     .task(id: session.activeProfileID) { await store.reloadWatchStates() }
-                    .alert("Remove \u{201C}\(pendingRemoval?.title ?? "")\u{201D}?",
-                           isPresented: Binding(get: { pendingRemoval != nil },
-                                                set: { if !$0 { pendingRemoval = nil } })) {
-                        Button("Remove", role: .destructive) {
-                            if let item = pendingRemoval { Task { await store.remove(item) } }
-                        }
-                        Button("Cancel", role: .cancel) {}
-                    } message: {
-                        Text("This deletes it from your Real\u{2011}Debrid account.")
-                    }
-                    .onChange(of: store.removal) { _, newValue in
-                        if case .failed(let msg) = newValue { removeErrorMessage = msg }
-                    }
-                    .alert("Couldn\u{2019}t Remove", isPresented: Binding(
-                        get: { removeErrorMessage != nil },
-                        set: { if !$0 { removeErrorMessage = nil; store.clearRemovalError() } })) {
-                        Button("OK", role: .cancel) { removeErrorMessage = nil; store.clearRemovalError() }
-                    } message: {
-                        Text(removeErrorMessage ?? "")
-                    }
+                    .libraryRemovalConfirmation(pending: $pendingRemoval,
+                                                errorMessage: $removeErrorMessage,
+                                                store: store)
                     .focusSection()      // let DOWN from the Movies/TV pills enter the grid and scroll it
                                           // (same fix as SettingsView / the player SettingsPanel)
             } else {

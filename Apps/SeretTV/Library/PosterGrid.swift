@@ -5,10 +5,11 @@ import SwiftUI
 /// A scrolling grid of poster cards. tvOS's focus engine handles poster scaling + the ring.
 struct PosterGrid: View {
     let items: [MediaItem]
-    /// Movie ids the active profile has finished — drives the ✓ badge + the menu toggle.
-    var watchedMovieIDs: Set<String> = []
+    /// Ids the active profile has finished — drives the ✓ badge + the menu toggle. Shows included:
+    /// a series hangs off its own key, the one `ShowWatchMarker` writes.
+    var watchedIDs: Set<String> = []
+    let session: AppSession
     var onRemove: (MediaItem) -> Void = { _ in }
-    var onToggleWatched: (MediaItem) -> Void = { _ in }
 
     private let columns = [GridItem(.adaptive(minimum: 220, maximum: 260), spacing: 50)]
 
@@ -17,9 +18,9 @@ struct PosterGrid: View {
             LazyVGrid(columns: columns, spacing: 50) {
                 ForEach(items) { item in
                     PosterCard(item: item,
-                               watched: item.kind == .movie && watchedMovieIDs.contains(item.id),
-                               onRemove: onRemove,
-                               onToggleWatched: onToggleWatched)
+                               watched: watchedIDs.contains(item.id),
+                               session: session,
+                               onRemove: onRemove)
                 }
             }
             .padding(60)

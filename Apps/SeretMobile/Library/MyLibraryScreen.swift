@@ -18,7 +18,7 @@ struct MyLibraryScreen: View {
     }
 
     /// Finished-movie ids for the ✓ badge (movies only; a movie's content key IS its id).
-    private func watchedMovieIDs(_ store: LibraryStore) -> Set<String> {
+    private func watchedIDs(_ store: LibraryStore) -> Set<String> {
         Set(store.watchByKey.filter { $0.value.finished }.map(\.key))
     }
 
@@ -46,11 +46,8 @@ struct MyLibraryScreen: View {
                         onRetry: { store.retry() },
                         onSelect: { router.detail = $0 },
                         onRemove: { pendingRemoval = $0 },
-                        watchedMovieIDs: watchedMovieIDs(store),
-                        onToggleWatched: { item in
-                            let isWatched = store.watchByKey[item.id]?.finished == true
-                            Task { await store.setWatched(!isWatched, for: item) }
-                        })
+                        watchedIDs: watchedIDs(store),
+                        session: session)
                         .task(id: store.attempt) { await store.load() }
                         // Watch state is per-profile — reload the ✓ badges when the active profile
                         // changes (an id-less .task would keep the previous profile's badges).

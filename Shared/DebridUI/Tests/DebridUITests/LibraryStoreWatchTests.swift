@@ -61,13 +61,15 @@ private actor FakeWatch: WatchProgressProviding {
         #expect(store.watchState(for: movie("3")) == nil)   // no state seeded for this movie
     }
 
-    @Test func watchStateIsMoviesOnly() async {
-        // A show poster isn't one watchable unit — watchState(for:) is nil for shows even if the
-        // show id happens to match a stored key.
+    /// Superseded on purpose. This used to assert `watchState(for:)` was nil for a show, on the
+    /// reasoning that a series is not one watchable unit. But `ShowWatchMarker` writes a series key
+    /// anyway, Browse reads it, and Detail can mark a whole show — so the only thing the old rule
+    /// achieved was that a show ticked in one grid and not in the other.
+    @Test func watchStateAnswersForShowsToo() async {
         let watch = FakeWatch(["": ["2": watched("2")]])
         let store = LibraryStore(library: WatchFakeLibrary(items: [show("2")]), watch: watch)
         await store.load()
-        #expect(store.watchState(for: show("2")) == nil)
+        #expect(store.watchState(for: show("2"))?.finished == true)
     }
 
     @Test func setWatchedMarksMovieAndUpdatesMap() async {
@@ -122,5 +124,27 @@ private actor FakeWatch: WatchProgressProviding {
         let store = LibraryStore(library: WatchFakeLibrary(items: [movie("1")]))
         await store.load()
         #expect(store.watchState(for: movie("1")) == nil)   // degrades cleanly with no seam
+    }
+}
+
+/// A show marked watched shows a tick in Browse but not in My Library, and its poster offered no
+/// way to mark it at all — the same title behaved differently depending on which grid you found it
+/// in. `ShowWatchMarker` already writes the series key (the show's own id, exactly like a movie's),
+/// so the state existed; the library grid simply never read it.
+@MainActor
+@Suite struct LibraryStoreShowWatchTests {
+    @Test func aWatchedShowReportsItsStateToTheLibraryGrid() async {
+        let watch = FakeWatch(["": ["2": watched("2")]])
+        let store = LibraryStore(library: WatchFakeLibrary(items: [movie("1"), show("2")]),
+                                 watch: watch)
+        await store.load()
+        #expect(store.watchState(for: show("2"))?.finished == true)
+    }
+
+    @Test func anUnwatchedShowReportsNothing() async {
+        let watch = FakeWatch(["": [:]])
+        let store = LibraryStore(library: WatchFakeLibrary(items: [show("2")]), watch: watch)
+        await store.load()
+        #expect(store.watchState(for: show("2")) == nil)
     }
 }
