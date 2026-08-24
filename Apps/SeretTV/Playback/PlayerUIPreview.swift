@@ -33,6 +33,7 @@ struct PlayerUIPreview: View {
         case "opensubtitles":       OpenSubtitlesPreview()
         case "gridfade":            GridTopFadePreview()
         case "person":              PersonScreenPreview()
+        case "episodeversions":     EpisodeVersionsPreview()
         default:           ScrubBarPreview()
         }
     }
@@ -213,6 +214,63 @@ private struct SideMenuPreview: View {
 /// The real `MovieDetailView` on a stub store that reports a linked rating service, so the star row
 /// renders (it's hidden without a watch store) alongside the Versions header. Sign-in free, which
 /// is what makes the star styling and the focus geometry between them verifiable in the simulator.
+/// An episode row for an episode you own THREE copies of.
+///
+/// Exists because the real account has no episode with duplicate copies, so the owned-copies
+/// "Versions" menu — the half of the feature that only appears when there IS a choice — cannot be
+/// reached with live data. The fixture also pins the ordering: the sources are handed over
+/// worst-first, so a correctly-ranked row shows the right-sized 2160p first and the 40 GB REMUX
+/// last.
+private struct EpisodeVersionsPreview: View {
+    @State private var store: DetailStore = {
+        func src(_ id: String, _ res: String, _ source: String, _ gb: Double) -> MediaSource {
+            MediaSource(torrentID: id, fileID: nil, restrictedLink: "rd://\(id)",
+                        parsed: ParsedRelease(title: "Sherlock", season: 1, episode: 1,
+                                              resolution: res, source: source),
+                        sizeBytes: Int(gb * 1_000_000_000))
+        }
+        // Deliberately worst-first on input.
+        let ranked = [src("remux", "2160p", "REMUX", 40),
+                      src("web", "2160p", "WEB-DL", 5),
+                      src("hd", "1080p", "WEB-DL", 2)].bestFirst()
+        let ep = Episode(season: 1, number: 1, source: ranked[0],
+                         alternates: Array(ranked.dropFirst()))
+        let item = MediaItem(id: "s", kind: .show, title: "Sherlock", year: 2010,
+                             sources: [], seasons: [Season(number: 1, episodes: [ep])],
+                             tmdbID: 19885)
+        return DetailStore(item: item, details: PreviewDetails(), watch: PreviewWatchRating())
+    }()
+    @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()))
+
+    var body: some View {
+        let rows = store.episodes(forSeason: 1)
+        return NavigationStack {
+            VStack(alignment: .leading, spacing: 24) {
+                Text("Owned copies, best-first — long-press the card for the menu")
+                    .font(.seretCallout).foregroundStyle(Theme.Palette.textSecondary)
+                // The ranked order, rendered as text so a screenshot proves it without needing the
+                // context menu to be driven open.
+                ForEach(rows.first?.ownedVersions ?? [], id: \.self) { s in
+                    Text("\(s.parsed.resolution ?? "?") · \(s.parsed.source ?? "?") · "
+                         + ByteCountFormatter.string(fromByteCount: Int64(s.sizeBytes ?? 0),
+                                                     countStyle: .file))
+                        .font(.seretTitle3)
+                }
+                Text("hasAlternateVersions: \(rows.first?.hasAlternateVersions == true ? "YES" : "NO")")
+                    .font(.seretTitle3).foregroundStyle(Theme.Palette.gold)
+                if let row = rows.first {
+                    EpisodeRow(store: store, row: row)
+                }
+            }
+            .padding(60)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(CanvasBackground())
+        }
+        .environment(session)
+        .environment(session.makeTileWatchMarks())
+    }
+}
+
 private struct MovieDetailPreview: View {
     @State private var store: DetailStore = {
         let s = MediaSource(torrentID: "t", fileID: nil, restrictedLink: "rd://x",
