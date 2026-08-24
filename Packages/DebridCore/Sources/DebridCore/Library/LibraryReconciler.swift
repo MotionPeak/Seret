@@ -12,11 +12,14 @@ public enum Reconciled: Sendable, Equatable {
 public struct LibraryReconciler: Sendable {
     public init() {}
 
-    /// Every RD torrent id an item draws from (movie sources + every episode's source).
+    /// Every RD torrent id an item draws from: a movie's sources, plus every VERSION of every
+    /// episode — the primary and its alternates alike, since each alternate is its own torrent.
     static func torrentIDs(of item: MediaItem) -> Set<String> {
         var ids = Set(item.sources.map(\.torrentID))
         for season in item.seasons {
-            for episode in season.episodes { ids.insert(episode.source.torrentID) }
+            for episode in season.episodes {
+                for source in episode.sources { ids.insert(source.torrentID) }
+            }
         }
         return ids
     }

@@ -12,11 +12,22 @@ public extension MediaSource {
 public extension Array where Element == MediaSource {
     /// Sources best-first. Deterministic: ties break by torrentID, then fileID.
     ///
-    /// Resolution outranks size fit, and size fit outranks source tier. That middle placement is
-    /// the whole point: `REMUX` is the top source tier and 60–90 GB by construction, so a size
-    /// term that merely broke ties would never be reached — the bloat would already have won.
+    /// Playable audio outranks everything, then resolution, then size fit, then source tier. That
+    /// middle placement of size is the whole point: `REMUX` is the top source tier and 60–90 GB by
+    /// construction, so a size term that merely broke ties would never be reached — the bloat would
+    /// already have won.
+    ///
+    /// The audio test has to be its own first comparison, not a term inside `qualityRank`. The
+    /// penalty there is deliberately larger than any positive rank so a release that will play
+    /// silently loses "regardless of resolution" — but once resolution became the first comparison,
+    /// `qualityRank` was only ever consulted between two releases of the SAME resolution, and the
+    /// penalty stopped applying across resolutions entirely. A 2160p TrueHD version won by default
+    /// and played with no sound.
     func bestFirst() -> [MediaSource] {
         sorted { a, b in
+            let aMute = isUnplayableAudio(a.parsed.audioCodec)
+            let bMute = isUnplayableAudio(b.parsed.audioCodec)
+            if aMute != bMute { return bMute }
             let ar = resolutionTier(a.parsed.resolution), br = resolutionTier(b.parsed.resolution)
             if ar != br { return ar > br }
             if a.fit != b.fit { return a.fit > b.fit }

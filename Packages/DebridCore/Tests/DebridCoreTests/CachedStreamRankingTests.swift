@@ -128,4 +128,34 @@ import Testing
         let ep = epStream("e", season: 1, episode: 1, res: "2160p")
         #expect([ep].bestSeasonPack(forSeason: 1, originalLanguage: "en") == nil)
     }
+
+    private func audioStream(_ hash: String, res: String, audio: String?) -> CachedStream {
+        CachedStream(infoHash: hash, fileIdx: nil, rawTitle: "t",
+                     parsed: ParsedRelease(title: "t", resolution: res, source: "BluRay",
+                                           videoCodec: "HEVC", audioCodec: audio),
+                     languages: ["en"], sizeBytes: 1_000, sourceName: nil)
+    }
+
+    /// The same demotion the library ranker owes a playable release: "Get best" from search must
+    /// not add a version that will play silently, whatever its resolution.
+    @Test func aPlayableStreamBeatsAnUnplayableOneAtAnyResolution() {
+        let silent2160 = audioStream("a", res: "2160p", audio: "TrueHD")
+        let good1080 = audioStream("b", res: "1080p", audio: "DTS")
+        #expect([silent2160, good1080].rankedFor(originalLanguage: "en").first?.infoHash == "b")
+        #expect([silent2160, good1080].bestMatch(originalLanguage: "en")?.stream.infoHash == "b")
+    }
+
+    /// Audio LANGUAGE still dominates: a decodable-but-foreign release must not jump the original
+    /// language just because the original-language release is TrueHD.
+    @Test func languageStillOutranksThePlayabilityDemotion() {
+        let origSilent = CachedStream(infoHash: "a", fileIdx: nil, rawTitle: "t",
+                                      parsed: ParsedRelease(title: "t", resolution: "2160p",
+                                                            audioCodec: "TrueHD"),
+                                      languages: ["fr"], sizeBytes: 10, sourceName: nil)
+        let dubbedFine = CachedStream(infoHash: "b", fileIdx: nil, rawTitle: "t",
+                                      parsed: ParsedRelease(title: "t", resolution: "2160p",
+                                                            audioCodec: "AAC"),
+                                      languages: ["en"], sizeBytes: 10, sourceName: nil)
+        #expect([dubbedFine, origSilent].rankedFor(originalLanguage: "fr").first?.infoHash == "a")
+    }
 }

@@ -194,6 +194,57 @@ extension MockTests {
             #expect(svc.loadCached()?.map(\.id) == ["keep"])
         }
 
+        /// An episode carries a primary source plus alternate versions, each from its OWN RD
+        /// torrent. Collecting only the primaries left every alternate torrent in the account, so
+        /// the next refresh rebuilt the show from them and the deleted show came straight back.
+        @Test func deletingAShowDeletesTheTorrentsBehindEveryEpisodeVersion() async throws {
+            let dir = tempDir()
+            let episode = Episode(season: 1, number: 1, source: src("primary"),
+                                  alternates: [src("alt1"), src("alt2")])
+            let show = MediaItem(id: "show:tmdb:9", kind: .show, title: "S", year: 2024,
+                                 sources: [], seasons: [Season(number: 1, episodes: [episode])])
+            try LibrarySnapshotStore(directory: dir)
+                .save(LibrarySnapshot(items: [show],
+                                      seenTorrentIDs: ["primary", "alt1", "alt2"],
+                                      seenTorrentStates: ["primary:downloaded", "alt1:downloaded",
+                                                          "alt2:downloaded"]))
+
+            let deleted = RecordedDeletes()
+            MockURLProtocol.handler = { req in
+                let url = req.url!.absoluteString
+                if let range = url.range(of: "/torrents/delete/") {
+                    deleted.append(String(url[range.upperBound...]))
+                }
+                return Self.resp(req, 204)
+            }
+            try await service(directory: dir).remove(show)
+
+            #expect(Set(deleted.values) == ["primary", "alt1", "alt2"])
+            let after = LibrarySnapshotStore(directory: dir).load()
+            #expect(after?.items.isEmpty == true)
+            #expect(after?.seenTorrentIDs.isEmpty == true)
+            // The states must be carried forward too, or the next refresh re-runs the whole
+            // info fan-out for nothing.
+            #expect(after?.seenTorrentStates != nil)
+            #expect(after?.seenTorrentStates?.isEmpty == true)
+        }
+
+        /// Removing one version of a movie must leave the OTHER version's recorded state behind,
+        /// not blank the whole state list (which forces a full re-fetch on the next refresh).
+        @Test func removingOneVersionKeepsTheRemainingTorrentsState() async throws {
+            let dir = tempDir()
+            let item = movie("movie:tmdb:1", torrents: ["a", "b"])
+            try LibrarySnapshotStore(directory: dir)
+                .save(LibrarySnapshot(items: [item], seenTorrentIDs: ["a", "b"],
+                                      seenTorrentStates: ["a:downloaded", "b:downloaded"]))
+            MockURLProtocol.handler = { req in Self.resp(req, 204) }
+            try await service(directory: dir).removeVersion(item, source: src("a"))
+
+            let after = LibrarySnapshotStore(directory: dir).load()
+            #expect(after?.seenTorrentIDs == ["b"])
+            #expect(after?.seenTorrentStates == ["b:downloaded"])
+        }
+
         private static func resp(_ req: URLRequest, _ status: Int) -> (HTTPURLResponse, Data) {
             (HTTPURLResponse(url: req.url!, statusCode: status, httpVersion: nil, headerFields: nil)!, Data())
         }

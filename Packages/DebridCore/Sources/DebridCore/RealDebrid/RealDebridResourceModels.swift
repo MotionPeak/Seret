@@ -110,16 +110,27 @@ public extension TorrentInfo {
     ///
     /// Returns nil when the episode isn't in this torrent — deliberately, because a consolation
     /// file IS the defect. Nothing is better than the wrong episode.
+    ///
+    /// Among the files that DO name the episode, the largest wins. A pack routinely carries more
+    /// than one file for an episode — a sample clip, a featurette, a re-encode — and `videoFileIDs`
+    /// selects every video file, so RD returns a link for each. Taking the first match therefore
+    /// handed playback whichever one RD happened to list first: a 40 MB `Sample/` clip beat the
+    /// real 2 GB episode, and the episode played for thirty seconds and stopped.
     func videoFile(forSeason season: Int?, episode: Int) -> (file: TorrentFile, link: String)? {
         let parser = FilenameParser()
         return selectedFilesWithLinks()
             .filter { Self.isVideo($0.file.path) }
-            .first { pair in
+            .filter { pair in
                 let parsed = parser.parse(pair.file.path)
                 guard parsed.episode == episode else { return false }
                 // A file that names no season belongs to whatever season was asked for.
                 guard let season, let fileSeason = parsed.season else { return true }
                 return fileSeason == season
+            }
+            // Deterministic: equal sizes fall back to file id, so one pack always resolves the
+            // same way rather than following RD's listing order.
+            .max { a, b in
+                a.file.bytes != b.file.bytes ? a.file.bytes < b.file.bytes : a.file.id < b.file.id
             }
     }
 

@@ -123,8 +123,9 @@ public struct LibraryService: Sendable {
         let snapshot = store.load()
         let remaining = (snapshot?.items ?? []).filter { $0.id != item.id }
         let deleted = Set(Self.torrentIDs(for: item))
-        let seen = (snapshot?.seenTorrentIDs ?? []).filter { !deleted.contains($0) }
-        try store.save(LibrarySnapshot(items: remaining, seenTorrentIDs: seen))
+        try store.save(LibrarySnapshot(items: remaining,
+                                       seenTorrentIDs: Self.dropping(deleted, from: snapshot?.seenTorrentIDs),
+                                       seenTorrentStates: Self.droppingStates(deleted, from: snapshot?.seenTorrentStates)))
     }
 
     /// Remove ONE version (a single `MediaSource`) from a movie: deletes its backing torrent on
@@ -148,18 +149,36 @@ public struct LibraryService: Sendable {
                                     addedAt: item.addedAt)
         let snapshot = store.load()
         let updated = (snapshot?.items ?? []).map { $0.id == item.id ? updatedItem : $0 }
-        let seen = (snapshot?.seenTorrentIDs ?? []).filter { $0 != source.torrentID }
-        try store.save(LibrarySnapshot(items: updated, seenTorrentIDs: seen))
+        let deleted: Set<String> = [source.torrentID]
+        try store.save(LibrarySnapshot(items: updated,
+                                       seenTorrentIDs: Self.dropping(deleted, from: snapshot?.seenTorrentIDs),
+                                       seenTorrentStates: Self.droppingStates(deleted, from: snapshot?.seenTorrentStates)))
+    }
+
+    /// Carry the recorded torrent ids forward, minus the ones just deleted. Dropping the set
+    /// entirely made the very next `refresh()` see every torrent as new and re-run the whole
+    /// `/torrents/info` fan-out plus a full re-enrichment — so removing one title rebuilt the
+    /// entire library.
+    private static func dropping(_ deleted: Set<String>, from seen: [String]?) -> [String] {
+        (seen ?? []).filter { !deleted.contains($0) }
+    }
+
+    /// The same, for the `id:status` states. Kept `nil` when the snapshot had none, so an
+    /// older snapshot still forces exactly one delta rather than silently claiming a clean state.
+    private static func droppingStates(_ deleted: Set<String>, from seen: [String]?) -> [String]? {
+        seen.map { states in
+            states.filter { !deleted.contains($0.split(separator: ":").first.map(String.init) ?? $0) }
+        }
     }
 
     /// The unique set of RD torrent ids backing an item: a movie's source torrents, or every
-    /// episode's source torrent for a show (season packs collapse to one id).
+    /// torrent behind every EPISODE VERSION for a show (season packs collapse to one id).
+    ///
+    /// The alternates matter. An episode is modelled as a primary source plus alternate versions,
+    /// each from its own RD torrent, so collecting only `episode.source` left every alternate in
+    /// the account — and the very next refresh rebuilt the show from them. Deleting a show looked
+    /// like it had worked and then undid itself.
     static func torrentIDs(for item: MediaItem) -> [String] {
-        switch item.kind {
-        case .movie:
-            return Array(Set(item.sources.map(\.torrentID)))
-        case .show:
-            return Array(Set(item.seasons.flatMap { $0.episodes.map(\.source.torrentID) }))
-        }
+        Array(LibraryReconciler.torrentIDs(of: item))
     }
 }

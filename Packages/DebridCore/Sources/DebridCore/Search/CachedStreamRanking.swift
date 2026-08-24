@@ -47,6 +47,14 @@ public extension Array where Element == CachedStream {
             let at = a.audioTier(relativeTo: originalLanguage)
             let bt = b.audioTier(relativeTo: originalLanguage)
             if at != bt { return at < bt }
+            // Below language, but above resolution: `qualityRank`'s unplayable-audio penalty is
+            // sized to lose "regardless of resolution", and it cannot do that from below the
+            // resolution comparison — it would only ever be consulted between two releases of the
+            // same resolution. Without this, "Get best" adds a 2160p TrueHD release that plays
+            // silently in preference to a 1080p one that works.
+            let aMute = isUnplayableAudio(a.parsed.audioCodec)
+            let bMute = isUnplayableAudio(b.parsed.audioCodec)
+            if aMute != bMute { return bMute }
             let ar = resolutionTier(a.parsed.resolution), br = resolutionTier(b.parsed.resolution)
             if ar != br { return ar > br }
             let af = a.fit(episodesInSeason: episodesInSeason)

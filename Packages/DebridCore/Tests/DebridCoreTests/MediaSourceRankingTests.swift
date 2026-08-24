@@ -40,4 +40,32 @@ import DebridCore
                             parsed: ParsedRelease(title: "x", resolution: "1080p"))
         #expect([b, a].bestFirst().map(\.fileID) == [1, 2])
     }
+
+    private func srcAudio(_ id: String, _ res: String?, _ audio: String?) -> MediaSource {
+        MediaSource(torrentID: id, fileID: nil, restrictedLink: "l",
+                    parsed: ParsedRelease(title: "t", resolution: res, source: "BluRay",
+                                          videoCodec: "HEVC", audioCodec: audio))
+    }
+
+    /// `releaseQualityRank` carries a penalty larger than any positive rank precisely so that a
+    /// release VLCKit cannot decode the audio of loses to a playable one "regardless of
+    /// resolution". Comparing resolution before quality reached the penalty never: the default
+    /// Play picked a 2160p TrueHD version and it came out silent.
+    @Test func aPlayableReleaseBeatsAnUnplayableOneAtAnyResolution() {
+        let silent2160 = srcAudio("a", "2160p", "TrueHD")
+        let good1080 = srcAudio("b", "1080p", "DTS")
+        #expect([silent2160, good1080].bestFirst().map(\.torrentID) == ["b", "a"])
+        #expect([silent2160, good1080].best?.torrentID == "b")
+        // …even against the lowest playable resolution there is.
+        let good480 = srcAudio("c", "480p", "AAC")
+        #expect([silent2160, good480].best?.torrentID == "c")
+    }
+
+    /// Among unplayable-only releases the video tiers still order them — the demotion must not
+    /// flatten them into an arbitrary order.
+    @Test func unplayableReleasesStillRankAmongThemselves() {
+        let a = srcAudio("a", "2160p", "TrueHD")
+        let b = srcAudio("b", "1080p", "TrueHD")
+        #expect([b, a].bestFirst().map(\.torrentID) == ["a", "b"])
+    }
 }

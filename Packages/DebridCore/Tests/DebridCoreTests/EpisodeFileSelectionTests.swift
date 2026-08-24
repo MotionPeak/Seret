@@ -103,4 +103,39 @@ struct EpisodeFileSelectionTests {
         #expect(info.videoFile(forSeason: 1, episode: 1)?.file.id == 2)
         #expect(info.videoFile(forSeason: 1, episode: 2) == nil)   // not selected → no link
     }
+
+    /// A pack can carry more than one file naming the same episode: a sample clip, a
+    /// behind-the-scenes featurette, a "proper" re-encode. `videoFileIDs()` selects every video
+    /// file, so all of them get links — and taking the FIRST match meant whichever RD happened to
+    /// list first won. A 40 MB sample listed under "Sample/" beat the real 2 GB episode, so the
+    /// episode played for thirty seconds and stopped.
+    @Test func picksTheLargestFileForTheEpisodeNotTheFirstListed() {
+        let info = TorrentInfo(
+            id: "PACK", filename: "Some.Show.S01.1080p.WEB-DL", hash: "beef", bytes: 9000,
+            progress: 100, status: "downloaded",
+            files: [
+                TorrentFile(id: 1, path: "/Show.S01/Sample/Show.S01E03.sample.mkv",
+                            bytes: 40_000_000, selected: 1),
+                TorrentFile(id: 2, path: "/Show.S01/Show.S01E03.1080p.WEB-DL.mkv",
+                            bytes: 2_000_000_000, selected: 1),
+            ],
+            links: ["https://rd/sample", "https://rd/real"])
+
+        let picked = info.videoFile(forSeason: 1, episode: 3)
+        #expect(picked?.file.id == 2)
+        #expect(picked?.link == "https://rd/real")
+    }
+
+    /// Two genuinely different files for one episode still resolve deterministically — the bigger
+    /// one, which is the higher bitrate.
+    @Test func theLargestMatchWinsRegardlessOfListOrder() {
+        func pack(_ files: [TorrentFile], _ links: [String]) -> TorrentInfo {
+            TorrentInfo(id: "P", filename: "Show.S02", hash: "h", bytes: 1, progress: 100,
+                        status: "downloaded", files: files, links: links)
+        }
+        let small = TorrentFile(id: 1, path: "/Show.S02E05.720p.mkv", bytes: 500, selected: 1)
+        let big = TorrentFile(id: 2, path: "/Show.S02E05.1080p.mkv", bytes: 5_000, selected: 1)
+        #expect(pack([small, big], ["a", "b"]).videoFile(forSeason: 2, episode: 5)?.file.id == 2)
+        #expect(pack([big, small], ["b", "a"]).videoFile(forSeason: 2, episode: 5)?.file.id == 2)
+    }
 }
