@@ -45,7 +45,16 @@ public struct FilenameParser: Sendable {
     private static let reVideo = make(#"(?i)\b(x265|x264|h\.?265|h\.?264|hevc|avc)\b"#)
     private static let reAudio = make(#"(?i)\b(dts-?hd|truehd|atmos|ddp?5\.1|ddp|dts|eac3|ac3|aac|flac)\b"#)
     private static let reYear = make(#"\b(19\d{2}|20\d{2})\b"#)
-    private static let reSeasonEpisode = make(#"(?i)\bS(\d{1,2})E(\d{1,3})\b"#)
+    // The separator is optional because `S01.E01` / `S01 E01` / `S01_E01` are common in the wild.
+    // Without it those parse as a season PACK with no episode, which had two downstream costs: a
+    // pack is exempt from size ranking (there is nothing to compare one against), so a 40 GB single
+    // episode dodged the size policy and outranked a right-sized release; and a pack whose FILES
+    // are named that way had every episode skipped when the library expanded it. Digits after `E`
+    // are still required, so `S01.Extras` remains a pack.
+    // `\b` would not do here: `_` is a word character, so `Show_S01_E01` has no boundary before the
+    // `S` or after the episode digits. Explicit non-alphanumeric lookarounds cover `_` too.
+    private static let reSeasonEpisode =
+        make(#"(?i)(?<![A-Za-z0-9])S(\d{1,2})[._\s-]?E(\d{1,3})(?![A-Za-z0-9])"#)
     private static let reNxM = make(#"(?i)\b(\d{1,2})x(\d{1,3})\b"#)
     private static let reSeasonWord = make(#"(?i)\bseason\s?(\d{1,2})\b"#)
     private static let reSeasonBare = make(#"(?i)\bS(\d{1,2})\b"#)

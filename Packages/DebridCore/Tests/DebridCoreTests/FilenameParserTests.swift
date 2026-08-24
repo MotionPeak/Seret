@@ -74,6 +74,30 @@ struct FilenameParserTests {
         #expect(r.source == "HDTV")
     }
 
+    /// `S01.E01` — a separator between the season and episode tokens — is common in the wild and
+    /// parsed as a season PACK with no episode. Two things went wrong downstream: size ranking
+    /// exempts packs (nothing to compare a pack against), so a 40 GB single episode dodged the
+    /// size policy entirely and outranked a right-sized one; and a pack whose FILES are named this
+    /// way had every episode skipped when the library expanded it.
+    @Test func parsesAnEpisodeWithASeparatorBetweenSeasonAndEpisode() {
+        for name in ["Sherlock.S01.E01.A.Study.in.Pink.REMUX.2160p.selezen.mkv",
+                     "Sherlock S01 E01 A Study in Pink 2160p.mkv",
+                     "Sherlock.S01-E01.A.Study.in.Pink.2160p.mkv",
+                     "Sherlock_S01_E01_A_Study_in_Pink.mkv"] {
+            let r = parser.parse(name)
+            #expect(r.season == 1, "season for \(name)")
+            #expect(r.episode == 1, "episode for \(name)")
+        }
+    }
+
+    /// The separator must not swallow a genuine season pack: `S01` followed by a word starting
+    /// with E is still a pack, because an episode needs digits.
+    @Test func aSeasonPackIsNotMistakenForAnEpisode() {
+        let r = parser.parse("Fallout.S01.Extras.2160p.WEB-DL.mkv")
+        #expect(r.season == 1)
+        #expect(r.episode == nil)
+    }
+
     @Test func parsesSeasonPack() {
         let r = parser.parse("Fallout.S01.2160p.AMZN.WEB-DL.DDP5.1.HDR.HEVC-FLUX")
         #expect(r.title == "Fallout")
