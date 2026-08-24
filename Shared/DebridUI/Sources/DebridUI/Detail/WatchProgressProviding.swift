@@ -30,15 +30,28 @@ extension WatchProgressProviding {
     }
 
     /// Manually mark a movie/episode watched or unwatched. A manual mark carries no playback
-    /// position — `finished` alone drives the UI (full bar / ✓); live position is written later by
-    /// the player. Shared by `DetailStore` (per-title) and `LibraryStore` (grid long-press) so the
-    /// record shape stays in one place.
+    /// position of its own — `finished` alone drives the UI (full bar / ✓). Shared by `DetailStore`
+    /// (per-title) and `LibraryStore` (grid long-press) so the record shape stays in one place.
     /// `sourceKey` is empty for a title you do not own: there is no file to name, and nothing
     /// downstream keys off it — watch state and download state both address a title by `contentKey`.
+    ///
+    /// Marking WATCHED carries the existing position and duration forward. It used to write zeros,
+    /// which meant a long-press — easy to hit by accident on a grid tile — permanently destroyed
+    /// the resume point of whatever it landed on, and un-marking could not bring back a position
+    /// that was no longer stored. It also zeroed the duration every progress bar divides by.
+    ///
+    /// Marking UNWATCHED does clear the position, which is what "start over" means; carrying a
+    /// past-the-threshold position into that write would also let the finished-fraction rule in
+    /// `record` flip `finished` straight back to true.
     public func setWatched(_ watched: Bool, contentKey: String, sourceKey: String,
                            profileID: String) async {
-        try? await record(contentKey: contentKey, sourceKey: sourceKey,
-                          positionSeconds: 0, durationSeconds: 0, finished: watched,
+        var carried: WatchState?
+        if watched { carried = try? await progress(forContentKey: contentKey, profileID: profileID) }
+        try? await record(contentKey: contentKey,
+                          sourceKey: sourceKey.isEmpty ? (carried?.sourceKey ?? "") : sourceKey,
+                          positionSeconds: carried?.positionSeconds ?? 0,
+                          durationSeconds: carried?.durationSeconds ?? 0,
+                          finished: watched,
                           profileID: profileID)
     }
 

@@ -19,6 +19,44 @@ public actor LocalWatchStore {
             sortBy: [SortDescriptor(\.updatedAt, order: .reverse)]))
     }
 
+    /// Fold `loser` into `winner`, then delete it.
+    ///
+    /// The rows a collapse resolves are not older and newer versions of one value — `rating`,
+    /// `plays` and `lastWatchedAt` accumulate independently of the playback position, and a row
+    /// can carry any of them while carrying none of the others. Deleting the loser outright, which
+    /// is what every collapse used to do, therefore threw away a score the viewer typed on one
+    /// device, undercounted their plays, and could drop a resume point when the surviving row
+    /// happened to be a rating written on a device that never played the file.
+    ///
+    /// `winner` is the newest row, so it wins the fields that genuinely supersede — `finished`,
+    /// and the position when it has one.
+    ///
+    /// One ambiguity is unresolvable without per-field timestamps: a rating CLEARED on the newer
+    /// device looks identical to a rating never set there, so a duplicate can resurrect the old
+    /// score. Losing a score outright is the worse and (until now) certain outcome.
+    private func absorb(_ loser: WatchProgress, into winner: WatchProgress) {
+        if winner.rating == nil { winner.rating = loser.rating }
+        winner.plays = max(winner.plays, loser.plays)
+        if let theirs = loser.lastWatchedAt {
+            winner.lastWatchedAt = max(winner.lastWatchedAt ?? theirs, theirs)
+        }
+        if winner.positionSeconds == 0 && loser.positionSeconds > 0 {
+            winner.positionSeconds = loser.positionSeconds
+            if winner.sourceKey.isEmpty { winner.sourceKey = loser.sourceKey }
+        }
+        if winner.durationSeconds == 0 { winner.durationSeconds = loser.durationSeconds }
+        modelContext.delete(loser)
+    }
+
+    /// The newest row for one title+profile, with every duplicate folded into it. `nil` when the
+    /// title has no row at all.
+    private func collapsed(_ contentKey: String, _ profileID: String) throws -> WatchProgress? {
+        let existing = try rows(contentKey, profileID)
+        guard let winner = existing.first else { return nil }
+        for extra in existing.dropFirst() { absorb(extra, into: winner) }
+        return winner
+    }
+
     private func state(_ row: WatchProgress) -> WatchState {
         WatchState(contentKey: row.contentKey, sourceKey: row.sourceKey,
                    positionSeconds: row.positionSeconds, durationSeconds: row.durationSeconds,
@@ -52,8 +90,10 @@ public actor LocalWatchStore {
     /// Idempotent — it runs on every launch, and after the first pass there is nothing to adopt.
     ///
     /// Where both rows exist for one title (watched once before the profile resolved and once
-    /// after), the NEWER wins and the other is deleted. Keeping both would leave every later read
-    /// picking between duplicates by write order.
+    /// after), the NEWER wins and the other is folded into it. Keeping both would leave every later
+    /// read picking between duplicates by write order; deleting the loser outright — which is what
+    /// this used to do — discarded whichever of the score, play count or resume point happened to
+    /// live on the older row.
     public func adoptUnprofiledProgress(into owner: String) throws {
         guard !owner.isEmpty else { return }
         let orphans = try modelContext.fetch(FetchDescriptor<WatchProgress>(
@@ -66,11 +106,14 @@ public actor LocalWatchStore {
                 predicate: #Predicate { $0.contentKey == key && $0.profileID == owner },
                 sortBy: [SortDescriptor(\.updatedAt, order: .reverse)]))
             if let mine = existing.first {
+                // Fold every one of the owner's rows into the survivor, so a title that already
+                // had duplicates does not keep them.
+                for extra in existing.dropFirst() { absorb(extra, into: mine) }
                 if orphan.updatedAt > mine.updatedAt {
-                    modelContext.delete(mine)
                     orphan.profileID = owner
+                    absorb(mine, into: orphan)
                 } else {
-                    modelContext.delete(orphan)
+                    absorb(orphan, into: mine)
                 }
             } else {
                 orphan.profileID = owner
@@ -83,9 +126,7 @@ public actor LocalWatchStore {
     public func write(contentKey: String, sourceKey: String, positionSeconds: Double,
                       durationSeconds: Double, finished: Bool, profileID: String,
                       at: Date = Date()) throws {
-        let existing = try rows(contentKey, profileID)
-        for extra in existing.dropFirst() { modelContext.delete(extra) }
-        let row = existing.first ?? {
+        let row = try collapsed(contentKey, profileID) ?? {
             let r = WatchProgress(); modelContext.insert(r); return r
         }()
         let wasFinished = row.finished
@@ -112,9 +153,7 @@ public actor LocalWatchStore {
     /// Set or clear the viewer's 1–10 score, creating the row if the title has never been played.
     public func setRating(_ value: Int?, contentKey: String, profileID: String,
                           at: Date = Date()) throws {
-        let existing = try rows(contentKey, profileID)
-        for extra in existing.dropFirst() { modelContext.delete(extra) }
-        let row = existing.first ?? {
+        let row = try collapsed(contentKey, profileID) ?? {
             let r = WatchProgress(contentKey: contentKey, profileID: profileID)
             modelContext.insert(r); return r
         }()
@@ -154,6 +193,19 @@ public actor LocalWatchStore {
 
     public func count() throws -> Int {
         try modelContext.fetch(FetchDescriptor<WatchProgress>()).count
+    }
+
+    /// Insert a row verbatim, bypassing the duplicate collapse. Exists so tests can reproduce what
+    /// CloudKit hands us — two rows for one (title, profile) — which no public method can create.
+    func seedRow(contentKey: String, profileID: String, sourceKey: String,
+                 positionSeconds: Double, durationSeconds: Double, finished: Bool,
+                 plays: Int, rating: Int?, updatedAt: Date, lastWatchedAt: Date?) throws {
+        modelContext.insert(WatchProgress(contentKey: contentKey, profileID: profileID,
+                                          sourceKey: sourceKey, positionSeconds: positionSeconds,
+                                          durationSeconds: durationSeconds, finished: finished,
+                                          plays: plays, rating: rating,
+                                          updatedAt: updatedAt, lastWatchedAt: lastWatchedAt))
+        try modelContext.save()
     }
 }
 #endif

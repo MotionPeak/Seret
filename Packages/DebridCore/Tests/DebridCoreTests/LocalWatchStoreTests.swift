@@ -188,5 +188,91 @@ extension SwiftDataSuite {
             #expect(try await s.count() == 1)
             #expect(try await s.state(forContentKey: "movie:tmdb:2", profileID: "p1") != nil)
         }
+
+        /// CloudKit cannot enforce one row per (title, profile), so two devices each insert one.
+        /// Writers collapse the extras — but `rating`, `plays` and `lastWatchedAt` accumulate
+        /// INDEPENDENTLY of position, so discarding the loser wholesale throws away a score the
+        /// user typed and undercounts their plays.
+        @Test func collapsingDuplicateRowsKeepsTheRatingAndPlayCount() async throws {
+            let s = try store()
+            // Device A: watched it twice and rated it 9.
+            try await s.seedRow(contentKey: "movie:tmdb:7", profileID: "p1", sourceKey: "T1#1",
+                                positionSeconds: 0, durationSeconds: 6000, finished: true,
+                                plays: 2, rating: 9,
+                                updatedAt: Date(timeIntervalSince1970: 10),
+                                lastWatchedAt: Date(timeIntervalSince1970: 10))
+            // Device B, syncing later: a fresh row with no rating and no play history.
+            try await s.seedRow(contentKey: "movie:tmdb:7", profileID: "p1", sourceKey: "T1#1",
+                                positionSeconds: 300, durationSeconds: 6000, finished: false,
+                                plays: 0, rating: nil,
+                                updatedAt: Date(timeIntervalSince1970: 20),
+                                lastWatchedAt: nil)
+
+            // Any write collapses them. The newer row wins on position; the rating and plays must
+            // survive from the older one rather than being deleted with it.
+            try await s.write(contentKey: "movie:tmdb:7", sourceKey: "T1#1",
+                              positionSeconds: 400, durationSeconds: 6000, finished: false,
+                              profileID: "p1", at: Date(timeIntervalSince1970: 30))
+
+            #expect(try await s.count() == 1)
+            #expect(try await s.rating(forContentKey: "movie:tmdb:7", profileID: "p1") == 9)
+            let rollup = try await s.rollup(forContentKey: "movie:tmdb:7", profileID: "p1")
+            #expect(rollup?.plays == 2)
+            #expect(rollup?.lastWatchedAt == Date(timeIntervalSince1970: 10))
+            #expect(try await s.state(forContentKey: "movie:tmdb:7", profileID: "p1")?.positionSeconds == 400)
+        }
+
+        /// `setRating` collapses duplicates too, and the newest row can easily be the one with no
+        /// position (a rating written on a device that never played the file). Deleting the other
+        /// takes the resume point with it.
+        @Test func ratingATitleDoesNotDiscardTheResumePointOnADuplicateRow() async throws {
+            let s = try store()
+            try await s.seedRow(contentKey: "movie:tmdb:7", profileID: "p1", sourceKey: "T1#1",
+                                positionSeconds: 900, durationSeconds: 6000, finished: false,
+                                plays: 1, rating: nil,
+                                updatedAt: Date(timeIntervalSince1970: 10),
+                                lastWatchedAt: nil)
+            try await s.seedRow(contentKey: "movie:tmdb:7", profileID: "p1", sourceKey: "",
+                                positionSeconds: 0, durationSeconds: 0, finished: false,
+                                plays: 0, rating: nil,
+                                updatedAt: Date(timeIntervalSince1970: 20),
+                                lastWatchedAt: nil)
+
+            try await s.setRating(8, contentKey: "movie:tmdb:7", profileID: "p1",
+                                  at: Date(timeIntervalSince1970: 30))
+
+            #expect(try await s.count() == 1)
+            #expect(try await s.rating(forContentKey: "movie:tmdb:7", profileID: "p1") == 8)
+            let state = try await s.state(forContentKey: "movie:tmdb:7", profileID: "p1")
+            #expect(state?.positionSeconds == 900)
+            #expect(state?.durationSeconds == 6000)
+        }
+
+        /// Adopting a row written before the profile resolved resolves a collision by deleting one
+        /// side outright — so whichever side happened to be older loses its score and play count
+        /// even though nothing else recorded them.
+        @Test func adoptingUnprofiledProgressKeepsBothRowsRatingAndPlays() async throws {
+            let s = try store()
+            // Recorded before the profile resolved: the actual playback, and a play.
+            try await s.seedRow(contentKey: "movie:tmdb:7", profileID: "", sourceKey: "T1#1",
+                                positionSeconds: 1200, durationSeconds: 6000, finished: true,
+                                plays: 1, rating: nil,
+                                updatedAt: Date(timeIntervalSince1970: 30),
+                                lastWatchedAt: Date(timeIntervalSince1970: 30))
+            // Recorded after it resolved: the user's score, written earlier in wall-clock terms.
+            try await s.seedRow(contentKey: "movie:tmdb:7", profileID: "p1", sourceKey: "",
+                                positionSeconds: 0, durationSeconds: 0, finished: false,
+                                plays: 0, rating: 10,
+                                updatedAt: Date(timeIntervalSince1970: 20),
+                                lastWatchedAt: nil)
+
+            try await s.adoptUnprofiledProgress(into: "p1")
+
+            #expect(try await s.count() == 1)
+            #expect(try await s.rating(forContentKey: "movie:tmdb:7", profileID: "p1") == 10)
+            let rollup = try await s.rollup(forContentKey: "movie:tmdb:7", profileID: "p1")
+            #expect(rollup?.plays == 1)
+            #expect(try await s.state(forContentKey: "movie:tmdb:7", profileID: "p1")?.positionSeconds == 1200)
+        }
     }
 }
