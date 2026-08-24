@@ -26,6 +26,12 @@ public struct LocalWatchProvider: WatchProgressProviding, Sendable {
     /// keeps local and the mirror agreeing about what "watched" means.
     public static let finishedFraction = 0.8
 
+    /// Hand rows recorded before a profile resolved to `owner` — see
+    /// `LocalWatchStore.adoptUnprofiledProgress`. Idempotent; runs once per launch.
+    public func adoptUnprofiledProgress(into owner: String) async throws {
+        try await store.adoptUnprofiledProgress(into: owner)
+    }
+
     public func progress(forContentKey key: String, profileID: String) async throws -> WatchState? {
         try await store.state(forContentKey: key, profileID: profileID)
     }

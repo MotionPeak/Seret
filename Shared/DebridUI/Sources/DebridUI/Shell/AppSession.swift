@@ -437,6 +437,13 @@ public final class AppSession {
             activeProfiles = profiles
             Task { @MainActor in
                 await profiles.loadAndResolve()
+                // Adopt anything recorded before this resolved. Signing in does not wait for the
+                // profile load, so a title played in that window records under no profile — and
+                // every read afterwards uses the resolved id and misses it, which is a position
+                // that exists but can never be read: "Play" instead of "Resume", from zero.
+                if let owner = profiles.activeProfileID {
+                    try? await self.localWatch?.adoptUnprofiledProgress(into: owner)
+                }
                 self.home?.activeProfileID = profiles.activeProfileID
                 await self.rebuildHome()
             }
@@ -524,7 +531,18 @@ public final class AppSession {
         let watch = watchStore
         // Captured once: a player outlives a profile switch, and its progress must keep landing
         // under the profile that started the playback.
-        let profile = activeProfileID ?? ""
+        //
+        // …but only once there IS one. Capturing "" because the profile load had not finished yet
+        // files the whole session's progress under no profile, where no later read can find it.
+        // `profiles` is consulted only in that case, so a real capture still wins for the session.
+        let capturedProfile = activeProfileID
+        let profiles = activeProfiles
+        /// The profile this session's progress belongs to: the captured one when there was one,
+        /// otherwise whatever resolved since.
+        let resolveProfile: @Sendable () async -> String = {
+            if let capturedProfile { return capturedProfile }
+            return await MainActor.run { profiles?.activeProfileID } ?? ""
+        }
         // Playing a title claims it into the active profile's My List (add-or-play, rule ii).
         // Keyed by the title's id (matches the Detail toggle + My Library filter), not the
         // episode-level contentKey.
@@ -550,9 +568,10 @@ public final class AppSession {
             // Up Next auto-advance records against the episode actually playing.
             recordProgress: { contentKey, sourceKey, position, duration in
                 guard duration > 0 else { return }
+                let target = await resolveProfile()
                 try? await watch?.record(contentKey: contentKey, sourceKey: sourceKey,
                                          positionSeconds: position, durationSeconds: duration,
-                                         finished: false, profileID: profile)
+                                         finished: false, profileID: target)
             },
             subtitles: subtitlesProvider,
             details: detailsProvider,
@@ -560,9 +579,10 @@ public final class AppSession {
             // Authoritative resume: the saved position is re-read at load time so playback can't
             // race the screen's own watch-state load, or resume from a stale hint.
             resolveResume: { key in
+                let target = await resolveProfile()
                 // One unwrap, not two: `try?` flattens the provider's optional return.
                 guard let watch,
-                      let saved = try? await watch.progress(forContentKey: key, profileID: profile)
+                      let saved = try? await watch.progress(forContentKey: key, profileID: target)
                 else { return nil }
                 return saved.resumePosition
             },

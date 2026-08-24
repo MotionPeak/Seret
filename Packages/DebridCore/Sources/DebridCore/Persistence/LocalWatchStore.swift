@@ -40,6 +40,45 @@ public actor LocalWatchStore {
         return out
     }
 
+    /// Hand every row recorded with NO profile to `owner`.
+    ///
+    /// Progress can be written before a profile has resolved: the session signs in and only then
+    /// kicks off the profile load, and the player captures whatever `activeProfileID` was at the
+    /// moment it was built — the empty string, inside that window. Reads afterwards use the
+    /// resolved id, and the fetch matches `profileID` exactly, so those rows become unreadable.
+    /// The symptom is a title that offers "Play" instead of "Resume" and starts from zero even
+    /// though it was watched, permanently, for whichever titles fell in the window.
+    ///
+    /// Idempotent — it runs on every launch, and after the first pass there is nothing to adopt.
+    ///
+    /// Where both rows exist for one title (watched once before the profile resolved and once
+    /// after), the NEWER wins and the other is deleted. Keeping both would leave every later read
+    /// picking between duplicates by write order.
+    public func adoptUnprofiledProgress(into owner: String) throws {
+        guard !owner.isEmpty else { return }
+        let orphans = try modelContext.fetch(FetchDescriptor<WatchProgress>(
+            predicate: #Predicate { $0.profileID == "" }))
+        guard !orphans.isEmpty else { return }
+
+        for orphan in orphans {
+            let key = orphan.contentKey
+            let existing = try modelContext.fetch(FetchDescriptor<WatchProgress>(
+                predicate: #Predicate { $0.contentKey == key && $0.profileID == owner },
+                sortBy: [SortDescriptor(\.updatedAt, order: .reverse)]))
+            if let mine = existing.first {
+                if orphan.updatedAt > mine.updatedAt {
+                    modelContext.delete(mine)
+                    orphan.profileID = owner
+                } else {
+                    modelContext.delete(orphan)
+                }
+            } else {
+                orphan.profileID = owner
+            }
+        }
+        try modelContext.save()
+    }
+
     /// Record playback position (or a manual mark). Collapses any duplicate rows CloudKit produced.
     public func write(contentKey: String, sourceKey: String, positionSeconds: Double,
                       durationSeconds: Double, finished: Bool, profileID: String,
