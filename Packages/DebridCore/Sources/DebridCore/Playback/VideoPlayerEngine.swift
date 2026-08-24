@@ -41,6 +41,13 @@ public protocol VideoPlayerEngine: AnyObject {
     func selectSubtitleTrack(id: String?)   // nil = off
     func addExternalSubtitle(url: URL)       // a downloaded subtitle temp-file URL (slice 2)
 
+    /// The playing video's frame rate, once the engine has opened the media (nil before that, or
+    /// when the engine can't report it). Subtitle matching needs it: a file timed against a
+    /// different rate drifts linearly — right at the start, then progressively early until each
+    /// cue is clipped by its successor. `SubtitleMatch` scores that mismatch, but only when it is
+    /// told the real rate.
+    var videoFPS: Double? { get }
+
     /// Time + state updates as the engine produces them.
     var events: AsyncStream<PlaybackEvent> { get }
 }
@@ -49,4 +56,8 @@ public extension VideoPlayerEngine {
     /// Default: engines without software volume gain ignore the request (also keeps existing test
     /// fakes source-compatible without a stub).
     func setVolume(_ percent: Int) {}
+
+    /// Default: an engine that can't report a frame rate degrades to "unknown", which makes
+    /// subtitle ranking skip the fps term rather than penalise every candidate.
+    var videoFPS: Double? { nil }
 }

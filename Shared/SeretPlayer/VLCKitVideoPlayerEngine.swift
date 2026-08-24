@@ -295,6 +295,17 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
 
     // VLCKit 4.x object-based tracks. `trackId` is libvlc's stable string id (e.g. "audio/0",
     // "spu/1"); selecting `selectedExclusively` unselects every other track of that kind.
+    /// The playing video's frame rate, as a rational — libvlc reports numerator and denominator,
+    /// so 24000/1001 stays exactly 23.976 instead of rounding to 24. That precision is the point:
+    /// subtitle matching compares against a file's declared fps, and 23.976 vs 24 is the classic
+    /// drift pair. nil before the media opens, or when the track reports no rate.
+    var videoFPS: Double? {
+        guard let video = player.videoTracks.first?.video else { return nil }
+        let denominator = video.frameRateDenominator
+        guard video.frameRate > 0, denominator > 0 else { return nil }
+        return Double(video.frameRate) / Double(denominator)
+    }
+
     var audioTracks: [MediaTrack] { player.audioTracks.map { Self.mediaTrack($0, kind: .audio) } }
     var subtitleTracks: [MediaTrack] {
         player.textTracks.map {

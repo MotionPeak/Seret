@@ -13,10 +13,17 @@ extension PlayerModel {
             // A show must search by season + episode. This was `SubtitleQuery.movie(item)`
             // unconditionally, so every episode searched as if it were a film — the episode
             // builder existed and had never been called.
-            let query = episode.map { SubtitleQuery.episode(show: item, episode: $0) }
+            var query = episode.map { SubtitleQuery.episode(show: item, episode: $0) }
                 ?? SubtitleQuery.movie(item)
+            // Match the file actually playing, exactly as the browser does. This took
+            // `results.first` — whatever OpenSubtitles happened to return first — so the one-tap
+            // pill regularly attached a subtitle timed against a DIFFERENT release. That drifts
+            // linearly: right at the start, then each cue lands progressively early until it is
+            // clipped by its successor and no sentence finishes on screen.
+            await resolveMoviehashIfNeeded()
+            query.moviehash = currentMoviehash
             let results = try await subtitles.search(query, languages: [language])
-            guard let best = results.first else { setRow(language, .error); return }
+            guard let best = rankedBest(results) else { setRow(language, .error); return }
             let url = try await subtitles.download(best)
             // Requesting a language IS choosing it — make it sticky so the next episode/title
             // auto-downloads the same language without re-picking.
@@ -62,7 +69,7 @@ extension PlayerModel {
             let results = try await subtitles.search(query, languages: [language])
             subtitleSearchResults = SubtitleMatch.rank(results,
                                                        against: currentSource.releaseNameForMatching,
-                                                       videoFPS: nil)
+                                                       videoFPS: engine.videoFPS)
             subtitleSearchState = .loaded
         } catch {
             subtitleSearchState = .failed
@@ -87,6 +94,17 @@ extension PlayerModel {
         } catch {
             subtitleSearchState = .failed
         }
+    }
+
+    /// The best-matching result for the file playing, or nil when there are none.
+    ///
+    /// One definition, because both subtitle paths need it and they used to disagree: the browser
+    /// ranked, the one-tap pill took `results.first`. Ranking scores a moviehash match (+1000), a
+    /// shared release group, matching resolution/source, and the fps agreement that decides
+    /// whether a subtitle will drift.
+    func rankedBest(_ results: [SubtitleResult]) -> SubtitleResult? {
+        SubtitleMatch.rank(results, against: currentSource.releaseNameForMatching,
+                           videoFPS: engine.videoFPS).first?.result
     }
 
     func resolveMoviehashIfNeeded() async {

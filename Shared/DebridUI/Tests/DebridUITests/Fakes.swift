@@ -25,6 +25,8 @@ final class FakeVideoPlayerEngine: VideoPlayerEngine {
     private(set) var loadedAudioTrackID: String?
     var audioTracks: [MediaTrack] = []
     var subtitleTracks: [MediaTrack] = []
+    /// What the engine reports as the video's frame rate — drives subtitle fps matching.
+    var videoFPS: Double?
 
     let events: AsyncStream<PlaybackEvent>
     private let continuation: AsyncStream<PlaybackEvent>.Continuation
@@ -94,7 +96,10 @@ final class FakeSubtitleProvider: SubtitleProvider, @unchecked Sendable {
         if let searchError { throw searchError }
         return searchResults
     }
+    private(set) var downloadedResults: [SubtitleResult] = []
+
     func download(_ result: SubtitleResult) async throws -> URL {
+        downloadedResults.append(result)
         if let downloadError { throw downloadError }
         return downloadedURL
     }
