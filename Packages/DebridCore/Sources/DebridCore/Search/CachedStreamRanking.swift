@@ -19,6 +19,13 @@ public extension CachedStream {
     /// 1 = dual-audio that *includes* the original alongside a foreign track (a dub/multi release),
     /// 2 = foreign — no original track at all, or a non-Latin (foreign-script) untagged release.
     /// Returns 0 for every stream when `original` is nil (no preference).
+    /// How well this stream's size fits its resolution and shape — see `sizeFit`. A season pack
+    /// is judged per episode when the count is known, and left unpenalised when it is not.
+    func fit(episodesInSeason: Int?) -> SizeFit {
+        sizeFit(bytes: sizeBytes, resolution: parsed.resolution,
+                shape: ReleaseShape.of(parsed, episodes: episodesInSeason))
+    }
+
     func audioTier(relativeTo original: String?) -> Int {
         guard let original else { return 0 }
         let hasOriginal = languages.contains(original)
@@ -35,12 +42,18 @@ public extension Array where Element == CachedStream {
     /// quality, then size, then infoHash (deterministic tiebreak). Quality decides *within* a
     /// tier, so a 2160p REMUX never loses to a 720p rip that merely shares the tier. When
     /// `originalLanguage` is nil, ranks by quality/size only.
-    func rankedFor(originalLanguage: String?) -> [CachedStream] {
+    func rankedFor(originalLanguage: String?, episodesInSeason: Int? = nil) -> [CachedStream] {
         sorted { a, b in
             let at = a.audioTier(relativeTo: originalLanguage)
             let bt = b.audioTier(relativeTo: originalLanguage)
             if at != bt { return at < bt }
+            let ar = resolutionTier(a.parsed.resolution), br = resolutionTier(b.parsed.resolution)
+            if ar != br { return ar > br }
+            let af = a.fit(episodesInSeason: episodesInSeason)
+            let bf = b.fit(episodesInSeason: episodesInSeason)
+            if af != bf { return af > bf }
             if a.qualityRank != b.qualityRank { return a.qualityRank > b.qualityRank }
+            // Within one fit band, bigger means a higher bitrate at the same size class.
             let asz = a.sizeBytes ?? 0, bsz = b.sizeBytes ?? 0
             if asz != bsz { return asz > bsz }
             return a.infoHash < b.infoHash

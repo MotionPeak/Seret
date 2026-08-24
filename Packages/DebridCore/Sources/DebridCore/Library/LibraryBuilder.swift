@@ -26,7 +26,8 @@ public struct LibraryBuilder: Sendable {
                 shows[key] = acc
             } else if let primary = info.primaryVideoFile() {
                 let source = MediaSource(torrentID: info.id, fileID: primary.file.id,
-                                         restrictedLink: primary.link, parsed: parsed)
+                                         restrictedLink: primary.link, parsed: parsed,
+                                         sizeBytes: primary.file.bytes)
                 movies.append(MediaItem(
                     id: "movie:\(Self.titleKey(parsed.title))\(parsed.year.map { ":\($0)" } ?? "")",
                     kind: .movie, title: parsed.title, year: parsed.year,
@@ -57,7 +58,8 @@ public struct LibraryBuilder: Sendable {
                 ?? info.primaryVideoFile() else { return }
             acc.add(season: parsed.season ?? 1, number: episode,
                     source: MediaSource(torrentID: info.id, fileID: primary.file.id,
-                                        restrictedLink: primary.link, parsed: parsed))
+                                        restrictedLink: primary.link, parsed: parsed,
+                                        sizeBytes: primary.file.bytes))
             return
         }
         // Season pack: expand selected video files.
@@ -67,7 +69,8 @@ public struct LibraryBuilder: Sendable {
             guard let episode = fileParsed.episode else { continue }
             acc.add(season: fileParsed.season ?? packSeason, number: episode,
                     source: MediaSource(torrentID: info.id, fileID: file.id,
-                                        restrictedLink: link, parsed: fileParsed))
+                                        restrictedLink: link, parsed: fileParsed,
+                                        sizeBytes: file.bytes))
         }
     }
 

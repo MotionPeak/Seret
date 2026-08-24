@@ -49,6 +49,35 @@ struct LibraryBuilderEpisodeFileTests {
         #expect(e4?.source.restrictedLink == "https://rd/E04")
     }
 
+    /// Owned sources must record the FILE's size, not the torrent's. Without it, size-aware
+    /// ranking is inert for the library and the Versions list keeps recommending the bloat the
+    /// search flow now avoids. A pack's per-file sizes differ from its total.
+    @Test func everyEpisodeRecordsItsOwnFileSize() {
+        let info = TorrentInfo(
+            id: "T", filename: "Some.Show.S01.2160p.WEB-DL", hash: "h",
+            bytes: 9000, progress: 100, status: "downloaded",
+            files: [
+                TorrentFile(id: 1, path: "/Show/Some.Show.S01E01.2160p.mkv", bytes: 4000, selected: 1),
+                TorrentFile(id: 2, path: "/Show/Some.Show.S01E02.2160p.mkv", bytes: 5000, selected: 1),
+            ],
+            links: ["https://rd/E01", "https://rd/E02"])
+
+        let episodes = builder.group([info])[0].seasons[0].episodes
+        #expect(episodes.first { $0.number == 1 }?.source.sizeBytes == 4000)
+        #expect(episodes.first { $0.number == 2 }?.source.sizeBytes == 5000)
+    }
+
+    /// A movie's source records its file size too.
+    @Test func aMovieRecordsItsFileSize() {
+        let info = TorrentInfo(
+            id: "M", filename: "Some.Film.2024.2160p.WEB-DL.x265", hash: "h",
+            bytes: 3000, progress: 100, status: "downloaded",
+            files: [TorrentFile(id: 1, path: "/Film/film.mkv", bytes: 2400, selected: 1)],
+            links: ["https://rd/M"])
+
+        #expect(builder.group([info])[0].sources.first?.sizeBytes == 2400)
+    }
+
     /// A torrent named for an episode whose file is named differently (no parseable episode in
     /// the path) must still resolve — fall back to the largest video file rather than dropping
     /// the episode from the library entirely.

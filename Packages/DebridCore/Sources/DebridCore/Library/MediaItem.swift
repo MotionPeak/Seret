@@ -11,12 +11,29 @@ public struct MediaSource: Sendable, Equatable, Hashable, Codable {
     public let fileID: Int?
     public let restrictedLink: String
     public let parsed: ParsedRelease
+    /// Size of this file on disk. Drives size-aware ranking so the Versions list stops
+    /// recommending the bloat the search flow now avoids. Optional: snapshots cached before this
+    /// existed carry no size, and a missing size ranks neutrally rather than last.
+    public let sizeBytes: Int?
 
-    public init(torrentID: String, fileID: Int?, restrictedLink: String, parsed: ParsedRelease) {
+    public init(torrentID: String, fileID: Int?, restrictedLink: String, parsed: ParsedRelease,
+                sizeBytes: Int? = nil) {
         self.torrentID = torrentID
         self.fileID = fileID
         self.restrictedLink = restrictedLink
         self.parsed = parsed
+        self.sizeBytes = sizeBytes
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        torrentID = try c.decode(String.self, forKey: .torrentID)
+        fileID = try c.decodeIfPresent(Int.self, forKey: .fileID)
+        restrictedLink = try c.decode(String.self, forKey: .restrictedLink)
+        parsed = try c.decode(ParsedRelease.self, forKey: .parsed)
+        // Absent in snapshots written before size ranking existed — decode to nil rather than
+        // failing, which would discard the whole cached library until the next refresh.
+        sizeBytes = try c.decodeIfPresent(Int.self, forKey: .sizeBytes)
     }
 }
 

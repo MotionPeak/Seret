@@ -3,13 +3,27 @@
 public extension MediaSource {
     /// Higher is better. Resolution dominates, then source tier, then video codec.
     var qualityRank: Int { releaseQualityRank(for: parsed) }
+
+    /// How well this file's size fits its resolution and shape — see `sizeFit`.
+    var fit: SizeFit { sizeFit(bytes: sizeBytes, resolution: parsed.resolution,
+                               shape: ReleaseShape.of(parsed)) }
 }
 
 public extension Array where Element == MediaSource {
     /// Sources best-first. Deterministic: ties break by torrentID, then fileID.
+    ///
+    /// Resolution outranks size fit, and size fit outranks source tier. That middle placement is
+    /// the whole point: `REMUX` is the top source tier and 60–90 GB by construction, so a size
+    /// term that merely broke ties would never be reached — the bloat would already have won.
     func bestFirst() -> [MediaSource] {
         sorted { a, b in
+            let ar = resolutionTier(a.parsed.resolution), br = resolutionTier(b.parsed.resolution)
+            if ar != br { return ar > br }
+            if a.fit != b.fit { return a.fit > b.fit }
             if a.qualityRank != b.qualityRank { return a.qualityRank > b.qualityRank }
+            // Within one fit band, bigger means a higher bitrate at the same size class.
+            let asz = a.sizeBytes ?? 0, bsz = b.sizeBytes ?? 0
+            if asz != bsz { return asz > bsz }
             if a.torrentID != b.torrentID { return a.torrentID < b.torrentID }
             return (a.fileID ?? -1) < (b.fileID ?? -1)   // nil fileID (non-pack torrent) sorts before any real fileID
         }
