@@ -161,6 +161,9 @@ enum BrowseDestination: Hashable {
     case person(TMDBPersonRef)
     /// Straight to the full-screen versions list, skipping the page.
     case versions(SearchHit)
+    /// The versions list for ONE episode of a show. A separate case rather than optional payload
+    /// on `versions`, so an episode row's link carries one unambiguous value.
+    case episodeVersions(SearchHit, season: Int, number: Int)
     /// Straight into playback, skipping the page — what a Continue Watching card means.
     ///
     /// A destination CASE rather than pushing a bare `PlaybackRequest`, because a link must offer

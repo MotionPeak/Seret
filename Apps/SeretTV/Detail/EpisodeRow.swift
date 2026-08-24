@@ -32,6 +32,8 @@ struct EpisodeRow: View {
                     Button(isWatched ? "Mark Unwatched" : "Mark Watched") {
                         Task { await store.setWatched(!isWatched, contentKey: contentKey, source: src) }
                     }
+                    ownedVersionsMenu(ep)
+                    findOtherVersionsLink
                 }
             } else {
                 // ⚠️ This branch swap (link ↔ button) is the shape that drops tvOS focus when the
@@ -45,6 +47,7 @@ struct EpisodeRow: View {
                             Task { await store.setWatched(!isWatched, contentKey: contentKey,
                                                           source: nil) }
                         }
+                        findOtherVersionsLink
                     }
             }
             HStack(spacing: 8) {
@@ -57,6 +60,50 @@ struct EpisodeRow: View {
             }
         }
         .frame(width: width, alignment: .leading)
+    }
+
+    /// The other copies of this episode you already own — the episode equivalent of a movie's
+    /// Versions section. Only rendered when there IS a choice, so the common single-copy episode
+    /// keeps a two-item menu.
+    @ViewBuilder private func ownedVersionsMenu(_ ep: Episode) -> some View {
+        if row.hasAlternateVersions {
+            Menu("Versions") {
+                ForEach(row.ownedVersions, id: \.self) { src in
+                    NavigationLink(value: store.playRequest(source: src, episode: ep, label: label)) {
+                        Text(versionLabel(src))
+                    }
+                }
+            }
+        }
+    }
+
+    /// Search every release of this episode — cached and not — exactly as a movie can.
+    @ViewBuilder private var findOtherVersionsLink: some View {
+        if let hit = showHit {
+            NavigationLink(value: BrowseDestination.episodeVersions(hit, season: row.season,
+                                                                    number: row.number)) {
+                Label("Find Other Versions", systemImage: "square.stack.3d.up")
+            }
+        }
+    }
+
+    /// The show, as the Add pipeline wants it. Needs a TMDB id to search.
+    private var showHit: SearchHit? {
+        guard let tmdb = store.item.tmdbID else { return nil }
+        return SearchHit(result: TMDBSearchResult(
+            id: tmdb, title: nil, name: store.item.title, releaseDate: nil, firstAirDate: nil,
+            posterPath: store.item.posterPath, overview: nil, voteAverage: nil), kind: .show)
+    }
+
+    /// Resolution · source · size — enough to tell two copies apart in a menu, where the movie
+    /// list's `QualityChips` cannot render.
+    private func versionLabel(_ src: MediaSource) -> String {
+        var parts = [src.parsed.resolution, src.parsed.source].compactMap { $0 }
+        if let bytes = src.sizeBytes {
+            parts.append(ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file))
+        }
+        if parts.isEmpty { parts = ["Version"] }
+        return parts.joined(separator: " · ")
     }
 
     private var label: String { "\(store.item.title) — S\(row.season)·E\(row.number)" }

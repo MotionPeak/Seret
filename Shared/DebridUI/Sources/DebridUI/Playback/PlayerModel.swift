@@ -396,7 +396,11 @@ public final class PlayerModel {
         self.fromStart = request.fromStart
         self.item = request.item
         // Preferred source first, then remaining sources in quality order (deduped).
-        self.sources = [request.source] + request.item.sources.bestFirst().filter { $0 != request.source }
+        // An EPISODE's copies live on the episode — `item.sources` is a movie's list and is empty
+        // for a show, which is why an episode used to open with exactly one source and could never
+        // fall back when a stream went bad.
+        let owned = request.episode?.sources ?? request.item.sources
+        self.sources = [request.source] + owned.bestFirst().filter { $0 != request.source }
         self.resumeAt = request.resumeAt
         self.label = request.label
         self.episode = request.episode

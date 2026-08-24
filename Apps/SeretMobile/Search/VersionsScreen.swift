@@ -13,6 +13,10 @@ import SwiftUI
 /// badge.
 struct VersionsScreen: View {
     let hit: SearchHit
+    /// When set, the list is for ONE episode of a show rather than the whole title. Episodes had
+    /// no version picker at all: a movie offered both its owned copies and this search, and an
+    /// episode row offered only Mark Watched.
+    var episode: (season: Int, number: Int)?
     /// Play a version that turned out to be instantly available. The parent presents the player —
     /// this screen is itself a cover, and a cover cannot stack another from the same shell.
     let onPlay: (PlaybackRequest) -> Void
@@ -53,6 +57,12 @@ struct VersionsScreen: View {
             let f = session.makeAddFlow(for: hit)
             flow = f
             await f?.resolve()
+            // An episode needs its own target: Comet/Torrentio queries are per `series(s,e)`, so
+            // without this the list would be the show's, not this episode's.
+            if let episode {
+                await f?.selectSeason(episode.season)
+                await f?.selectEpisode(episode.number)
+            }
             guard let add = f?.add else { phase = .failed; return }
             await add.loadAllVersions()
             versions = add.allVersions
@@ -60,7 +70,19 @@ struct VersionsScreen: View {
         }
     }
 
-    private var title: String { flow?.title ?? hit.result.displayTitle }
+    private var title: String {
+        let base = flow?.title ?? hit.result.displayTitle
+        guard let episode else { return base }
+        return "\(base) — S\(episode.season)·E\(episode.number)"
+    }
+
+    /// What a download started here is filed under. Was hardcoded to the movie key, which would
+    /// have reported an episode's progress against the whole show.
+    private func downloadKey(_ flow: AddFlowStore) -> String {
+        guard let episode else { return DownloadKey.movie(tmdbID: flow.tmdbID) }
+        return DownloadKey.episode(showTmdbID: flow.tmdbID,
+                                   season: episode.season, number: episode.number)
+    }
 
     @ViewBuilder private var content: some View {
         switch phase {
@@ -125,7 +147,7 @@ struct VersionsScreen: View {
     /// Live progress for a version picked here that had to be downloaded.
     @ViewBuilder private var downloadStatus: some View {
         if let flow, let status = session.downloadStore?
-            .status(forContentKey: DownloadKey.movie(tmdbID: flow.tmdbID)) {
+            .status(forContentKey: downloadKey(flow)) {
             switch status.phase {
             case .queued:
                 ProgressView("Starting download…").tint(Theme.Palette.gold)
@@ -157,7 +179,7 @@ struct VersionsScreen: View {
                 onPlay(request)
             } else {
                 await session.downloadStore?.request(
-                    contentKey: DownloadKey.movie(tmdbID: flow.tmdbID),
+                    contentKey: downloadKey(flow),
                     tmdbID: flow.tmdbID, title: flow.title, kind: flow.mediaKind,
                     candidates: [stream], posterPath: flow.posterPath)
             }

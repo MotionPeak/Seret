@@ -93,7 +93,10 @@ public struct LibraryBuilder: Sendable {
 private final class ShowAccumulator {
     let title: String
     let year: Int?
-    private var episodes: [String: Episode] = [:]
+    /// Every owned copy per `season+episode`, in arrival order. Ranked into primary + alternates
+    /// at `build()` time, so ordering depends on quality rather than on which torrent RD listed
+    /// first.
+    private var episodeSources: [String: (season: Int, number: Int, sources: [MediaSource])] = [:]
     private(set) var newestAdded: Date?
 
     init(title: String, year: Int?) {
@@ -109,14 +112,29 @@ private final class ShowAccumulator {
     }
 
     func add(season: Int, number: Int, source: MediaSource) {
-        let episode = Episode(season: season, number: number, source: source)
-        // Keep the first-seen source. RD returns newest torrents first, so this is usually the
-        // preferred re-download. v2: prefer by resolution via source.parsed.resolution.
-        if episodes[episode.id] == nil { episodes[episode.id] = episode }
+        let key = "s\(season)e\(number)"
+        // Keep EVERY copy. This used to be first-writer-wins, which discarded the other copies of
+        // an episode you own — so the survivor was whichever torrent RD happened to list first,
+        // not the best one, and there was no way to reach the rest. It also left the player with a
+        // single source, making "Try another version" permanently unavailable for episodes.
+        var entry = episodeSources[key] ?? (season: season, number: number, sources: [])
+        // The identical file arriving twice (the same torrent re-ingested) is one copy.
+        guard !entry.sources.contains(where: {
+            $0.torrentID == source.torrentID && $0.fileID == source.fileID
+        }) else { return }
+        entry.sources.append(source)
+        episodeSources[key] = entry
     }
 
     func build() -> MediaItem {
-        let bySeason = Dictionary(grouping: episodes.values, by: { $0.season })
+        // Rank at build time, not on arrival: ordering must depend on quality, not on the order RD
+        // returned torrents, or the same library would order differently between refreshes.
+        let episodes = episodeSources.values.map { entry -> Episode in
+            let ranked = entry.sources.bestFirst()
+            return Episode(season: entry.season, number: entry.number,
+                           source: ranked[0], alternates: Array(ranked.dropFirst()))
+        }
+        let bySeason = Dictionary(grouping: episodes, by: { $0.season })
         let seasons = bySeason.keys.sorted().map { number in
             Season(number: number, episodes: bySeason[number]!.sorted { $0.number < $1.number })
         }

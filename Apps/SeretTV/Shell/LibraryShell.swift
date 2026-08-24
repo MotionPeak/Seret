@@ -55,6 +55,8 @@ struct LibraryShell: View {
                         case .detail(let item): detailDestination(item)
                         case .search(let kind): SearchScreen(kind: kind)
                         case .versions(let hit): VersionsScreen(hit: hit)
+                        case .episodeVersions(let hit, let season, let number):
+                            VersionsScreen(hit: hit, episode: (season: season, number: number))
                         case .person(let ref): PersonScreen(ref: ref)
                         case .play(let request):
                             PlayerHost(request: request, app: session, backdropSize: "original")

@@ -74,7 +74,10 @@ extension PlayerModel {
         resetUpNext()                        // clear the bar/countdown + the old episode's content-end
         isSwitching = true                   // swallow the old media's late `.ended` until E2 renders
         episode = ep
-        sources = [ep.source]
+        // Every owned copy, so a bad stream mid-season can still fall back. This was
+        // `[ep.source]` — a single element — which made `canTryAnotherVersion` permanently false
+        // for episodes while a movie in the same position offered all of its copies.
+        sources = ep.sources.bestFirst()
         sourceIndex = 0
         contentKey = WatchKey.content(forShow: item, episode: ep)
         label = "\(item.title) — S\(ep.season)·E\(ep.number)"

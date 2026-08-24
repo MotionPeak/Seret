@@ -20,6 +20,9 @@ struct DetailScreen: View {
     @State private var similarDetail: MediaItem?
     /// The title whose full version list is open (from "Versions" / "Find Other").
     @State private var versionsHit: SearchHit?
+    /// The EPISODE whose full version list is open. Separate from `versionsHit` because the cover
+    /// needs the season and number too, and only one of the two is ever presented.
+    @State private var episodeVersions: EpisodeVersionsTarget?
     @Environment(AppSession.self) private var session
     @Environment(\.dismiss) private var dismiss
 
@@ -56,7 +59,11 @@ struct DetailScreen: View {
                                 },
                                 onSeasonAdded: { session.libraryStore?.retry() },
                                 onOpenTitle: { similarDetail = $0 },
-                                onAddTitle: { versionsHit = $0 })
+                                onAddTitle: { versionsHit = $0 },
+                                onFindEpisodeVersions: { hit, season, number in
+                                    episodeVersions = EpisodeVersionsTarget(hit: hit, season: season,
+                                                                            number: number)
+                                })
                 }
             }
             .task {
@@ -121,6 +128,12 @@ struct DetailScreen: View {
         // "Versions" — the full cached/uncached release list for this title, owned or not.
         .fullScreenCover(item: $versionsHit) { hit in
             VersionsScreen(hit: hit, onPlay: present)
+        }
+        // The same list, scoped to one episode of a show.
+        .fullScreenCover(item: $episodeVersions) { target in
+            VersionsScreen(hit: target.hit,
+                           episode: (season: target.season, number: target.number),
+                           onPlay: present)
         }
     }
 
@@ -197,4 +210,12 @@ struct PlayerPlaceholder: View {
             Text("Playback isn't available right now.")
         }
     }
+}
+
+/// One episode's version list, as a presentable item.
+private struct EpisodeVersionsTarget: Identifiable {
+    let hit: SearchHit
+    let season: Int
+    let number: Int
+    var id: String { "\(hit.result.id)s\(season)e\(number)" }
 }

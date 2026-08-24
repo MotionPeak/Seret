@@ -40,13 +40,37 @@ public struct MediaSource: Sendable, Equatable, Hashable, Codable {
 public struct Episode: Sendable, Equatable, Hashable, Identifiable, Codable {
     public let season: Int
     public let number: Int
+    /// The copy that plays by default — the best owned one under `bestFirst()`.
     public let source: MediaSource
+    /// Every OTHER owned copy of this episode, best-first.
+    ///
+    /// Modelled as "primary + alternates" rather than turning `source` into an array. The array
+    /// form ripples through every call site, the snapshot `Codable`, the reconciler, both apps and
+    /// the server DTO, and it forces a force-unwrap or a failable init to express "always at least
+    /// one". This keeps `source` exactly as it was, needs no force-unwrap, and lets snapshots
+    /// written before alternates existed decode with an empty list.
+    public let alternates: [MediaSource]
 
-    public init(season: Int, number: Int, source: MediaSource) {
+    public init(season: Int, number: Int, source: MediaSource, alternates: [MediaSource] = []) {
         self.season = season
         self.number = number
         self.source = source
+        self.alternates = alternates
     }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        season = try c.decode(Int.self, forKey: .season)
+        number = try c.decode(Int.self, forKey: .number)
+        source = try c.decode(MediaSource.self, forKey: .source)
+        // Absent in snapshots written before this existed. Decoding to empty rather than failing
+        // matters: the snapshot IS the cached library, and a throw would blank it until refresh.
+        alternates = try c.decodeIfPresent([MediaSource].self, forKey: .alternates) ?? []
+    }
+
+    /// Every owned copy, best-first and never empty — what a Versions list shows, and what lets
+    /// the player fall back when a stream goes bad mid-episode.
+    public var sources: [MediaSource] { [source] + alternates }
 
     public var id: String { "s\(season)e\(number)" }
 }

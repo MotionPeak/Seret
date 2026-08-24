@@ -19,6 +19,8 @@ struct ShowDetail: View {
     /// The parent presents (see `SimilarRail`).
     var onOpenTitle: (MediaItem) -> Void = { _ in }
     var onAddTitle: (SearchHit) -> Void = { _ in }
+    /// Open the version list for ONE episode — the episode equivalent of a movie's "Versions".
+    var onFindEpisodeVersions: (SearchHit, Int, Int) -> Void = { _, _, _ in }
     @State private var seasonStore: AddStore?
     /// The key `seasonStore` was built for. `.task(id:)` re-runs on every re-appearance, not only
     /// when the id changes — and coming back from the player is a re-appearance — so without this
@@ -225,7 +227,8 @@ struct ShowDetail: View {
         LazyVStack(spacing: 0) {
             ForEach(store.episodes(forSeason: store.selectedSeason)) { row in
                 EpisodeRowView(store: store, row: row, isDownloading: downloadingEpisodeID == row.id,
-                               onPlay: onPlay, onDownload: downloadAndPlay)
+                               onPlay: onPlay, onDownload: downloadAndPlay,
+                               onFindVersions: onFindEpisodeVersions)
                 Divider().overlay(Theme.Palette.hairline)
             }
         }
@@ -284,6 +287,7 @@ struct EpisodeRowView: View {
     let isDownloading: Bool
     let onPlay: (PlaybackRequest) -> Void
     let onDownload: (DetailStore.EpisodeRowInfo) -> Void
+    var onFindVersions: (SearchHit, Int, Int) -> Void = { _, _, _ in }
 
     /// Keyed by season/episode NUMBER, not by the file you own: an episode you have watched but
     /// never downloaded still has watch state, and this row still has to show it.
@@ -337,6 +341,22 @@ struct EpisodeRowView: View {
                 Task { await store.setWatched(!isWatched, contentKey: contentKey,
                                               source: row.ownedSource) }
             }
+            // The other copies of this episode you already own — only when there IS a choice, so
+            // the common single-copy episode keeps a one-item menu.
+            if let ep = row.ownedEpisode, row.hasAlternateVersions {
+                Menu("Versions", systemImage: "square.stack.3d.up") {
+                    ForEach(row.ownedVersions, id: \.self) { src in
+                        Button(versionLabel(src)) {
+                            onPlay(store.playRequest(source: src, episode: ep, label: label))
+                        }
+                    }
+                }
+            }
+            if let hit = showHit {
+                Button("Find Other Versions", systemImage: "magnifyingglass") {
+                    onFindVersions(hit, row.season, row.number)
+                }
+            }
         }
     }
 
@@ -356,6 +376,24 @@ struct EpisodeRowView: View {
         .clipped()
         .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.chip))
         .opacity(row.isDownloaded ? 1 : 0.55)     // dim not-downloaded episodes
+    }
+
+    /// The show, as the Add pipeline wants it. Needs a TMDB id to search.
+    private var showHit: SearchHit? {
+        guard let tmdb = store.item.tmdbID else { return nil }
+        return SearchHit(result: TMDBSearchResult(
+            id: tmdb, title: nil, name: store.item.title, releaseDate: nil, firstAirDate: nil,
+            posterPath: store.item.posterPath, overview: nil, voteAverage: nil), kind: .show)
+    }
+
+    /// Resolution · source · size — enough to tell two copies apart in a menu.
+    private func versionLabel(_ src: MediaSource) -> String {
+        var parts = [src.parsed.resolution, src.parsed.source].compactMap { $0 }
+        if let bytes = src.sizeBytes {
+            parts.append(ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file))
+        }
+        if parts.isEmpty { parts = ["Version"] }
+        return parts.joined(separator: " · ")
     }
 
     private var label: String {

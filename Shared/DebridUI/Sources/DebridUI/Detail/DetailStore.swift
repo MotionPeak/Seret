@@ -142,24 +142,31 @@ public final class DetailStore {
         public let season: Int
         public let number: Int
         public let meta: TMDBEpisodeDetails?
-        public let ownedSource: MediaSource?     // nil = not downloaded yet
+        /// The owned `Episode` (play / watch-key / versions) when downloaded; nil = not yet.
+        ///
+        /// Holds the real episode rather than rebuilding one from a lone source. The rebuild
+        /// dropped `alternates`, so every other copy you own was discarded on the way to the
+        /// player and "Try another version" stayed unavailable even once the library kept them.
+        public let ownedEpisode: Episode?
         public var id: String { "s\(season)e\(number)" }
-        public var isDownloaded: Bool { ownedSource != nil }
-        /// The owned `Episode` (play / watch-key) when downloaded.
-        public var ownedEpisode: Episode? {
-            ownedSource.map { Episode(season: season, number: number, source: $0) }
-        }
+        public var isDownloaded: Bool { ownedEpisode != nil }
+        /// The copy that plays by default.
+        public var ownedSource: MediaSource? { ownedEpisode?.source }
+        /// Every owned copy, best-first — what a Versions picker lists.
+        public var ownedVersions: [MediaSource] { ownedEpisode?.sources ?? [] }
+        /// Whether offering a picker is worth it at all.
+        public var hasAlternateVersions: Bool { !(ownedEpisode?.alternates.isEmpty ?? true) }
     }
 
     /// The full episode list for a season — every TMDB episode, merged with whatever is downloaded.
     /// Not-downloaded episodes still appear (`ownedSource == nil`) so the whole show is browsable.
     public func episodes(forSeason season: Int) -> [EpisodeRowInfo] {
         let owned = item.seasons.first { $0.number == season }?.episodes ?? []
-        let ownedByNumber = Dictionary(owned.map { ($0.number, $0.source) }, uniquingKeysWith: { a, _ in a })
+        let ownedByNumber = Dictionary(owned.map { ($0.number, $0) }, uniquingKeysWith: { a, _ in a })
         let metas = episodeMeta[season] ?? [:]
         let numbers = Set(metas.keys).union(owned.map(\.number)).sorted()
         return numbers.map { n in
-            EpisodeRowInfo(season: season, number: n, meta: metas[n], ownedSource: ownedByNumber[n])
+            EpisodeRowInfo(season: season, number: n, meta: metas[n], ownedEpisode: ownedByNumber[n])
         }
     }
 
