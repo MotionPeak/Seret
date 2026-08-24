@@ -67,6 +67,12 @@ public struct FilenameParser: Sendable {
         #"^[(\[](19|20)\d{2}[)\]]$"#,   // a parenthesised/bracketed year: "(2016)" / "[2016]"
         #"(?i)^s\d{1,2}e\d{1,3}$"#,
         #"(?i)^s\d{1,2}$"#,
+        // A season RANGE — "S01-S04", "S1-S4", "S01-04". The token split does not break on `-`, so
+        // this arrives whole and `^s\d{1,2}$` never matched it: the title ran on through the rest
+        // of the name ("Sherlock S01-S04 + Extras Complete"), and since shows group by title key
+        // the pack became a separate show TMDB could not match, with every episode stranded in it.
+        // Anchored at both ends, so a genuinely hyphenated title like "Spider-Man" is untouched.
+        #"(?i)^s\d{1,2}-s?\d{1,2}$"#,
         #"(?i)^\d{1,2}x\d{1,3}$"#,
         #"(?i)^(2160p|1080p|720p|480p)$"#,
         #"(?i)^season$"#,

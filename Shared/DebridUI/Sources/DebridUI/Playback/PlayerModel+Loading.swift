@@ -265,11 +265,18 @@ extension PlayerModel {
         // Only the FIRST one is the first frame — this runs on every advancing tick.
         if !hasRenderedFrame { resumeProbe("FIRST FRAME on screen") }
         #endif
-        hasRenderedFrame = true
-        isBuffering = false
-        loadWatchdog?.cancel()     // the load succeeded — disarm the timeout
-        loadWatchdog = nil
-        isSwitching = false        // the new episode's media is on screen → end events are real again
+        // Assign only what actually changes. This runs on EVERY advancing tick — once a second for
+        // the length of the film — and `@Observable` notifies on every set regardless of whether
+        // the value differs, so writing all four unconditionally invalidated every view observing
+        // them once a second, forever, having changed nothing.
+        if !hasRenderedFrame { hasRenderedFrame = true }
+        if isBuffering { isBuffering = false }
+        if loadWatchdog != nil {
+            loadWatchdog?.cancel()  // the load succeeded — disarm the timeout
+            loadWatchdog = nil
+        }
+        // The new episode's media is on screen → end events are real again.
+        if isSwitching { isSwitching = false }
         #if DEBUG
         startSeekProbeIfRequested()
         #endif
