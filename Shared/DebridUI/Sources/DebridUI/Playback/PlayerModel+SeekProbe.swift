@@ -36,6 +36,28 @@ extension PlayerModel {
         return Double(args[i + 1])
     }
 
+    /// DEBUG-only: is `-resumeProbe` set? Prints the timeline of a resume.
+    ///
+    /// The open question is whether the "best-effort seek right at load" in `loadCurrentSource()`
+    /// is honored at all. libvlc has no input thread until the media opens, so a `set_time` issued
+    /// before then may simply be dropped — in which case EVERY resume pays the slow path: open and
+    /// buffer at byte 0, play from the start, wait for a tick, seek, then buffer again at the real
+    /// offset. That is two buffering cycles and a visible jump, and it would explain "resume is not
+    /// instant" exactly. This measures it instead of assuming it.
+    static var resumeProbeEnabled: Bool {
+        ProcessInfo.processInfo.arguments.contains("-resumeProbe")
+    }
+
+    /// Stamp one moment in the resume timeline, relative to the load that started it.
+    func resumeProbe(_ event: String) {
+        guard Self.resumeProbeEnabled else { return }
+        let now = Date().timeIntervalSince1970
+        if resumeProbeStart == 0 { resumeProbeStart = now }
+        print(String(format: "[resume] %+6.2fs %@ | target=%@ pos=%@ seekIssued=%@ rendered=%@",
+                     now - resumeProbeStart, event, Self.t(resumeTarget), Self.t(position),
+                     resumeSeekIssued ? "Y" : "N", hasRenderedFrame ? "Y" : "N"))
+    }
+
     /// Fire once, a few seconds after the first frame, so the measurement is of a settled stream
     /// rather than of the opening buffer.
     func startSeekProbeIfRequested() {

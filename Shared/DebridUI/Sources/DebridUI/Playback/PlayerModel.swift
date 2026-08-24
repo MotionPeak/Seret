@@ -218,6 +218,8 @@ public final class PlayerModel {
     /// libvlc implementation detail, not something the app sets. Counting them is the only way to
     /// know whether the window is generous or nearly zero.
     var debugTickCount = 0
+    /// DEBUG resume-probe epoch (see PlayerModel+SeekProbe).
+    var resumeProbeStart: Double = 0
     /// The `-autoSeek` probe has fired for this session (see `PlayerModel+SeekProbe`).
     var seekProbeStarted = false
     #endif

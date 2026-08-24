@@ -97,9 +97,15 @@ extension PlayerModel {
                 // can report a slightly-low early duration estimate, and a band would false-drop it).
                 resumeTarget = 0
             } else if t.position >= resumeTarget - 5 {  // arrived (keyframe slack) → resume complete
+                #if DEBUG
+                resumeProbe("ARRIVED at resume point")
+                #endif
                 lastTickPosition = t.position
                 resumeTarget = 0
             } else if !resumeSeekIssued {
+                #if DEBUG
+                resumeProbe("DEFERRED seek — early one was DROPPED")
+                #endif
                 engine.seek(to: resumeTarget)
                 resumeSeekIssued = true
                 resumeTicksSinceSeek = 0
@@ -233,11 +239,19 @@ extension PlayerModel {
             engineHoldsCurrentMedia = true   // from here, time events describe THIS source
             engine.play()
             armLoadWatchdog()
+            #if DEBUG
+            resumeProbeStart = 0; resumeProbe("load+play issued")
+            #endif
             // Resume: a best-effort seek right at load — when VLC honors it while opening, the
             // stream starts AT the point (no pre-roll at 0, no double buffer). If it's dropped,
             // tick() issues the deferred seek exactly as before. Never a load-time start-time:
             // that clips the timeline so you can't rewind before the point.
-            if resumeTarget > 0 { engine.seek(to: resumeTarget) }
+            if resumeTarget > 0 {
+                engine.seek(to: resumeTarget)
+                #if DEBUG
+                resumeProbe("early seek issued")
+                #endif
+            }
         } catch is CancellationError {
             return                                       // superseded; not a real failure
         } catch {
@@ -247,6 +261,10 @@ extension PlayerModel {
 
     /// First frames are on screen. Clears the loading state so the overlay/spinner hide.
     func markRendered() {
+        #if DEBUG
+        // Only the FIRST one is the first frame — this runs on every advancing tick.
+        if !hasRenderedFrame { resumeProbe("FIRST FRAME on screen") }
+        #endif
         hasRenderedFrame = true
         isBuffering = false
         loadWatchdog?.cancel()     // the load succeeded — disarm the timeout
