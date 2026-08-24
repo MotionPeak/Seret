@@ -26,11 +26,23 @@ public struct LibrarySnapshot: Sendable, Equatable, Codable {
     /// torrent no longer looks perpetually "new" and force a full re-fetch on every launch.
     public let seenTorrentIDs: [String]
 
+    /// The same torrents as `seenTorrentIDs`, but as `id:status` — because a torrent's id does not
+    /// change while it downloads. Only its `status` does (`downloading` → `downloaded`), and that
+    /// transition is precisely when a title becomes real. Comparing ids alone reports "nothing
+    /// changed" for it, so a finished download never reached the library.
+    ///
+    /// `nil` in a snapshot written before this field existed, which forces exactly one delta so the
+    /// states get recorded. That costs one `/torrents/info` fan-out and no TMDB calls (the cached
+    /// metadata is carried), so there is no need to discard the snapshot with a schema bump.
+    public let seenTorrentStates: [String]?
+
     public init(schemaVersion: Int = LibrarySnapshot.currentSchemaVersion,
-                builtAt: Date = Date(), items: [MediaItem], seenTorrentIDs: [String] = []) {
+                builtAt: Date = Date(), items: [MediaItem], seenTorrentIDs: [String] = [],
+                seenTorrentStates: [String]? = nil) {
         self.schemaVersion = schemaVersion
         self.builtAt = builtAt
         self.items = items
         self.seenTorrentIDs = seenTorrentIDs
+        self.seenTorrentStates = seenTorrentStates
     }
 }

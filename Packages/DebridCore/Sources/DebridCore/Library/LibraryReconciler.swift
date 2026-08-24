@@ -34,6 +34,24 @@ public struct LibraryReconciler: Sendable {
         seenTorrentIDs != rdTorrentIDs
     }
 
+    /// How a torrent is identified for change detection: its id *and* its status. A torrent keeps
+    /// its id for its whole life, so an id-only comparison cannot see the one change that turns a
+    /// pending download into a playable title.
+    public static func state(of torrent: Torrent) -> String { "\(torrent.id):\(torrent.status)" }
+
+    /// Every torrent's `id:status`, as a set.
+    public static func states(of torrents: [Torrent]) -> Set<String> {
+        Set(torrents.map(state(of:)))
+    }
+
+    /// True when RD's torrents differ — in membership *or* in status — from what the last refresh
+    /// recorded. A `nil` `seen` means the snapshot predates status tracking, which must refresh
+    /// once so the states get written.
+    public func hasDelta(seenTorrentStates seen: Set<String>?, rdTorrentStates: Set<String>) -> Bool {
+        guard let seen else { return true }
+        return seen != rdTorrentStates
+    }
+
     /// Splits the freshly-grouped library into carried-over (reuse cached TMDB metadata) and
     /// new (enrich) — preserving fresh order so the caller can reassemble after enriching.
     public func reconcile(fresh: [MediaItem], cached: [MediaItem]) -> [Reconciled] {

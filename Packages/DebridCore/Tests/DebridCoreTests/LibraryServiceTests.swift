@@ -35,6 +35,19 @@ extension MockTests {
         private static func infoJSON(_ id: String, release: String) -> String {
             #"{"id":"\#(id)","filename":"\#(release)","hash":"h","bytes":1,"progress":100,"status":"downloaded","files":[{"id":1,"path":"/\#(release)","bytes":1,"selected":1}],"links":["https://rd/\#(id)"]}"#
         }
+        /// A torrent list whose rows carry an explicit `status`, for the transitions RD reports
+        /// with an unchanged id (`downloading` → `downloaded`).
+        private static func torrentListJSON(_ rows: [(id: String, status: String)]) -> String {
+            let body = rows.map { row in
+                let links = row.status == "downloaded" ? #"["https://rd/\#(row.id)"]"# : "[]"
+                return #"{"id":"\#(row.id)","filename":"\#(row.id).2024.1080p.mkv","hash":"h","bytes":1,"host":"rd","progress":\#(row.status == "downloaded" ? 100 : 42),"status":"\#(row.status)","added":"2024-01-01T00:00:00Z","links":\#(links)}"#
+            }
+            return "[\(body.joined(separator: ","))]"
+        }
+        /// A torrent RD has not finished yet: no files selected, no links → no item is built.
+        private static func downloadingInfoJSON(_ id: String) -> String {
+            #"{"id":"\#(id)","filename":"Gamma.2024.1080p.mkv","hash":"h","bytes":1,"progress":42,"status":"downloading","files":[],"links":[]}"#
+        }
         /// A torrent whose only file is non-video → `LibraryBuilder` produces NO item for it.
         private static func nonVideoInfoJSON(_ id: String) -> String {
             #"{"id":"\#(id)","filename":"\#(id).sample","hash":"h","bytes":1,"progress":100,"status":"downloaded","files":[{"id":1,"path":"/readme.txt","bytes":1,"selected":1}],"links":["https://rd/\#(id)"]}"#
@@ -182,6 +195,100 @@ extension MockTests {
             // …and the persisted snapshot is merged too, so the next cold launch shows one card.
             #expect(svc.loadCached()?.count == 1)
             #expect(svc.loadCached()?.first?.sources.count == 2)
+        }
+
+        /// A torrent RD is still downloading is listed with the same id it will keep once it
+        /// finishes — only its `status` changes. Comparing ids alone therefore reports "nothing
+        /// changed" for the one transition that matters most, and the finished download never
+        /// reaches the library.
+        @Test func aDownloadThatFinishesEntersTheLibrary() async throws {
+            let svc = service(directory: tempDir())
+            // 1st pass: A is a finished movie; C is still downloading (no files, no links) so it
+            // yields no item — but its id is recorded as seen.
+            MockURLProtocol.handler = { req in
+                let url = req.url!.absoluteString
+                if url.contains("/torrents/info/A") { return Self.resp(req, 200, Self.infoJSON("A", release: "Alpha.2024.1080p.mkv")) }
+                if url.contains("/torrents/info/C") { return Self.resp(req, 200, Self.downloadingInfoJSON("C")) }
+                if url.contains("/torrents") {
+                    return Self.resp(req, 200, Self.torrentListJSON([("A", "downloaded"), ("C", "downloading")]))
+                }
+                if url.contains("/search/movie")    { return Self.resp(req, 200, Self.tmdbJSON(id: 111, title: "Alpha")) }
+                return Self.resp(req, 200, "[]")
+            }
+            #expect(try await svc.refresh().count == 1)
+
+            // 2nd pass: C has finished. Its id is unchanged — only `status` flipped to "downloaded"
+            // and it now has files and links.
+            MockURLProtocol.handler = { req in
+                let url = req.url!.absoluteString
+                if url.contains("/torrents/info/A") { return Self.resp(req, 200, Self.infoJSON("A", release: "Alpha.2024.1080p.mkv")) }
+                if url.contains("/torrents/info/C") { return Self.resp(req, 200, Self.infoJSON("C", release: "Gamma.2024.1080p.mkv")) }
+                if url.contains("/torrents") {
+                    return Self.resp(req, 200, Self.torrentListJSON([("A", "downloaded"), ("C", "downloaded")]))
+                }
+                if url.contains("/search/movie") {
+                    if req.url!.absoluteString.contains("query=Gamma") { return Self.resp(req, 200, Self.tmdbJSON(id: 333, title: "Gamma")) }
+                    return Self.resp(req, 200, Self.tmdbJSON(id: 111, title: "Alpha"))
+                }
+                return Self.resp(req, 200, "[]")
+            }
+            let library = try await svc.refresh()
+            #expect(Set(library.compactMap(\.tmdbID)) == [111, 333])
+        }
+
+        /// `allTorrentInfos` drops a torrent whose `/torrents/info` call fails rather than failing
+        /// the whole load. That torrent then produces no item, so a title RD still holds is written
+        /// out of the snapshot — and because its id is nonetheless recorded as seen, no later
+        /// refresh ever reconsiders it. The title is gone for good.
+        @Test func aTransientInfoFailureDoesNotEraseATitle() async throws {
+            let svc = service(directory: tempDir())
+            // 1st pass: A and B both resolve.
+            MockURLProtocol.handler = { req in
+                let url = req.url!.absoluteString
+                if url.contains("/torrents/info/A") { return Self.resp(req, 200, Self.infoJSON("A", release: "Alpha.2024.1080p.mkv")) }
+                if url.contains("/torrents/info/B") { return Self.resp(req, 200, Self.infoJSON("B", release: "Beta.2024.1080p.mkv")) }
+                if url.contains("/torrents")        { return Self.resp(req, 200, Self.torrentListJSON([("A", "downloaded"), ("B", "downloaded")])) }
+                if url.contains("/search/movie") {
+                    if req.url!.absoluteString.contains("query=Beta") { return Self.resp(req, 200, Self.tmdbJSON(id: 222, title: "Beta")) }
+                    return Self.resp(req, 200, Self.tmdbJSON(id: 111, title: "Alpha"))
+                }
+                return Self.resp(req, 200, "[]")
+            }
+            #expect(Set(try await svc.refresh().compactMap(\.tmdbID)) == [111, 222])
+
+            // 2nd pass: C is added (so there IS a delta and the fan-out runs), and B's info call
+            // fails transiently. B is still in RD's list, so it must survive.
+            MockURLProtocol.handler = { req in
+                let url = req.url!.absoluteString
+                if url.contains("/torrents/info/A") { return Self.resp(req, 200, Self.infoJSON("A", release: "Alpha.2024.1080p.mkv")) }
+                if url.contains("/torrents/info/B") { return Self.resp(req, 500, "{}") }
+                if url.contains("/torrents/info/C") { return Self.resp(req, 200, Self.infoJSON("C", release: "Gamma.2024.1080p.mkv")) }
+                if url.contains("/torrents")        { return Self.resp(req, 200, Self.torrentListJSON([("A", "downloaded"), ("B", "downloaded"), ("C", "downloaded")])) }
+                if url.contains("/search/movie") {
+                    if req.url!.absoluteString.contains("query=Gamma") { return Self.resp(req, 200, Self.tmdbJSON(id: 333, title: "Gamma")) }
+                    return Self.resp(req, 200, Self.tmdbJSON(id: 111, title: "Alpha"))
+                }
+                return Self.resp(req, 200, "[]")
+            }
+            let afterFailure = try await svc.refresh()
+            #expect(Set(afterFailure.compactMap(\.tmdbID)) == [111, 222, 333])
+
+            // 3rd pass: nothing changed in RD and B's info works again. B must still be there —
+            // i.e. the failure must not have been recorded as a successfully-seen state.
+            MockURLProtocol.handler = { req in
+                let url = req.url!.absoluteString
+                if url.contains("/torrents/info/A") { return Self.resp(req, 200, Self.infoJSON("A", release: "Alpha.2024.1080p.mkv")) }
+                if url.contains("/torrents/info/B") { return Self.resp(req, 200, Self.infoJSON("B", release: "Beta.2024.1080p.mkv")) }
+                if url.contains("/torrents/info/C") { return Self.resp(req, 200, Self.infoJSON("C", release: "Gamma.2024.1080p.mkv")) }
+                if url.contains("/torrents")        { return Self.resp(req, 200, Self.torrentListJSON([("A", "downloaded"), ("B", "downloaded"), ("C", "downloaded")])) }
+                if url.contains("/search/movie") {
+                    if req.url!.absoluteString.contains("query=Beta") { return Self.resp(req, 200, Self.tmdbJSON(id: 222, title: "Beta")) }
+                    if req.url!.absoluteString.contains("query=Gamma") { return Self.resp(req, 200, Self.tmdbJSON(id: 333, title: "Gamma")) }
+                    return Self.resp(req, 200, Self.tmdbJSON(id: 111, title: "Alpha"))
+                }
+                return Self.resp(req, 200, "[]")
+            }
+            #expect(Set(try await svc.refresh().compactMap(\.tmdbID)) == [111, 222, 333])
         }
     }
 }

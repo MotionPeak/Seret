@@ -35,12 +35,15 @@ public struct LibraryService: Sendable {
     public func refresh() async throws -> [MediaItem] {
         let snapshot = store.load()
         let cached = snapshot?.items ?? []
-        let seen = Set(snapshot?.seenTorrentIDs ?? [])
+        let seen = snapshot?.seenTorrentStates.map(Set.init)
         let rdTorrents = try await torrents.allTorrents()
-        let rdTorrentIDs = Set(rdTorrents.map(\.id))
-        // Compare against the persisted seen-id set (exact), NOT ids derived from items — otherwise
-        // a non-video torrent looks "new" forever and re-runs the whole info fan-out every launch.
-        guard reconciler.hasDelta(seenTorrentIDs: seen, rdTorrentIDs: rdTorrentIDs) else {
+        let rdTorrentStates = LibraryReconciler.states(of: rdTorrents)
+        // Compare against the persisted seen set (exact), NOT ids derived from items — otherwise a
+        // non-video torrent looks "new" forever and re-runs the whole info fan-out every launch.
+        // The set is keyed by `id:status`, not id alone: a torrent keeps its id from the moment RD
+        // starts downloading it, so an id-only comparison saw no change on the one transition that
+        // makes a title playable, and a finished download never appeared.
+        guard reconciler.hasDelta(seenTorrentStates: seen, rdTorrentStates: rdTorrentStates) else {
             return cached
         }
 
@@ -48,6 +51,10 @@ public struct LibraryService: Sendable {
         // paginates the whole account a SECOND time on every refresh that finds a delta.
         let infos = try await torrents.allTorrentInfos(from: rdTorrents)
         let fresh = builder.group(infos)
+        // `allTorrentInfos` skips a torrent whose `/torrents/info` call failed rather than failing
+        // the whole load, so a transient 5xx silently yields no item for a torrent RD still holds.
+        let resolved = Set(infos.map(\.id))
+        let unresolved = rdTorrents.filter { !resolved.contains($0.id) }
         let plan = reconciler.reconcile(fresh: fresh, cached: cached)
 
         let toEnrich = plan.compactMap { step -> MediaItem? in
@@ -71,13 +78,29 @@ public struct LibraryService: Sendable {
             }
         }
 
+        // A title whose every backing torrent failed to resolve this round is absent from `fresh`
+        // purely because of that failure — RD still lists those torrents. Dropping it would write
+        // the title out of the snapshot, and since its ids were recorded as seen, no later refresh
+        // would reconsider it: a transient 5xx erased a title permanently. Carry it over untouched.
+        let unresolvedIDs = Set(unresolved.map(\.id))
+        let rescued = cached.filter { item in
+            let ids = LibraryReconciler.torrentIDs(of: item)
+            return !ids.isEmpty && ids.allSatisfy(unresolvedIDs.contains)
+        }
+
         // Enrichment re-keys each item by TMDB id, so separate torrents of one title only collide
         // here — fold them into a single entry carrying every version.
-        let library = merger.merge(assembled)
+        let library = merger.merge(assembled + rescued)
+
+        // Record only the torrents we actually resolved. Leaving an unresolved one out means the
+        // next refresh sees a delta and retries it, instead of treating a failure as a known state.
+        let persistedStates = LibraryReconciler.states(of: rdTorrents.filter { resolved.contains($0.id) })
 
         // Best-effort: a cache-write failure (e.g. a sandbox/storage hiccup) must NEVER fail the
         // refresh — the freshly-built library still displays, it just won't be cached this time.
-        try? store.save(LibrarySnapshot(items: library, seenTorrentIDs: Array(rdTorrentIDs)))
+        try? store.save(LibrarySnapshot(items: library,
+                                        seenTorrentIDs: Array(resolved),
+                                        seenTorrentStates: Array(persistedStates)))
         return library
     }
 
