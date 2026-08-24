@@ -121,4 +121,31 @@ import Testing
         let r = ParsedRelease(title: "The Office", year: 2020, season: 5, episode: 3)
         #expect(matcher.matchesSeries(r, title: "The Office"))
     }
+
+    /// Scene releases spell accented titles in plain ASCII, but TMDB stores the accents. Keeping
+    /// only alphanumerics preserved the accent (é IS alphanumeric), so "amélie" and "amelie" never
+    /// contained one another and every release of an accented title was rejected as junk -- the
+    /// title showed no versions at all, and search could add nothing for it.
+    @Test func anAccentedTitleMatchesItsAsciiRelease() {
+        let r = ParsedRelease(title: "Amelie", year: 2001, resolution: "1080p")
+        #expect(matcher.matchesMovie(r, title: "Amélie", year: 2001))
+        #expect(matcher.titleMatches("Amélie", "Amelie"))
+        #expect(matcher.titleMatches("Amelie", "Amélie"))
+    }
+
+    @Test func accentFoldingCoversTheCommonEuropeanTitles() {
+        #expect(matcher.titleMatches("El Laberinto del Fauno", "El Laberinto del Fauno"))
+        #expect(matcher.titleMatches("Léon", "Leon"))
+        #expect(matcher.titleMatches("Mönchengladbach", "Monchengladbach"))
+        #expect(matcher.titleMatches("Coração", "Coracao"))
+        let series = ParsedRelease(title: "Dark", year: nil, season: 1, episode: 1)
+        #expect(matcher.matchesSeries(series, title: "Dark"))
+    }
+
+    /// Folding must not damage non-Latin titles: Hebrew has no accents to strip, and its letters
+    /// have to survive normalization intact or Israeli content stops matching entirely.
+    @Test func hebrewTitlesSurviveNormalization() {
+        #expect(matcher.titleMatches("פאודה", "פאודה"))
+        #expect(!matcher.titleMatches("פאודה", "שטיסל"))
+    }
 }

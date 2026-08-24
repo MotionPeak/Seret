@@ -10,12 +10,12 @@ public struct FilenameParser: Sendable {
         let name = String(raw.split(separator: "/").last ?? Substring(raw))
         let stem = Self.stripExtension(name)
 
-        let releaseGroup = Self.capture(stem, Self.reGroup)
+        let releaseGroup = Self.extractReleaseGroup(stem)
         let resolution = Self.match(stem, Self.reResolution)?.lowercased()
         let source = Self.detectSource(stem)
         let videoCodec = Self.normalizeVideo(Self.match(stem, Self.reVideo))
         let audioCodec = Self.normalizeAudio(Self.match(stem, Self.reAudio))
-        let year = Self.match(stem, Self.reYear).flatMap { Int($0) }
+        let (title, year) = Self.titleAndYear(stem)
 
         var season: Int?
         var episode: Int?
@@ -30,7 +30,7 @@ public struct FilenameParser: Sendable {
         }
 
         return ParsedRelease(
-            title: Self.extractTitle(stem),
+            title: title,
             year: year, season: season, episode: episode,
             resolution: resolution, source: source, videoCodec: videoCodec,
             audioCodec: audioCodec, releaseGroup: releaseGroup)
@@ -38,7 +38,11 @@ public struct FilenameParser: Sendable {
 
     // MARK: - Compiled patterns (compiled once — patterns are static literals, so try! is safe)
 
-    private static let reGroup = make(#"-([A-Za-z0-9]{2,})$"#)
+    /// The final hyphenated pair of a name, so a trailing compound tag ("WEB-DL") can be told
+    /// apart from a real release group ("x264-NTb").
+    private static let reTrailingHyphenPair = make(#"([A-Za-z0-9]+)-([A-Za-z0-9]{2,})$"#)
+    /// A token that is nothing but a year, bare or wrapped: `2016`, `(2016)`, `[2016]`.
+    private static let reYearToken = make(#"^[(\[]?((?:19|20)\d{2})[)\]]?$"#)
     private static let reResolution = make(#"(?i)\b(2160p|1080p|720p|480p)\b"#)
     private static let reSource = make(#"(?i)\b(blu-?ray|bd-?rip|web-?dl|web-?rip|hdtv|dvd-?rip|remux|hdrip|hd-?ts|hd-?cam|telesync|telecine|camrip|cam|screener)\b"#)
     private static let reRemux = make(#"(?i)\bremux\b"#)
@@ -53,8 +57,15 @@ public struct FilenameParser: Sendable {
     // are still required, so `S01.Extras` remains a pack.
     // `\b` would not do here: `_` is a word character, so `Show_S01_E01` has no boundary before the
     // `S` or after the episode digits. Explicit non-alphanumeric lookarounds cover `_` too.
+    // The trailing group makes a DOUBLE episode (`S01E01E02`, `S02E13-E14`) parse as an episode.
+    // Without it `S01E01E02` matched nothing at all: the greedy `E(\d{1,3})` left an `E` in front
+    // of the trailing-boundary lookaround, and backtracking could not rescue it, so the file fell
+    // through to `reSeasonBare` — which also fails, because `\bS01\b` needs a boundary the `E`
+    // does not provide. The result was a double episode parsed as a MOVIE named for the show, so
+    // neither episode ever reached the library. The FIRST episode number is reported: the library
+    // models one episode per file, and appearing as E01 beats not appearing.
     private static let reSeasonEpisode =
-        make(#"(?i)(?<![A-Za-z0-9])S(\d{1,2})[._\s-]?E(\d{1,3})(?![A-Za-z0-9])"#)
+        make(#"(?i)(?<![A-Za-z0-9])S(\d{1,2})[._\s-]?E(\d{1,3})(?:[._\s-]?E?\d{1,3})?(?![A-Za-z0-9])"#)
     private static let reNxM = make(#"(?i)\b(\d{1,2})x(\d{1,3})\b"#)
     private static let reSeasonWord = make(#"(?i)\bseason\s?(\d{1,2})\b"#)
     private static let reSeasonBare = make(#"(?i)\bS(\d{1,2})\b"#)
@@ -65,7 +76,7 @@ public struct FilenameParser: Sendable {
     private static let metadataTokenRegexes: [NSRegularExpression] = [
         #"^(19|20)\d{2}$"#,
         #"^[(\[](19|20)\d{2}[)\]]$"#,   // a parenthesised/bracketed year: "(2016)" / "[2016]"
-        #"(?i)^s\d{1,2}e\d{1,3}$"#,
+        #"(?i)^s\d{1,2}e\d{1,3}(?:[._\s-]?e?\d{1,3})?$"#,   // single or double episode
         #"(?i)^s\d{1,2}$"#,
         // A season RANGE — "S01-S04", "S1-S4", "S01-04". The token split does not break on `-`, so
         // this arrives whole and `^s\d{1,2}$` never matched it: the title ran on through the rest
@@ -86,15 +97,68 @@ public struct FilenameParser: Sendable {
 
     // MARK: - Title
 
-    private static func extractTitle(_ stem: String) -> String {
+    /// Title and release year together, because they cannot be decided apart.
+    ///
+    /// A year-shaped token used to end the title AND become the release year, whichever one came
+    /// first. That is wrong in both directions for a film whose title contains a year: "Blade
+    /// Runner 2049 2017" yielded the title "Blade Runner" with year 2049, and "2012 2009" yielded
+    /// no title tokens at all — so the empty-title fallback handed TMDB the entire raw release
+    /// string. Either way enrichment matched nothing, and the title showed no poster.
+    ///
+    /// The rule: when a name carries several year-shaped tokens, only the LAST is the release year;
+    /// earlier ones belong to the title. When it carries exactly one and nothing precedes it, that
+    /// token IS the title (a film named for a year) and there is no release year to report.
+    private static func titleAndYear(_ stem: String) -> (String, Int?) {
         let tokens = stem.split(whereSeparator: { $0 == "." || $0 == "_" || $0 == " " }).map(String.init)
+        let yearIndices = tokens.indices.filter { yearValue(tokens[$0]) != nil }
+        let releaseYearIndex = yearIndices.last
+
         var titleTokens: [String] = []
-        for token in tokens {
+        for (i, token) in tokens.enumerated() {
+            if yearValue(token) != nil {
+                if i == releaseYearIndex { break }
+                titleTokens.append(token)      // an earlier year is part of the title
+                continue
+            }
             if isMetadataToken(token) { break }
             titleTokens.append(token)
         }
+
+        // Nothing before the only year-shaped token: the token is the title, not metadata.
+        if titleTokens.isEmpty, let index = releaseYearIndex, index == 0 {
+            return (tokens[0].trimmingCharacters(in: CharacterSet(charactersIn: "()[]")), nil)
+        }
+
         let joined = titleTokens.joined(separator: " ").trimmingCharacters(in: .whitespaces)
-        return joined.isEmpty ? stem : joined
+        // Fall back to the stem-wide regex when no token is year-shaped: a name with no separators
+        // ("Movie(2024)1080p") still has a findable year.
+        let year = releaseYearIndex.flatMap { yearValue(tokens[$0]) }
+            ?? Self.match(stem, Self.reYear).flatMap { Int($0) }
+        return (joined.isEmpty ? stem : joined, year)
+    }
+
+    /// The year a token denotes, if it is nothing but a year — bare (`2016`) or wrapped (`(2016)`,
+    /// `[2016]`).
+    private static func yearValue(_ token: String) -> Int? {
+        guard let digits = capture(token, reYearToken) else { return nil }
+        return Int(digits)
+    }
+
+    /// The release group is whatever follows the final hyphen — but a name that simply ends in a
+    /// compound source or audio tag has no group at all, and returning half the tag ("WEB-DL" →
+    /// "DL", "DTS-HD" → "HD") poisoned the group match that ranks subtitles.
+    private static func extractReleaseGroup(_ stem: String) -> String? {
+        guard let pair = captures(stem, reTrailingHyphenPair), pair.count == 2 else { return nil }
+        let whole = "\(pair[0])-\(pair[1])"
+        if matchesWholly(whole, reSource) || matchesWholly(whole, reAudio) { return nil }
+        return pair[1]
+    }
+
+    /// True when `re` matches the entire string, not merely a part of it.
+    private static func matchesWholly(_ s: String, _ re: NSRegularExpression) -> Bool {
+        let range = NSRange(s.startIndex..., in: s)
+        guard let m = re.firstMatch(in: s, range: range) else { return false }
+        return m.range == range
     }
 
     private static func isMetadataToken(_ t: String) -> Bool {

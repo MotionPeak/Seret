@@ -16,7 +16,12 @@ public struct LibrarySnapshot: Sendable, Equatable, Codable {
     /// 3: episode names with a separator (`S01.E01`) now parse as episodes, and a season RANGE
     /// (`S01-S04`) ends the title — so complete-series packs merge into their show instead of
     /// becoming a separate, unmatchable one.
-    public static let currentSchemaVersion = 3
+    ///
+    /// 4: a year inside a title is no longer mistaken for the release year ("Blade Runner 2049",
+    /// "2012"), and a double episode (`S01E01E02`) parses as an episode instead of a movie. Both
+    /// change the title a torrent groups under, so an existing library has to be re-grouped to
+    /// pick them up.
+    public static let currentSchemaVersion = 4
 
     public let schemaVersion: Int
     public let builtAt: Date

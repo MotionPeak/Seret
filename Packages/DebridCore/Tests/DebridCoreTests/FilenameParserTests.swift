@@ -137,4 +137,60 @@ struct FilenameParserTests {
         #expect(r.year == nil)
         #expect(r.isTV == false)
     }
+
+    /// The release year was whichever year-shaped token came FIRST, so a film whose title contains
+    /// a year handed TMDB the title's year and matched nothing (or the wrong film).
+    @Test func aYearInsideTheTitleIsNotTheReleaseYear() {
+        let r = parser.parse("Blade.Runner.2049.2017.2160p.BluRay.REMUX.x265-GRP.mkv")
+        #expect(r.title == "Blade Runner 2049")
+        #expect(r.year == 2017)
+        #expect(r.resolution == "2160p")
+    }
+
+    /// …and the title has to keep that year, or "Blade Runner" + 2017 searches for the wrong film.
+    @Test func aTitleThatIsAYearSurvivesAlongsideItsReleaseYear() {
+        let r = parser.parse("2012.2009.1080p.BluRay.x264-SPARKS.mkv")
+        #expect(r.title == "2012")
+        #expect(r.year == 2009)
+        #expect(r.releaseGroup == "SPARKS")
+    }
+
+    /// With only one year-shaped token and nothing before it, treating it as metadata left the
+    /// title empty — and the empty-title fallback handed back the whole raw release string, which
+    /// TMDB cannot match.
+    @Test func aFilmNamedForAYearIsNotTitledWithItsWholeReleaseString() {
+        let r = parser.parse("2012.1080p.BluRay.x264-SPARKS.mkv")
+        #expect(r.title == "2012")
+        #expect(r.year == nil)
+        #expect(r.resolution == "1080p")
+    }
+
+    /// A double-episode file matched neither the season+episode pattern (the second `E` broke the
+    /// trailing lookaround) nor the bare-season one, so it parsed as a MOVIE named for the show and
+    /// the episodes never reached the library.
+    @Test func aDoubleEpisodeFileIsStillAnEpisode() {
+        let r = parser.parse("Some.Show.S01E01E02.1080p.WEB-DL.x264-GRP.mkv")
+        #expect(r.title == "Some Show")
+        #expect(r.season == 1)
+        #expect(r.episode == 1)
+        #expect(r.isTV == true)
+    }
+
+    @Test func aDoubleEpisodeFileWithSeparatorsIsStillAnEpisode() {
+        let r = parser.parse("Some.Show.S02E13-E14.1080p.HDTV.x264.mkv")
+        #expect(r.season == 2)
+        #expect(r.episode == 13)
+        #expect(r.isTV == true)
+    }
+
+    /// The release group is whatever trails the last hyphen — which, for a name that simply ends in
+    /// a source tag, was half of that tag. "DL" then poisoned release-group matching when ranking
+    /// subtitles.
+    @Test func aTrailingSourceTagIsNotAReleaseGroup() {
+        #expect(parser.parse("Some.Film.2024.1080p.WEB-DL.mkv").releaseGroup == nil)
+        #expect(parser.parse("Some.Film.2024.2160p.Blu-Ray.mkv").releaseGroup == nil)
+        #expect(parser.parse("Some.Film.2024.2160p.TrueHD.Atmos.DTS-HD.mkv").releaseGroup == nil)
+        // …but a real group still is one.
+        #expect(parser.parse("Some.Film.2024.1080p.WEB-DL.x264-NTb.mkv").releaseGroup == "NTb")
+    }
 }

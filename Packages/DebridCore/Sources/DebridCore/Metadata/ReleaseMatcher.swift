@@ -58,10 +58,24 @@ public struct ReleaseMatcher: Sendable {
         return x.contains(y) || y.contains(x)
     }
 
-    /// Lowercase, keep only alphanumerics (Unicode-aware, so Hebrew titles survive). Strips the
-    /// punctuation/separators that differ between a TMDB title and a dotted release name.
+    /// Fold accents, lowercase, keep only alphanumerics (Unicode-aware, so Hebrew titles survive).
+    /// Strips the punctuation/separators that differ between a TMDB title and a dotted release name.
+    ///
+    /// The accent fold is load-bearing. Scene releases spell accented titles in plain ASCII while
+    /// TMDB stores the accents, and `é` is alphanumeric — so it survived normalization and
+    /// "amélie" never contained "amelie". Every release of an accented title was therefore rejected
+    /// as mis-attributed junk: the title listed no versions at all, and search could add nothing
+    /// for it. Non-Latin scripts are unaffected — Hebrew has no accents to strip, and its combining
+    /// marks were already dropped by the alphanumeric filter.
+    ///
+    /// The locale is pinned rather than taken from the system: Turkish folds `I`/`i` differently,
+    /// which would make matching depend on the viewer's device language.
+    private static let foldingLocale = Locale(identifier: "en_US_POSIX")
+
     static func normalize(_ s: String) -> String {
-        String(String.UnicodeScalarView(s.lowercased().unicodeScalars.filter {
+        let folded = s.folding(options: [.diacriticInsensitive, .widthInsensitive],
+                               locale: foldingLocale)
+        return String(String.UnicodeScalarView(folded.lowercased().unicodeScalars.filter {
             CharacterSet.alphanumerics.contains($0)
         }))
     }
