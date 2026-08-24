@@ -96,6 +96,33 @@ public extension TorrentInfo {
             .max { $0.file.bytes < $1.file.bytes }
     }
 
+    /// The selected video file for ONE episode, paired with its restricted link.
+    ///
+    /// `primaryVideoFile()` answers "the largest video file", which is right for a movie and
+    /// wrong for a season pack: it returns whichever episode happens to be biggest. Playback
+    /// used it for episodes too, so clicking E3 played the double-length opener while recording
+    /// progress under E3's key.
+    ///
+    /// Matching is on the FILE's own parsed name, not the torrent's — a pack is named for the
+    /// season, only its files name episodes. `season: nil` matches on episode number alone (a
+    /// file named "Episode 2.mkv" carries no season); a non-nil season must match when the file
+    /// states one, so a S01–S02 pack never confuses S01E03 with S02E03.
+    ///
+    /// Returns nil when the episode isn't in this torrent — deliberately, because a consolation
+    /// file IS the defect. Nothing is better than the wrong episode.
+    func videoFile(forSeason season: Int?, episode: Int) -> (file: TorrentFile, link: String)? {
+        let parser = FilenameParser()
+        return selectedFilesWithLinks()
+            .filter { Self.isVideo($0.file.path) }
+            .first { pair in
+                let parsed = parser.parse(pair.file.path)
+                guard parsed.episode == episode else { return false }
+                // A file that names no season belongs to whatever season was asked for.
+                guard let season, let fileSeason = parsed.season else { return true }
+                return fileSeason == season
+            }
+    }
+
     /// File ids of the torrent's video files — what to pass to `selectFiles` so RD doesn't
     /// also "select" junk (thumbnails, .nfo, .sqlite metadata). Selecting non-video files
     /// breaks the file↔link pairing (RD only returns links for the real media). Empty → the

@@ -46,7 +46,15 @@ public struct LibraryBuilder: Sendable {
     /// is expanded by parsing each selected video file path for its episode number.
     private func ingestTV(_ info: TorrentInfo, _ parsed: ParsedRelease, into acc: ShowAccumulator) {
         acc.observe(added: Self.parseAdded(info.added))
-        if let episode = parsed.episode, let primary = info.primaryVideoFile() {
+        if let episode = parsed.episode {
+            // Prefer the file that actually NAMES this episode. A torrent whose name states one
+            // episode can still hold several — pack adds are routinely named after their first —
+            // and `primaryVideoFile()` (the largest file) then returns the wrong episode while the
+            // row still records progress under the clicked one. Fall back to the largest video
+            // when no file names the episode, so an oddly-named single-episode torrent is not
+            // dropped from the library.
+            guard let primary = info.videoFile(forSeason: parsed.season, episode: episode)
+                ?? info.primaryVideoFile() else { return }
             acc.add(season: parsed.season ?? 1, number: episode,
                     source: MediaSource(torrentID: info.id, fileID: primary.file.id,
                                         restrictedLink: primary.link, parsed: parsed))
