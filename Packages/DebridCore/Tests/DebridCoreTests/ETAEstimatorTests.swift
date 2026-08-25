@@ -187,4 +187,19 @@ import Foundation
         #expect(high < 2_000)
         #expect(high / max(low, 1) < 5)      // the sawtooth spanned four orders of magnitude
     }
+
+    /// RD queues a torrent before it starts moving bytes. The anchor only advances on real
+    /// movement, so one planted during the queue stays there — and the first measured rate then
+    /// spans the wait as if it were transfer time, reading an order of magnitude slow.
+    @Test func timeSpentQueuedDoesNotDiluteTheFirstMeasuredRate() {
+        var e = ETAEstimator()
+        // Three minutes queued: polled, but nothing downloaded.
+        for tick in stride(from: 0.0, through: 180.0, by: 10.0) {
+            _ = e.observe(fraction: 0, totalBytes: 10_000, reportedSpeed: nil, at: at(tick))
+        }
+        // Then it moves: 1000 bytes in 10s = 100 B/s, so 9000 remaining ≈ 90s.
+        let eta = e.observe(fraction: 0.1, totalBytes: 10_000, reportedSpeed: nil, at: at(190))
+        #expect(eta != nil)
+        #expect((eta ?? 0) < 200)      // diluted by the queue it would have been ~1700
+    }
 }

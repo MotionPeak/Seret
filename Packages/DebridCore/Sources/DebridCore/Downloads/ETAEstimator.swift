@@ -75,7 +75,17 @@ public struct ETAEstimator: Sendable, Equatable {
         if let previous = anchor {
             let elapsed = now.timeIntervalSince(previous.at)
             let moved = done - previous.bytesDone
-            if elapsed >= minInterval, moved > 0 {
+            if done == 0, (reportedSpeed ?? 0) <= 0 {
+                // Not started: RD queues a torrent before it moves any bytes, and reports no speed
+                // while it does. The anchor only advances on real movement, so one planted during
+                // that wait would stay there and the first measured rate would span the queue as if
+                // it were transfer time, reading an order of magnitude slow.
+                //
+                // The speed check is what keeps this from also catching a download that IS running
+                // but has not yet crossed RD's first whole percent. Re-planting through that would
+                // measure only the last poll's interval and read an order of magnitude FAST.
+                anchor = Sample(at: now, bytesDone: 0)
+            } else if elapsed >= minInterval, moved > 0 {
                 // The anchor only advances when bytes actually move, so this spans the WHOLE flat
                 // stretch since they last did — which makes it the true average rate rather than a
                 // spike.

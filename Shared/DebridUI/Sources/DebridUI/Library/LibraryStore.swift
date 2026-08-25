@@ -98,14 +98,16 @@ public final class LibraryStore {
         }
         do {
             let items = try await library.refresh()
-            try Task.checkCancellation()   // a retry cancels the old task — don't apply a stale result
-            // …and a removal that happened while this was in flight outranks it. See
-            // `contentGeneration`: without this the deleted title came straight back.
+            // A removal that happened while this was in flight outranks it. See `contentGeneration`:
+            // without this the deleted title came straight back.
+            //
+            // This used to also `try Task.checkCancellation()`, from when the refresh ran inline in
+            // the caller's task and a retry cancelled it. The body runs in an unstructured task now
+            // that nobody cancels, so that check could never fire — and the generation guard is
+            // what actually keeps a stale list from being applied.
             guard generation == contentGeneration else { return }
             apply(items)
             await reloadWatchStates()
-        } catch is CancellationError {
-            // Superseded by a newer load(); leave state for the new task to set.
         } catch {
             // Keep any cache visible; only surface a failure when there's nothing to show.
             if movies.isEmpty, shows.isEmpty { state = .failed(Self.message(for: error)) }
@@ -115,7 +117,16 @@ public final class LibraryStore {
     /// Ask for a fresh load. Bumping `attempt` drives the `.task(id:)` on whichever screen is
     /// showing the grid — but that only works while such a screen is MOUNTED, so a caller with no
     /// view behind it (a finished download, say) must use `reload()` instead.
-    public func retry() { attempt += 1 }
+    ///
+    /// It flags the same pending follow-up `reload()` does. The re-fired `.task` calls `load()`,
+    /// which JOINS a refresh already running — and that refresh was fetched before whatever
+    /// prompted the retry existed. The instant-add screens call this the moment a torrent lands in
+    /// RD, so without the flag the newly added title was simply absent, and the shell being the
+    /// mounted root, its task would not fire again on its own.
+    public func retry() {
+        attempt += 1
+        if loadTask != nil { reloadPending = true }
+    }
 
     /// Reload now, whether or not any screen is watching. `retry()` alone only bumps a counter, so
     /// a download that finished while the viewer was on Home never reached the library until they

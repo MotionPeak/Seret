@@ -234,6 +234,33 @@ private struct CountingLibrary: LibraryProviding {
         #expect(await counter.count == 2)              // the reload actually happened
     }
 
+
+    /// `retry()` is what the instant-add screens call when a torrent lands in RD, and the shell's
+    /// `.task(id: attempt)` re-fires into `load()`. Coalescing made that re-entry JOIN the refresh
+    /// already running — which was fetched before the torrent existed — so the newly added title
+    /// was absent from the library, and the shell being the mounted root, its task would not fire
+    /// again on its own. `reload()` was given a pending-follow-up flag for exactly this; `retry()`
+    /// was left a bare counter bump, and it is the call four of the six add sites use.
+    @Test func aRetryDuringAnInFlightLoadStillRefreshes() async {
+        let counter = RefreshCounter()
+        let released = Gate()
+        let library = CountingLibrary(items: [movie("1")], counter: counter,
+                                      gate: { await released.wait() })
+        let store = LibraryStore(library: library)
+
+        async let owner: Void = store.load()
+        while await counter.count < 1 { await Task.yield() }
+
+        store.retry()                                  // …a torrent was just added
+        async let refire: Void = store.load()          // the shell's .task(id: attempt) re-firing
+        await Task.yield()
+        await released.open()
+        _ = await (owner, refire)
+        for _ in 0..<50 { await Task.yield() }
+
+        #expect(await counter.count == 2)
+    }
+
     private actor Gate {
         private var opened = false
         private var waiters: [CheckedContinuation<Void, Never>] = []
