@@ -53,8 +53,14 @@ final class FakeVideoPlayerEngine: VideoPlayerEngine {
     func selectSubtitleTrack(id: String?) { selectedSubtitleID = id }
     /// Forget what was last selected, so a test can prove a second pass does NOT re-issue it.
     func clearSubtitleSelection() { selectedSubtitleID = nil }
+    /// When true, `addExternalSubtitle` records the URL but does NOT surface a track — the test
+    /// drives the track list itself, which is how VLCKit really behaves: the slave arrives later,
+    /// and other tracks can finish parsing in the meantime.
+    var deferSlaveAttach = false
+
     func addExternalSubtitle(url: URL) {
         addedSubtitles.append(url)
+        guard !deferSlaveAttach else { return }
         // Simulate VLCKit surfacing the external sub as a new, generically-named slave track.
         subtitleTracks.append(MediaTrack(id: "ext/\(addedSubtitles.count)", kind: .subtitle,
                                          name: "Track \(subtitleTracks.count + 1)", language: nil,

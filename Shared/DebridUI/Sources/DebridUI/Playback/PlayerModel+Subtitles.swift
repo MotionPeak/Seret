@@ -136,8 +136,13 @@ extension PlayerModel {
     /// `.tracksChanged`. Marking the row attached also drops the engine's generic "Track N" pill:
     /// `embeddedSubtitleTracks` excludes any id a language row now owns.
     func attachPendingSubtitleIfReady() {
-        guard let pending = pendingSubtitleAttach,
-              let newID = engine.subtitleTracks.first(where: { !pending.before.contains($0.id) })?.id
+        guard let pending = pendingSubtitleAttach else { return }
+        // Any track that was not there when the download started is a candidate — but VLCKit parses
+        // a media's own tracks progressively, so a MUXED one can surface in that same window and be
+        // mistaken for the slave. Prefer an external track, which is unambiguously the file we just
+        // attached; fall back to the first newcomer when the engine reports none as external.
+        let newcomers = engine.subtitleTracks.filter { !pending.before.contains($0.id) }
+        guard let newID = (newcomers.first(where: \.isExternal) ?? newcomers.first)?.id
         else { return }
         engine.selectSubtitleTrack(id: newID)
         selectedSubtitleID = newID

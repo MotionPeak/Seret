@@ -88,16 +88,24 @@ public actor RealDebridSession {
             cached = updated
             return updated
         } catch HTTPError.status(let code, let body)
-            where (400...403).contains(code) || body.contains("invalid_grant") {
+            where code == 400 || body.contains("invalid_grant") {
             // The refresh token is definitively rejected (spent / rotated by another device /
-            // revoked). RD's OAuth token endpoint returns this as HTTP 400 `invalid_grant` (per
-            // OAuth2 RFC 6749 §5.2 — the same endpoint whose 400 the device-code poll already
-            // treats as an OAuth grant state), NOT 401/403 — so match the 4xx grant-error range and
-            // the `invalid_grant` marker. Clear the poisoned session so every later
-            // validAccessToken() stops re-firing a doomed refresh (which would otherwise fail every
-            // action AND hammer RD's token endpoint — itself a throttle risk); the next launch then
-            // routes cleanly to sign-in. Transient/transport errors (network blip, 5xx) fall through
-            // untouched, so a refresh stays retryable and a flaky connection never signs the user out.
+            // revoked). RD's OAuth token endpoint says so as HTTP 400 `invalid_grant`, which is
+            // what OAuth2 RFC 6749 §5.2 specifies and the same 400 the device-code poll already
+            // reads as a grant state. Clear the poisoned session so every later validAccessToken()
+            // stops re-firing a doomed refresh (which would otherwise fail every action AND hammer
+            // RD's token endpoint — itself a throttle risk); the next launch then routes cleanly to
+            // sign-in.
+            //
+            // Matched NARROWLY, on the status OAuth actually defines plus the marker in the body.
+            // This used to take the whole 400...403 range, which swept in the one response
+            // Real-Debrid is documented to give under load: a bare 403, with no OAuth error in it
+            // at all. Being rate-limited mid-refresh therefore DELETED a perfectly good refresh
+            // token and forced a full re-sign-in — through the device-code flow, which is itself
+            // throttled, so the viewer could not immediately get back in either.
+            //
+            // Transient and transport errors (a network blip, a 5xx, a throttle) fall through
+            // untouched, so a refresh stays retryable and a bad moment never signs anyone out.
             try? store.clear()
             cached = nil
             throw RealDebridSessionError.notSignedIn

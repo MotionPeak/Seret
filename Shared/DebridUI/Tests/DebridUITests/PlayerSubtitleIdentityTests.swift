@@ -135,4 +135,39 @@ import DebridCore
 
         #expect(m.subtitlePickedByUser == false)
     }
+
+    /// VLCKit parses a media's own tracks progressively, so a MUXED subtitle can surface in the
+    /// window between a download starting and its slave attaching. Taking simply "the first track
+    /// that was not there before" claimed that muxed one instead — the language row said attached
+    /// while pointing at a track the viewer never asked for, and the downloaded file was never
+    /// selected at all.
+    @Test func aLateMuxedTrackIsNotMistakenForTheDownload() async {
+        let engine = FakeVideoPlayerEngine()
+        let subs = FakeSubtitleProvider()
+        subs.searchResults = [SubtitleResult(fileID: 1, language: "he")]
+        let m = model(subs, engine)
+        m.start()
+        await m.waitForIdleForTesting()
+
+        // The download starts against an empty track list and the slave arrives LATER, as it does
+        // in VLCKit.
+        engine.subtitleTracks = []
+        engine.deferSlaveAttach = true
+        await m.requestSubtitle(language: "he")
+
+        // A muxed French track finishes parsing in that window and lands FIRST in the list; the
+        // slave follows.
+        engine.subtitleTracks = [
+            MediaTrack(id: "spu/0", kind: .subtitle, name: "French", language: "fr",
+                       isExternal: false),
+            MediaTrack(id: "ext/1", kind: .subtitle, name: "Track 2", language: nil,
+                       isExternal: true),
+        ]
+        m.refreshTracks()
+        await m.waitForIdleForTesting()
+
+        // The slave, not the muxed newcomer that happens to come first.
+        #expect(m.selectedSubtitleID == "ext/1")
+        #expect(m.subtitleRows.first(where: { $0.language == "he" })?.state == .attached("ext/1"))
+    }
 }

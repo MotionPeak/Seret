@@ -13,6 +13,42 @@ extension MockTests {
                 obtainedAt: obtainedAt)
         }
 
+        /// Real-Debrid answers a rate limit with a bare 403 carrying no OAuth error at all. Taking
+        /// the whole 400...403 range as "the refresh token is rejected" therefore DELETED a
+        /// perfectly good refresh token whenever a refresh happened to land during a throttle --
+        /// forcing a full re-sign-in through the device-code flow, which is itself throttled, so
+        /// the viewer could not immediately get back in either.
+        @Test func aThrottledRefreshKeepsTheStoredCredentials() async throws {
+            let store = InMemoryTokenStore()
+            let t0 = Date(timeIntervalSince1970: 1_000_000)
+            try store.save(creds(expiresIn: 3600, obtainedAt: t0))
+            let session = RealDebridSession(
+                auth: RealDebridAuthClient(http: HTTPClient(session: .mock)),
+                store: store,
+                now: { t0.addingTimeInterval(3600) })   // expired → a refresh is attempted
+
+            MockURLProtocol.stub(status: 403, json: #"{"error":null,"error_code":null}"#)
+            await #expect(throws: (any Error).self) { try await session.validAccessToken() }
+
+            #expect(try store.load() != nil)      // still signed in; the refresh is simply retryable
+        }
+
+        /// …and a 5xx outage likewise.
+        @Test func anOutageDuringRefreshKeepsTheStoredCredentials() async throws {
+            let store = InMemoryTokenStore()
+            let t0 = Date(timeIntervalSince1970: 1_000_000)
+            try store.save(creds(expiresIn: 3600, obtainedAt: t0))
+            let session = RealDebridSession(
+                auth: RealDebridAuthClient(http: HTTPClient(session: .mock)),
+                store: store,
+                now: { t0.addingTimeInterval(3600) })
+
+            MockURLProtocol.stub(status: 503, json: "{}")
+            await #expect(throws: (any Error).self) { try await session.validAccessToken() }
+
+            #expect(try store.load() != nil)
+        }
+
         @Test func returnsNotSignedInWhenEmpty() async throws {
             let session = RealDebridSession(
                 auth: RealDebridAuthClient(http: HTTPClient(session: .mock)),
