@@ -262,7 +262,18 @@ public final class LibraryStore {
                                    uniquingKeysWith: { first, _ in first })
     }
 
-    private static func message(for error: Error) -> String {
-        "Couldn't load your library. Check your connection and try again."
+    static func message(for error: Error) -> String {
+        // Credentials are only cleared when Real-Debrid says so in the one way OAuth defines, so a
+        // persistent rejection of any other shape leaves the app signed in and failing. "Check your
+        // connection" is then both wrong and a dead end — this at least names what happened and
+        // where the way out is. Hedged, because a 403 is also how Real-Debrid reports a rate limit,
+        // which passes on its own.
+        if case HTTPError.status(let code, _) = error, code == 401 || code == 403 {
+            return "Real‑Debrid refused the request. If this keeps happening, sign out and sign in again in Settings."
+        }
+        if error is RealDebridSessionError {
+            return "You're signed out of Real‑Debrid. Sign in again in Settings."
+        }
+        return "Couldn't load your library. Check your connection and try again."
     }
 }

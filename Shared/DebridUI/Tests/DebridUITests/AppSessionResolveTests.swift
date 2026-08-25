@@ -40,3 +40,34 @@ import DebridCore
         #expect(!AppSession.mustReauthenticate(after: URLError(.notConnectedToInternet)))
     }
 }
+
+
+/// What the library says when it cannot load. Credentials are only cleared when Real-Debrid says so
+/// in the one way OAuth defines, so a persistent rejection of any other shape leaves the app signed
+/// in and failing — and "check your connection" is then both wrong and a dead end.
+@MainActor
+@Suite struct LibraryFailureMessageTests {
+    private enum Transport: Error { case offline }
+
+    @Test func aRefusalNamesItselfAndPointsAtTheWayOut() {
+        for code in [401, 403] {
+            let message = LibraryStore.message(for: HTTPError.status(code: code, body: ""))
+            #expect(message.contains("refused"))
+            #expect(message.lowercased().contains("sign out"))
+        }
+    }
+
+    @Test func beingSignedOutSaysSo() {
+        let message = LibraryStore.message(for: RealDebridSessionError.notSignedIn)
+        #expect(message.lowercased().contains("signed out"))
+    }
+
+    /// Everything else is still the ordinary connection message — a 5xx or a dropped Wi-Fi is not
+    /// an account problem and must not send anyone to Settings.
+    @Test func anOrdinaryFailureStillReadsAsOne() {
+        for error in [HTTPError.status(code: 503, body: ""), Transport.offline] as [any Error] {
+            let message = LibraryStore.message(for: error)
+            #expect(message.contains("Check your connection"))
+        }
+    }
+}
