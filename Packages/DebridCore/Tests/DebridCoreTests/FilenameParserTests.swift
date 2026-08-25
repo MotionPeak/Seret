@@ -270,4 +270,35 @@ struct FilenameParserTests {
         #expect(r.title == "REC")
         #expect(r.year == 2007)
     }
+
+    /// Fansub naming states a later season as a bare `S2` token, not `S02E01`. Forcing season 1 on
+    /// every fansub episode made a season-2 premiere collide with the season-1 one: both keyed
+    /// `s1e1`, so the show grew ONE episode row holding two files, and whichever ranked higher is
+    /// what "S01E01" played.
+    @Test func aFansubEpisodeKeepsItsOwnSeason() {
+        let s1 = parser.parse("[Judas] Vinland Saga - 01 [1080p].mkv")
+        let s2 = parser.parse("[Judas] Vinland Saga S2 - 01 [1080p].mkv")
+        #expect(s1.season == 1)
+        #expect(s1.episode == 1)
+        #expect(s2.season == 2)
+        #expect(s2.episode == 1)
+        #expect(s1.title == s2.title)      // …and they are still the same show
+    }
+
+    /// A leading bracketed token followed only by a NUMBER is the title, not a group tag —
+    /// "[REC] 2" is a film. Dropping the tag left the title as the bare "2", which TMDB will match
+    /// to something, and confidently.
+    @Test func aBracketedTitleFollowedByANumberKeepsBoth() {
+        let r = parser.parse("[REC].2.2009.1080p.BluRay.x264-GRP.mkv")
+        #expect(r.title == "REC 2")
+        #expect(r.year == 2009)
+    }
+
+    /// …while a fansub series whose NAME is a number still drops its group tag, because the
+    /// `- <episode>` marker says what the name is.
+    @Test func aFansubSeriesNamedWithANumberStillDropsItsGroupTag() {
+        let r = parser.parse("[Group] 86 - 07 [1080p].mkv")
+        #expect(r.title == "86")
+        #expect(r.episode == 7)
+    }
 }

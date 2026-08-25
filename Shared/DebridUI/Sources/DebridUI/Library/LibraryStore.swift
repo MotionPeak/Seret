@@ -65,12 +65,13 @@ public final class LibraryStore {
     private var reloadPending = false
 
     public func load() async {
+        // A joiner only waits. It must NOT consume `reloadPending`: both it and the owner resume
+        // when the task finishes, and if the joiner got there first it cleared the flag, re-entered,
+        // joined the same already-finished task and returned — leaving the owner with nothing to
+        // do. The reload was silently dropped, which is exactly the case it exists for: a download
+        // that landed mid-refresh still never reached the library.
         if let loadTask {
             await loadTask.value
-            if reloadPending {
-                reloadPending = false
-                await load()
-            }
             return
         }
         let task = Task { @MainActor [weak self] in
@@ -79,7 +80,8 @@ public final class LibraryStore {
         }
         loadTask = task
         await task.value
-        if loadTask == task { loadTask = nil }
+        loadTask = nil
+        // The owner, and only the owner, runs whatever was asked for while it was busy.
         if reloadPending {
             reloadPending = false
             await load()

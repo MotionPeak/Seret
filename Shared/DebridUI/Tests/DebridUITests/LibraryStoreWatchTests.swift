@@ -205,6 +205,35 @@ private struct CountingLibrary: LibraryProviding {
         #expect(await counter.count == 2)
     }
 
+
+    /// A reload asked for WHILE a load is running must still run.
+    ///
+    /// The joiner and the owner both resume when the in-flight task finishes. When the joiner
+    /// cleared the pending flag it re-entered, joined the same already-finished task and returned,
+    /// leaving the owner with nothing to do — so the reload was silently dropped, in exactly the
+    /// case it exists for: a download landing mid-refresh still never reached the library.
+    @Test func aReloadDuringAnInFlightLoadStillRuns() async {
+        let counter = RefreshCounter()
+        let released = Gate()
+        let library = CountingLibrary(items: [movie("1")], counter: counter,
+                                      gate: { await released.wait() })
+        let store = LibraryStore(library: library)
+
+        async let owner: Void = store.load()          // the in-flight refresh
+        // Wait until it is genuinely in flight (blocked on the gate), not merely scheduled.
+        while await counter.count < 1 { await Task.yield() }
+
+        store.reload()                                 // …a download lands mid-flight
+        async let joiner: Void = store.load()          // …and a screen asks too
+        await Task.yield()
+        await released.open()
+        _ = await (owner, joiner)
+        // Let the follow-up run to completion.
+        for _ in 0..<50 { await Task.yield() }
+
+        #expect(await counter.count == 2)              // the reload actually happened
+    }
+
     private actor Gate {
         private var opened = false
         private var waiters: [CheckedContinuation<Void, Never>] = []

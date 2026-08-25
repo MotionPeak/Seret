@@ -43,7 +43,15 @@ public struct LibraryService: Sendable {
         // The set is keyed by `id:status`, not id alone: a torrent keeps its id from the moment RD
         // starts downloading it, so an id-only comparison saw no change on the one transition that
         // makes a title playable, and a finished download never appeared.
-        guard reconciler.hasDelta(seenTorrentStates: seen, rdTorrentStates: rdTorrentStates) else {
+        // Membership is compared as well as state. An unresolved torrent is deliberately left out
+        // of the recorded STATES so the next refresh retries it — but leaving it out of the
+        // recorded membership too meant that once RD stopped listing it, the two state sets matched
+        // again and this cheap path returned the cache verbatim. The rescued title then sat on the
+        // grid indefinitely, and pressing Play unrestricted a link for a torrent RD no longer had.
+        let seenIDs = Set(snapshot?.seenTorrentIDs ?? [])
+        let rdTorrentIDs = Set(rdTorrents.map(\.id))
+        guard reconciler.hasDelta(seenTorrentStates: seen, rdTorrentStates: rdTorrentStates)
+                || seenIDs != rdTorrentIDs else {
             return cached
         }
 
@@ -54,13 +62,12 @@ public struct LibraryService: Sendable {
         // content already sitting in the snapshot. Everything a settled torrent contributed is in
         // the cached items — its sources carry the file, the link and the parse — so an unchanged
         // one has nothing left to tell us.
-        let rdTorrentIDs = Set(rdTorrents.map(\.id))
         let changedIDs: Set<String> = {
             // No recorded states means the snapshot predates them: nothing is known to be settled.
             guard let seen else { return rdTorrentIDs }
             return Set(rdTorrents.filter { !seen.contains(LibraryReconciler.state(of: $0)) }.map(\.id))
         }()
-        let goneIDs = Set(snapshot?.seenTorrentIDs ?? []).subtracting(rdTorrentIDs)
+        let goneIDs = seenIDs.subtracting(rdTorrentIDs)
 
         // A cached item touching a changed OR removed torrent has to be rebuilt from ALL of its
         // remaining torrents — a show's episodes come from several, and rebuilding from just the
@@ -149,15 +156,17 @@ public struct LibraryService: Sendable {
         let library = Self.inDisplayOrder(merger.merge(assembled + untouched + retried + rescued))
 
         // A torrent counts as settled when we resolved it this round, or when we deliberately did
-        // not ask about it because nothing had changed. An UNRESOLVED one is left out, so the next
-        // refresh sees a delta and retries it instead of recording a failure as a known state.
+        // not ask about it because nothing had changed. An UNRESOLVED one is left out of the STATES,
+        // so the next refresh sees a delta and retries it instead of recording a failure as a known
+        // state — but it stays in the recorded membership, which is what lets its later
+        // disappearance from RD register at all.
         let settledIDs = resolved.union(rdTorrentIDs.subtracting(dirtyIDs))
         let persistedStates = LibraryReconciler.states(of: rdTorrents.filter { settledIDs.contains($0.id) })
 
         // Best-effort: a cache-write failure (e.g. a sandbox/storage hiccup) must NEVER fail the
         // refresh — the freshly-built library still displays, it just won't be cached this time.
         try? store.save(LibrarySnapshot(items: library,
-                                        seenTorrentIDs: Array(settledIDs),
+                                        seenTorrentIDs: Array(rdTorrentIDs),
                                         seenTorrentStates: Array(persistedStates)))
         return library
     }

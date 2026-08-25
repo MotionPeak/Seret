@@ -24,8 +24,11 @@ public struct FilenameParser: Sendable {
             // no S/E pattern at all. Reading the title but not the number left every episode of a
             // series parsed as a MOVIE named for the show — so the whole series collapsed into one
             // library entry. Absolute numbering is filed under season 1, which groups them as the
-            // show they are.
-            season = 1
+            // show they are — but a later season is stated as a bare `S2` token, and forcing season
+            // 1 on that made a season-2 premiere collide with the season-1 one: both keyed `s1e1`,
+            // so the show grew ONE episode row holding two files and whichever ranked higher is
+            // what "S01E01" played.
+            season = Self.captures(stem, Self.reSeasonBare).flatMap { Int($0[0]) } ?? 1
             episode = fansub
         } else if let g = Self.captures(stem, Self.reSeasonEpisode) {
             season = Int(g[0]); episode = Int(g[1])
@@ -124,7 +127,10 @@ public struct FilenameParser: Sendable {
         // "2012", and since a movie is keyed by its title that collapsed it into the unrelated film
         // of that name.
         let releaseYearIndex = yearIndices.last { $0 != 0 }
-        let isFansub = isBracketed(tokens.first ?? "")
+        // Fansub-shaped: a leading bracketed tag AND a `- <episode>` marker. Both, because either
+        // alone belongs to ordinary names too — `[REC] 2` opens with a bracket, and
+        // `Mission.Impossible.-.2` ends in a hyphenated number.
+        let isFansub = fansubEpisode(stem) != nil
 
         var titleTokens: [String] = []
         for (i, token) in tokens.enumerated() {
@@ -138,7 +144,7 @@ public struct FilenameParser: Sendable {
             // called `[REC]` must keep its name rather than fall back to the raw filename.
             if titleTokens.isEmpty, i == 0, Self.isBracketed(token),
                !isMetadataToken(Self.unbracketed(token)),
-               Self.hasTitleAfterLeadingTag(tokens) {
+               Self.hasTitleAfterLeadingTag(tokens, hasEpisodeMarker: isFansub) {
                 continue
             }
             // Fansub naming glues its tags to their brackets, so `[1080p]` never matched the
@@ -176,11 +182,17 @@ public struct FilenameParser: Sendable {
 
     /// Whether anything after a leading bracketed tag could serve as a title. When nothing can,
     /// the bracketed token IS the title — `[REC]` is a film.
-    private static func hasTitleAfterLeadingTag(_ tokens: [String]) -> Bool {
+    ///
+    /// `hasEpisodeMarker` decides what a bare NUMBER means there. `[REC] 2` is a sequel, so the
+    /// bracketed token has to stay or the title becomes the bare "2" — which TMDB will match to
+    /// something, confidently and wrongly. But `[Group] 86 - 07` is a series called 86, and its
+    /// `- <episode>` marker is what says so.
+    private static func hasTitleAfterLeadingTag(_ tokens: [String], hasEpisodeMarker: Bool) -> Bool {
         for token in tokens.dropFirst() {
             if yearValue(token) != nil { return false }              // straight into the year
             if isMetadataToken(unbracketed(token)) { return false }   // straight into the metadata
             if token == "-" { continue }
+            if isBareEpisodeNumber(token) { return hasEpisodeMarker }
             return true
         }
         return false

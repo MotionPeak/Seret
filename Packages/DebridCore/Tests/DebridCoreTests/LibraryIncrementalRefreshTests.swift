@@ -406,5 +406,40 @@ extension MockTests {
             }
             #expect(try await svc.refresh().map(\.title) == ["Alpha", "Beta", "Zulu"])
         }
+
+        /// Rescuing a title whose info call failed deliberately leaves that torrent out of the
+        /// recorded state, so the next refresh retries it. But it was left out of the recorded
+        /// MEMBERSHIP too — so once RD stopped listing the torrent, the recorded set and RD's set
+        /// matched again, the cheap path returned the cache verbatim, and the dead title sat on the
+        /// grid indefinitely. Pressing Play unrestricted a link for a torrent RD no longer had.
+        @Test func aRescuedTitleStillDisappearsOnceItsTorrentIsDeleted() async throws {
+            let dir = tempDir()
+            let svc = service(directory: dir)
+            let both = [(id: "A", title: "Alpha", tmdb: 111), (id: "B", title: "Beta", tmdb: 222)]
+
+            MockURLProtocol.handler = handler(movies: both, calls: InfoCalls())
+            #expect(Set(try await svc.refresh().compactMap(\.tmdbID)) == [111, 222])
+
+            // B's status flaps so it is re-fetched, and the fetch fails: B is rescued.
+            let rows = [(id: "A", status: "downloaded"), (id: "B", status: "downloading")]
+            MockURLProtocol.handler = { req in
+                let url = req.url!.absoluteString
+                if url.contains("/torrents/info/B") { return Self.resp(req, 500, "{}") }
+                if let range = url.range(of: "/torrents/info/") {
+                    let id = String(url[range.upperBound...])
+                    return Self.resp(req, 200, Self.infoJSON(id, release: "Alpha.2024.1080p.mkv"))
+                }
+                if url.contains("/torrents") { return Self.resp(req, 200, Self.listJSON(rows)) }
+                return Self.resp(req, 200, #"{"results":[]}"#)
+            }
+            #expect(Set(try await svc.refresh().compactMap(\.tmdbID)) == [111, 222])
+
+            // Now B is deleted at Real-Debrid. It has to go.
+            MockURLProtocol.handler = handler(movies: [(id: "A", title: "Alpha", tmdb: 111)],
+                                              calls: InfoCalls())
+            #expect(try await svc.refresh().compactMap(\.tmdbID) == [111])
+            // …and stay gone.
+            #expect(try await svc.refresh().compactMap(\.tmdbID) == [111])
+        }
     }
 }
