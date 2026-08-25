@@ -101,4 +101,38 @@ import DebridCore
         #expect(he?.state == .idle)
         #expect(m.selectedSubtitleID == nil)
     }
+
+    /// Tapping a language pill is a viewer decision. It was not recorded as one, so the moment the
+    /// download attached and `.tracksChanged` fired, the automatic preference re-decided — and
+    /// picked whatever MUXED track shared the language. The viewer tapped the pill precisely
+    /// because that muxed track was not what they wanted, and a slave's own language is usually
+    /// nil, so the muxed one won outright.
+    @Test func askingForALanguageCountsAsChoosingIt() async {
+        let engine = FakeVideoPlayerEngine()
+        let subs = FakeSubtitleProvider()
+        subs.searchResults = [SubtitleResult(fileID: 1, language: "he")]
+        let m = model(subs, engine)
+        m.start()
+        await m.waitForIdleForTesting()
+        #expect(m.subtitlePickedByUser == false)
+
+        await m.requestSubtitle(language: "he")
+
+        #expect(m.subtitlePickedByUser == true)
+    }
+
+    /// …but the automatic one-shot fallback is NOT a viewer decision, and must not lock the
+    /// automatic path out for the rest of the session.
+    @Test func theAutomaticFallbackIsNotAViewerDecision() async {
+        let engine = FakeVideoPlayerEngine()
+        let subs = FakeSubtitleProvider()
+        subs.searchResults = [SubtitleResult(fileID: 1, language: "he")]
+        let m = model(subs, engine)
+        m.start()
+        await m.waitForIdleForTesting()
+
+        await m.downloadSubtitleAutomatically(language: "he")
+
+        #expect(m.subtitlePickedByUser == false)
+    }
 }

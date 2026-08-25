@@ -410,7 +410,11 @@ public final class AppSession {
                                       onReady: { [weak self] status in
                                           guard let self else { return }
                                           let name = status.title.isEmpty ? "Your download" : status.title
-                                          self.libraryStore?.retry()
+                                          // `reload()`, not `retry()`: the viewer is very likely
+                                          // NOT on the library screen when a download finishes, and
+                                          // bumping a counter no mounted view is watching left the
+                                          // finished title out of the library until they opened it.
+                                          self.libraryStore?.reload()
                                           self.downloadNotifier.notifyReady(title: name)
                                       })
             downloadStore = store

@@ -53,7 +53,27 @@ public final class LibraryStore {
     func setForTest(movies: [MediaItem], shows: [MediaItem]) { apply(movies + shows) }
     #endif
 
+    /// The load currently in flight, if any. Two screens share one store — on iPhone, Home and My
+    /// Library both ask it to load — and without this each one ran its own `library.refresh()`:
+    /// the whole Real-Debrid pagination, the `/torrents/info` fan-out and a TMDB enrichment pass,
+    /// twice over, for one answer. A second caller now waits for the first instead.
+    private var loadTask: Task<Void, Never>?
+
     public func load() async {
+        if let loadTask {
+            await loadTask.value
+            return
+        }
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.performLoad()
+        }
+        loadTask = task
+        await task.value
+        if loadTask == task { loadTask = nil }
+    }
+
+    private func performLoad() async {
         let generation = contentGeneration
         if let cached = await library.loadCachedOffMain(), generation == contentGeneration {
             apply(cached)
@@ -77,7 +97,18 @@ public final class LibraryStore {
         }
     }
 
+    /// Ask for a fresh load. Bumping `attempt` drives the `.task(id:)` on whichever screen is
+    /// showing the grid — but that only works while such a screen is MOUNTED, so a caller with no
+    /// view behind it (a finished download, say) must use `reload()` instead.
     public func retry() { attempt += 1 }
+
+    /// Reload now, whether or not any screen is watching. `retry()` alone only bumps a counter, so
+    /// a download that finished while the viewer was on Home never reached the library until they
+    /// happened to open My Library.
+    public func reload() {
+        attempt += 1
+        Task { @MainActor [weak self] in await self?.load() }
+    }
 
     /// Permanently remove an item from Real-Debrid, purge its watch progress, and drop it from
     /// the in-memory library (optimistic). On failure the item is kept and `removal` becomes

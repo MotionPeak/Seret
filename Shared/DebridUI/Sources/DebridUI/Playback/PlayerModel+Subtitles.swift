@@ -5,7 +5,24 @@ extension PlayerModel {
 
     // MARK: - Subtitles
 
+    /// Download and attach a subtitle in `language`. Tapping a language pill is a manual choice,
+    /// and has to be recorded as one — otherwise the automatic preference re-decides the moment the
+    /// download attaches and `.tracksChanged` fires, and picks whatever muxed track happens to
+    /// share the language. The viewer tapped the pill precisely because that muxed track was not
+    /// what they wanted, and a slave's own language is often nil, so the muxed one won outright.
     public func requestSubtitle(language: String) async {
+        subtitlePickedByUser = true
+        await downloadSubtitle(language: language)
+    }
+
+    /// The automatic one-shot fallback: the same download, but not a viewer decision, so it does
+    /// not lock out the automatic path. It only ever runs when the media has no track in that
+    /// language, so there is nothing for the automatic path to override it with.
+    func downloadSubtitleAutomatically(language: String) async {
+        await downloadSubtitle(language: language)
+    }
+
+    private func downloadSubtitle(language: String) async {
         guard let subtitles else { setRow(language, .noAccount); return }
         guard subtitleRows.first(where: { $0.language == language })?.state != .downloading else { return }
         setRow(language, .downloading)

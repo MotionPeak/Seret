@@ -148,3 +148,70 @@ private actor FakeWatch: WatchProgressProviding {
         #expect(store.watchState(for: show("2")) == nil)
     }
 }
+
+
+/// Counts how many times a refresh actually reached the library layer.
+private actor RefreshCounter {
+    private(set) var count = 0
+    func bump() { count += 1 }
+}
+
+private struct CountingLibrary: LibraryProviding {
+    let items: [MediaItem]
+    let counter: RefreshCounter
+    let gate: @Sendable () async -> Void
+    func loadCached() -> [MediaItem]? { nil }
+    func refresh() async throws -> [MediaItem] {
+        await counter.bump()
+        await gate()
+        return items
+    }
+    func remove(_ item: MediaItem) async throws {}
+    func removeVersion(_ item: MediaItem, source: MediaSource) async throws {}
+}
+
+@MainActor
+@Suite struct LibraryStoreLoadCoalescingTests {
+    /// Two screens share one store — on iPhone, Home and My Library both ask it to load — and each
+    /// used to run its own refresh: the whole Real-Debrid pagination, the /torrents/info fan-out
+    /// and a TMDB enrichment pass, twice over, for one answer.
+    @Test func twoConcurrentLoadsRefreshTheLibraryOnce() async {
+        let counter = RefreshCounter()
+        let released = Gate()
+        let library = CountingLibrary(items: [movie("1")], counter: counter,
+                                      gate: { await released.wait() })
+        let store = LibraryStore(library: library)
+
+        async let first: Void = store.load()
+        async let second: Void = store.load()
+        await Task.yield()
+        await released.open()
+        _ = await (first, second)
+
+        #expect(await counter.count == 1)
+        #expect(store.movies.count == 1)
+    }
+
+    /// …and a LATER load still works: coalescing must not latch.
+    @Test func aLoadAfterTheFirstCompletesStillRefreshes() async {
+        let counter = RefreshCounter()
+        let released = Gate()
+        await released.open()
+        let library = CountingLibrary(items: [movie("1")], counter: counter,
+                                      gate: { await released.wait() })
+        let store = LibraryStore(library: library)
+        await store.load()
+        await store.load()
+        #expect(await counter.count == 2)
+    }
+
+    private actor Gate {
+        private var opened = false
+        private var waiters: [CheckedContinuation<Void, Never>] = []
+        func open() { opened = true; for w in waiters { w.resume() }; waiters = [] }
+        func wait() async {
+            if opened { return }
+            await withCheckedContinuation { waiters.append($0) }
+        }
+    }
+}

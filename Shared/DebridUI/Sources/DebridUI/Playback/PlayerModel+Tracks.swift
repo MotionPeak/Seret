@@ -190,7 +190,7 @@ extension PlayerModel {
             guard !Task.isCancelled, !subtitlePickedByUser, !subtitleFallbackRequested,
                   !subtitleTracks.contains(where: { $0.language == language }) else { return }
             subtitleFallbackRequested = true
-            await self.requestSubtitle(language: language)
+            await self.downloadSubtitleAutomatically(language: language)
         }
     }
 

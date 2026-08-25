@@ -52,6 +52,12 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
     /// Text-track ids present before any external subtitle was attached. Anything not in here is a
     /// downloaded slave — VLCKit does not tag slave tracks itself.
     private var embeddedTextTrackIDs: Set<String> = []
+    /// Whether the muxed-track snapshot has been TAKEN, which is not the same as its being
+    /// non-empty. A file with no muxed text tracks snapshots to the empty set, and reading
+    /// emptiness as "not yet taken" is what made a subtitle downloaded for such a file report
+    /// itself as muxed — so it was listed among the media's own tracks instead of as the one the
+    /// viewer had just fetched.
+    private var embeddedSnapshotTaken = false
     private let continuation: AsyncStream<PlaybackEvent>.Continuation
     let events: AsyncStream<PlaybackEvent>
 
@@ -191,6 +197,7 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
         if let audioTrackID { media.addOption(":audio-track-id=\(audioTrackID)") }
         Self.applyAudioTrackProbe(to: media)
         embeddedTextTrackIDs = []          // a new media has its own muxed track set
+        embeddedSnapshotTaken = false
         player.media = media
         player.currentSubTitleFontScale = subtitleScale   // global size preference (1.0 = VLCKit default)
     }
@@ -287,8 +294,9 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
 
     func addExternalSubtitle(url: URL) {
         // Snapshot the muxed ids the first time, so every id that appears afterwards is a slave.
-        if embeddedTextTrackIDs.isEmpty {
+        if !embeddedSnapshotTaken {
             embeddedTextTrackIDs = Set(player.textTracks.map(\.trackId))
+            embeddedSnapshotTaken = true
         }
         player.addPlaybackSlave(url, type: .subtitle, enforce: true)
     }
@@ -310,7 +318,7 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
     var subtitleTracks: [MediaTrack] {
         player.textTracks.map {
             Self.mediaTrack($0, kind: .subtitle,
-                            isExternal: !embeddedTextTrackIDs.isEmpty
+                            isExternal: embeddedSnapshotTaken
                                 && !embeddedTextTrackIDs.contains($0.trackId))
         }
     }
