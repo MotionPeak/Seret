@@ -110,6 +110,28 @@ public struct TorrentsClient: Sendable {
     ) async throws -> TorrentInfo {
         let added = try await addMagnet(magnet: "magnet:?xt=urn:btih:\(magnetHash)")
         let id = added.id
+        do {
+            return try await selectForBackgroundDownload(id: id, maxListAttempts: maxListAttempts,
+                                                         pollInterval: pollInterval, sleep: sleep)
+        } catch let error as RDAddError {
+            // `addMagnet` has already created the torrent by the time a terminal status shows up,
+            // and a dead / virus / magnet_error torrent is NOT downloading in the background — it
+            // is garbage that would sit in the account for good. The caller tries up to six
+            // candidates per request, so one failed download could leave six of them, each one then
+            // re-fetched by every library refresh from then on. Remove it.
+            //
+            // Only on a TERMINAL status. A transport failure says nothing about the torrent, which
+            // may be hashing perfectly well — and deleting on any failure would cancel exactly the
+            // background downloads this method exists to start.
+            try? await deleteTorrent(id: id)
+            throw error
+        }
+    }
+
+    private func selectForBackgroundDownload(
+        id: String, maxListAttempts: Int, pollInterval: Duration,
+        sleep: @Sendable (Duration) async throws -> Void
+    ) async throws -> TorrentInfo {
         var info = try await self.info(id: id)
         var attempts = 0
         while info.files.isEmpty && info.status != "waiting_files_selection" && attempts < maxListAttempts {

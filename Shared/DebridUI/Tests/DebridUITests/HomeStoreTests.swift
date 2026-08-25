@@ -133,4 +133,55 @@ private struct FakeWatch: WatchProgressProviding {
         await store.rebuild(movies: [movie([sd, uhd])], shows: [])
         #expect(store.continueWatching.first?.source?.torrentID == "uhd")
     }
+
+    /// Recently Added is the library sorted by date — it has nothing to do with who is watching.
+    /// Blanking it alongside Continue Watching meant a profile that never resolved left Home
+    /// completely empty, including the one rail that could always have been filled.
+    @MainActor @Test func recentlyAddedStillFillsWhenNoProfileHasResolved() async {
+        let older = MediaItem(id: "movie:a", kind: .movie, title: "A", year: 2024, sources: [],
+                              seasons: [], addedAt: Date(timeIntervalSince1970: 100))
+        let newer = MediaItem(id: "movie:b", kind: .movie, title: "B", year: 2024, sources: [],
+                              seasons: [], addedAt: Date(timeIntervalSince1970: 200))
+        let store = HomeStore(watch: FakeWatch(states: []))
+        store.activeProfileID = nil            // never resolved
+
+        await store.rebuild(movies: [older, newer], shows: [])
+
+        #expect(store.continueWatching.isEmpty)          // genuinely per-profile; correctly empty
+        #expect(store.recentlyAdded.map(\.id) == ["movie:b", "movie:a"])
+    }
+
+    /// Every entry's chosen version comes from ONE read, not one per entry. Home rebuilds on the
+    /// screen appearing, on movies and shows landing separately, on the profile resolving, on the
+    /// player closing, and on every CloudKit import — a round-trip per rail entry each time.
+    @MainActor @Test func chosenVersionsAreReadInOneBatch() async {
+        actor CountingPrefs: VersionPreferring {
+            private(set) var singleCalls = 0
+            private(set) var batchCalls = 0
+            func preferred(forContentKey key: String) async -> String? { singleCalls += 1; return nil }
+            func preferred(forContentKeys keys: [String]) async -> [String: String] {
+                batchCalls += 1
+                return [:]
+            }
+            func choose(contentKey: String, sourceKey: String) async {}
+            func clear(contentKey: String) async {}
+        }
+        let items = (1...5).map {
+            MediaItem(id: "movie:\($0)", kind: .movie, title: "M\($0)", year: 2024,
+                      sources: [], seasons: [])
+        }
+        let states = items.map {
+            WatchState(contentKey: $0.id, sourceKey: "t#f", positionSeconds: 10,
+                       durationSeconds: 100, finished: false, updatedAt: Date())
+        }
+        let prefs = CountingPrefs()
+        let store = HomeStore(watch: FakeWatch(states: states), versionPrefs: prefs)
+        store.activeProfileID = "p1"
+
+        await store.rebuild(movies: items, shows: [])
+
+        #expect(store.continueWatching.count == 5)
+        #expect(await prefs.batchCalls == 1)
+        #expect(await prefs.singleCalls == 0)
+    }
 }

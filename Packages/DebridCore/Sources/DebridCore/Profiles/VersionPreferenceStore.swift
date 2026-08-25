@@ -15,6 +15,21 @@ public actor VersionPreferenceStore {
         try rows(forContentKey: key).first?.sourceKey
     }
 
+    /// Chosen versions for many titles in ONE fetch. Home resolves a version per Continue-Watching
+    /// entry, and asking per key meant twenty sequential round-trips into this actor every time the
+    /// rail rebuilt — which is on every appearance, every library landing, and every CloudKit
+    /// import. Keys with no choice are simply absent.
+    public func preferredSourceKeys(forContentKeys keys: [String]) throws -> [String: String] {
+        guard !keys.isEmpty else { return [:] }
+        let rows = try modelContext.fetch(FetchDescriptor<VersionPreference>(
+            predicate: #Predicate { keys.contains($0.contentKey) },
+            sortBy: [SortDescriptor(\.chosenAt, order: .reverse)]))
+        var out: [String: String] = [:]
+        // Newest-first, so the first row for a key wins and CloudKit duplicates are ignored.
+        for row in rows where out[row.contentKey] == nil { out[row.contentKey] = row.sourceKey }
+        return out
+    }
+
     /// Record a choice, collapsing any duplicate rows CloudKit may have produced.
     public func setChoice(contentKey: String, sourceKey: String, at: Date = Date()) throws {
         let existing = try rows(forContentKey: contentKey)

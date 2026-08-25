@@ -60,26 +60,33 @@ public final class HomeStore {
     public func rebuild(movies: [MediaItem], shows: [MediaItem]) async {
         rebuildGeneration &+= 1
         let generation = rebuildGeneration
+
+        // Recently Added is the library sorted by date — it has nothing to do with who is watching.
+        // Blanking it alongside Continue Watching meant that a profile which never resolved left
+        // Home completely empty, including the one rail that could always have been filled.
+        let all = movies + shows
+        let added = Array(all.filter { $0.addedAt != nil }
+            .sorted { ($0.addedAt ?? .distantPast) > ($1.addedAt ?? .distantPast) }
+            .prefix(20))
+
         guard let profileID = activeProfileID else {
-            continueWatching = []; recentlyAdded = []; return
+            guard generation == rebuildGeneration else { return }
+            continueWatching = []
+            recentlyAdded = added
+            return
         }
         let states = (try? await watch.recentlyWatched(limit: 20, profileID: profileID)) ?? []
-        // Resolve each entry's chosen version before composing. Sequential rather than concurrent
-        // because the store behind this is a single SwiftData actor, which serialises anyway, and
-        // the rail is capped at 20.
-        var resumable: [HomeItem] = []
-        for state in states {
-            let chosen = await versionPrefs?.preferred(forContentKey: state.contentKey)
-            if let item = Self.resolve(state, movies: movies, shows: shows, preferredSourceKey: chosen) {
-                resumable.append(item)
-            }
+        // One batched read for every entry's chosen version. Asking per key meant twenty sequential
+        // round-trips into the preference actor on every rebuild — and Home rebuilds on the screen
+        // appearing, on movies and shows landing separately, on the profile resolving, on the player
+        // closing, and on every CloudKit import.
+        let chosen = await versionPrefs?.preferred(forContentKeys: states.map(\.contentKey)) ?? [:]
+        let resumable = states.compactMap {
+            Self.resolve($0, movies: movies, shows: shows, preferredSourceKey: chosen[$0.contentKey])
         }
         guard generation == rebuildGeneration else { return }   // a newer rebuild owns the rails
         continueWatching = resumable
-        let all = movies + shows
-        recentlyAdded = Array(all.filter { $0.addedAt != nil }
-            .sorted { ($0.addedAt ?? .distantPast) > ($1.addedAt ?? .distantPast) }
-            .prefix(20))
+        recentlyAdded = added
     }
 
     /// `preferredSourceKey` is the viewer's chosen version for this title, if any — resuming must

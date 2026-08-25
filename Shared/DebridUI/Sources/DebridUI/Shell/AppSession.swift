@@ -86,6 +86,8 @@ public final class AppSession {
     private var linkCache: PlayableLinkCache?
     /// Single, app-lifetime observer that rebuilds Home when CloudKit imports remote changes.
     private var remoteChangeObserver: NSObjectProtocol?
+    /// The pending coalesced refresh for those changes — see `scheduleRemoteChangeRefresh`.
+    private var remoteChangeTask: Task<Void, Never>?
 
     /// Stage 2 Add-flow seams, composed at sign-in and consumed by the per-title `AddStore`
     /// the `makeAddStore(...)` factory vends (nil while signed out).
@@ -122,17 +124,27 @@ public final class AppSession {
         do {
             _ = try await realDebrid.validAccessToken()
             enterSignedIn()
-        } catch RealDebridSessionError.notSignedIn {
-            enterSignedOut()
-        } catch HTTPError.status(_, _) {
-            // RD actively rejected the stored/refresh token → must re-authenticate.
-            enterSignedOut()
         } catch {
-            // Transport/offline but credentials exist: stay signed in; later calls retry.
-            // (A genuine decoding bug would also land here as optimistic-signedIn; the
-            // first real library call in 7b surfaces it — acceptable for this slice.)
-            enterSignedIn()   // transport/offline with stored creds: optimistic
+            if Self.mustReauthenticate(after: error) { enterSignedOut() } else { enterSignedIn() }
         }
+    }
+
+    /// Whether a failed launch-time token check means the credentials are actually no good.
+    ///
+    /// Only two things do: there being none stored, and Real-Debrid rejecting the ones there are
+    /// with a `401`. Everything else is Real-Debrid having a bad moment, and the stored credentials
+    /// are still perfectly valid — so the launch stays optimistically signed in and later calls
+    /// retry, exactly as it does when the device is offline.
+    ///
+    /// This used to treat ANY HTTP status as a rejection, which is wrong in the two ways that
+    /// matter most in practice. Real-Debrid answers a rate limit with a bare `403` — this repo's
+    /// own notes record that a tvOS client can get a PERSISTENT one — and it answers an outage with
+    /// a `5xx`. Both signed the viewer out and made them sign in again, with nothing wrong with
+    /// their account, and on an Apple TV that could repeat on every launch.
+    nonisolated static func mustReauthenticate(after error: any Error) -> Bool {
+        if error is RealDebridSessionError { return true }        // no stored credentials
+        if case HTTPError.status(let code, _) = error { return code == 401 }
+        return false                                              // transport, offline, decode
     }
 
     func markSignedIn() {
@@ -498,12 +510,25 @@ public final class AppSession {
         guard remoteChangeObserver == nil else { return }
         remoteChangeObserver = NotificationCenter.default.addObserver(
             forName: .NSPersistentStoreRemoteChange, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in
-                // A CloudKit import can bring in a profile created on another device — refresh the
-                // roster (without changing this device's selection) so it appears, then Home.
-                await self?.activeProfiles?.reloadRoster()
-                await self?.rebuildHome()
-            }
+            Task { @MainActor in self?.scheduleRemoteChangeRefresh() }
+        }
+    }
+
+    /// Coalesce a burst of remote-change notifications into one refresh.
+    ///
+    /// CloudKit reports an import as a stream of per-batch notifications, so a sync that brings in
+    /// a device's whole watch history fires many in quick succession — and each one used to run a
+    /// roster fetch and a full Home rebuild on the main actor, every one of them thrown away by the
+    /// next. Only the last notification in the window does the work now.
+    private func scheduleRemoteChangeRefresh() {
+        remoteChangeTask?.cancel()
+        remoteChangeTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled else { return }
+            // A CloudKit import can bring in a profile created on another device — refresh the
+            // roster (without changing this device's selection) so it appears, then Home.
+            await self?.activeProfiles?.reloadRoster()
+            await self?.rebuildHome()
         }
     }
 
