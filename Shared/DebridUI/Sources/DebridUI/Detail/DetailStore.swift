@@ -446,16 +446,7 @@ public final class DetailStore {
         guard let states = try? await watch.progress(forContentKeys: keys,
                                                      profileID: watchProfileID) else { return }
         for key in keys { watchByKey[key] = states[key] }
-        // Claim every season this read fully covered, so the per-season read that follows dedups
-        // away instead of fetching the same keys again. A season TMDB lists more episodes for than
-        // the viewer owns is deliberately NOT claimed — those keys still need reading.
-        for season in item.seasons {
-            let listed = Set(episodes(forSeason: season.number).map {
-                WatchKey.content(forShow: item, season: season.number, number: $0.number)
-            })
-            let owned = Set(season.episodes.map { WatchKey.content(forShow: item, episode: $0) })
-            if !listed.isEmpty, listed.isSubset(of: owned) { watchKeysRead[season.number] = listed }
-        }
+        watchKeysRead.formUnion(keys)
     }
 
     /// Read watch state for every episode the season LISTS — TMDB's episodes merged with whatever
@@ -468,25 +459,33 @@ public final class DetailStore {
         let keys = episodes(forSeason: n).map {
             WatchKey.content(forShow: item, season: n, number: $0.number)
         }
+        // Ask only about keys nothing has read yet.
+        //
         // `load()` starts the watch read concurrently with the TMDB fetch, and `loadSeason` reads
         // again once the episode list lands — because for a show you do not own, that list is the
-        // only thing that says which keys exist. Claiming the key set here, with no await between
-        // the check and the write, makes the pair deterministic: whichever runs first does the
-        // read, and the other skips unless the list actually grew.
-        guard !keys.isEmpty, force || Set(keys) != watchKeysRead[n] else { return }
-        watchKeysRead[n] = Set(keys)
-        // One batched read for the whole season — not a store round-trip per episode.
-        guard let states = try? await watch.progress(forContentKeys: keys, profileID: watchProfileID)
+        // only thing that says which keys exist. Claiming the keys here, with no await between the
+        // check and the write, makes the pair deterministic: whichever runs first reads them, and
+        // the other is left with only what is genuinely new.
+        //
+        // Tracked as a flat key set rather than per-season sets. A per-season set had to be
+        // compared whole, so whether it matched depended on how much of the TMDB episode list had
+        // landed when it was written — the same screen would issue one read or two depending on
+        // which of two concurrent loads won.
+        let wanted = force ? keys : keys.filter { !watchKeysRead.contains($0) }
+        guard !wanted.isEmpty else { return }
+        watchKeysRead.formUnion(wanted)
+        // One batched read — not a store round-trip per episode.
+        guard let states = try? await watch.progress(forContentKeys: wanted, profileID: watchProfileID)
         else {
-            watchKeysRead[n] = nil       // a failed read must not block the retry
+            watchKeysRead.subtract(wanted)   // a failed read must not block the retry
             return
         }
-        for key in keys { watchByKey[key] = states[key] }
+        for key in wanted { watchByKey[key] = states[key] }
     }
 
-    /// The episode keys each season's watch read has already covered. Also what `reloadWatch()`
-    /// clears, so re-reading after playback is never mistaken for a duplicate.
-    private var watchKeysRead: [Int: Set<String>] = [:]
+    /// Every episode key a watch read has already covered. Also what `reloadWatch()` clears, so
+    /// re-reading after playback is never mistaken for a duplicate.
+    private var watchKeysRead: Set<String> = []
 
     /// The id the player saves progress under is `activeProfileID ?? ""` (see `AppSession.makePlayer`).
     /// Read/write under the SAME fallback so a nil active profile doesn't silently skip the resume

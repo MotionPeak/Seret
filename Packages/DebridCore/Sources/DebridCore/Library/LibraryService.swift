@@ -47,14 +47,50 @@ public struct LibraryService: Sendable {
             return cached
         }
 
-        // Reuses the list fetched just above. It used to call the no-argument version, which
-        // paginates the whole account a SECOND time on every refresh that finds a delta.
-        let infos = try await torrents.allTorrentInfos(from: rdTorrents)
+        // Only the torrents that actually need looking at.
+        //
+        // This used to fetch `/torrents/info` for the ENTIRE account on any delta, however small:
+        // adding one title to a large library meant a request per torrent it already had, for
+        // content already sitting in the snapshot. Everything a settled torrent contributed is in
+        // the cached items — its sources carry the file, the link and the parse — so an unchanged
+        // one has nothing left to tell us.
+        let rdTorrentIDs = Set(rdTorrents.map(\.id))
+        let changedIDs: Set<String> = {
+            // No recorded states means the snapshot predates them: nothing is known to be settled.
+            guard let seen else { return rdTorrentIDs }
+            return Set(rdTorrents.filter { !seen.contains(LibraryReconciler.state(of: $0)) }.map(\.id))
+        }()
+        let goneIDs = Set(snapshot?.seenTorrentIDs ?? []).subtracting(rdTorrentIDs)
+
+        // A cached item touching a changed OR removed torrent has to be rebuilt from ALL of its
+        // remaining torrents — a show's episodes come from several, and rebuilding from just the
+        // changed one would drop the rest.
+        let unsettled = changedIDs.union(goneIDs)
+        let dirtyItems = cached.filter {
+            !LibraryReconciler.torrentIDs(of: $0).isDisjoint(with: unsettled)
+        }
+        let dirtyIDs = changedIDs
+            .union(dirtyItems.flatMap { LibraryReconciler.torrentIDs(of: $0) })
+            .intersection(rdTorrentIDs)          // never ask about one RD no longer has
+
+        let fetchList = rdTorrents.filter { dirtyIDs.contains($0.id) }
+        let infos = try await torrents.allTorrentInfos(from: fetchList)
         let fresh = builder.group(infos)
         // `allTorrentInfos` skips a torrent whose `/torrents/info` call failed rather than failing
         // the whole load, so a transient 5xx silently yields no item for a torrent RD still holds.
         let resolved = Set(infos.map(\.id))
-        let unresolved = rdTorrents.filter { !resolved.contains($0.id) }
+        let unresolvedIDs = dirtyIDs.subtracting(resolved)
+
+        // Items nothing touched: carried through exactly as they were. An item any of whose
+        // torrents RD no longer lists is NOT carried — it is rebuilt (or, if all of them are gone,
+        // correctly disappears).
+        let dirtyItemIDs = Set(dirtyItems.map(\.id))
+        let untouched = cached.filter { item in
+            guard !dirtyItemIDs.contains(item.id) else { return false }
+            let ids = LibraryReconciler.torrentIDs(of: item)
+            return !ids.isEmpty && ids.allSatisfy(rdTorrentIDs.contains)
+        }
+
         let plan = reconciler.reconcile(fresh: fresh, cached: cached)
 
         let toEnrich = plan.compactMap { step -> MediaItem? in
@@ -82,24 +118,31 @@ public struct LibraryService: Sendable {
         // purely because of that failure — RD still lists those torrents. Dropping it would write
         // the title out of the snapshot, and since its ids were recorded as seen, no later refresh
         // would reconsider it: a transient 5xx erased a title permanently. Carry it over untouched.
-        let unresolvedIDs = Set(unresolved.map(\.id))
-        let rescued = cached.filter { item in
+        // Only when RD still lists every one of its torrents: a partly-deleted item must take the
+        // rebuild, or the delete would be undone.
+        let rescued = dirtyItems.filter { item in
             let ids = LibraryReconciler.torrentIDs(of: item)
-            return !ids.isEmpty && ids.allSatisfy(unresolvedIDs.contains)
+            return !ids.isEmpty
+                && ids.allSatisfy(rdTorrentIDs.contains)
+                && ids.allSatisfy(unresolvedIDs.contains)
         }
 
         // Enrichment re-keys each item by TMDB id, so separate torrents of one title only collide
-        // here — fold them into a single entry carrying every version.
-        let library = merger.merge(assembled + rescued)
+        // here — fold them into a single entry carrying every version. That is also what folds a
+        // freshly-grouped item into the untouched one it belongs with: a new episode's torrent
+        // groups on its own here, and merges into the show that was carried through.
+        let library = merger.merge(assembled + untouched + rescued)
 
-        // Record only the torrents we actually resolved. Leaving an unresolved one out means the
-        // next refresh sees a delta and retries it, instead of treating a failure as a known state.
-        let persistedStates = LibraryReconciler.states(of: rdTorrents.filter { resolved.contains($0.id) })
+        // A torrent counts as settled when we resolved it this round, or when we deliberately did
+        // not ask about it because nothing had changed. An UNRESOLVED one is left out, so the next
+        // refresh sees a delta and retries it instead of recording a failure as a known state.
+        let settledIDs = resolved.union(rdTorrentIDs.subtracting(dirtyIDs))
+        let persistedStates = LibraryReconciler.states(of: rdTorrents.filter { settledIDs.contains($0.id) })
 
         // Best-effort: a cache-write failure (e.g. a sandbox/storage hiccup) must NEVER fail the
         // refresh — the freshly-built library still displays, it just won't be cached this time.
         try? store.save(LibrarySnapshot(items: library,
-                                        seenTorrentIDs: Array(resolved),
+                                        seenTorrentIDs: Array(settledIDs),
                                         seenTorrentStates: Array(persistedStates)))
         return library
     }
