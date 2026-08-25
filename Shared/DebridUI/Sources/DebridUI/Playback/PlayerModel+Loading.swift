@@ -43,9 +43,24 @@ extension PlayerModel {
             // …but NOT while paused. VLCKit keeps emitting `.buffering` after a pause, and a paused
             // player never emits `.playing` again, so nothing was left to lower the hint: the
             // spinner simply stuck under a stopped picture.
-            if phase != .paused { isBuffering = true }
-            if phase != .playing && phase != .paused { phase = .buffering }
+            // …and NOT over a failure. `.failed` is a terminal phase showing Retry / Try another
+            // version; a late `.buffering` from the engine that just failed replaced it with a
+            // spinner that nothing would ever lower, and the only escape was to back out.
+            if phase != .paused, !phase.isFailed { isBuffering = true }
+            if phase != .playing, phase != .paused, !phase.isFailed { phase = .buffering }
         case .playing:
+            // Until the engine has been handed THIS load's media, a `.playing` still belongs to the
+            // outgoing file — the same reason `tick()` and `.paused` are gated. It is not a rare
+            // event: the outgoing media keeps playing across the whole load window (a resume lookup
+            // plus an RD unrestrict, seconds on a cold link) and every rebuffer it recovers from
+            // emits `.buffering` → `.playing`.
+            //
+            // Ungated it called `markRendered()`, which clears `isSwitching` — the only thing
+            // swallowing the `.ended` VLCKit reports when `load()` replaces the media. The swap's
+            // own teardown was then read as "the new episode finished" and auto-advanced a second
+            // time: pick E1, land on E3. It also set `hasRenderedFrame`, which disarms the load
+            // watchdog, so a dead link for the incoming episode left the spinner up with no Retry.
+            guard engineHoldsCurrentMedia else { break }
             phase = .playing
             markRendered()
             refreshTracks()
@@ -69,6 +84,7 @@ extension PlayerModel {
             Task { await finish() }
         case .failed(let reason):
             phase = .failed(reason)
+            isBuffering = false     // it is not waiting on frames; it is over
         }
     }
 
@@ -219,6 +235,25 @@ extension PlayerModel {
         subtitleFallbackTask = nil
         subtitleAttachTimeoutTask?.cancel()   // an orphan would fire against the NEW media's attach
         subtitleAttachTimeoutTask = nil
+        // Everything that identifies WHICH FILE the subtitle machinery is talking about. All of it
+        // described the previous file and none of it was cleared here, so a swap or a "Try another
+        // version" carried the old file's identity into the new one:
+        //
+        // • the moviehash is two range requests against the playing file, resolved once and reused
+        //   — so searches after a swap sent the PREVIOUS file's hash, which scores +1000 in the
+        //   ranker, and the one-tap pill confidently picked a subtitle timed to a different file;
+        // • the browser's result list stayed on screen, so picking from it downloaded a subtitle
+        //   for the episode you had just left;
+        // • a language row kept saying `.attached(<positional track id>)`, which means nothing once
+        //   a different media is loaded — the panel showed Hebrew subtitles as on while the new
+        //   media had no such track at all.
+        currentMoviehash = nil
+        moviehashResolved = false
+        subtitleSearchResults = []
+        subtitleSearchState = .idle
+        subtitleSearchLanguage = nil
+        pendingSubtitleAttach = nil
+        subtitleRows = Self.freshSubtitleRows(hasAccount: subtitles != nil)
         lastSavedPosition = -.infinity
         loadTask?.cancel()
         loadTask = Task { await self.loadCurrentSource() }

@@ -198,4 +198,28 @@ import DebridCore
         #expect(model.hasRenderedFrame == false)          // reloading…
         #expect(model.isColdOpen == false)                // …but NOT a cold open
     }
+
+    /// `.failed` is what puts Retry / Try another version on screen. VLCKit keeps emitting
+    /// `.buffering` after a failure, and the buffering branch's only exclusions were `.playing`
+    /// and `.paused` — so the failure was overwritten by a spinner within a frame, and nothing
+    /// would ever lower it. The viewer saw an endless loading overlay with no way out but backing
+    /// out of the player.
+    @Test func aLateBufferingDoesNotEraseAFailure() async {
+        let engine = FakeVideoPlayerEngine()
+        let model = PlayerModel(request: Fixture.request(), engine: engine,
+                                unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
+                                recordProgress: { _, _, _, _ in }, subtitles: nil)
+        model.start()
+        await model.waitForIdleForTesting()
+
+        engine.emit(.state(.failed("stream is dead")))
+        await model.waitForIdleForTesting()
+        #expect(model.phase == .failed("stream is dead"))
+
+        engine.emit(.state(.buffering))
+        await model.waitForIdleForTesting()
+
+        #expect(model.phase == .failed("stream is dead"))
+        #expect(model.isBuffering == false)
+    }
 }

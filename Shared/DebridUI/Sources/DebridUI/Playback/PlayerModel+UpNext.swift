@@ -83,11 +83,9 @@ extension PlayerModel {
         label = "\(item.title) — S\(ep.season)·E\(ep.number)"
         resumeAt = newResume
         fromStart = false                    // the new episode resumes via the provider if mid-watched
+        // The per-source subtitle state (rows, moviehash, browser results, selections) is reset
+        // by `reload()` below, which every file change goes through.
         selectedAudioID = nil
-        selectedSubtitleID = nil
-        pendingSubtitleAttach = nil
-        let initial: SubtitleRowState = subtitles == nil ? .noAccount : .idle
-        subtitleRows = ["he", "en"].map { SubtitleRow(language: $0, state: initial) }
         reload()
     }
 

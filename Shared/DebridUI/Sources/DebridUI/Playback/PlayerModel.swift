@@ -18,6 +18,10 @@ public final class PlayerModel {
         case paused
         case ended
         case failed(String)
+
+        /// `.failed` is terminal: it is showing Retry / Try another version, and only an explicit
+        /// viewer action may leave it. Engine events that arrive afterwards must not overwrite it.
+        public var isFailed: Bool { if case .failed = self { return true }; return false }
     }
 
     // MARK: - Subtitle state
@@ -412,8 +416,15 @@ public final class PlayerModel {
         self.recordProgress = recordProgress
         self.subtitles = subtitles
         self.nowPlaying = nowPlaying
-        let initial: SubtitleRowState = subtitles == nil ? .noAccount : .idle
-        self.subtitleRows = ["he", "en"].map { SubtitleRow(language: $0, state: initial) }
+        self.subtitleRows = Self.freshSubtitleRows(hasAccount: subtitles != nil)
+    }
+
+    /// The one-tap language rows in their untouched state. One definition, because three places
+    /// need it — construction, an episode swap, and every `reload()` — and a copy that drifted
+    /// would leave a row claiming a track the new media does not have.
+    static func freshSubtitleRows(hasAccount: Bool) -> [SubtitleRow] {
+        let initial: SubtitleRowState = hasAccount ? .idle : .noAccount
+        return ["he", "en"].map { SubtitleRow(language: $0, state: initial) }
     }
 
     // MARK: - Lifecycle

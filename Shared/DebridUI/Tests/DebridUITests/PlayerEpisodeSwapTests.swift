@@ -154,4 +154,59 @@ import DebridCore
         #expect(model.hasRenderedFrame == false)
         await gate.open()
     }
+
+    /// **The same window, but the stale event is a STATE change rather than a tick.**
+    ///
+    /// `tick()` and `.paused` are both gated against the outgoing media; `.playing` was not. Any
+    /// rebuffer of the still-playing outgoing file emits `.buffering` → `.playing`, and the
+    /// unguarded `.playing` called `markRendered()`, which clears `isSwitching`. That guard is the
+    /// only thing swallowing the `.ended` the engine emits when `load()` replaces the media — so
+    /// the swap's own teardown was read as "E2 finished" and auto-advanced again, to E3.
+    @Test func aStalePlayingStateFromTheOutgoingEpisodeDoesNotClearTheSwapGuard() async {
+        let engine = FakeVideoPlayerEngine()
+        let writes = Writes()
+        let gate = Gate()
+        let model = makeModel(engine: engine, writes: writes, gate: gate)
+        await warmUp(model, engine, to: 100, duration: 200)
+
+        await gate.close()          // hold E2's unrestrict open
+        model.playNext()            // → E2, engine still holds E1
+        await model.waitForIdleForTesting()
+        #expect(model.currentEpisode?.number == 2)
+
+        // E1 rebuffers and recovers while E2 is still resolving.
+        engine.emit(.state(.buffering))
+        engine.emit(.state(.playing))
+        await model.waitForIdleForTesting()
+
+        // …then `engine.load()` replaces the media, which VLCKit reports as stopped → `.ended`.
+        engine.emit(.state(.ended))
+        await model.waitForIdleForTesting()
+
+        // Still E2. Without the guard this is E3.
+        #expect(model.currentEpisode?.number == 2)
+        await gate.open()
+    }
+
+    /// The same unguarded `.playing` also set `hasRenderedFrame`, which is what the load watchdog
+    /// checks before surfacing a dead link. A stale `.playing` therefore disarmed the watchdog for
+    /// the INCOMING episode: a link that never opened left the spinner up for good, with no Retry.
+    @Test func aStalePlayingStateDoesNotMarkTheIncomingEpisodeAsRendered() async {
+        let engine = FakeVideoPlayerEngine()
+        let writes = Writes()
+        let gate = Gate()
+        let model = makeModel(engine: engine, writes: writes, gate: gate)
+        await warmUp(model, engine, to: 100, duration: 200)
+
+        await gate.close()
+        model.playNext()
+        await model.waitForIdleForTesting()
+
+        engine.emit(.state(.playing))
+        await model.waitForIdleForTesting()
+
+        #expect(model.hasRenderedFrame == false)
+        #expect(model.isSwitching == true)
+        await gate.open()
+    }
 }
