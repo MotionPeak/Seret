@@ -56,4 +56,33 @@ private struct FakeSource: StreamSource {
         let cachedOnly = try await agg.streams(for: q())
         #expect(cachedOnly.map(\.infoHash) == ["c"])   // only the instant one, Torrentio stays out
     }
+
+    /// The merge waits for every source. Without a per-source deadline one provider that never
+    /// answers holds results the other already returned -- the viewer watches "Finding cached
+    /// versions" for the length of the URL session's own timeout, a full minute by default, with a
+    /// complete answer sitting in memory the whole time.
+    @Test func aSourceThatNeverAnswersDoesNotHoldTheOneThatDid() async throws {
+        struct Hanging: StreamSource {
+            func streams(for query: StreamQuery) async throws -> [CachedStream] {
+                try await Task.sleep(for: .seconds(3600))
+                return []
+            }
+        }
+        struct Prompt: StreamSource {
+            func streams(for query: StreamQuery) async throws -> [CachedStream] {
+                [CachedStream(infoHash: "fast", fileIdx: nil, rawTitle: "t",
+                              parsed: ParsedRelease(title: "t", resolution: "1080p"),
+                              languages: ["en"], sizeBytes: 1, sourceName: nil)]
+            }
+        }
+        let aggregate = AggregateStreamSource([Hanging(), Prompt()],
+                                              perSourceDeadline: .milliseconds(50))
+        let clock = ContinuousClock()
+        let started = clock.now
+        let results = try await aggregate.streams(for: q())
+        let elapsed = clock.now - started
+
+        #expect(results.map { $0.infoHash } == ["fast"])
+        #expect(elapsed < .seconds(5))
+    }
 }

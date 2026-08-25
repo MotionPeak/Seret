@@ -57,16 +57,32 @@ public struct LibraryMerger: Sendable {
         return out
     }
 
-    /// Unions two season lists. Episodes are deduped by season+number keeping the first-seen
-    /// source — the same rule `LibraryBuilder` applies within one show.
+    /// Unions two season lists. Two entries for one episode are two COPIES of it — different
+    /// torrents, different quality — so their sources are unioned and re-ranked into primary +
+    /// alternates, exactly as `LibraryBuilder` does within one show.
+    ///
+    /// Keeping only the first-seen episode, which is what this used to do, silently deleted the
+    /// other copy: the episode's Versions list showed one entry when the account held two, and
+    /// which one survived depended on the order two snapshots happened to merge in.
     static func mergeSeasons(_ first: [Season], _ later: [Season]) -> [Season] {
         guard !later.isEmpty else { return first }
         guard !first.isEmpty else { return later }
-        var episodes: [String: Episode] = [:]
+        var collected: [String: (season: Int, number: Int, sources: [MediaSource])] = [:]
         for season in first + later {
-            for episode in season.episodes where episodes[episode.id] == nil {
-                episodes[episode.id] = episode
+            for episode in season.episodes {
+                if let existing = collected[episode.id] {
+                    collected[episode.id] = (existing.season, existing.number,
+                                             mergeSources(existing.sources, episode.sources))
+                } else {
+                    collected[episode.id] = (episode.season, episode.number, episode.sources)
+                }
             }
+        }
+        let episodes = collected.compactMapValues { entry -> Episode? in
+            let ranked = entry.sources.bestFirst()
+            guard let best = ranked.first else { return nil }
+            return Episode(season: entry.season, number: entry.number,
+                           source: best, alternates: Array(ranked.dropFirst()))
         }
         let bySeason = Dictionary(grouping: episodes.values, by: { $0.season })
         return bySeason.keys.sorted().map { number in

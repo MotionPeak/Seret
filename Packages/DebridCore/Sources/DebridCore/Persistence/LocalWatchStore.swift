@@ -172,14 +172,29 @@ public actor LocalWatchStore {
     }
 
     /// Continue Watching for one profile: started, not finished, newest first.
+    ///
+    /// Every other read takes `.first` of a title's rows or collapses them; this one returned rows
+    /// verbatim, so a title CloudKit had duplicated appeared in the rail twice — the same poster,
+    /// side by side, at two different positions. De-duplicating by content key keeps the newest,
+    /// which is the same rule every other reader applies.
+    ///
+    /// The fetch asks for more rows than requested because duplicates are removed afterwards:
+    /// limiting first would return a short rail whenever any title had a duplicate.
     public func recent(limit: Int, profileID: String) throws -> [WatchState] {
+        guard limit > 0 else { return [] }
         var descriptor = FetchDescriptor<WatchProgress>(
             predicate: #Predicate {
                 $0.profileID == profileID && !$0.finished && $0.positionSeconds > 0
             },
             sortBy: [SortDescriptor(\.updatedAt, order: .reverse)])
-        descriptor.fetchLimit = limit
-        return try modelContext.fetch(descriptor).map(state)
+        descriptor.fetchLimit = limit * 2 + 8
+        var seen = Set<String>()
+        var out: [WatchState] = []
+        for row in try modelContext.fetch(descriptor) where seen.insert(row.contentKey).inserted {
+            out.append(state(row))
+            if out.count == limit { break }
+        }
+        return out
     }
 
     /// Drop progress for these titles across every profile — the item left the shared library.

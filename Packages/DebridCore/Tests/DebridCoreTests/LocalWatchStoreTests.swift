@@ -274,5 +274,46 @@ extension SwiftDataSuite {
             #expect(rollup?.plays == 1)
             #expect(try await s.state(forContentKey: "movie:tmdb:7", profileID: "p1")?.positionSeconds == 1200)
         }
+
+        /// Every other read collapses a title's duplicate rows; Continue Watching returned them
+        /// verbatim, so a title CloudKit had duplicated showed up in the rail twice -- the same
+        /// poster side by side, at two different positions.
+        @Test func continueWatchingShowsATitleOnceEvenWithDuplicateRows() async throws {
+            let s = try store()
+            try await s.seedRow(contentKey: "movie:tmdb:7", profileID: "p1", sourceKey: "T1#1",
+                                positionSeconds: 100, durationSeconds: 6000, finished: false,
+                                plays: 0, rating: nil,
+                                updatedAt: Date(timeIntervalSince1970: 10), lastWatchedAt: nil)
+            try await s.seedRow(contentKey: "movie:tmdb:7", profileID: "p1", sourceKey: "T1#1",
+                                positionSeconds: 900, durationSeconds: 6000, finished: false,
+                                plays: 0, rating: nil,
+                                updatedAt: Date(timeIntervalSince1970: 20), lastWatchedAt: nil)
+            try await s.seedRow(contentKey: "movie:tmdb:8", profileID: "p1", sourceKey: "T2#1",
+                                positionSeconds: 50, durationSeconds: 6000, finished: false,
+                                plays: 0, rating: nil,
+                                updatedAt: Date(timeIntervalSince1970: 15), lastWatchedAt: nil)
+
+            let recent = try await s.recent(limit: 10, profileID: "p1")
+            #expect(recent.map(\.contentKey) == ["movie:tmdb:7", "movie:tmdb:8"])
+            #expect(recent.first?.positionSeconds == 900)     // the newer row wins
+        }
+
+        /// …and the rail still fills to its limit rather than coming up short because a title
+        /// happened to be duplicated.
+        @Test func continueWatchingStillFillsTheRequestedLimit() async throws {
+            let s = try store()
+            for i in 1...5 {
+                for copy in 0..<2 {          // every title duplicated
+                    try await s.seedRow(contentKey: "movie:tmdb:\(i)", profileID: "p1",
+                                        sourceKey: "T\(i)#1", positionSeconds: 100,
+                                        durationSeconds: 6000, finished: false, plays: 0,
+                                        rating: nil,
+                                        updatedAt: Date(timeIntervalSince1970: Double(i * 10 + copy)),
+                                        lastWatchedAt: nil)
+                }
+            }
+            #expect(try await s.recent(limit: 3, profileID: "p1").count == 3)
+            #expect(try await s.recent(limit: 10, profileID: "p1").count == 5)
+        }
     }
 }

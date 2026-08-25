@@ -101,4 +101,32 @@ struct LibraryMergerTests {
                      movie("movie:tmdb:2", sources: [source("B")])]
         #expect(merger.merge(items) == items)
     }
+
+    /// Two entries for one episode are two COPIES of it -- a 1080p and a 2160p of the same episode,
+    /// from different torrents. Keeping only the first-seen deleted the other outright, so an
+    /// episode's Versions list showed one entry when the account held two, and WHICH one survived
+    /// depended on the order two snapshots happened to merge in.
+    @Test func mergingTwoCopiesOfAShowKeepsBothVersionsOfAnEpisode() {
+        func src(_ torrent: String, _ res: String) -> MediaSource {
+            MediaSource(torrentID: torrent, fileID: nil, restrictedLink: "rd://\(torrent)",
+                        parsed: ParsedRelease(title: "Show", resolution: res, source: "BluRay"))
+        }
+        func copy(_ torrent: String, _ res: String) -> MediaItem {
+            MediaItem(id: "show:tmdb:5", kind: .show, title: "Show", year: 2020, sources: [],
+                      seasons: [Season(number: 1, episodes: [
+                          Episode(season: 1, number: 1, source: src(torrent, res))])],
+                      tmdbID: 5)
+        }
+
+        let merged = LibraryMerger().merge([copy("hd", "1080p"), copy("uhd", "2160p")])
+        #expect(merged.count == 1)
+        let episode = merged[0].seasons.first?.episodes.first
+        #expect(episode?.sources.count == 2)
+        #expect(Set(episode?.sources.map(\.torrentID) ?? []) == ["hd", "uhd"])
+        // …and the better copy is the one that plays by default, whichever order they merged in.
+        #expect(episode?.source.torrentID == "uhd")
+
+        let reversed = LibraryMerger().merge([copy("uhd", "2160p"), copy("hd", "1080p")])
+        #expect(reversed[0].seasons.first?.episodes.first?.source.torrentID == "uhd")
+    }
 }

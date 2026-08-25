@@ -149,9 +149,17 @@ public struct FilenameParser: Sendable {
     /// "DL", "DTS-HD" → "HD") poisoned the group match that ranks subtitles.
     private static func extractReleaseGroup(_ stem: String) -> String? {
         guard let pair = captures(stem, reTrailingHyphenPair), pair.count == 2 else { return nil }
-        let whole = "\(pair[0])-\(pair[1])"
-        if matchesWholly(whole, reSource) || matchesWholly(whole, reAudio) { return nil }
+        if isCompoundTag("\(pair[0])-\(pair[1])") { return nil }
         return pair[1]
+    }
+
+    /// True when a hyphenated pair is one token — a compound source or audio tag like `WEB-DL`,
+    /// `Blu-Ray`, `DTS-HD` — rather than `<something>-<release group>`. Shared, because anything
+    /// that reads "the bit after the last hyphen" as a release group makes the same mistake: it
+    /// reads `WEB-DL` as the group `DL`, and then matches every other release that merely ends the
+    /// same way.
+    static func isCompoundTag(_ pair: String) -> Bool {
+        matchesWholly(pair, reSource) || matchesWholly(pair, reAudio)
     }
 
     /// True when `re` matches the entire string, not merely a part of it.

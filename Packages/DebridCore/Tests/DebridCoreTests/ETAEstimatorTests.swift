@@ -79,4 +79,55 @@ import Foundation
         var e = ETAEstimator()
         #expect(e.observe(fraction: 0, totalBytes: 0, reportedSpeed: 100, at: at(0)) == 0)
     }
+
+    /// A zero observation was thrown away rather than averaged in, so the last rate that HAPPENED
+    /// to be positive lived on forever. A download that stopped moving therefore kept showing a
+    /// confident, steadily-counting-down ETA -- the exact "inventing a number when it cannot know"
+    /// this type says it will not do.
+    @Test func aStalledDownloadStopsClaimingToKnowWhenItWillFinish() {
+        var e = ETAEstimator()
+        _ = e.observe(fraction: 0, totalBytes: 10_000, reportedSpeed: nil, at: at(0))
+        let moving = e.observe(fraction: 0.5, totalBytes: 10_000, reportedSpeed: nil, at: at(10))
+        #expect(moving == 10.0)           // 500 B/s, 5000 bytes left
+
+        // Now nothing moves. Poll every 10s, as the monitor does.
+        var last: TimeInterval??
+        for step in stride(from: 20.0, through: 120.0, by: 10.0) {
+            last = e.observe(fraction: 0.5, totalBytes: 10_000, reportedSpeed: nil, at: at(step))
+        }
+        #expect(last ?? nil == nil)
+    }
+
+    /// …and it must degrade before it gives up, not flip from confident to nothing: a stall that
+    /// has only just begun should read as slowing down.
+    @Test func aStallFirstShowsTheEstimateGrowing() {
+        var e = ETAEstimator()
+        _ = e.observe(fraction: 0, totalBytes: 10_000, reportedSpeed: nil, at: at(0))
+        let moving = e.observe(fraction: 0.5, totalBytes: 10_000, reportedSpeed: nil, at: at(10))
+        let firstFlat = e.observe(fraction: 0.5, totalBytes: 10_000, reportedSpeed: nil, at: at(20))
+        #expect(moving != nil)
+        #expect(firstFlat != nil)
+        #expect((firstFlat ?? 0) > (moving ?? 0))
+    }
+
+    /// A stall that RECOVERS must report again, not stay dark.
+    @Test func aRecoveredDownloadEstimatesAgain() {
+        var e = ETAEstimator()
+        _ = e.observe(fraction: 0, totalBytes: 10_000, reportedSpeed: nil, at: at(0))
+        _ = e.observe(fraction: 0.5, totalBytes: 10_000, reportedSpeed: nil, at: at(10))
+        for step in stride(from: 20.0, through: 120.0, by: 10.0) {
+            _ = e.observe(fraction: 0.5, totalBytes: 10_000, reportedSpeed: nil, at: at(step))
+        }
+        let resumed = e.observe(fraction: 0.75, totalBytes: 10_000, reportedSpeed: nil, at: at(130))
+        #expect(resumed != nil)
+    }
+
+    /// A download that has not started yet is not a stall — there is simply nothing to measure, and
+    /// RD's reported speed remains the only signal.
+    @Test func aDownloadThatHasNotMovedYetStillUsesTheReportedSpeed() {
+        var e = ETAEstimator()
+        _ = e.observe(fraction: 0, totalBytes: 10_000, reportedSpeed: 100, at: at(0))
+        let eta = e.observe(fraction: 0, totalBytes: 10_000, reportedSpeed: 100, at: at(10))
+        #expect(eta == 100.0)
+    }
 }

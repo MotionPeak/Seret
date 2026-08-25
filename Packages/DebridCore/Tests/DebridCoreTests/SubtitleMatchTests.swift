@@ -73,4 +73,25 @@ import Foundation
                                   source: "WEB-DL", videoCodec: "H265", releaseGroup: "FLUX"))
         #expect(source.releaseNameForMatching == "Dune.Part.Two.2024.2160p.WEB-DL.H265-FLUX")
     }
+
+    /// The release group is read as the token after the last hyphen -- but `web-dl` and `dts-hd`
+    /// ARE the token, not `<something>-<group>`. Reading their tails as groups gave every release
+    /// ending in WEB-DL the shared "group" DL, which scores as a release match, so a subtitle timed
+    /// to an entirely unrelated release was ranked as if it came from this exact one.
+    @Test func aTrailingSourceTagIsNotTreatedAsASharedReleaseGroup() {
+        let video = "Some.Film.2024.1080p.WEB-DL"
+        let unrelated = SubtitleResult(fileID: 1, language: "en",
+                                       release: "Other.Film.2019.1080p.WEB-DL")
+        let ranked = SubtitleMatch.rank([unrelated], against: video, videoFPS: nil)
+        #expect(ranked.first?.reasons.contains(.sameGroup) == false)
+    }
+
+    /// …and a real group still matches.
+    @Test func aRealReleaseGroupStillMatches() {
+        let video = "Some.Film.2024.1080p.WEB-DL.x264-NTb"
+        let same = SubtitleResult(fileID: 1, language: "en",
+                                  release: "Some.Film.2024.1080p.WEB-DL.x264-NTb")
+        let ranked = SubtitleMatch.rank([same], against: video, videoFPS: nil)
+        #expect(ranked.first?.reasons.contains(.sameGroup) == true)
+    }
 }

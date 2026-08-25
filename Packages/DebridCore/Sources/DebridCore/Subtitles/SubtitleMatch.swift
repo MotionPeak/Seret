@@ -125,6 +125,11 @@ public enum SubtitleMatch {
             .first
             .map(String.init)
         guard let group, group.count >= 2 else { return nil }
+        // `web-dl` and `dts-hd` are single tokens, not `<something>-<group>`. Reading the tail as a
+        // group made every release ending in WEB-DL share the "group" DL, which scores as a release
+        // match — so a subtitle from an unrelated release was ranked as if it came from this one.
+        let preceding = base[..<dash].split(whereSeparator: { !$0.isLetter && !$0.isNumber }).last
+        if let preceding, FilenameParser.isCompoundTag("\(preceding)-\(group)") { return nil }
         return group
     }
 }
