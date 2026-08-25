@@ -220,4 +220,43 @@ private func showHit() -> SearchHit {
         await f.addSeason()
         if case .added = f.seasonAdd?.state {} else { Issue.record("expected the season pack to be added") }
     }
+
+    private func addedTorrent() -> TorrentInfo {
+        TorrentInfo(id: "T9", filename: "Some.Title.2024.1080p.WEB-DL.mkv", hash: "h", bytes: 1,
+                    progress: 100, status: "downloaded",
+                    files: [TorrentFile(id: 1, path: "/Some.Title.2024.1080p.WEB-DL.mkv",
+                                        bytes: 1_000, selected: 1)],
+                    links: ["https://rd/1"])
+    }
+
+    /// Add & Play records progress under the request's contentKey. That key has to be the SAME
+    /// string the library will use for the title once it appears there -- `MetadataEnricher` keys a
+    /// MediaItem `<kind>:tmdb:<id>`, and `WatchKey` builds everything from that. Add & Play built a
+    /// bare `tmdb:<id>` instead, so a title watched straight after adding it filed its position
+    /// under a key nothing else ever reads: the title page offered "Play", not "Resume", and it
+    /// never appeared in Continue Watching.
+    @Test func addAndPlayUsesTheSameContentKeyTheLibraryWillUse() async {
+        let f = flow(hit: movieHit(), details: FakeDetails(movie: .success(movieDetails(imdb: "tt1"))))
+        await f.resolve()
+        let request = f.playbackRequest(from: addedTorrent())
+
+        #expect(request?.contentKey == "movie:tmdb:11")
+        // …and the placeholder item carries the same identity, so the Detail page it opens
+        // resolves to the library entry rather than a second, parallel one.
+        #expect(request?.item.id == "movie:tmdb:11")
+        #expect(request?.contentKey == WatchKey.content(forMovie: request!.item))
+    }
+
+    @Test func addAndPlayEpisodeKeyMatchesTheLibraryEpisodeKey() async {
+        let f = flow(hit: showHit(),
+                     details: FakeDetails(tv: .success(tvDetails(imdb: "tt2", seasons: 1)),
+                                          episodes: [1: .success([episode(3)])]))
+        await f.resolve()
+        await f.selectSeason(1)
+        await f.selectEpisode(3)
+        let request = f.playbackRequest(from: addedTorrent())
+
+        #expect(request?.contentKey == "show:tmdb:22:s1e3")
+        #expect(request?.contentKey == WatchKey.content(forShow: request!.item, season: 1, number: 3))
+    }
 }

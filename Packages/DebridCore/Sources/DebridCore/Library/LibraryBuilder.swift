@@ -47,23 +47,51 @@ public struct LibraryBuilder: Sendable {
     /// is expanded by parsing each selected video file path for its episode number.
     private func ingestTV(_ info: TorrentInfo, _ parsed: ParsedRelease, into acc: ShowAccumulator) {
         acc.observe(added: Self.parseAdded(info.added))
+        let packSeason = parsed.season ?? 1
         if let episode = parsed.episode {
-            // Prefer the file that actually NAMES this episode. A torrent whose name states one
-            // episode can still hold several — pack adds are routinely named after their first —
-            // and `primaryVideoFile()` (the largest file) then returns the wrong episode while the
-            // row still records progress under the clicked one. Fall back to the largest video
-            // when no file names the episode, so an oddly-named single-episode torrent is not
-            // dropped from the library.
+            // The torrent NAME states one episode — but a pack added through RD is routinely named
+            // after the first episode it contains, because that is what the indexer titled it. So
+            // the name is only a hint; the FILES are the truth.
+            //
+            // When the files name more than one distinct episode, this is a pack and expanding it
+            // is the only way the rest of them reach the library. Branching on the name alone added
+            // the named episode and returned, so a season the viewer added showed exactly one
+            // episode and the other nine were never looked at.
+            if Self.distinctEpisodes(of: info, season: packSeason, parser: parser).count > 1 {
+                expand(info, packSeason: packSeason, into: acc)
+                return
+            }
+            // A single episode after all. Prefer the file that actually NAMES it — `primaryVideoFile()`
+            // (the largest) would return the wrong one in a mis-named torrent while the row still
+            // records progress under the clicked episode. Fall back to the largest video when no
+            // file names it, so an oddly-named single-episode torrent is not dropped.
             guard let primary = info.videoFile(forSeason: parsed.season, episode: episode)
                 ?? info.primaryVideoFile() else { return }
-            acc.add(season: parsed.season ?? 1, number: episode,
+            acc.add(season: packSeason, number: episode,
                     source: MediaSource(torrentID: info.id, fileID: primary.file.id,
                                         restrictedLink: primary.link, parsed: parsed,
                                         sizeBytes: primary.file.bytes))
             return
         }
-        // Season pack: expand selected video files.
-        let packSeason = parsed.season ?? 1
+        expand(info, packSeason: packSeason, into: acc)
+    }
+
+    /// Every (season, episode) the torrent's own selected video files name. The season falls back
+    /// to the pack's, so files that name only an episode still group together rather than looking
+    /// like distinct entries.
+    private static func distinctEpisodes(of info: TorrentInfo, season packSeason: Int,
+                                         parser: FilenameParser) -> Set<SeasonEpisode> {
+        var keys: Set<SeasonEpisode> = []
+        for (file, _) in info.selectedFilesWithLinks() where isVideoPath(file.path) {
+            let parsed = parser.parse(file.path)
+            guard let episode = parsed.episode else { continue }
+            keys.insert(SeasonEpisode(season: parsed.season ?? packSeason, number: episode))
+        }
+        return keys
+    }
+
+    /// Add one episode per selected video file that names one — the season-pack expansion.
+    private func expand(_ info: TorrentInfo, packSeason: Int, into acc: ShowAccumulator) {
         for (file, link) in info.selectedFilesWithLinks() where Self.isVideoPath(file.path) {
             let fileParsed = parser.parse(file.path)
             guard let episode = fileParsed.episode else { continue }
@@ -77,6 +105,13 @@ public struct LibraryBuilder: Sendable {
     private static func isVideoPath(_ path: String) -> Bool {
         let video: Set<String> = ["mkv", "mp4", "avi", "m4v", "mov", "ts", "wmv"]
         return video.contains(URL(fileURLWithPath: path).pathExtension.lowercased())
+    }
+
+    /// One episode's place in a show — just enough to count how many DISTINCT episodes a torrent's
+    /// files name.
+    struct SeasonEpisode: Hashable {
+        let season: Int
+        let number: Int
     }
 
     /// Normalized grouping key: lowercased letters+digits only, so "Dune.Part.Two"

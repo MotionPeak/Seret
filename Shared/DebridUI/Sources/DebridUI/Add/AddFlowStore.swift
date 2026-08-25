@@ -156,18 +156,26 @@ public final class AddFlowStore {
         let source = MediaSource(torrentID: info.id, fileID: file.id,
                                  restrictedLink: link, parsed: parsed)
         let itemKind: MediaKind = hit.kind
+        // The item's id has to be the canonical `<kind>:tmdb:<id>` that `MetadataEnricher` gives
+        // this title once it reaches the library, and the content key has to come from `WatchKey`
+        // built on it. Both were assembled by hand here and were missing the kind prefix, so a
+        // title watched straight after adding it recorded its position under a key nothing else
+        // ever reads: the title page offered "Play" instead of "Resume", and it never showed up in
+        // Continue Watching. The episode form was doubly wrong — the id already carried `s1e3`, so
+        // routing it through WatchKey would have produced `…:s1e3:s1e3`.
+        let item = MediaItem(id: "\(itemKind.rawValue):tmdb:\(hit.result.id)",
+                             kind: itemKind, title: title, year: year,
+                             sources: [source], seasons: [], tmdbID: hit.result.id,
+                             posterPath: posterPath, backdropPath: backdropPath, overview: overview)
         let label: String
         let contentKey: String
         if case .show = itemKind, let s = selectedSeason, let e = selectedEpisode {
             label = "\(title) — S\(s)·E\(e)"
-            contentKey = "tmdb:\(hit.result.id):s\(s)e\(e)"
+            contentKey = WatchKey.content(forShow: item, season: s, number: e)
         } else {
             label = title
-            contentKey = "tmdb:\(hit.result.id)"
+            contentKey = WatchKey.content(forMovie: item)
         }
-        let item = MediaItem(id: contentKey, kind: itemKind, title: title, year: year,
-                             sources: [source], seasons: [], tmdbID: hit.result.id,
-                             posterPath: posterPath, backdropPath: backdropPath, overview: overview)
         return PlaybackRequest(item: item, source: source, resumeAt: nil,
                                label: label, contentKey: contentKey)
     }

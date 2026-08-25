@@ -424,7 +424,37 @@ public final class DetailStore {
     private func loadWatch() async {
         switch item.kind {
         case .movie: await refreshWatch(WatchKey.content(forMovie: item))
-        case .show:  await loadWatchForSeason(selectedSeason)
+        case .show:
+            // Every OWNED episode of every season, in one read, BEFORE the selected season's.
+            // `nextEpisode()` scans all seasons and treats an episode with no loaded state as
+            // unwatched — so reading only the selected season made every season the viewer had not
+            // opened on this visit look untouched, and Play offered the first episode of the
+            // earliest unvisited season instead of the one actually in progress.
+            await loadWatchForOwnedEpisodes()
+            await loadWatchForSeason(selectedSeason)
+        }
+    }
+
+    /// One batched read covering every episode the show OWNS, across all seasons. Bounded by the
+    /// download count, not by TMDB's catalogue, and it is what `nextEpisode()` reasons over.
+    private func loadWatchForOwnedEpisodes() async {
+        guard let watch else { return }
+        let keys = item.seasons.flatMap { season in
+            season.episodes.map { WatchKey.content(forShow: item, episode: $0) }
+        }
+        guard !keys.isEmpty else { return }
+        guard let states = try? await watch.progress(forContentKeys: keys,
+                                                     profileID: watchProfileID) else { return }
+        for key in keys { watchByKey[key] = states[key] }
+        // Claim every season this read fully covered, so the per-season read that follows dedups
+        // away instead of fetching the same keys again. A season TMDB lists more episodes for than
+        // the viewer owns is deliberately NOT claimed — those keys still need reading.
+        for season in item.seasons {
+            let listed = Set(episodes(forSeason: season.number).map {
+                WatchKey.content(forShow: item, season: season.number, number: $0.number)
+            })
+            let owned = Set(season.episodes.map { WatchKey.content(forShow: item, episode: $0) })
+            if !listed.isEmpty, listed.isSubset(of: owned) { watchKeysRead[season.number] = listed }
         }
     }
 
