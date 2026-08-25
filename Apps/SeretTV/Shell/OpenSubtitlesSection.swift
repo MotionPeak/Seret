@@ -20,8 +20,12 @@ struct OpenSubtitlesSection: View {
                 pairing
             }
         }
-        .onAppear(perform: startServer)
-        .onDisappear { server?.stop(); server = nil }
+        .onAppear(perform: syncServer)
+        // The server exists ONLY to receive a password. Starting it while already connected put a
+        // credential form on the LAN that nothing on screen even offered — and it used to keep
+        // running after pairing succeeded, so the window stayed open for the rest of the visit.
+        .onChange(of: model.isConnected) { _, _ in syncServer() }
+        .onDisappear(perform: stopServer)
     }
 
     // MARK: - States
@@ -109,14 +113,25 @@ struct OpenSubtitlesSection: View {
     // MARK: - Server
 
     /// The listener runs only while this section is on screen — see `LocalPairingServer`.
+    /// Runs the pairing server exactly while it is needed: not before, and not a moment after.
+    private func syncServer() {
+        if model.isConnected { stopServer() } else { startServer() }
+    }
+
     private func startServer() {
         guard server == nil else { return }
         let server = LocalPairingServer { credentials in
             model.username = credentials.username
             model.password = credentials.password
             model.save()
+            stopServer()      // it has what it came for; close the door behind it
         }
         server.start()
         self.server = server
+    }
+
+    private func stopServer() {
+        server?.stop()
+        server = nil
     }
 }

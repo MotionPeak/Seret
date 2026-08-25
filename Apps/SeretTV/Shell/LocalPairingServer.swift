@@ -107,7 +107,23 @@ final class LocalPairingServer {
 
     // MARK: - Connections
 
+    /// The most a single request may accumulate before it is abandoned. The only request this
+    /// server ever serves is a two-field login form — a few hundred bytes. Nothing legitimate
+    /// approaches this, and without a ceiling a peer that streams bytes without ever completing a
+    /// request grows the buffer without limit while every 64 KB chunk re-converts and re-scans the
+    /// WHOLE accumulation on the main actor. That is quadratic work on the thread that draws the
+    /// UI, on a socket any device on the same Wi-Fi can open.
+    static let maxRequestBytes = 32 * 1024
+
+    /// How many peers may be mid-request at once. The pairing flow needs exactly one; the cap only
+    /// exists so a peer opening connections in a loop cannot pin the main actor.
+    static let maxConcurrentConnections = 8
+
     private func accept(_ connection: NWConnection) {
+        guard connections.count < Self.maxConcurrentConnections else {
+            connection.cancel()
+            return
+        }
         connections.append(connection)
         connection.start(queue: .main)
         receive(on: connection, buffer: Data())
@@ -125,6 +141,7 @@ final class LocalPairingServer {
                 guard error == nil else { self.close(connection); return }
                 var buffer = buffer
                 if let data { buffer.append(data) }
+                guard buffer.count <= Self.maxRequestBytes else { self.close(connection); return }
                 if let request = HTTPRequest(buffer), request.isComplete {
                     self.respond(to: request, on: connection)
                 } else if isComplete {
