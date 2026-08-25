@@ -15,6 +15,10 @@ public struct ETAEstimator: Sendable, Equatable {
     }
 
     private var anchor: Sample?
+    /// When `observe` was last called at all — distinct from the anchor, which now sits still
+    /// through a flat stretch. Without the separation, a long flat stretch looked like the app
+    /// having been away.
+    private var lastPollAt: Date?
     /// Bytes/sec, exponentially smoothed. Nil until a usable observation exists.
     private var smoothedRate: Double?
     /// When the byte count last actually advanced, and how much it had reached — the pair that
@@ -60,24 +64,32 @@ public struct ETAEstimator: Sendable, Equatable {
             lastProgress = Sample(at: now, bytesDone: done)
         }
 
+        // A gap between POLLS this long means the app was away: prior samples say nothing about now.
+        if let lastPollAt, now.timeIntervalSince(lastPollAt) > staleAfter {
+            smoothedRate = nil
+            anchor = nil
+            lastProgress = Sample(at: now, bytesDone: done)   // …and it is not a stall either
+        }
+        lastPollAt = now
+
         if let previous = anchor {
             let elapsed = now.timeIntervalSince(previous.at)
-            if elapsed > staleAfter {
-                smoothedRate = nil          // the app was away; the old sample says nothing about now
-                lastProgress = Sample(at: now, bytesDone: done)   // …and it is not a stall either
-                anchor = Sample(at: now, bytesDone: done)
-            } else if elapsed >= minInterval {
-                // A zero observation is a measurement, not a missing one. Averaging it in is what
-                // makes a slowing download read as slowing instead of holding its old estimate.
-                let observed = max(0, (done - previous.bytesDone) / elapsed)
-                if let current = smoothedRate {
-                    smoothedRate = smoothing * observed + (1 - smoothing) * current
-                } else if observed > 0 {
-                    smoothedRate = observed
-                }
+            let moved = done - previous.bytesDone
+            if elapsed >= minInterval, moved > 0 {
+                // The anchor only advances when bytes actually move, so this spans the WHOLE flat
+                // stretch since they last did — which makes it the true average rate rather than a
+                // spike.
+                //
+                // RD reports `progress` in whole percent, so a large download's byte count jumps
+                // once every couple of minutes while bytes move throughout. Reading each poll in
+                // isolation gave one enormous rate at the step and zeros in between; averaging
+                // those zeros in decayed the estimate toward nothing, so the card climbed into the
+                // hundreds of hours and snapped back at the next step.
+                let observed = moved / elapsed
+                smoothedRate = smoothedRate.map { smoothing * observed + (1 - smoothing) * $0 }
+                    ?? observed
                 anchor = Sample(at: now, bytesDone: done)
             }
-            // Closer than minInterval: keep the older anchor so the next delta spans a useful window.
         } else {
             anchor = Sample(at: now, bytesDone: done)
         }

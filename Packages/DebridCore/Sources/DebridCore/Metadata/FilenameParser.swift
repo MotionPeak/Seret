@@ -28,7 +28,13 @@ public struct FilenameParser: Sendable {
             // 1 on that made a season-2 premiere collide with the season-1 one: both keyed `s1e1`,
             // so the show grew ONE episode row holding two files and whichever ranked higher is
             // what "S01E01" played.
-            season = Self.captures(stem, Self.reSeasonBare).flatMap { Int($0[0]) } ?? 1
+            // Left UNSTATED when the name says nothing, rather than stamped 1. A fansub group
+            // puts the season on the BATCH torrent and not on every file inside it, so a file that
+            // claims season 1 leaves the pack's own season with nothing to override — and a
+            // season-2 batch landed in season 1 beside the season-1 one. `ingestTV` and `expand`
+            // both fall back to the pack's season, and an episode number alone already makes this
+            // a TV parse.
+            season = Self.captures(stem, Self.reSeasonBare).flatMap { Int($0[0]) }
             episode = fansub
         } else if let g = Self.captures(stem, Self.reSeasonEpisode) {
             season = Int(g[0]); episode = Int(g[1])

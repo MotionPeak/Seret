@@ -441,5 +441,53 @@ extension MockTests {
             // …and stay gone.
             #expect(try await svc.refresh().compactMap(\.tmdbID) == [111])
         }
+
+        /// A new episode torrent groups ALONE now, so it reaches TMDB on its own — and a show's
+        /// filename year is the SEASON's year, not its first-air year, which TMDB filters on hard.
+        /// The lookup returns nothing, the fragment never enriches, and it cannot merge into the
+        /// show it belongs to: two cards, one of them posterless and holding the episode the viewer
+        /// just added. Re-grouping the whole account used to match it to the cached show through
+        /// the other torrent and never ask TMDB at all.
+        @Test func aNewEpisodeJoinsItsShowEvenWhenItsYearIsTheSeasonYear() async throws {
+            let dir = tempDir()
+            let svc = service(directory: dir)
+
+            /// Honours `first_air_date_year` the way TMDB does: a mismatch returns nothing.
+            func serve(ids: [String], calls: InfoCalls) -> @Sendable (URLRequest) -> (HTTPURLResponse, Data) {
+                let rows = ids.map { (id: $0, status: "downloaded") }
+                let names = ["A": "The.Simpsons.S34E01.1080p.WEB.mkv",
+                             "C": "The.Simpsons.2023.S35E01.1080p.WEB.H264-GRP.mkv"]
+                return { req in
+                    let url = req.url!.absoluteString
+                    if let range = url.range(of: "/torrents/info/") {
+                        let id = String(url[range.upperBound...])
+                        calls.record(id)
+                        return Self.resp(req, 200, Self.infoJSON(id, release: names[id] ?? "?.mkv"))
+                    }
+                    if url.contains("/torrents") { return Self.resp(req, 200, Self.listJSON(rows)) }
+                    if url.contains("/search/tv") {
+                        let year = URLComponents(string: url)?.queryItems?
+                            .first { $0.name == "first_air_date_year" }?.value
+                        // The Simpsons first aired in 1989; any other year filters it out.
+                        guard year == nil || year == "1989" else {
+                            return Self.resp(req, 200, #"{"results":[]}"#)
+                        }
+                        return Self.resp(req, 200, #"{"results":[{"id":456,"name":"The Simpsons","first_air_date":"1989-12-17","poster_path":"/p.jpg","overview":"o"}]}"#)
+                    }
+                    return Self.resp(req, 200, "[]")
+                }
+            }
+
+            MockURLProtocol.handler = serve(ids: ["A"], calls: InfoCalls())
+            #expect(try await svc.refresh().first?.tmdbID == 456)
+
+            MockURLProtocol.handler = serve(ids: ["A", "C"], calls: InfoCalls())
+            let library = try await svc.refresh()
+
+            #expect(library.count == 1)                       // ONE show, not a ghost beside it
+            #expect(library.first?.tmdbID == 456)
+            let episodes = library.first?.seasons.flatMap(\.episodes).map(\.number) ?? []
+            #expect(episodes.count == 2)                      // the new episode is reachable
+        }
     }
 }

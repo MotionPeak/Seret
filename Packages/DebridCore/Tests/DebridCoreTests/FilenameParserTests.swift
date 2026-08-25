@@ -278,7 +278,9 @@ struct FilenameParserTests {
     @Test func aFansubEpisodeKeepsItsOwnSeason() {
         let s1 = parser.parse("[Judas] Vinland Saga - 01 [1080p].mkv")
         let s2 = parser.parse("[Judas] Vinland Saga S2 - 01 [1080p].mkv")
-        #expect(s1.season == 1)
+        // Unstated rather than 1 — see `aFansubFileThatNamesNoSeasonLeavesItUnstated`. What matters
+        // here is that a season-2 file does not read as season 1.
+        #expect(s1.season == nil)
         #expect(s1.episode == 1)
         #expect(s2.season == 2)
         #expect(s2.episode == 1)
@@ -300,5 +302,15 @@ struct FilenameParserTests {
         let r = parser.parse("[Group] 86 - 07 [1080p].mkv")
         #expect(r.title == "86")
         #expect(r.episode == 7)
+    }
+
+    /// A fansub group states the season on the BATCH torrent and not on every file inside it.
+    /// Stamping season 1 on a file that says nothing about its season left the pack's own season
+    /// with nothing to override — so a season-2 batch landed in season 1 beside the season-1 one.
+    @Test func aFansubFileThatNamesNoSeasonLeavesItUnstated() {
+        let file = parser.parse("[Judas] Vinland Saga - 01 [1080p].mkv")
+        #expect(file.season == nil)          // …so the pack's season fills it in
+        #expect(file.episode == 1)
+        #expect(file.isTV == true)           // an episode number alone is enough
     }
 }

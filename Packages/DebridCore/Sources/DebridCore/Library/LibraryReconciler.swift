@@ -24,6 +24,18 @@ public struct LibraryReconciler: Sendable {
         return ids
     }
 
+    /// How `LibraryBuilder` groups an item: a show by title alone, a movie by title AND year.
+    /// Mirrors the ids it builds, so matching on this is matching on the same rule — including the
+    /// year for movies, which keeps two same-titled films of different years apart.
+    static func groupingKey(of item: MediaItem) -> String {
+        switch item.kind {
+        case .movie:
+            return "movie:\(LibraryBuilder.titleKey(item.title))\(item.year.map { ":\($0)" } ?? "")"
+        case .show:
+            return "show:\(LibraryBuilder.titleKey(item.title))"
+        }
+    }
+
     /// True when RD's current torrent-id set differs from what `cached` was built from.
     public func hasDelta(cached: [MediaItem], rdTorrentIDs: Set<String>) -> Bool {
         let cachedIDs = cached.reduce(into: Set<String>()) { $0.formUnion(Self.torrentIDs(of: $1)) }
@@ -59,11 +71,27 @@ public struct LibraryReconciler: Sendable {
     /// new (enrich) — preserving fresh order so the caller can reassemble after enriching.
     public func reconcile(fresh: [MediaItem], cached: [MediaItem]) -> [Reconciled] {
         var byTorrent: [String: MediaItem] = [:]
+        var byGrouping: [String: MediaItem] = [:]
         for item in cached {
             for id in Self.torrentIDs(of: item) { byTorrent[id] = item }
+            if item.tmdbID != nil, byGrouping[Self.groupingKey(of: item)] == nil {
+                byGrouping[Self.groupingKey(of: item)] = item
+            }
         }
         return fresh.map { item in
+            // Torrent id first — the strongest identity there is. Then the grouping key, which is
+            // what `LibraryBuilder` itself groups by.
+            //
+            // That second lookup restores something the incremental refresh took away. When the
+            // whole account was re-grouped, a newly-added episode torrent landed in the SAME
+            // accumulator as the show's existing ones and was matched here through one of those,
+            // so TMDB was never asked about a show already known. Grouping only the changed
+            // torrents means a new one arrives alone, sharing no id — and a show's filename year is
+            // the SEASON's, which TMDB filters on hard, so the lookup returns nothing and the
+            // fragment can never merge into the show it belongs to. Two cards, one posterless,
+            // holding the episode the viewer just added.
             let match = Self.torrentIDs(of: item).lazy.compactMap { byTorrent[$0] }.first
+                ?? byGrouping[Self.groupingKey(of: item)]
             if let match, match.tmdbID != nil {
                 return .carried(item.withMetadata(tmdbID: match.tmdbID, title: match.title,
                                                   posterPath: match.posterPath, overview: match.overview))
