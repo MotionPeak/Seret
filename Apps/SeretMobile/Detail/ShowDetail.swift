@@ -243,6 +243,12 @@ struct ShowDetail: View {
     /// at all. `.ready` is handled by the `onChange` above, which the hero's Play shares.
     private func playEpisode(season: Int, number: Int, id: String) {
         guard let acquisition else { return }
+        // One at a time. Both taps shared ONE acquisition store, so a second tap overwrote the
+        // first's search, whichever finished first cleared the spinner for both, and the `.ready`
+        // the onChange presents could belong to either — tapping one episode and then another
+        // could open the player on the wrong one. tvOS already disables its Play while a tap is in
+        // flight; this is the same rule for a list row.
+        guard downloadingEpisodeID == nil else { return }
         downloadingEpisodeID = id
         Task {
             await acquisition.playBest(.episode(season: season, number: number))

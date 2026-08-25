@@ -341,12 +341,30 @@ public final class PlayerModel {
     /// last episode, or when the item carries no season data (e.g. an Add-flow play).
     public var nextEpisode: Episode? {
         guard let episode else { return nil }
-        let ordered = item.seasons
-            .sorted { $0.number < $1.number }
-            .flatMap { $0.episodes.sorted { $0.number < $1.number } }
+        let ordered = orderedEpisodes
         guard let i = ordered.firstIndex(where: { $0.season == episode.season && $0.number == episode.number }),
               i + 1 < ordered.count else { return nil }
         return ordered[i + 1]
+    }
+
+    /// Every episode of the show in series order, sorted once.
+    ///
+    /// `item` is fixed for the life of the model, but this was re-sorted and re-flattened on every
+    /// read — and it is read on every playback tick, through `maybeShowUpNext`, and again in each
+    /// SwiftUI body that asks `hasNextEpisode`. For a long-running show that is its whole episode
+    /// list, sorted several times a second, for an answer that cannot change.
+    ///
+    /// `@ObservationIgnored` because filling the cache is a write, and an observed write during a
+    /// view update is exactly the "modifying state during view update" trap.
+    @ObservationIgnored private var orderedEpisodesCache: [Episode]?
+
+    private var orderedEpisodes: [Episode] {
+        if let orderedEpisodesCache { return orderedEpisodesCache }
+        let ordered = item.seasons
+            .sorted { $0.number < $1.number }
+            .flatMap { $0.episodes.sorted { $0.number < $1.number } }
+        orderedEpisodesCache = ordered
+        return ordered
     }
     public var hasNextEpisode: Bool { nextEpisode != nil }
 
