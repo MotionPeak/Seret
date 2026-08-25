@@ -43,8 +43,14 @@ private actor CountingWatch: WatchProgressProviding {
         #expect(await watch.calls() == 1)
     }
 
-    @Test func doesNotRefetchKeysItAlreadyKnows() async {
-        let watch = CountingWatch(["movie:tmdb:2"])
+    /// A key already known FINISHED is never re-read — that answer cannot change on its own, and
+    /// the one thing that can un-finish it goes through `set`.
+    ///
+    /// This used to assert that NO key was re-read, which is the same cache with a bug in it: it
+    /// also remembered the unfinished ones, so a title watched during the session never grew its
+    /// tick. Re-reading only the titles whose answer could still change is what that costs.
+    @Test func doesNotRefetchATitleItAlreadyKnowsIsFinished() async {
+        let watch = CountingWatch(["movie:tmdb:1", "movie:tmdb:2"])
         let marks = TileWatchMarks(watch: { watch }, profileID: { "" })
         await marks.load([hit(1, .movie), hit(2, .movie)])
         await marks.load([hit(1, .movie), hit(2, .movie)])
@@ -100,5 +106,63 @@ private actor CountingWatch: WatchProgressProviding {
         await marks.load([tile])
 
         #expect(marks.isWatched(tile) == true)
+    }
+
+    /// A grid that had already looked at a title never looked again, so watching something and
+    /// coming back to Browse or Find showed no tick until the app was relaunched.
+    @Test func aTitleWatchedThisSessionGrowsItsTick() async {
+        let watch = MutableWatch()
+        let marks = TileWatchMarks(watch: { watch }, profileID: { "p1" })
+        let subject = hit(42, .movie)
+
+        await marks.load([subject])
+        #expect(marks.isWatched(subject) == false)
+
+        await watch.markFinished(subject.contentKey)      // …as the player would, mid-session
+        await marks.load([subject])
+
+        #expect(marks.isWatched(subject) == true)
+    }
+
+    /// …and a title already known finished is not re-read, so the common case stays one fetch.
+    @Test func aFinishedTitleIsNotReReadEveryTime() async {
+        let watch = MutableWatch()
+        let subject = hit(42, .movie)
+        await watch.markFinished(subject.contentKey)
+        let marks = TileWatchMarks(watch: { watch }, profileID: { "p1" })
+
+        await marks.load([subject])
+        await marks.load([subject])
+        await marks.load([subject])
+
+        #expect(marks.isWatched(subject) == true)
+        #expect(await watch.batchReads == 1)
+    }
+}
+
+/// A watch double whose answers can change between reads, like the real store's do.
+private actor MutableWatch: WatchProgressProviding {
+    private var finished: Set<String> = []
+    private(set) var batchReads = 0
+
+    func markFinished(_ key: String) { finished.insert(key) }
+
+    func progress(forContentKey key: String, profileID: String) async throws -> WatchState? {
+        finished.contains(key) ? Self.state(key) : nil
+    }
+    func progress(forContentKeys keys: [String], profileID: String) async throws -> [String: WatchState] {
+        batchReads += 1
+        var out: [String: WatchState] = [:]
+        for key in keys where finished.contains(key) { out[key] = Self.state(key) }
+        return out
+    }
+    func record(contentKey: String, sourceKey: String, positionSeconds: Double,
+                durationSeconds: Double, finished: Bool, profileID: String) async throws {}
+    func recentlyWatched(limit: Int, profileID: String) async throws -> [WatchState] { [] }
+    func deleteProgress(forContentKeys keys: [String]) async throws {}
+
+    private static func state(_ key: String) -> WatchState {
+        WatchState(contentKey: key, sourceKey: "s", positionSeconds: 100, durationSeconds: 100,
+                   finished: true, updatedAt: Date(timeIntervalSince1970: 1))
     }
 }

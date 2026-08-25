@@ -10,7 +10,6 @@ import Observation
 @Observable
 public final class TileWatchMarks {
     private var finished: Set<String> = []
-    private var known: Set<String> = []
 
     /// Resolved on every read, NOT captured once.
     ///
@@ -32,24 +31,26 @@ public final class TileWatchMarks {
 
     public func isWatched(_ hit: SearchHit) -> Bool { finished.contains(hit.contentKey) }
 
-    /// Read watch state for any of these titles we have not read yet. Idempotent: calling it again
-    /// with the same grid costs nothing.
+    /// Read watch state for the titles whose answer could still change.
+    ///
+    /// Only a FINISHED result is worth remembering: it cannot become unfinished on its own, and the
+    /// one thing that can un-finish it — an explicit mark — goes through `set`. Remembering the
+    /// UNFINISHED ones too, which is what a plain "already read" cache did, meant a title watched
+    /// during this session never grew its tick: the grid had recorded that it looked once and would
+    /// not look again until the app was relaunched.
+    ///
+    /// Re-reading the rest costs one batched fetch per grid appearance, over the local store.
     public func load(_ hits: [SearchHit]) async {
         guard let watch = watch() else { return }
-        let keys = Array(Set(hits.map(\.contentKey)).subtracting(known))
+        let keys = Array(Set(hits.map(\.contentKey)).subtracting(finished))
         guard !keys.isEmpty else { return }
-        known.formUnion(keys)
         guard let states = try? await watch.progress(forContentKeys: keys, profileID: profileID())
-        else {
-            known.subtract(keys)         // a failed read must not be remembered as "no result"
-            return
-        }
+        else { return }
         for (key, state) in states where state.finished { finished.insert(key) }
     }
 
     /// Reflect a mark the user just made, without waiting for a re-read.
     public func set(_ watched: Bool, for hit: SearchHit) {
-        known.insert(hit.contentKey)
         if watched { finished.insert(hit.contentKey) } else { finished.remove(hit.contentKey) }
     }
 }

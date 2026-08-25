@@ -31,9 +31,23 @@ extension PlayerModel {
         if seekEngine { scheduleCoalescedSeek(to: target) } else { coalescedSeekTarget = target }
         accumulateSkipFeedback(target - before)         // this tap's real jump feeds the indicator
     }
+    /// Seek straight to a point — the scrub bar's direct drag, as opposed to `skip`'s relative
+    /// jumps. It does the same bookkeeping `skip` does, because the same things are true of it.
+    ///
+    /// It used to do none of it, which showed in two ways. A skip schedules its engine seek on a
+    /// coalescing delay, so skipping and then immediately dragging left the skip's seek in flight —
+    /// it landed AFTER the drag and pulled the playhead back to where the skip had been going.
+    /// And without `pendingSeek` and `lastTickPosition`, the stale ticks still describing the old
+    /// position dragged the bar backwards before the new ones arrived.
     public func scrub(to seconds: Double) {
         let target = clamp(seconds)
+        let origin = pendingSeek?.from ?? position
+        cancelCoalescedSeek()
         handleUserSeek(to: target)
+        position = target            // optimistic: the bar stays where the viewer put it
+        if phase != .paused { isBuffering = true }
+        lastTickPosition = target    // re-arm advance detection past the target
+        pendingSeek = target != origin ? (from: origin, to: target) : nil
         engine.seek(to: target)
     }
 

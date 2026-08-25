@@ -126,5 +126,35 @@ extension SwiftDataSuite {
             #expect(owner.id == "p1")                       // returns the existing earliest profile
             #expect(try await store.all().map(\.id) == ["p1"])   // no second profile created
         }
+
+        /// The cascade was written when history lived on Trakt, as one account for the whole app.
+        /// Trakt is gone and watch state is per-profile and local, so every deleted profile left
+        /// its rows behind for good -- invisible, unreachable, and syncing to every device forever.
+        /// The confirmation dialog told the viewer that progress would be removed.
+        @Test func deletingAProfileTakesItsWatchProgressWithIt() async throws {
+            let container = try ModelContainer(
+                for: Profile.self, MyListEntry.self, VersionPreference.self, WatchProgress.self,
+                configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+            let profiles = ProfileStore(modelContainer: container)
+            let watch = LocalWatchStore(modelContainer: container)
+
+            let mine = try await profiles.create(name: "Me", colorTag: "gold", avatar: "a",
+                                                 id: "p1", at: Date(timeIntervalSince1970: 1))
+            _ = try await profiles.create(name: "You", colorTag: "blue", avatar: "b",
+                                          id: "p2", at: Date(timeIntervalSince1970: 2))
+            try await watch.write(contentKey: "movie:tmdb:7", sourceKey: "T1#1",
+                                  positionSeconds: 100, durationSeconds: 6000, finished: false,
+                                  profileID: "p1", at: Date(timeIntervalSince1970: 10))
+            try await watch.write(contentKey: "movie:tmdb:8", sourceKey: "T2#1",
+                                  positionSeconds: 200, durationSeconds: 6000, finished: false,
+                                  profileID: "p2", at: Date(timeIntervalSince1970: 11))
+
+            try await profiles.delete(id: mine.id)
+
+            #expect(try await watch.state(forContentKey: "movie:tmdb:7", profileID: "p1") == nil)
+            // …and the OTHER profile's history is untouched.
+            #expect(try await watch.state(forContentKey: "movie:tmdb:8", profileID: "p2") != nil)
+            #expect(try await watch.count() == 1)
+        }
     }
 }

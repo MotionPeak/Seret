@@ -237,4 +237,46 @@ import DebridCore
         #expect(model.scanTask != nil)         // the successor is still running
         model.endScan()
     }
+
+    /// A skip schedules its engine seek on a coalescing delay. Dragging the bar immediately after
+    /// one left that seek in flight: it landed AFTER the drag and pulled the playhead back to where
+    /// the skip had been going.
+    @Test func aDragAfterASkipIsNotUndoneByTheSkipsPendingSeek() async {
+        let engine = FakeVideoPlayerEngine()
+        let m = PlayerModel(request: Fixture.request(), engine: engine,
+                            unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
+                            recordProgress: { _, _, _, _ in }, subtitles: nil)
+        m.start()
+        await m.waitForIdleForTesting()
+        engine.emit(.state(.playing))
+        engine.emit(.time(.init(position: 100, duration: 6000)))
+        await m.waitForIdleForTesting()
+
+        m.skip(30)                         // schedules a coalesced engine seek
+        m.scrub(to: 4000)                  // the viewer drags somewhere else entirely
+        await m.waitForIdleForTesting()
+
+        #expect(engine.seeks.last == 4000)
+        #expect(m.position == 4000)
+    }
+
+    /// …and the stale ticks still describing the old position must not drag the bar backwards
+    /// before the new ones arrive.
+    @Test func aDragHoldsTheBarThroughStaleTicks() async {
+        let engine = FakeVideoPlayerEngine()
+        let m = PlayerModel(request: Fixture.request(), engine: engine,
+                            unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
+                            recordProgress: { _, _, _, _ in }, subtitles: nil)
+        m.start()
+        await m.waitForIdleForTesting()
+        engine.emit(.state(.playing))
+        engine.emit(.time(.init(position: 100, duration: 6000)))
+        await m.waitForIdleForTesting()
+
+        m.scrub(to: 4000)
+        engine.emit(.time(.init(position: 101, duration: 6000)))   // still the OLD position
+        await m.waitForIdleForTesting()
+
+        #expect(m.position == 4000)
+    }
 }

@@ -17,7 +17,12 @@ public struct LibraryBuilder: Sendable {
         // are acceptable for v1; TMDB enrichment (Plan 5) refines identity.
         var shows: [String: ShowAccumulator] = [:]
 
-        for info in infos {
+        // Sorted, because `allTorrentInfos` fans out concurrently and hands them back in
+        // completion order. A show's displayed title and year come from whichever of its torrents
+        // is seen FIRST, so an unsorted input meant two torrents whose names normalise to the same
+        // show ("It's Always Sunny" and "Its.Always.Sunny") could show a different title on every
+        // refresh. Same torrents in, same library out.
+        for info in infos.sorted(by: { $0.id < $1.id }) {
             let parsed = parser.parse(info.filename)
             if parsed.isTV {
                 let key = Self.titleKey(parsed.title)

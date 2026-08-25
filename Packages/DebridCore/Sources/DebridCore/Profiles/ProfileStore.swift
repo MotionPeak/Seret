@@ -3,8 +3,8 @@ import Foundation
 import SwiftData
 
 /// SwiftData-backed roster of viewer `Profile`s. `@ModelActor` isolates its `ModelContext`. Its
-/// container also holds `MyListEntry` so `delete` can cascade and the owner
-/// migration can re-key existing progress.
+/// container also holds `MyListEntry` and `WatchProgress` so `delete` can cascade to everything
+/// filed under a profile.
 @ModelActor
 public actor ProfileStore {
     /// All profiles, oldest first (creation order = display order), **deduped by id** — CloudKit
@@ -42,13 +42,23 @@ public actor ProfileStore {
         try modelContext.save()
     }
 
-    /// Delete a profile and cascade to its My-List entries. Watch progress lives on Trakt now,
-    /// which is a single account for the whole app, so there is nothing per-profile to cascade to.
+    /// Delete a profile and cascade to everything filed under it: its My-List entries and its
+    /// watch progress.
+    ///
+    /// The watch cascade was missing because this was written when history lived on Trakt, as one
+    /// account for the whole app. Trakt is gone and watch state is per-profile and local, so every
+    /// deleted profile left its rows behind for good — invisible, un-reachable, and syncing to
+    /// every device forever. The confirmation dialog told the viewer this progress would be
+    /// removed, which made it a promise the code did not keep.
     public func delete(id: String) throws {
         if let p = try fetchOne(id: id) { modelContext.delete(p) }
         for entry in try modelContext.fetch(FetchDescriptor<MyListEntry>(
             predicate: #Predicate { $0.profileID == id })) {
             modelContext.delete(entry)
+        }
+        for row in try modelContext.fetch(FetchDescriptor<WatchProgress>(
+            predicate: #Predicate { $0.profileID == id })) {
+            modelContext.delete(row)
         }
         try modelContext.save()
     }
