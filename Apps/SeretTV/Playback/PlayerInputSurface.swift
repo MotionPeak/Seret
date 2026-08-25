@@ -195,6 +195,20 @@ struct PlayerInputSurface: UIViewRepresentable {
             // overlay otherwise. `focusable` only requests an update when it actually changes.
             view?.focusable = active
             guard !active else { return }
+            // The cancellation below calls back into the player model, and the only caller of
+            // `setActive` is `updateUIView` — which runs inside SwiftUI's view update, where
+            // mutating observed state is undefined behaviour. `endScan` also issues a seek, and a
+            // libvlc seek blocks the main thread while the demuxer moves, so doing it here stalls
+            // the very update that is drawing the overlay taking over.
+            //
+            // The recogniser and focus changes above stay synchronous: they must take effect on
+            // this pass or a stray gesture slips through. Only the model writes hop out of it.
+            Task { @MainActor [weak self] in self?.cancelGesturesInFlight() }
+        }
+
+        /// Stop anything the viewer had in progress when the remote was taken away. Idempotent —
+        /// both halves guard on their own "is it running" flag.
+        private func cancelGesturesInFlight() {
             if isScrubbing {
                 isScrubbing = false
                 parent.onScrubCancelled()

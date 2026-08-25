@@ -92,5 +92,59 @@ extension MockTests {
             #expect(result.allSatisfy { $0.tmdbID == nil })   // unenriched but present
             #expect(result.map(\.title) == ["A", "B"])         // order preserved
         }
+
+        /// Two torrents of one film are two items here, and they merge into a single title once
+        /// enriched — so they ask TMDB exactly the same question. Asking it twice wastes a request
+        /// on the one load where every title is new at once and the fan-out is already the slowest
+        /// thing the app does.
+        @Test func twoCopiesOfOneFilmAreLookedUpOnce() async throws {
+            let searches = SearchCounter()
+            MockURLProtocol.handler = { req in
+                let url = req.url!.absoluteString
+                if url.contains("/search/movie") { searches.bump() }
+                let json = #"{"results":[{"id":11,"title":"Dune","release_date":"2021-01-01","poster_path":"/p.jpg","overview":"o"}]}"#
+                return (HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil,
+                                        headerFields: nil)!, Data(json.utf8))
+            }
+            let enricher = MetadataEnricher(tmdb: TMDBClient(apiKey: "K", http: HTTPClient(session: .mock)))
+            let hd = MediaItem(id: "movie:dune:2021", kind: .movie, title: "Dune", year: 2021,
+                               sources: [], seasons: [])
+            let uhd = MediaItem(id: "movie:dune:2021b", kind: .movie, title: "Dune", year: 2021,
+                                sources: [], seasons: [])
+
+            let out = await enricher.enrich([hd, uhd])
+
+            #expect(searches.value == 1)
+            #expect(out.count == 2)
+            #expect(out.allSatisfy { $0.tmdbID == 11 })      // both got the answer
+        }
+
+        /// …and DIFFERENT titles are still asked about separately.
+        @Test func differentTitlesAreStillLookedUpSeparately() async throws {
+            let searches = SearchCounter()
+            MockURLProtocol.handler = { req in
+                let url = req.url!.absoluteString
+                if url.contains("/search/movie") { searches.bump() }
+                return (HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil,
+                                        headerFields: nil)!, Data(#"{"results":[]}"#.utf8))
+            }
+            let enricher = MetadataEnricher(tmdb: TMDBClient(apiKey: "K", http: HTTPClient(session: .mock)))
+            let a = MediaItem(id: "a", kind: .movie, title: "Dune", year: 2021, sources: [], seasons: [])
+            let b = MediaItem(id: "b", kind: .movie, title: "Arrival", year: 2016, sources: [], seasons: [])
+            // Same title, different YEAR is also a different question.
+            let c = MediaItem(id: "c", kind: .movie, title: "Dune", year: 1984, sources: [], seasons: [])
+
+            _ = await enricher.enrich([a, b, c])
+
+            #expect(searches.value == 3)
+        }
     }
+}
+
+/// Thread-safe counter for the @Sendable mock handler.
+private final class SearchCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+    func bump() { lock.lock(); count += 1; lock.unlock() }
+    var value: Int { lock.lock(); defer { lock.unlock() }; return count }
 }
