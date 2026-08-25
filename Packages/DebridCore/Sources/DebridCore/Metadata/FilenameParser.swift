@@ -145,6 +145,10 @@ public struct FilenameParser: Sendable {
             // resolution stop-pattern and the whole filename became the title — which TMDB matches
             // nothing against, so the title showed no poster and no metadata at all.
             if isMetadataToken(Self.unbracketed(token)) { break }
+            // A fully-bracketed token AFTER the title has begun is a tag, whatever it says —
+            // `Some.Film.[TbZ]` is a release tag, not part of the film's name. Only after: the
+            // leading one is handled above, where it may still BE the title.
+            if !titleTokens.isEmpty, Self.isBracketed(token) { break }
             // `Show - 07`: a lone hyphen before a bare episode number is the fansub episode marker,
             // and the title ends there. Gated on the name actually BEING fansub-shaped (a leading
             // bracketed tag), because an ordinary release can legitimately end in a hyphenated

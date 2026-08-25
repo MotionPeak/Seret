@@ -211,9 +211,14 @@ struct FilenameParserTests {
         #expect(r.resolution == "720p")
     }
 
-    /// A bracketed group at the END must not be mistaken for the title either.
+    /// A bracketed group at the END must not end up in the title.
+    ///
+    /// The first case passes with or without bracket handling — the year ends the title long before
+    /// the tag — so on its own it proved nothing. The second is the one that actually exercises it:
+    /// with no year and no metadata, the tag is all that can stop the title.
     @Test func aTrailingBracketedTagDoesNotEndUpInTheTitle() {
         #expect(parser.parse("Some.Film.2021.1080p.BluRay.x265.[TbZ].mkv").title == "Some Film")
+        #expect(parser.parse("Some.Film.[TbZ].mkv").title == "Some Film")
     }
 
     // MARK: - Regressions caught reviewing the year/bracket work against itself

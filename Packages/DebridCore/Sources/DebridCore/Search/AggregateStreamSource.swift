@@ -15,7 +15,12 @@ public struct AggregateStreamSource: StreamSource {
     ///   answers holds results the other already returned — the viewer watches "Finding cached
     ///   versions" for the length of the URL session's own timeout, a full minute by default, with
     ///   a complete answer sitting in memory the whole time.
-    public init(_ sources: [any StreamSource], perSourceDeadline: Duration = .seconds(12)) {
+    ///
+    ///   Generous on purpose. The source that takes longest is the one that checks Real-Debrid's
+    ///   cache, and it is the only one that can say a release is INSTANT — dropping it leaves the
+    ///   viewer a list of uncached torrents that "Get best" then spends a minute failing to add one
+    ///   by one. This is a ceiling on a hung source, not a latency budget.
+    public init(_ sources: [any StreamSource], perSourceDeadline: Duration = .seconds(30)) {
         self.sources = sources
         self.perSourceDeadline = perSourceDeadline
     }
