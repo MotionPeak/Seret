@@ -154,7 +154,10 @@ struct ShowDetail: View {
                           systemImage: acquiring ? "hourglass" : "play.fill")
                 }
                 .buttonStyle(GoldButtonStyle())
-                .disabled(acquiring || acquisition == nil)
+                // …and until the IMDb id has resolved. The engine cannot query an indexer without it, so
+                // tapping earlier failed with "Not signed in to Real-Debrid" — a reason that is not
+                // only unhelpful but untrue.
+                .disabled(acquiring || acquisition == nil || store.imdbID == nil)
             }
         }
     }

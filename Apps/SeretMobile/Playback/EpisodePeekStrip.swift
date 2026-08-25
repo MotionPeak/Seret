@@ -25,7 +25,7 @@ struct EpisodePeekStrip: View {
         VStack(spacing: 2) {
             Image(systemName: "chevron.compact.up").font(.caption2).foregroundStyle(.white.opacity(0.45))
             HStack(spacing: 6) {
-                ForEach(model.seasonEpisodes) { ep in thumb(ep, height: 54) }
+                ForEach(peekEpisodes) { ep in thumb(ep, height: 54) }
             }
             .frame(height: 26, alignment: .top)     // crop to a sliver: only the top of each still shows
             .clipped()
@@ -40,6 +40,24 @@ struct EpisodePeekStrip: View {
         })
         .padding(.top, 8)
     }
+
+    /// The handful of episodes the collapsed peek actually shows.
+    ///
+    /// That peek is a 26pt sliver at 55% opacity behind a gradient mask — a hint that the strip is
+    /// there, not a browsing surface. It rendered the WHOLE season in a plain HStack, which is not
+    /// lazy, so a 22-episode season downloaded and decoded 22 stills for pixels almost none of
+    /// which are visible, on the main screen of a player that has just started streaming. A window
+    /// around the episode playing is the same hint for a fraction of it.
+    private var peekEpisodes: [PlayerModel.PlayerEpisode] {
+        let all = model.seasonEpisodes
+        guard all.count > Self.peekCount else { return all }
+        let current = all.firstIndex { $0.season == model.currentEpisode?.season
+                                    && $0.number == model.currentEpisode?.number } ?? 0
+        let start = min(max(0, current - 1), all.count - Self.peekCount)
+        return Array(all[start..<(start + Self.peekCount)])
+    }
+
+    private static let peekCount = 8
 
     // MARK: Expanded selectable strip
 

@@ -58,7 +58,7 @@ struct MovieDetailView: View {
         }
         .onChange(of: acquisition?.phase) { _, phase in
             guard case let .ready(request) = phase else { return }
-            session.libraryStore?.retry()      // a new torrent landed in RD
+            session.libraryStore?.reload()     // a new torrent landed in RD
             acquiredPlayback = AcquiredPlayback(request: request)
         }
         .background(CanvasBackground())
@@ -141,7 +141,10 @@ struct MovieDetailView: View {
                 }
                 .buttonStyle(SeretActionButtonStyle(prominent: true))
                 .focused($initialFocus, equals: .play)
-                .disabled(acquiring || acquisition == nil)
+                // …and until the IMDb id has resolved. The engine cannot query an indexer without it, so
+                // tapping earlier failed with "Not signed in to Real-Debrid" — a reason that is not
+                // only unhelpful but untrue.
+                .disabled(acquiring || acquisition == nil || store.imdbID == nil)
             }
 
             // Reachable whether or not you own the title — on an un-owned one it IS the way to pick

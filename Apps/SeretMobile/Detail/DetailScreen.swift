@@ -111,7 +111,16 @@ struct DetailScreen: View {
         }
         // Re-read watch state when the player closes so Resume · <time> reflects the position
         // the player just recorded (the underlying screen's .task does not re-run on dismiss).
-        .fullScreenCover(item: $playback, onDismiss: { Task { await store.reloadWatch() } }) { presented in
+        //
+        // Home is refreshed here too. It watches `router.playback`, but a title page presents the
+        // player through its OWN cover — so nothing told Home that Continue Watching had changed,
+        // and the rail stayed as it was until something else happened to rebuild it.
+        .fullScreenCover(item: $playback, onDismiss: {
+            Task {
+                await store.reloadWatch()
+                await session.refreshHome()
+            }
+        }) { presented in
             PlayerHost(request: presented.request, app: session, onExit: { playback = nil })
         }
         // A suggested title the viewer already owns opens its own Detail on top of this one.

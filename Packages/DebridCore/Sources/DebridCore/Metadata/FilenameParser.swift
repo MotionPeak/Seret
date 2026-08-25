@@ -120,7 +120,18 @@ public struct FilenameParser: Sendable {
                 titleTokens.append(token)      // an earlier year is part of the title
                 continue
             }
-            if isMetadataToken(token) { break }
+            // A LEADING bracketed tag is the fansub group, not the title — `[SubsPlease] Show …`.
+            // Only leading: a bracket later in a name is more likely to belong to the title.
+            if titleTokens.isEmpty, Self.isBracketed(token), !isMetadataToken(Self.unbracketed(token)) {
+                continue
+            }
+            // Fansub naming glues its tags to their brackets, so `[1080p]` never matched the
+            // resolution stop-pattern and the whole filename became the title — which TMDB matches
+            // nothing against, so the title showed no poster and no metadata at all.
+            if isMetadataToken(Self.unbracketed(token)) { break }
+            // `Show - 07`: a lone hyphen before a bare episode number is the fansub episode marker,
+            // and the title ends there.
+            if token == "-", i + 1 < tokens.count, Self.isBareEpisodeNumber(tokens[i + 1]) { break }
             titleTokens.append(token)
         }
 
@@ -135,6 +146,22 @@ public struct FilenameParser: Sendable {
         let year = releaseYearIndex.flatMap { yearValue(tokens[$0]) }
             ?? Self.match(stem, Self.reYear).flatMap { Int($0) }
         return (joined.isEmpty ? stem : joined, year)
+    }
+
+    private static func isBracketed(_ token: String) -> Bool {
+        (token.hasPrefix("[") && token.hasSuffix("]")) || (token.hasPrefix("(") && token.hasSuffix(")"))
+    }
+
+    /// The token with one layer of surrounding brackets removed, so `[1080p]` can be recognised as
+    /// the resolution tag it is.
+    private static func unbracketed(_ token: String) -> String {
+        isBracketed(token) ? String(token.dropFirst().dropLast()) : token
+    }
+
+    /// `07` / `123` — the bare episode number fansub names put after a hyphen. Four digits would be
+    /// a year, which is handled separately.
+    private static func isBareEpisodeNumber(_ token: String) -> Bool {
+        (1...3).contains(token.count) && token.allSatisfy(\.isNumber)
     }
 
     /// The year a token denotes, if it is nothing but a year — bare (`2016`) or wrapped (`(2016)`,

@@ -193,4 +193,26 @@ struct FilenameParserTests {
         // …but a real group still is one.
         #expect(parser.parse("Some.Film.2024.1080p.WEB-DL.x264-NTb.mkv").releaseGroup == "NTb")
     }
+
+    /// Bracketed fansub naming is the one common shape the token scan cannot see: the tags are
+    /// glued to their brackets, so `[1080p]` never matches the resolution stop-pattern and the
+    /// whole filename becomes the title. TMDB matches nothing against that, so the title shows no
+    /// poster and no metadata at all.
+    @Test func bracketedFansubNamingStillYieldsATitle() {
+        let r = parser.parse("[SubsPlease] Some Show - 07 [1080p][HEVC].mkv")
+        #expect(r.title == "Some Show")
+        #expect(r.resolution == "1080p")
+    }
+
+    @Test func aBracketedYearAndTagsAreNotPartOfTheTitle() {
+        let r = parser.parse("[Group] Another Title [2019] [720p] [x264].mkv")
+        #expect(r.title == "Another Title")
+        #expect(r.year == 2019)
+        #expect(r.resolution == "720p")
+    }
+
+    /// A bracketed group at the END must not be mistaken for the title either.
+    @Test func aTrailingBracketedTagDoesNotEndUpInTheTitle() {
+        #expect(parser.parse("Some.Film.2021.1080p.BluRay.x265.[TbZ].mkv").title == "Some Film")
+    }
 }
