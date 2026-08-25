@@ -11,8 +11,15 @@ extension PlayerModel {
     /// share the language. The viewer tapped the pill precisely because that muxed track was not
     /// what they wanted, and a slave's own language is often nil, so the muxed one won outright.
     public func requestSubtitle(language: String) async {
+        let wasPicked = subtitlePickedByUser
         subtitlePickedByUser = true
         await downloadSubtitle(language: language)
+        // A download that did not produce a track chose nothing. Leaving the flag latched disabled
+        // the automatic preference for the rest of the session over a request that failed — so a
+        // muxed track in the viewer's preferred language was never selected either.
+        if pendingSubtitleAttach == nil, selectedSubtitleID == nil, !wasPicked {
+            subtitlePickedByUser = false
+        }
     }
 
     /// The automatic one-shot fallback: the same download, but not a viewer decision, so it does

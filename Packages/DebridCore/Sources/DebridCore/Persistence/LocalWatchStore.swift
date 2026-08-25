@@ -40,11 +40,18 @@ public actor LocalWatchStore {
         if let theirs = loser.lastWatchedAt {
             winner.lastWatchedAt = max(winner.lastWatchedAt ?? theirs, theirs)
         }
-        if winner.positionSeconds == 0 && loser.positionSeconds > 0 {
+        // A winner with no position AND no duration says nothing about playback — it is a rating
+        // written on a device that never played the file. Take the loser's account of it WHOLE,
+        // `finished` included: keeping the winner's default `false` alongside the loser's position
+        // resurrected a title the viewer had finished, at 95%, back into Continue Watching.
+        if winner.positionSeconds == 0, winner.durationSeconds == 0 {
             winner.positionSeconds = loser.positionSeconds
+            winner.durationSeconds = loser.durationSeconds
+            winner.finished = loser.finished
             if winner.sourceKey.isEmpty { winner.sourceKey = loser.sourceKey }
+        } else if winner.durationSeconds == 0 {
+            winner.durationSeconds = loser.durationSeconds
         }
-        if winner.durationSeconds == 0 { winner.durationSeconds = loser.durationSeconds }
         modelContext.delete(loser)
     }
 

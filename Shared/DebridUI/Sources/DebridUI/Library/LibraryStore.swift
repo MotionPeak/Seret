@@ -58,10 +58,19 @@ public final class LibraryStore {
     /// the whole Real-Debrid pagination, the `/torrents/info` fan-out and a TMDB enrichment pass,
     /// twice over, for one answer. A second caller now waits for the first instead.
     private var loadTask: Task<Void, Never>?
+    /// Set when a reload is asked for while one is already running. The in-flight load is answering
+    /// a question asked BEFORE that request, so joining it would hand back an answer that predates
+    /// the thing being reloaded for — a download that just landed would not appear until something
+    /// else happened to reload. The running load finishes, then one more runs.
+    private var reloadPending = false
 
     public func load() async {
         if let loadTask {
             await loadTask.value
+            if reloadPending {
+                reloadPending = false
+                await load()
+            }
             return
         }
         let task = Task { @MainActor [weak self] in
@@ -71,6 +80,10 @@ public final class LibraryStore {
         loadTask = task
         await task.value
         if loadTask == task { loadTask = nil }
+        if reloadPending {
+            reloadPending = false
+            await load()
+        }
     }
 
     private func performLoad() async {
@@ -107,6 +120,7 @@ public final class LibraryStore {
     /// happened to open My Library.
     public func reload() {
         attempt += 1
+        if loadTask != nil { reloadPending = true }
         Task { @MainActor [weak self] in await self?.load() }
     }
 

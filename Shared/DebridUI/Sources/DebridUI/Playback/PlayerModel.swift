@@ -164,7 +164,9 @@ public final class PlayerModel {
     /// The episode currently playing (shows only) and the WatchKey it records progress under.
     /// Both change when we advance to the next episode in-place.
     var episode: Episode?
-    var contentKey: String
+    /// The watch key of the file playing. Public because a view whose contents belong to ONE file —
+    /// the subtitle browser — keys its work on it, so a swap re-runs rather than stranding it.
+    public internal(set) var contentKey: String
     let engine: VideoPlayerEngine
     let unrestrict: (String) async throws -> URL
     /// Authoritative resume lookup (contentKey → saved seconds, nil/0 = start). Resolved at LOAD

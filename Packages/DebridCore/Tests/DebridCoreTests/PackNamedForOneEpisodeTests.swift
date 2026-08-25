@@ -81,4 +81,32 @@ struct PackNamedForOneEpisodeTests {
         let item = builder.group([info]).first
         #expect(item?.seasons.map(\.number).sorted() == [1, 2])
     }
+
+    /// Files inside a pack are often named far more sparsely than the pack itself. Expanding using
+    /// only the file's own parse stripped the resolution, source and codec that were stated on the
+    /// torrent — which is what the ranker and the Versions list read.
+    @Test func anExpandedEpisodeKeepsTheQualityStatedOnTheTorrent() {
+        let info = torrent("Some.Show.S01E01.2160p.BluRay.REMUX.x265-GRP", [
+            file(1, "/S01E01.mkv"),
+            file(2, "/S01E02.mkv"),
+        ])
+        let eps = builder.group([info]).first?.seasons.first?.episodes ?? []
+        #expect(eps.count == 2)
+        for ep in eps {
+            #expect(ep.source.parsed.resolution == "2160p")
+            #expect(ep.source.parsed.source == "REMUX")
+            #expect(ep.source.parsed.videoCodec == "x265")
+        }
+    }
+
+    /// …but a file that states its OWN quality keeps it — the torrent is only a fallback.
+    @Test func aFileStatingItsOwnQualityIsNotOverriddenByTheTorrent() {
+        let info = torrent("Some.Show.S01E01.2160p.BluRay.REMUX", [
+            file(1, "/Some.Show.S01E01.1080p.WEB-DL.mkv"),
+            file(2, "/Some.Show.S01E02.1080p.WEB-DL.mkv"),
+        ])
+        let eps = builder.group([info]).first?.seasons.first?.episodes ?? []
+        #expect(eps.allSatisfy { $0.source.parsed.resolution == "1080p" })
+        #expect(eps.allSatisfy { $0.source.parsed.source == "WEB-DL" })
+    }
 }

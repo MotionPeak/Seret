@@ -244,7 +244,11 @@ struct MobileSubtitleBrowser: View {
             }
         }
         .navigationTitle("Subtitles")
-        .task {
+        // Keyed on the playing file. The browser's results belong to one file, and an episode
+        // swap or a "Try another version" clears them back to `.idle` — which this view draws with
+        // the same spinner as `.searching`. An un-keyed task runs once on appear and never again,
+        // so the browser sat on "Searching…" for good, with no search running to finish it.
+        .task(id: model.contentKey) {
             if let fetched = try? await SubtitleLanguages.fetch(apiKey: Secrets.openSubtitlesAPIKey),
                !fetched.isEmpty { languages = fetched }
             if model.subtitleSearchState == .idle {

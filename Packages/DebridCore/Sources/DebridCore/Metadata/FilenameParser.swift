@@ -19,7 +19,15 @@ public struct FilenameParser: Sendable {
 
         var season: Int?
         var episode: Int?
-        if let g = Self.captures(stem, Self.reSeasonEpisode) {
+        if let fansub = Self.fansubEpisode(stem) {
+            // `[Group] Show - 07 [1080p]` carries its episode as a bare number after a hyphen, and
+            // no S/E pattern at all. Reading the title but not the number left every episode of a
+            // series parsed as a MOVIE named for the show — so the whole series collapsed into one
+            // library entry. Absolute numbering is filed under season 1, which groups them as the
+            // show they are.
+            season = 1
+            episode = fansub
+        } else if let g = Self.captures(stem, Self.reSeasonEpisode) {
             season = Int(g[0]); episode = Int(g[1])
         } else if let g = Self.captures(stem, Self.reNxM) {
             season = Int(g[0]); episode = Int(g[1])
@@ -111,7 +119,12 @@ public struct FilenameParser: Sendable {
     private static func titleAndYear(_ stem: String) -> (String, Int?) {
         let tokens = stem.split(whereSeparator: { $0 == "." || $0 == "_" || $0 == " " }).map(String.init)
         let yearIndices = tokens.indices.filter { yearValue(tokens[$0]) != nil }
-        let releaseYearIndex = yearIndices.last
+        // A year-shaped token at the very START is always part of the title — nothing precedes it
+        // for it to be the release year OF. Ending the title there truncated "2012 Doomsday" to
+        // "2012", and since a movie is keyed by its title that collapsed it into the unrelated film
+        // of that name.
+        let releaseYearIndex = yearIndices.last { $0 != 0 }
+        let isFansub = isBracketed(tokens.first ?? "")
 
         var titleTokens: [String] = []
         for (i, token) in tokens.enumerated() {
@@ -121,8 +134,11 @@ public struct FilenameParser: Sendable {
                 continue
             }
             // A LEADING bracketed tag is the fansub group, not the title — `[SubsPlease] Show …`.
-            // Only leading: a bracket later in a name is more likely to belong to the title.
-            if titleTokens.isEmpty, Self.isBracketed(token), !isMetadataToken(Self.unbracketed(token)) {
+            // Only leading, and only when something else can serve as the title: a film actually
+            // called `[REC]` must keep its name rather than fall back to the raw filename.
+            if titleTokens.isEmpty, i == 0, Self.isBracketed(token),
+               !isMetadataToken(Self.unbracketed(token)),
+               Self.hasTitleAfterLeadingTag(tokens) {
                 continue
             }
             // Fansub naming glues its tags to their brackets, so `[1080p]` never matched the
@@ -130,22 +146,40 @@ public struct FilenameParser: Sendable {
             // nothing against, so the title showed no poster and no metadata at all.
             if isMetadataToken(Self.unbracketed(token)) { break }
             // `Show - 07`: a lone hyphen before a bare episode number is the fansub episode marker,
-            // and the title ends there.
-            if token == "-", i + 1 < tokens.count, Self.isBareEpisodeNumber(tokens[i + 1]) { break }
-            titleTokens.append(token)
-        }
-
-        // Nothing before the only year-shaped token: the token is the title, not metadata.
-        if titleTokens.isEmpty, let index = releaseYearIndex, index == 0 {
-            return (tokens[0].trimmingCharacters(in: CharacterSet(charactersIn: "()[]")), nil)
+            // and the title ends there. Gated on the name actually BEING fansub-shaped (a leading
+            // bracketed tag), because an ordinary release can legitimately end in a hyphenated
+            // number — `Mission.Impossible.-.2.2000` is a sequel, not episode 2.
+            if isFansub, token == "-", i + 1 < tokens.count, Self.isBareEpisodeNumber(tokens[i + 1]) {
+                break
+            }
+            titleTokens.append(Self.unbracketed(token))
         }
 
         let joined = titleTokens.joined(separator: " ").trimmingCharacters(in: .whitespaces)
-        // Fall back to the stem-wide regex when no token is year-shaped: a name with no separators
-        // ("Movie(2024)1080p") still has a findable year.
-        let year = releaseYearIndex.flatMap { yearValue(tokens[$0]) }
-            ?? Self.match(stem, Self.reYear).flatMap { Int($0) }
+        let year: Int?
+        if let releaseYearIndex {
+            year = yearValue(tokens[releaseYearIndex])
+        } else if yearIndices.isEmpty {
+            // Fall back to the stem-wide regex only when NO token is year-shaped: a name with no
+            // separators ("Movie(2024)1080p") still has a findable year. When the one year-shaped
+            // token is the title, that regex would hand the title straight back as the year.
+            year = Self.match(stem, Self.reYear).flatMap { Int($0) }
+        } else {
+            year = nil
+        }
         return (joined.isEmpty ? stem : joined, year)
+    }
+
+    /// Whether anything after a leading bracketed tag could serve as a title. When nothing can,
+    /// the bracketed token IS the title — `[REC]` is a film.
+    private static func hasTitleAfterLeadingTag(_ tokens: [String]) -> Bool {
+        for token in tokens.dropFirst() {
+            if yearValue(token) != nil { return false }              // straight into the year
+            if isMetadataToken(unbracketed(token)) { return false }   // straight into the metadata
+            if token == "-" { continue }
+            return true
+        }
+        return false
     }
 
     private static func isBracketed(_ token: String) -> Bool {
@@ -160,6 +194,19 @@ public struct FilenameParser: Sendable {
 
     /// `07` / `123` — the bare episode number fansub names put after a hyphen. Four digits would be
     /// a year, which is handled separately.
+    /// The episode number in fansub naming — a bare number after a lone hyphen, in a name that
+    /// begins with a bracketed group tag. Gated on that tag because an ordinary release can end in
+    /// a hyphenated number that is part of its title.
+    private static func fansubEpisode(_ stem: String) -> Int? {
+        let tokens = stem.split(whereSeparator: { $0 == "." || $0 == "_" || $0 == " " }).map(String.init)
+        guard isBracketed(tokens.first ?? "") else { return nil }
+        for (i, token) in tokens.enumerated() where token == "-" {
+            guard i + 1 < tokens.count, isBareEpisodeNumber(tokens[i + 1]) else { continue }
+            return Int(tokens[i + 1])
+        }
+        return nil
+    }
+
     private static func isBareEpisodeNumber(_ token: String) -> Bool {
         (1...3).contains(token.count) && token.allSatisfy(\.isNumber)
     }

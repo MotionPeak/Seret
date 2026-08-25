@@ -22,9 +22,10 @@ public struct LocalWatchProvider: WatchProgressProviding, Sendable {
         self.profileID = profileID
     }
 
-    /// Fraction of runtime past which a title counts as watched. Trakt used 80%, and matching it
-    /// keeps local and the mirror agreeing about what "watched" means.
-    public static let finishedFraction = 0.8
+    /// Fraction of runtime past which a title counts as watched. One definition, in `WatchState`:
+    /// `resumePosition` needs the same number to tell a position reached by watching from one a
+    /// manual mark carried forward.
+    public static var finishedFraction: Double { WatchState.finishedFraction }
 
     /// Hand rows recorded before a profile resolved to `owner` — see
     /// `LocalWatchStore.adoptUnprofiledProgress`. Idempotent; runs once per launch.

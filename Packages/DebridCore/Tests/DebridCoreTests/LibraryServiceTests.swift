@@ -256,14 +256,16 @@ extension MockTests {
             }
             #expect(Set(try await svc.refresh().compactMap(\.tmdbID)) == [111, 222])
 
-            // 2nd pass: C is added (so there IS a delta and the fan-out runs), and B's info call
-            // fails transiently. B is still in RD's list, so it must survive.
+            // 2nd pass: B's own status flaps, so B is re-fetched (this is what makes it take the
+            // rescue path rather than simply being carried through as untouched), C is added so
+            // there is more than one thing to do, and B's info call fails. B is still in RD's list,
+            // so it must survive.
             MockURLProtocol.handler = { req in
                 let url = req.url!.absoluteString
                 if url.contains("/torrents/info/A") { return Self.resp(req, 200, Self.infoJSON("A", release: "Alpha.2024.1080p.mkv")) }
                 if url.contains("/torrents/info/B") { return Self.resp(req, 500, "{}") }
                 if url.contains("/torrents/info/C") { return Self.resp(req, 200, Self.infoJSON("C", release: "Gamma.2024.1080p.mkv")) }
-                if url.contains("/torrents")        { return Self.resp(req, 200, Self.torrentListJSON([("A", "downloaded"), ("B", "downloaded"), ("C", "downloaded")])) }
+                if url.contains("/torrents")        { return Self.resp(req, 200, Self.torrentListJSON([("A", "downloaded"), ("B", "downloading"), ("C", "downloaded")])) }
                 if url.contains("/search/movie") {
                     if req.url!.absoluteString.contains("query=Gamma") { return Self.resp(req, 200, Self.tmdbJSON(id: 333, title: "Gamma")) }
                     return Self.resp(req, 200, Self.tmdbJSON(id: 111, title: "Alpha"))

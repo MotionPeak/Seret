@@ -315,5 +315,32 @@ extension SwiftDataSuite {
             #expect(try await s.recent(limit: 3, profileID: "p1").count == 3)
             #expect(try await s.recent(limit: 10, profileID: "p1").count == 5)
         }
+
+        /// Absorbing took the loser's POSITION but kept the winner's `finished`, which for a
+        /// rating-only winner is a default rather than a statement — so a title the viewer had
+        /// finished came back to life at 95% and reappeared in Continue Watching.
+        @Test func absorbingAPositionTakesWhetherItFinishedWithIt() async throws {
+            let s = try store()
+            // Device A: watched it to the end.
+            try await s.seedRow(contentKey: "movie:tmdb:7", profileID: "p1", sourceKey: "T1#1",
+                                positionSeconds: 5700, durationSeconds: 6000, finished: true,
+                                plays: 1, rating: nil,
+                                updatedAt: Date(timeIntervalSince1970: 10),
+                                lastWatchedAt: Date(timeIntervalSince1970: 10))
+            // Device B, later: a rating written on a device that never played the file.
+            try await s.seedRow(contentKey: "movie:tmdb:7", profileID: "p1", sourceKey: "",
+                                positionSeconds: 0, durationSeconds: 0, finished: false,
+                                plays: 0, rating: 9,
+                                updatedAt: Date(timeIntervalSince1970: 20), lastWatchedAt: nil)
+
+            try await s.setRating(9, contentKey: "movie:tmdb:7", profileID: "p1",
+                                  at: Date(timeIntervalSince1970: 30))
+
+            let state = try await s.state(forContentKey: "movie:tmdb:7", profileID: "p1")
+            #expect(state?.positionSeconds == 5700)
+            #expect(state?.durationSeconds == 6000)
+            #expect(state?.finished == true)            // still finished
+            #expect(try await s.recent(limit: 10, profileID: "p1").isEmpty)   // not back in the rail
+        }
     }
 }

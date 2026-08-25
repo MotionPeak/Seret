@@ -130,4 +130,30 @@ import Foundation
         let eta = e.observe(fraction: 0, totalBytes: 10_000, reportedSpeed: 100, at: at(10))
         #expect(eta == 100.0)
     }
+
+    /// RD reports `progress` as a percentage, so on a large slow download a single reported step
+    /// can take minutes while bytes are moving the whole time. Calling that a stall blanked the ETA
+    /// of a download that was working perfectly well. A live reported speed says it is not stalled.
+    @Test func aSlowButMovingDownloadStillEstimates() {
+        var e = ETAEstimator()
+        _ = e.observe(fraction: 0, totalBytes: 10_000, reportedSpeed: 50, at: at(0))
+        _ = e.observe(fraction: 0.5, totalBytes: 10_000, reportedSpeed: 50, at: at(10))
+        var last: TimeInterval??
+        for step in stride(from: 20.0, through: 200.0, by: 10.0) {
+            last = e.observe(fraction: 0.5, totalBytes: 10_000, reportedSpeed: 50, at: at(step))
+        }
+        #expect((last ?? nil) != nil)
+    }
+
+    /// …and one RD reports NO speed for, with nothing moving, still gives up.
+    @Test func aStallWithNoReportedSpeedStillGivesUp() {
+        var e = ETAEstimator()
+        _ = e.observe(fraction: 0, totalBytes: 10_000, reportedSpeed: nil, at: at(0))
+        _ = e.observe(fraction: 0.5, totalBytes: 10_000, reportedSpeed: nil, at: at(10))
+        var last: TimeInterval??
+        for step in stride(from: 20.0, through: 200.0, by: 10.0) {
+            last = e.observe(fraction: 0.5, totalBytes: 10_000, reportedSpeed: 0, at: at(step))
+        }
+        #expect((last ?? nil) == nil)
+    }
 }

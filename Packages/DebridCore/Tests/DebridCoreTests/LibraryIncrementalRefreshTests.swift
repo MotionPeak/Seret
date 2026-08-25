@@ -326,5 +326,85 @@ extension MockTests {
             #expect(retry.all == ["C"])
             #expect(Set(library.compactMap(\.tmdbID)) == [111, 222, 333])
         }
+
+        // MARK: - Regressions caught reviewing the incremental refresh against itself
+
+        /// An item that failed TMDB enrichment used to be retried on every delta refresh, because
+        /// re-grouping the whole account put it back through `reconcile`, whose carry branch only
+        /// accepts a match that already HAS a tmdbID. Short-circuiting settled items past
+        /// `reconcile` made a failed lookup permanent: a posterless card that can never be rated,
+        /// sitting beside the enriched copy of the same title forever.
+        @Test func aTitleWhoseLookupFailedIsRetriedOnALaterRefresh() async throws {
+            let dir = tempDir()
+            let svc = service(directory: dir)
+
+            func serve(ids: [String], tmdbWorks: Bool,
+                       calls: InfoCalls) -> @Sendable (URLRequest) -> (HTTPURLResponse, Data) {
+                let rows = ids.map { (id: $0, status: "downloaded") }
+                let titles = ["A": "Alpha", "B": "Beta"]
+                return { req in
+                    let url = req.url!.absoluteString
+                    if let range = url.range(of: "/torrents/info/") {
+                        let id = String(url[range.upperBound...])
+                        calls.record(id)
+                        return Self.resp(req, 200,
+                                         Self.infoJSON(id, release: "\(titles[id] ?? "?").2024.1080p.mkv"))
+                    }
+                    if url.contains("/torrents") { return Self.resp(req, 200, Self.listJSON(rows)) }
+                    if url.contains("/search/movie") {
+                        guard tmdbWorks else { return Self.resp(req, 503, "{}") }
+                        let q = URLComponents(string: url)?.queryItems?
+                            .first { $0.name == "query" }?.value ?? ""
+                        let id = q == "Alpha" ? 111 : 222
+                        return Self.resp(req, 200, #"{"results":[{"id":\#(id),"title":"\#(q)","release_date":"2024-01-01","poster_path":"/p.jpg","overview":"o"}]}"#)
+                    }
+                    return Self.resp(req, 200, "[]")
+                }
+            }
+
+            // Cold load with TMDB down: Alpha is there, unenriched.
+            MockURLProtocol.handler = serve(ids: ["A"], tmdbWorks: false, calls: InfoCalls())
+            #expect(try await svc.refresh().first?.tmdbID == nil)
+
+            // A DIFFERENT torrent is added and TMDB is back. Re-grouping the whole account used to
+            // put Alpha through `reconcile` again, which retried it; carrying it verbatim would
+            // leave it posterless for good.
+            let calls = InfoCalls()
+            MockURLProtocol.handler = serve(ids: ["A", "B"], tmdbWorks: true, calls: calls)
+            let library = try await svc.refresh()
+
+            #expect(Set(library.compactMap(\.tmdbID)) == [111, 222])
+            #expect(calls.all == ["B"])     // …without re-fetching Alpha's torrent
+        }
+
+        /// The grid is alphabetical. Building it as "changed items, then everything else" made a
+        /// title jump to the front the moment anything about it changed, and left the order drifting
+        /// differently after every refresh.
+        @Test func theLibraryStaysAlphabeticalAfterAnIncrementalRefresh() async throws {
+            let dir = tempDir()
+            let svc = service(directory: dir)
+            let movies = [(id: "A", title: "Alpha", tmdb: 111),
+                          (id: "B", title: "Beta", tmdb: 222),
+                          (id: "Z", title: "Zulu", tmdb: 999)]
+
+            MockURLProtocol.handler = handler(movies: movies, calls: InfoCalls())
+            #expect(try await svc.refresh().map(\.title) == ["Alpha", "Beta", "Zulu"])
+
+            // Zulu changes; it must not jump to the front.
+            let rows = [(id: "A", status: "downloaded"), (id: "B", status: "downloaded"),
+                        (id: "Z", status: "downloading")]
+            MockURLProtocol.handler = { req in
+                let url = req.url!.absoluteString
+                if let range = url.range(of: "/torrents/info/") {
+                    let id = String(url[range.upperBound...])
+                    let title = ["A": "Alpha", "B": "Beta", "Z": "Zulu"][id] ?? "?"
+                    return Self.resp(req, 200, Self.infoJSON(id, release: "\(title).2024.1080p.mkv"))
+                }
+                if url.contains("/torrents") { return Self.resp(req, 200, Self.listJSON(rows)) }
+                if url.contains("/search/movie") { return Self.resp(req, 200, #"{"results":[]}"#) }
+                return Self.resp(req, 200, "[]")
+            }
+            #expect(try await svc.refresh().map(\.title) == ["Alpha", "Beta", "Zulu"])
+        }
     }
 }

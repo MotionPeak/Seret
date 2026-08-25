@@ -40,8 +40,20 @@ public struct WatchState: Sendable, Equatable {
     public var resumePosition: Double? {
         guard positionSeconds > 0 else { return nil }
         guard durationSeconds > 0 else { return finished ? nil : positionSeconds }
+        // A FINISHED title only resumes from a point it was actually watched to — the tail.
+        //
+        // Crossing the finished fraction while playing is what normally sets `finished`, and being
+        // able to pick up that last stretch is the point of resuming at all. But a manual mark also
+        // sets it, and carries the position forward so un-marking restores the viewer's place —
+        // and that position can be anywhere. Offering it back would make "mark watched" quietly
+        // mean "resume from the middle".
+        if finished, positionSeconds / durationSeconds < Self.finishedFraction { return nil }
         return durationSeconds - positionSeconds > Self.resumeTailSeconds ? positionSeconds : nil
     }
+
+    /// Fraction of runtime past which playback counts as finished. Lives here because
+    /// `resumePosition` has to tell a position reached by watching from one written by a mark.
+    public static let finishedFraction = 0.8
 }
 
 /// Derives the stable keys used to look up watch state.

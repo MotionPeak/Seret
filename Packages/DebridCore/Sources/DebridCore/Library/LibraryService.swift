@@ -85,11 +85,20 @@ public struct LibraryService: Sendable {
         // torrents RD no longer lists is NOT carried — it is rebuilt (or, if all of them are gone,
         // correctly disappears).
         let dirtyItemIDs = Set(dirtyItems.map(\.id))
-        let untouched = cached.filter { item in
+        let settled = cached.filter { item in
             guard !dirtyItemIDs.contains(item.id) else { return false }
             let ids = LibraryReconciler.torrentIDs(of: item)
             return !ids.isEmpty && ids.allSatisfy(rdTorrentIDs.contains)
         }
+        // …except that an item TMDB never matched has to keep being asked about. Re-grouping the
+        // whole account used to put every item back through `reconcile`, whose carry branch only
+        // accepts a match that already has a tmdbID — so a lookup that failed was retried on the
+        // next delta. Carrying it verbatim instead made a failure permanent: a posterless card that
+        // can never be rated, sitting beside the enriched copy of the same title forever. The retry
+        // costs a TMDB call and no `/torrents/info` call, because the item already holds everything
+        // its torrents had to say.
+        let untouched = settled.filter { $0.tmdbID != nil }
+        let needsRetry = settled.filter { $0.tmdbID == nil }
 
         let plan = reconciler.reconcile(fresh: fresh, cached: cached)
 
@@ -127,11 +136,17 @@ public struct LibraryService: Sendable {
                 && ids.allSatisfy(unresolvedIDs.contains)
         }
 
+        let retried = needsRetry.isEmpty ? [] : await enricher.enrich(needsRetry)
+
         // Enrichment re-keys each item by TMDB id, so separate torrents of one title only collide
         // here — fold them into a single entry carrying every version. That is also what folds a
         // freshly-grouped item into the untouched one it belongs with: a new episode's torrent
         // groups on its own here, and merges into the show that was carried through.
-        let library = merger.merge(assembled + untouched + rescued)
+        //
+        // Sorted the way `LibraryBuilder.group` sorts, because the grid shows this order directly.
+        // Concatenating "the changed ones, then the rest" made a title jump to the front the moment
+        // anything about it changed, and left the order drifting after every refresh.
+        let library = Self.inDisplayOrder(merger.merge(assembled + untouched + retried + rescued))
 
         // A torrent counts as settled when we resolved it this round, or when we deliberately did
         // not ask about it because nothing had changed. An UNRESOLVED one is left out, so the next
@@ -196,6 +211,16 @@ public struct LibraryService: Sendable {
         try store.save(LibrarySnapshot(items: updated,
                                        seenTorrentIDs: Self.dropping(deleted, from: snapshot?.seenTorrentIDs),
                                        seenTorrentStates: Self.droppingStates(deleted, from: snapshot?.seenTorrentStates)))
+    }
+
+    /// Movies first, then shows, each alphabetical — the same order `LibraryBuilder.group` returns,
+    /// so an incrementally-rebuilt library is indistinguishable from a freshly-grouped one.
+    private static func inDisplayOrder(_ items: [MediaItem]) -> [MediaItem] {
+        let byTitle: (MediaItem, MediaItem) -> Bool = {
+            $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
+        }
+        return items.filter { $0.kind == .movie }.sorted(by: byTitle)
+             + items.filter { $0.kind == .show }.sorted(by: byTitle)
     }
 
     /// Carry the recorded torrent ids forward, minus the ones just deleted. Dropping the set

@@ -83,14 +83,18 @@ public struct ETAEstimator: Sendable, Equatable {
         }
 
         guard remaining > 0 else { return 0 }
-        // Nothing has moved for long enough that any rate we could quote is fiction. A download
-        // that has not STARTED is not stalled — there is simply nothing observed yet, and RD's
-        // reported speed is still the best signal.
-        if let known = lastProgress, known.bytesDone > 0,
+        let fallback = reportedSpeed.flatMap { $0 > 0 ? Double($0) : nil }
+        // Nothing has moved for long enough that any rate we could quote is fiction.
+        //
+        // Two things are deliberately NOT stalls. A download that has not STARTED — there is simply
+        // nothing observed yet, and RD's reported speed is the only signal there is. And one RD
+        // still reports a live speed for: `progress` is a percentage, so on a large slow download a
+        // single reported step can take minutes while bytes are moving the whole time, and calling
+        // that stalled would blank the ETA of a download that is working.
+        if let known = lastProgress, known.bytesDone > 0, fallback == nil,
            now.timeIntervalSince(known.at) >= stalledAfter {
             return nil
         }
-        let fallback = reportedSpeed.flatMap { $0 > 0 ? Double($0) : nil }
         guard let rate = smoothedRate ?? fallback, rate > 0 else { return nil }
         return remaining / rate
     }

@@ -97,12 +97,18 @@ public struct LibraryBuilder: Sendable {
 
     /// Add one episode per selected video file that names one — the season-pack expansion.
     private func expand(_ info: TorrentInfo, packSeason: Int, into acc: ShowAccumulator) {
+        // Files inside a pack are often named far more sparsely than the pack itself — an episode
+        // may be plain `S01E03.mkv` while the resolution, source and codec are stated only on the
+        // torrent. Take the file's own parse and fall back to the torrent's for whatever it omits,
+        // or expanding a pack would strip the quality the ranker and the Versions list depend on.
+        let packParsed = parser.parse(info.filename)
         for (file, link) in info.selectedFilesWithLinks() where Self.isVideoPath(file.path) {
             let fileParsed = parser.parse(file.path)
             guard let episode = fileParsed.episode else { continue }
             acc.add(season: fileParsed.season ?? packSeason, number: episode,
                     source: MediaSource(torrentID: info.id, fileID: file.id,
-                                        restrictedLink: link, parsed: fileParsed,
+                                        restrictedLink: link,
+                                        parsed: fileParsed.completed(from: packParsed),
                                         sizeBytes: file.bytes))
         }
     }

@@ -215,4 +215,54 @@ struct FilenameParserTests {
     @Test func aTrailingBracketedTagDoesNotEndUpInTheTitle() {
         #expect(parser.parse("Some.Film.2021.1080p.BluRay.x265.[TbZ].mkv").title == "Some Film")
     }
+
+    // MARK: - Regressions caught reviewing the year/bracket work against itself
+
+    /// A title that BEGINS with a year and continues is not just that year. Breaking at the leading
+    /// year truncated "2012 Doomsday" to "2012" — which is a different film, and since a movie's
+    /// key is its title they collapsed into one library entry.
+    @Test func aTitleThatStartsWithAYearKeepsTheRestOfItself() {
+        let r = parser.parse("2012.Doomsday.1080p.WEBRip.x264-GRP.mkv")
+        #expect(r.title == "2012 Doomsday")
+        #expect(r.year == nil)
+    }
+
+    @Test func twoFilmsWhoseTitlesBeginWithTheSameYearStayApart() {
+        let a = parser.parse("2012.1080p.BluRay.x264-SPARKS.mkv")
+        let b = parser.parse("2012.Doomsday.1080p.WEBRip.x264-GRP.mkv")
+        #expect(a.title != b.title)
+    }
+
+    /// …and one that begins with a year AND carries a release year still splits them correctly.
+    @Test func aYearTitleWithAReleaseYearStillSplits() {
+        let r = parser.parse("2012.Doomsday.2008.1080p.WEBRip.mkv")
+        #expect(r.title == "2012 Doomsday")
+        #expect(r.year == 2008)
+    }
+
+    /// A fansub episode has to parse as an EPISODE. Reading the title but not the number left every
+    /// episode of a series as a movie named for the show — so all of them collapsed into one entry.
+    @Test func aFansubEpisodeIsAnEpisodeNotAMovie() {
+        let r = parser.parse("[SubsPlease] Some Show - 07 [1080p][HEVC].mkv")
+        #expect(r.title == "Some Show")
+        #expect(r.episode == 7)
+        #expect(r.isTV == true)
+    }
+
+    /// The `- <number>` rule must not touch ordinary release names, where a trailing hyphenated
+    /// number is part of the title.
+    @Test func aHyphenatedNumberInAnOrdinaryTitleIsNotAnEpisode() {
+        let r = parser.parse("Mission.Impossible.-.2.2000.1080p.BluRay.x264.mkv")
+        #expect(r.isTV == false)
+        #expect(r.title.contains("2"))
+        #expect(r.year == 2000)
+    }
+
+    /// A film whose title IS a bracketed token — [REC] — must keep it rather than being dropped as
+    /// a group tag and falling back to the raw filename.
+    @Test func aFilmTitledWithBracketsKeepsItsTitle() {
+        let r = parser.parse("[REC].2007.1080p.BluRay.x264-GRP.mkv")
+        #expect(r.title == "REC")
+        #expect(r.year == 2007)
+    }
 }
