@@ -170,4 +170,27 @@ import DebridCore
         #expect(m.selectedSubtitleID == "ext/1")
         #expect(m.subtitleRows.first(where: { $0.language == "he" })?.state == .attached("ext/1"))
     }
+
+    /// A download that succeeds but whose track VLCKit never surfaces chose nothing in the end.
+    /// Leaving the manual-pick latch set disabled the automatic preference for the rest of the
+    /// source — so the episode's own muxed track in that language, which may only have finished
+    /// parsing while the download was being waited on, was never selected either, and the viewer
+    /// got no subtitles at all.
+    @Test func anAttachThatNeverLandsReleasesTheManualPickLatch() async {
+        let engine = FakeVideoPlayerEngine()
+        let subs = FakeSubtitleProvider()
+        subs.searchResults = [SubtitleResult(fileID: 1, language: "he")]
+        let m = model(subs, engine)
+        m.start()
+        await m.waitForIdleForTesting()
+
+        engine.deferSlaveAttach = true          // VLCKit never surfaces the slave
+        await m.requestSubtitle(language: "he")
+        #expect(m.subtitlePickedByUser == true)
+
+        m.failPendingSubtitleAttachForTesting()
+
+        #expect(m.subtitlePickedByUser == false)
+        #expect(m.subtitleRows.first(where: { $0.language == "he" })?.state == .error)
+    }
 }

@@ -342,5 +342,72 @@ extension SwiftDataSuite {
             #expect(state?.finished == true)            // still finished
             #expect(try await s.recent(limit: 10, profileID: "p1").isEmpty)   // not back in the rail
         }
+
+        /// The mirror of the case above, and the one over-correcting it created. A manual Mark
+        /// Watched on a never-played title writes the SAME zero position and duration as a rating
+        /// row — but its `finished` is a deliberate act, not a default. Overwriting it with an
+        /// older row's erased the viewer's mark: the tick vanished and the title came back to
+        /// Continue Watching, with no way to tell what had happened.
+        @Test func collapsingDoesNotEraseAManualMarkWatched() async throws {
+            let s = try store()
+            // Older: played 15 minutes and stopped.
+            try await s.seedRow(contentKey: "movie:tmdb:7", profileID: "p1", sourceKey: "T1#1",
+                                positionSeconds: 900, durationSeconds: 6000, finished: false,
+                                plays: 0, rating: nil,
+                                updatedAt: Date(timeIntervalSince1970: 10), lastWatchedAt: nil)
+            // Newer: marked watched on another device, which never played it.
+            try await s.seedRow(contentKey: "movie:tmdb:7", profileID: "p1", sourceKey: "",
+                                positionSeconds: 0, durationSeconds: 0, finished: true,
+                                plays: 0, rating: nil,
+                                updatedAt: Date(timeIntervalSince1970: 20), lastWatchedAt: nil)
+
+            try await s.setRating(8, contentKey: "movie:tmdb:7", profileID: "p1",
+                                  at: Date(timeIntervalSince1970: 30))
+
+            let state = try await s.state(forContentKey: "movie:tmdb:7", profileID: "p1")
+            #expect(state?.finished == true)                                  // the mark stands
+            #expect(try await s.recent(limit: 10, profileID: "p1").isEmpty)   // and it stays out
+        }
+
+        /// …and the same through the adoption path, which needs no CloudKit at all: a mark made
+        /// before the profile resolved is adopted, and must keep saying what it said.
+        @Test func adoptingDoesNotEraseAMarkMadeBeforeTheProfileResolved() async throws {
+            let s = try store()
+            try await s.seedRow(contentKey: "movie:tmdb:7", profileID: "p1", sourceKey: "T1#1",
+                                positionSeconds: 900, durationSeconds: 6000, finished: false,
+                                plays: 0, rating: nil,
+                                updatedAt: Date(timeIntervalSince1970: 10), lastWatchedAt: nil)
+            try await s.seedRow(contentKey: "movie:tmdb:7", profileID: "", sourceKey: "",
+                                positionSeconds: 0, durationSeconds: 0, finished: true,
+                                plays: 0, rating: nil,
+                                updatedAt: Date(timeIntervalSince1970: 20), lastWatchedAt: nil)
+
+            try await s.adoptUnprofiledProgress(into: "p1")
+
+            #expect(try await s.state(forContentKey: "movie:tmdb:7", profileID: "p1")?.finished == true)
+        }
+
+        /// A deliberate Mark UNwatched must not be undone either. It is told apart from a
+        /// statement-free rating row by carrying the duration forward.
+        @Test func collapsingDoesNotUndoAManualMarkUnwatched() async throws {
+            let s = try store()
+            try await s.seedRow(contentKey: "movie:tmdb:7", profileID: "p1", sourceKey: "T1#1",
+                                positionSeconds: 5700, durationSeconds: 6000, finished: true,
+                                plays: 1, rating: nil,
+                                updatedAt: Date(timeIntervalSince1970: 10),
+                                lastWatchedAt: Date(timeIntervalSince1970: 10))
+            // What `setWatched(false)` writes: position cleared, duration carried, not finished.
+            try await s.seedRow(contentKey: "movie:tmdb:7", profileID: "p1", sourceKey: "T1#1",
+                                positionSeconds: 0, durationSeconds: 6000, finished: false,
+                                plays: 0, rating: nil,
+                                updatedAt: Date(timeIntervalSince1970: 20), lastWatchedAt: nil)
+
+            try await s.setRating(8, contentKey: "movie:tmdb:7", profileID: "p1",
+                                  at: Date(timeIntervalSince1970: 30))
+
+            let state = try await s.state(forContentKey: "movie:tmdb:7", profileID: "p1")
+            #expect(state?.finished == false)          // still un-marked
+            #expect(state?.positionSeconds == 0)       // and still started over
+        }
     }
 }

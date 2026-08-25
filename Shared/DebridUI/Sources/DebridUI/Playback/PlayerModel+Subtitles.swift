@@ -170,11 +170,32 @@ extension PlayerModel {
         subtitleAttachTimeoutTask?.cancel()
         subtitleAttachTimeoutTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(8))
-            guard !Task.isCancelled, let self,
-                  self.pendingSubtitleAttach?.language == language else { return }
-            self.pendingSubtitleAttach = nil
-            self.setRow(language, .error)
+            guard !Task.isCancelled, let self else { return }
+            self.failPendingSubtitleAttach(language: language)
         }
+    }
+
+    /// Test seam: run the give-up path now instead of waiting out the timeout.
+    func failPendingSubtitleAttachForTesting() {
+        subtitleAttachTimeoutTask?.cancel()
+        guard let language = pendingSubtitleAttach?.language else { return }
+        failPendingSubtitleAttach(language: language)
+    }
+
+    /// The attach never landed: the row failed, and whatever the request latched is released.
+    private func failPendingSubtitleAttach(language: String) {
+        guard pendingSubtitleAttach?.language == language else { return }
+        pendingSubtitleAttach = nil
+        setRow(language, .error)
+        // The download chose nothing after all. Leaving the manual-pick latch set disabled the
+        // automatic preference for the rest of the source, so a muxed track in the viewer's
+        // language — one that may only have finished parsing while the download was being waited
+        // on — was never selected either, and they got no subtitles at all.
+        guard selectedSubtitleID == nil else { return }
+        subtitlePickedByUser = false
+        // Re-decide now: that track's `.tracksChanged` has already been and gone.
+        subtitleSelectionSignature = []
+        applyTrackPreferencesIfNeeded()
     }
 
     func setRow(_ language: String, _ state: SubtitleRowState) {

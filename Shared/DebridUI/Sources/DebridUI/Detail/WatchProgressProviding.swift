@@ -45,11 +45,16 @@ extension WatchProgressProviding {
     /// `record` flip `finished` straight back to true.
     public func setWatched(_ watched: Bool, contentKey: String, sourceKey: String,
                            profileID: String) async {
-        var carried: WatchState?
-        if watched { carried = try? await progress(forContentKey: contentKey, profileID: profileID) }
+        let carried = try? await progress(forContentKey: contentKey, profileID: profileID)
         try? await record(contentKey: contentKey,
                           sourceKey: sourceKey.isEmpty ? (carried?.sourceKey ?? "") : sourceKey,
-                          positionSeconds: carried?.positionSeconds ?? 0,
+                          // Position only when marking WATCHED — un-marking is "start over".
+                          positionSeconds: watched ? (carried?.positionSeconds ?? 0) : 0,
+                          // Duration always. It costs nothing (a position of 0 is 0% of any
+                          // runtime, and the finished-fraction rule reads 0 either way), and it is
+                          // what tells a deliberately un-marked row apart from a rating written on
+                          // a device that never played the file — two shapes that were otherwise
+                          // identical, so collapsing duplicates could silently undo the un-marking.
                           durationSeconds: carried?.durationSeconds ?? 0,
                           finished: watched,
                           profileID: profileID)

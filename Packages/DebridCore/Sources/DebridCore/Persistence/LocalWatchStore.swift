@@ -40,11 +40,17 @@ public actor LocalWatchStore {
         if let theirs = loser.lastWatchedAt {
             winner.lastWatchedAt = max(winner.lastWatchedAt ?? theirs, theirs)
         }
-        // A winner with no position AND no duration says nothing about playback — it is a rating
-        // written on a device that never played the file. Take the loser's account of it WHOLE,
-        // `finished` included: keeping the winner's default `false` alongside the loser's position
-        // resurrected a title the viewer had finished, at 95%, back into Continue Watching.
-        if winner.positionSeconds == 0, winner.durationSeconds == 0 {
+        // A winner with no position, no duration AND not finished says nothing about playback — it
+        // is a rating written on a device that never played the file. Take the loser's account of
+        // it WHOLE, `finished` included: keeping the winner's default `false` alongside the loser's
+        // position resurrected a title the viewer had finished, at 95%, into Continue Watching.
+        //
+        // `!winner.finished` is what keeps this from swinging the other way. A manual Mark Watched
+        // on a never-played title writes the SAME zero position and duration, and its `finished` is
+        // a deliberate act rather than a default — overwriting it with an older row's erased the
+        // viewer's mark outright. Mark UNwatched is told apart by carrying the duration forward
+        // (see `WatchProgressProviding.setWatched`), so it never reaches this branch either.
+        if winner.positionSeconds == 0, winner.durationSeconds == 0, !winner.finished {
             winner.positionSeconds = loser.positionSeconds
             winner.durationSeconds = loser.durationSeconds
             winner.finished = loser.finished
