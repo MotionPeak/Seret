@@ -549,6 +549,10 @@ public final class PlayerModel {
     public internal(set) var subtitleSearchResults: [SubtitleMatch.Ranked] = []
     /// The language whose results are currently shown.
     public internal(set) var subtitleSearchLanguage: String?
+    /// How much the attached subtitle's timing was stretched to match this file's frame rate, or
+    /// nil when it needed no correction. Surfaced so a viewer can see that a correction happened
+    /// rather than wondering why the timings differ from the file they downloaded.
+    public internal(set) var subtitleRetimeFactor: Double?
     /// The moviehash of the playing file, resolved lazily on the first browser search and reused.
     var currentMoviehash: String?
     var moviehashResolved = false

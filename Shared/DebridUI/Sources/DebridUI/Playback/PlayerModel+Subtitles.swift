@@ -52,19 +52,14 @@ extension PlayerModel {
             // Requesting a language IS choosing it — make it sticky so the next episode/title
             // auto-downloads the same language without re-picking.
             trackPreferences?.record(subtitle: .language(language), forTitle: item.id)
-            // The downloaded cues tell us when the dialogue ends → drives "Up Next" at content-end
-            // rather than the file end. Timestamps are ASCII, so isoLatin1 is a safe fallback decode
-            // for non-UTF-8 (e.g. windows-1255 Hebrew) files.
-            if let text = (try? String(contentsOf: url, encoding: .utf8))
-                ?? (try? String(contentsOf: url, encoding: .isoLatin1)) {
-                contentEndTime = SubtitleTiming.lastCueEndSeconds(in: text)
-            }
+            // Correct the timing when this subtitle was authored against a different frame rate.
+            let attachURL = prepareSubtitle(at: url, declaredFPS: best.fps)
             // VLCKit attaches the slave asynchronously and signals via `.tracksChanged`; the new
             // track is usually NOT in the list yet. Remember the pending attach and finish it in
             // `refreshTracks()` once the track appears — that auto-selects it and turns the engine's
             // generic "Track N" into the language pill. Try once now in case it landed synchronously.
             let before = Set(engine.subtitleTracks.map(\.id))
-            engine.addExternalSubtitle(url: url)
+            engine.addExternalSubtitle(url: attachURL)
             pendingSubtitleAttach = (language, before)
             refreshTracks()
             scheduleSubtitleAttachTimeout(language: language)
@@ -106,12 +101,9 @@ extension PlayerModel {
         guard let subtitles else { return }
         do {
             let url = try await subtitles.download(ranked.result)
-            if let text = (try? String(contentsOf: url, encoding: .utf8))
-                ?? (try? String(contentsOf: url, encoding: .isoLatin1)) {
-                contentEndTime = SubtitleTiming.lastCueEndSeconds(in: text)
-            }
+            let attachURL = prepareSubtitle(at: url, declaredFPS: ranked.result.fps)
             let before = Set(engine.subtitleTracks.map(\.id))
-            engine.addExternalSubtitle(url: url)
+            engine.addExternalSubtitle(url: attachURL)
             pendingSubtitleAttach = (ranked.result.language, before)
             refreshTracks()
             scheduleSubtitleAttachTimeout(language: ranked.result.language)
@@ -129,6 +121,52 @@ extension PlayerModel {
     func rankedBest(_ results: [SubtitleResult]) -> SubtitleResult? {
         SubtitleMatch.rank(results, against: currentSource.releaseNameForMatching,
                            videoFPS: engine.videoFPS).first?.result
+    }
+
+    /// Prepare a freshly-downloaded subtitle for attachment: correct its timing when it was
+    /// authored against a different frame rate, and note where its dialogue ends.
+    ///
+    /// Returns the URL to hand the engine — the corrected copy when a correction applied, the file
+    /// as downloaded otherwise. The correction is written to a SEPARATE file on purpose: downloads
+    /// are cached on disk by `file_id`, so rewriting one in place would correct an
+    /// already-corrected file again on the next play, and would corrupt it outright for a different
+    /// release of the same episode that legitimately shares the subtitle.
+    func prepareSubtitle(at url: URL, declaredFPS: Double?) -> URL {
+        // Timestamps are ASCII, so isoLatin1 is a safe fallback decode for non-UTF-8 (e.g.
+        // windows-1255 Hebrew) files — and it is byte-preserving, so writing back in the encoding
+        // it was read in reproduces the original bytes everywhere except the cue lines we mean to
+        // rewrite. Decoding Hebrew as UTF-8 would fail outright, which is why this order matters.
+        var decoded: String?
+        var encoding = String.Encoding.utf8
+        if let text = try? String(contentsOf: url, encoding: .utf8) {
+            decoded = text
+        } else if let text = try? String(contentsOf: url, encoding: .isoLatin1) {
+            decoded = text
+            encoding = .isoLatin1
+        }
+        guard let text = decoded else { return url }
+
+        // The cues tell us when the dialogue ends → drives "Up Next" at content-end rather than at
+        // the file end, which on a TV rip is minutes of credits later.
+        let lastCue = SubtitleTiming.lastCueEndSeconds(in: text)
+        contentEndTime = lastCue
+        subtitleRetimeFactor = nil
+
+        guard let factor = SubtitleRetimer.factor(subtitleFPS: declaredFPS,
+                                                  videoFPS: engine.videoFPS,
+                                                  lastCueEnd: lastCue,
+                                                  duration: duration > 0 ? duration : nil)
+        else { return url }
+
+        let corrected = SubtitleRetimer.rescale(text, by: factor)
+        let destination = FileManager.default.temporaryDirectory
+            .appendingPathComponent("retimed-\(url.lastPathComponent)")
+        guard (try? corrected.write(to: destination, atomically: true, encoding: encoding)) != nil
+        else { return url }        // a failed write must not cost the viewer the subtitle entirely
+        // Every cue moved, including the last one Up Next keys off.
+        contentEndTime = SubtitleTiming.lastCueEndSeconds(in: corrected) ?? lastCue
+        subtitleRetimeFactor = factor
+        return destination
     }
 
     func resolveMoviehashIfNeeded() async {
