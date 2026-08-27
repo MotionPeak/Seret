@@ -165,6 +165,9 @@ extension PlayerModel {
         }
 
         position = t.position
+        // The drift correction is a function of position, so it has to be recomputed as position
+        // moves. VLCKit ticks once a second; within one tick a 4% error is 40ms, imperceptible.
+        if isCorrectingSubtitleDrift { applyEffectiveSubtitleDelay() }
 
         // Sustained advance past the last tick = the decoder is really producing frames. A single
         // tick at the seek target is not advance, so the overlay stays until the picture is moving.
@@ -238,6 +241,7 @@ extension PlayerModel {
         // A hand-dialled offset belongs to the subtitle it was dialled against. Carried into the
         // next episode it would silently mistime a subtitle that was correct.
         subtitleDelay = 0
+        subtitleSourceFPS = nil      // …and so does a drift correction dialled for that subtitle
         subtitleRetimeFactor = nil
         // Everything that identifies WHICH FILE the subtitle machinery is talking about. All of it
         // described the previous file and none of it was cleared here, so a swap or a "Try another

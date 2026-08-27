@@ -556,6 +556,27 @@ public final class PlayerModel {
     /// can genuinely be minutes out, and clamping tighter than the problem helps nobody.
     static let maxSubtitleDelay: Double = 300
 
+    /// The rate the SELECTED subtitle was authored at, when the viewer has said it differs from
+    /// this file's. nil — the default — means no drift correction is running.
+    ///
+    /// This is what makes a MUXED track fixable. An external subtitle is rewritten before it is
+    /// attached (`SubtitleRetimer`), but a track inside the container cannot be rewritten, and a
+    /// constant offset cannot answer a rate error. A constant offset RECOMPUTED ON EVERY TICK can:
+    /// the correction grows exactly as fast as the drift does.
+    public internal(set) var subtitleSourceFPS: Double?
+
+    /// What a 25fps subtitle is almost always played against, used when the engine will not report
+    /// the file's rate. Assuming it is better than refusing to correct at all — every release this
+    /// matters for is a 23.976 encode, and the viewer can see the result and switch it back off.
+    static let assumedVideoFPS = 23.976
+
+    /// Declare the selected subtitle's authored frame rate, or nil to stop correcting.
+    public func setSubtitleSourceFPS(_ fps: Double?) {
+        subtitleSourceFPS = fps
+        applyEffectiveSubtitleDelay()
+    }
+    public var isCorrectingSubtitleDrift: Bool { subtitleSourceFPS != nil }
+
     /// Nudge the subtitle offset. Positive shows lines later, negative earlier.
     public func adjustSubtitleDelay(by delta: Double) { applySubtitleDelay(subtitleDelay + delta) }
     /// Back to the file's own timing.
@@ -563,7 +584,33 @@ public final class PlayerModel {
 
     func applySubtitleDelay(_ seconds: Double) {
         subtitleDelay = min(max(seconds, -Self.maxSubtitleDelay), Self.maxSubtitleDelay)
-        engine.setSubtitleDelay(subtitleDelay)
+        applyEffectiveSubtitleDelay()
+    }
+
+    /// How far the running drift correction has grown by the current position.
+    ///
+    /// A cue sitting at file-time `s` must be shown at `s × f`, where `f` is the subtitle's rate
+    /// over the video's. At playback time `t` the cue in question is the one at `t − d`, so
+    /// `t = (t − d) × f` and the offset needed is `d = t × (1 − 1/f)`. For a 25fps subtitle on a
+    /// 23.976 file that is 4.096% of elapsed time — 2m27s an hour in, which is exactly the drift.
+    public var subtitleDriftDelay: Double {
+        guard let factor = subtitleDriftFactor else { return 0 }
+        return position * (1 - 1 / factor)
+    }
+
+    /// The subtitle's authored rate over the video's actual rate, or nil when no correction applies.
+    var subtitleDriftFactor: Double? {
+        guard let source = subtitleSourceFPS, source > 0 else { return nil }
+        let video = (engine.videoFPS ?? Self.assumedVideoFPS)
+        guard video > 0 else { return nil }
+        let factor = source / video
+        return abs(factor - 1) > 0.002 ? factor : nil
+    }
+
+    /// The hand-dialled offset plus however far the drift correction has grown. One place, because
+    /// every caller must send the SUM — sending either alone silently discards the other.
+    func applyEffectiveSubtitleDelay() {
+        engine.setSubtitleDelay(subtitleDelay + subtitleDriftDelay)
     }
 
     /// How much the attached subtitle's timing was stretched to match this file's frame rate, or

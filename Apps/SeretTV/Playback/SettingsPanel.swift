@@ -121,6 +121,15 @@ private struct PlaybackColumns: View {
             // offset returns to zero would destroy the row the viewer is standing on at the exact
             // moment they press it, and tvOS drops focus when the focused view goes away.
             CheckRow(title: "Reset timing", checked: false) { model.resetSubtitleDelay() }
+            // The muxed-track answer. A track inside the container cannot be rewritten the way a
+            // downloaded file is, and a constant offset cannot answer a rate error — but an offset
+            // recomputed on every tick can, because it grows exactly as fast as the drift.
+            // 25fps is the one that matters: every subtitle for a BBC show is timed to the PAL
+            // master, and the encodes are 23.976.
+            CheckRow(title: "Subtitle is 25fps (PAL) — fix drift",
+                     checked: model.isCorrectingSubtitleDrift) {
+                model.setSubtitleSourceFPS(model.isCorrectingSubtitleDrift ? nil : 25)
+            }
         }
     }
 
@@ -129,6 +138,9 @@ private struct PlaybackColumns: View {
     private var timingCaption: String {
         var parts = ["TIMING"]
         if model.subtitleRetimeFactor != nil { parts.append("RATE-CORRECTED") }
+        if model.isCorrectingSubtitleDrift {
+            parts.append(String(format: "PAL %+.0fs", model.subtitleDriftDelay))
+        }
         if model.subtitleDelay != 0 { parts.append(String(format: "%+.1fs", model.subtitleDelay)) }
         return parts.joined(separator: " · ")
     }

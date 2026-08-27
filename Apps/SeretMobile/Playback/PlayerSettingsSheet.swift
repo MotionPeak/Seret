@@ -59,6 +59,12 @@ struct PlayerSettingsSheet: View {
                             chip("−0.5s", selected: false) { model.adjustSubtitleDelay(by: -0.5) }
                             chip("+0.5s", selected: false) { model.adjustSubtitleDelay(by: 0.5) }
                             chip("Reset", selected: false) { model.resetSubtitleDelay() }
+                            // The muxed-track answer — an offset recomputed every tick, which
+                            // grows as fast as the drift does. See the tvOS panel for why 25fps.
+                            chip("25fps (PAL)", selected: model.isCorrectingSubtitleDrift) {
+                                model.setSubtitleSourceFPS(
+                                    model.isCorrectingSubtitleDrift ? nil : 25)
+                            }
                         }
                     }
 
@@ -181,6 +187,9 @@ struct PlayerSettingsSheet: View {
     private var timingTitle: String {
         var parts = ["Subtitle timing"]
         if model.subtitleRetimeFactor != nil { parts.append("rate-corrected") }
+        if model.isCorrectingSubtitleDrift {
+            parts.append(String(format: "PAL %+.0fs", model.subtitleDriftDelay))
+        }
         if model.subtitleDelay != 0 { parts.append(String(format: "%+.1fs", model.subtitleDelay)) }
         return parts.joined(separator: " · ")
     }
