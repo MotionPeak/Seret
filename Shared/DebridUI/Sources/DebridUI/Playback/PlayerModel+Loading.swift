@@ -235,6 +235,10 @@ extension PlayerModel {
         subtitleFallbackTask = nil
         subtitleAttachTimeoutTask?.cancel()   // an orphan would fire against the NEW media's attach
         subtitleAttachTimeoutTask = nil
+        // A hand-dialled offset belongs to the subtitle it was dialled against. Carried into the
+        // next episode it would silently mistime a subtitle that was correct.
+        subtitleDelay = 0
+        subtitleRetimeFactor = nil
         // Everything that identifies WHICH FILE the subtitle machinery is talking about. All of it
         // described the previous file and none of it was cleared here, so a swap or a "Try another
         // version" carried the old file's identity into the new one:

@@ -549,6 +549,23 @@ public final class PlayerModel {
     public internal(set) var subtitleSearchResults: [SubtitleMatch.Ranked] = []
     /// The language whose results are currently shown.
     public internal(set) var subtitleSearchLanguage: String?
+    /// Seconds the subtitle track is shifted by. Positive shows each line LATER. Session-scoped
+    /// and reset for every new source — an offset dialled for one file means nothing for the next.
+    public internal(set) var subtitleDelay: Double = 0
+    /// Far more than any real correction needs, but a rate-mismatched subtitle an hour into a film
+    /// can genuinely be minutes out, and clamping tighter than the problem helps nobody.
+    static let maxSubtitleDelay: Double = 300
+
+    /// Nudge the subtitle offset. Positive shows lines later, negative earlier.
+    public func adjustSubtitleDelay(by delta: Double) { applySubtitleDelay(subtitleDelay + delta) }
+    /// Back to the file's own timing.
+    public func resetSubtitleDelay() { applySubtitleDelay(0) }
+
+    func applySubtitleDelay(_ seconds: Double) {
+        subtitleDelay = min(max(seconds, -Self.maxSubtitleDelay), Self.maxSubtitleDelay)
+        engine.setSubtitleDelay(subtitleDelay)
+    }
+
     /// How much the attached subtitle's timing was stretched to match this file's frame rate, or
     /// nil when it needed no correction. Surfaced so a viewer can see that a correction happened
     /// rather than wondering why the timings differ from the file they downloaded.

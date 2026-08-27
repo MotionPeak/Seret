@@ -51,6 +51,17 @@ struct PlayerSettingsSheet: View {
                         }
                     }
 
+                    // The last resort when a subtitle still does not line up — and the ONLY one
+                    // available for a muxed track, which cannot be rewritten the way a downloaded
+                    // file is on the way in.
+                    section(timingTitle, "timer") {
+                        FlowLayout {
+                            chip("−0.5s", selected: false) { model.adjustSubtitleDelay(by: -0.5) }
+                            chip("+0.5s", selected: false) { model.adjustSubtitleDelay(by: 0.5) }
+                            chip("Reset", selected: false) { model.resetSubtitleDelay() }
+                        }
+                    }
+
                     section("Speed", "speedometer") {
                         FlowLayout {
                             ForEach(speeds, id: \.value) { opt in
@@ -163,6 +174,15 @@ struct PlayerSettingsSheet: View {
             .overlay(Capsule().stroke(Theme.Palette.hairline, lineWidth: 1))
         }
         .buttonStyle(.plain)
+    }
+
+    /// The timing section's title doubles as its readout: whether the attached subtitle was
+    /// already rate-corrected on the way in, and whatever offset has been dialled on top.
+    private var timingTitle: String {
+        var parts = ["Subtitle timing"]
+        if model.subtitleRetimeFactor != nil { parts.append("rate-corrected") }
+        if model.subtitleDelay != 0 { parts.append(String(format: "%+.1fs", model.subtitleDelay)) }
+        return parts.joined(separator: " · ")
     }
 
     private var speeds: [(label: String, value: Double)] {

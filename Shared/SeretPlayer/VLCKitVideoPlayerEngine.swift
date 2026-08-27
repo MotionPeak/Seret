@@ -301,6 +301,16 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
         player.addPlaybackSlave(url, type: .subtitle, enforce: true)
     }
 
+    /// libvlc holds the subtitle offset in MICROseconds, and positive means "show it later" —
+    /// the same sign convention this protocol uses, so the only conversion is the scale.
+    func setSubtitleDelay(_ seconds: Double) {
+        let micros = seconds * 1_000_000
+        // `NSInteger(Double)` traps on NaN and on infinity, and this value reaches here from a UI
+        // control. Clamp rather than risk an uncatchable crash mid-playback.
+        guard micros.isFinite else { return }
+        player.currentVideoSubTitleDelay = Int(min(max(micros, -3_600_000_000), 3_600_000_000))
+    }
+
     // VLCKit 4.x object-based tracks. `trackId` is libvlc's stable string id (e.g. "audio/0",
     // "spu/1"); selecting `selectedExclusively` unselects every other track of that kind.
     /// The playing video's frame rate, as a rational — libvlc reports numerator and denominator,

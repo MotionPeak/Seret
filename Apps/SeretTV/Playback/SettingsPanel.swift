@@ -107,7 +107,30 @@ private struct PlaybackColumns: View {
             }
 
             CheckRow(title: "Search subtitles…", checked: false) { onSearchSubtitles() }
+
+            // The last resort when a subtitle still does not line up — and the ONLY one available
+            // for a muxed track, which cannot be rewritten the way a downloaded file is.
+            groupCaption(timingCaption)
+            CheckRow(title: "Show earlier  −0.5s", checked: false) {
+                model.adjustSubtitleDelay(by: -0.5)
+            }
+            CheckRow(title: "Show later  +0.5s", checked: false) {
+                model.adjustSubtitleDelay(by: 0.5)
+            }
+            // Shown unconditionally, even at zero, where it is a harmless no-op. Hiding it once the
+            // offset returns to zero would destroy the row the viewer is standing on at the exact
+            // moment they press it, and tvOS drops focus when the focused view goes away.
+            CheckRow(title: "Reset timing", checked: false) { model.resetSubtitleDelay() }
         }
+    }
+
+    /// The timing group's caption doubles as its readout: whether the attached subtitle was already
+    /// rate-corrected on the way in, and whatever offset has been dialled on top.
+    private var timingCaption: String {
+        var parts = ["TIMING"]
+        if model.subtitleRetimeFactor != nil { parts.append("RATE-CORRECTED") }
+        if model.subtitleDelay != 0 { parts.append(String(format: "%+.1fs", model.subtitleDelay)) }
+        return parts.joined(separator: " · ")
     }
 
     /// Names the language and, when it matters, says why the row is not actionable.

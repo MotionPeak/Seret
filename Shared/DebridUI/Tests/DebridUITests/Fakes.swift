@@ -16,6 +16,8 @@ final class FakeVideoPlayerEngine: VideoPlayerEngine {
     private(set) var playCalled = false
     private(set) var stopCalled = false
     private(set) var addedSubtitles: [URL] = []
+    /// Every subtitle offset set, in order — reset/re-assert tests assert on the whole history.
+    private(set) var subtitleDelays: [Double] = []
     private(set) var selectedSubtitleID: String??
     private(set) var selectedAudioID: String??
 
@@ -27,6 +29,7 @@ final class FakeVideoPlayerEngine: VideoPlayerEngine {
     var subtitleTracks: [MediaTrack] = []
     /// What the engine reports as the video's frame rate — drives subtitle fps matching.
     var videoFPS: Double?
+    func setSubtitleDelay(_ seconds: Double) { subtitleDelays.append(seconds) }
 
     let events: AsyncStream<PlaybackEvent>
     private let continuation: AsyncStream<PlaybackEvent>.Continuation

@@ -41,6 +41,16 @@ public protocol VideoPlayerEngine: AnyObject {
     func selectSubtitleTrack(id: String?)   // nil = off
     func addExternalSubtitle(url: URL)       // a downloaded subtitle temp-file URL (slice 2)
 
+    /// Shift the displayed subtitle in time, in seconds. Positive shows each line LATER, negative
+    /// earlier.
+    ///
+    /// The last resort when a subtitle does not match the file, and the only one available for a
+    /// MUXED track: an external file can be rescaled before it is attached (`SubtitleRetimer`),
+    /// but a track inside the container cannot be rewritten. It corrects a constant offset rather
+    /// than a rate error, so on a drifting subtitle it buys a stretch at a time — which is still
+    /// the difference between watching an episode and giving up on it.
+    func setSubtitleDelay(_ seconds: Double)
+
     /// The playing video's frame rate, once the engine has opened the media (nil before that, or
     /// when the engine can't report it). Subtitle matching needs it: a file timed against a
     /// different rate drifts linearly — right at the start, then progressively early until each
@@ -50,6 +60,11 @@ public protocol VideoPlayerEngine: AnyObject {
 
     /// Time + state updates as the engine produces them.
     var events: AsyncStream<PlaybackEvent> { get }
+}
+
+public extension VideoPlayerEngine {
+    /// Engines that cannot shift subtitles simply ignore the request.
+    func setSubtitleDelay(_ seconds: Double) {}
 }
 
 public extension VideoPlayerEngine {
