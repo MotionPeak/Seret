@@ -242,6 +242,7 @@ extension PlayerModel {
         // next episode it would silently mistime a subtitle that was correct.
         subtitleDelay = 0
         subtitleSourceFPS = nil      // …and so does a drift correction dialled for that subtitle
+        pushedSubtitleDelay = nil
         subtitleRetimeFactor = nil
         // Everything that identifies WHICH FILE the subtitle machinery is talking about. All of it
         // described the previous file and none of it was cleared here, so a swap or a "Try another

@@ -16,7 +16,9 @@ extension PlayerModel {
         if volumePercent != 100 { engine.setVolume(volumePercent) }   // re-assert a boost post-swap
         // …and re-assert the offset, for the same reason: attaching a slave or switching track can
         // land the engine on a fresh subtitle output that knows nothing of what was dialled in.
-        if subtitleDelay != 0 || isCorrectingSubtitleDrift { applyEffectiveSubtitleDelay() }
+        if subtitleDelay != 0 || isCorrectingSubtitleDrift {
+            applyEffectiveSubtitleDelay(force: true)   // the engine may have just lost it
+        }
     }
 
     /// Auto-apply the user's persisted audio/subtitle language as this source's tracks are

@@ -573,7 +573,7 @@ public final class PlayerModel {
     /// Declare the selected subtitle's authored frame rate, or nil to stop correcting.
     public func setSubtitleSourceFPS(_ fps: Double?) {
         subtitleSourceFPS = fps
-        applyEffectiveSubtitleDelay()
+        applyEffectiveSubtitleDelay(force: true)
     }
     public var isCorrectingSubtitleDrift: Bool { subtitleSourceFPS != nil }
 
@@ -584,7 +584,7 @@ public final class PlayerModel {
 
     func applySubtitleDelay(_ seconds: Double) {
         subtitleDelay = min(max(seconds, -Self.maxSubtitleDelay), Self.maxSubtitleDelay)
-        applyEffectiveSubtitleDelay()
+        applyEffectiveSubtitleDelay(force: true)
     }
 
     /// How far the running drift correction has grown by the current position.
@@ -609,9 +609,26 @@ public final class PlayerModel {
 
     /// The hand-dialled offset plus however far the drift correction has grown. One place, because
     /// every caller must send the SUM — sending either alone silently discards the other.
-    func applyEffectiveSubtitleDelay() {
-        engine.setSubtitleDelay(subtitleDelay + subtitleDriftDelay)
+    ///
+    /// Rate-limited by value, not by time. The drift correction is recomputed every tick but only
+    /// grows 40ms a second, and changing a subtitle offset makes libvlc resync the SPU stream —
+    /// which can clear the line currently on screen. Poking it once a second for a change nobody
+    /// can perceive would risk exactly the symptom this whole area is about. `force` is for the
+    /// deliberate acts (a nudge, a reset, arming the correction, re-asserting after a track change),
+    /// which must land whatever the last pushed value was.
+    static let subtitleDelayEpsilon = 0.2
+
+    func applyEffectiveSubtitleDelay(force: Bool = false) {
+        let value = subtitleDelay + subtitleDriftDelay
+        if !force, let pushed = pushedSubtitleDelay,
+           abs(value - pushed) < Self.subtitleDelayEpsilon { return }
+        pushedSubtitleDelay = value
+        engine.setSubtitleDelay(value)
     }
+
+    /// The last value actually handed to the engine, so the tick can tell a meaningful change from
+    /// the 40ms one it makes every second.
+    var pushedSubtitleDelay: Double?
 
     /// How much the attached subtitle's timing was stretched to match this file's frame rate, or
     /// nil when it needed no correction. Surfaced so a viewer can see that a correction happened

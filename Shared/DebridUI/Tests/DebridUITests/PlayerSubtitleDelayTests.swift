@@ -155,6 +155,40 @@ import DebridCore
         #expect(m.subtitleDriftDelay == 0)
     }
 
+    @Test func theTickDoesNotPokeTheSubtitleOutputForAnImperceptibleChange() async {
+        // Changing a subtitle offset makes libvlc resync the SPU stream, which can clear the line
+        // on screen. The correction grows 40ms a second, so pushing every tick would risk exactly
+        // the symptom this area is about — lines vanishing early, in bursts.
+        let engine = FakeVideoPlayerEngine()
+        engine.videoFPS = 23.976
+        let m = await atPosition(600, engine: engine)
+        m.setSubtitleSourceFPS(25)
+        let after = engine.subtitleDelays.count
+
+        for step in 1...4 {                       // four seconds of ticks = ~164ms of growth
+            engine.emit(.time(PlaybackTime(position: 600 + Double(step), duration: 5400)))
+            await m.waitForIdleForTesting()
+        }
+        #expect(engine.subtitleDelays.count == after)
+
+        engine.emit(.time(PlaybackTime(position: 620, duration: 5400)))
+        await m.waitForIdleForTesting()
+        #expect(engine.subtitleDelays.count == after + 1)   // 20s of growth is worth pushing
+    }
+
+    @Test func aDeliberateNudgeAlwaysLands() async {
+        // The rate limit must never swallow an act the viewer performed.
+        let engine = FakeVideoPlayerEngine()
+        engine.videoFPS = 23.976
+        let m = await atPosition(600, engine: engine)
+        m.setSubtitleSourceFPS(25)
+        let after = engine.subtitleDelays.count
+
+        m.adjustSubtitleDelay(by: 0.05)            // smaller than the epsilon
+
+        #expect(engine.subtitleDelays.count == after + 1)
+    }
+
     @Test func anEpisodeSwapClearsTheDriftCorrectionToo() async {
         let engine = FakeVideoPlayerEngine()
         engine.videoFPS = 23.976
