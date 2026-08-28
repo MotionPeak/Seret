@@ -189,6 +189,9 @@ extension PlayerModel {
         let newcomers = engine.subtitleTracks.filter { !pending.before.contains($0.id) }
         guard let newID = (newcomers.first(where: \.isExternal) ?? newcomers.first)?.id
         else { return }
+        #if DEBUG
+        subtitleProbe("SELECT \(newID) (attach of downloaded \(pending.language)) <- FLUSHES SPU")
+        #endif
         engine.selectSubtitleTrack(id: newID)
         selectedSubtitleID = newID
         setRow(pending.language, .attached(newID))

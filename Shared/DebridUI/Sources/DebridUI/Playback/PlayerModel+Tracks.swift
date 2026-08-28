@@ -11,6 +11,10 @@ extension PlayerModel {
     func refreshTracks() {
         audioTracks = engine.audioTracks
         subtitleTracks = engine.subtitleTracks
+        #if DEBUG
+        probeTracksChangedRate()
+        probeTrackSetIfChanged()
+        #endif
         attachPendingSubtitleIfReady()
         applyTrackPreferencesIfNeeded()
         if volumePercent != 100 { engine.setVolume(volumePercent) }   // re-assert a boost post-swap
@@ -161,6 +165,9 @@ extension PlayerModel {
             guard !subtitleOffAsserted || signature != subtitleSelectionSignature else { return }
             subtitleSelectionSignature = signature
             subtitleOffAsserted = true
+            #if DEBUG
+            subtitleProbe("SELECT off (auto preference) <- FLUSHES SPU")
+            #endif
             engine.selectSubtitleTrack(id: nil)
             selectedSubtitleID = nil
         case .language(let lang):
@@ -180,6 +187,9 @@ extension PlayerModel {
                 subtitleFallbackRequested = true
             }
             guard match.id != selectedSubtitleID else { return }
+            #if DEBUG
+            subtitleProbe("SELECT \(match.id) (auto preference, was \(selectedSubtitleID ?? "nil")) <- FLUSHES SPU")
+            #endif
             engine.selectSubtitleTrack(id: match.id)
             selectedSubtitleID = match.id
         }
@@ -234,6 +244,9 @@ extension PlayerModel {
     }
 
     public func selectSubtitle(id: String) {
+        #if DEBUG
+        subtitleProbe("SELECT \(id) (viewer) <- FLUSHES SPU")
+        #endif
         subtitlePickedByUser = true       // stop the automatic choice from re-deciding over them
         subtitleFallbackTask?.cancel()
         selectedSubtitleID = id

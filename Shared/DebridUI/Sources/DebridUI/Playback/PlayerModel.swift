@@ -623,6 +623,9 @@ public final class PlayerModel {
         if !force, let pushed = pushedSubtitleDelay,
            abs(value - pushed) < Self.subtitleDelayEpsilon { return }
         pushedSubtitleDelay = value
+        #if DEBUG
+        subtitleProbe(String(format: "delay -> %+.3fs%@", value, force ? " (forced)" : ""))
+        #endif
         engine.setSubtitleDelay(value)
     }
 
@@ -630,6 +633,12 @@ public final class PlayerModel {
     /// the 40ms one it makes every second.
     var pushedSubtitleDelay: Double?
 
+    #if DEBUG
+    /// Last subtitle track set the probe printed, so it only reports actual churn.
+    var lastProbedTrackSet: String?
+    var tracksChangedCount = 0
+    var tracksChangedWindowStart: TimeInterval = 0
+    #endif
 
     /// How much the attached subtitle's timing was stretched to match this file's frame rate, or
     /// nil when it needed no correction. Surfaced so a viewer can see that a correction happened
