@@ -168,10 +168,17 @@ extension PlayerModel {
             defer { arrangeSubtitleFallback(for: lang) }
             guard signature != subtitleSelectionSignature else { return }
             subtitleSelectionSignature = signature
-            guard let match = subtitleTracks.first(where: { $0.language == lang }) else { return }
-            subtitleFallbackTask?.cancel()          // an embedded track beat the download to it
-            subtitleFallbackTask = nil
-            subtitleFallbackRequested = true
+            // Ranked, not first-match. On a REMUX the BITMAP tracks (PGS) are listed first, so
+            // first-match reliably chose the one that ignores the viewer's font settings, cannot be
+            // retimed, and drops cues under load — while a text track sat further down the list.
+            guard let match = subtitleTracks.bestSubtitle(forLanguage: lang) else { return }
+            // Only a TEXT track beats the download to it. A bitmap match is selected so the
+            // viewer sees something immediately, but the fetch is left armed to replace it.
+            if !match.isBitmapSubtitle {
+                subtitleFallbackTask?.cancel()      // an embedded text track beat the download to it
+                subtitleFallbackTask = nil
+                subtitleFallbackRequested = true
+            }
             guard match.id != selectedSubtitleID else { return }
             engine.selectSubtitleTrack(id: match.id)
             selectedSubtitleID = match.id
@@ -192,8 +199,13 @@ extension PlayerModel {
         subtitleFallbackTask = Task { @MainActor [weak self] in
             guard let self else { return }
             try? await Task.sleep(for: .seconds(subtitleFallbackDelay))
+            // …and a language whose ONLY tracks are bitmaps counts as unserved. A fetched text
+            // subtitle is strictly better there: it honours the font settings a bitmap cannot, and
+            // it is the only kind SubtitleRetimer can correct.
+            let served = subtitleTracks.contains { $0.matchesLanguage(language) }
+                && !subtitleTracks.hasOnlyBitmapSubtitles(forLanguage: language)
             guard !Task.isCancelled, !subtitlePickedByUser, !subtitleFallbackRequested,
-                  !subtitleTracks.contains(where: { $0.language == language }) else { return }
+                  !served else { return }
             subtitleFallbackRequested = true
             await self.downloadSubtitleAutomatically(language: language)
         }

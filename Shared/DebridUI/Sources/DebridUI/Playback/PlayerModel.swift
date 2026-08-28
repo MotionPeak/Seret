@@ -630,6 +630,7 @@ public final class PlayerModel {
     /// the 40ms one it makes every second.
     var pushedSubtitleDelay: Double?
 
+
     /// How much the attached subtitle's timing was stretched to match this file's frame rate, or
     /// nil when it needed no correction. Surfaced so a viewer can see that a correction happened
     /// rather than wondering why the timings differ from the file they downloaded.
