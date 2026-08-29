@@ -29,6 +29,14 @@ struct AutoPlayHarness: ViewModifier {
     @State private var request: PlaybackRequest?
     @State private var started = false
 
+    /// The show title `-autoPlayShow` asked for, if any. `-autoPlay <n>` then selects the n-th
+    /// episode in season/episode order rather than the n-th movie.
+    static var showNeedle: String? {
+        let args = ProcessInfo.processInfo.arguments
+        guard let i = args.firstIndex(of: "-autoPlayShow"), i + 1 < args.count else { return nil }
+        return args[i + 1]
+    }
+
     /// `-autoMemory` runs the whole footprint timeline: idle, playing, and — the part that matters —
     /// after the player is dismissed.
     ///
@@ -42,7 +50,9 @@ struct AutoPlayHarness: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .task(id: session.libraryStore?.movies.count ?? 0) { await startIfReady() }
+            .task(id: "\(session.libraryStore?.movies.count ?? 0)-\(session.libraryStore?.shows.count ?? 0)") {
+                await startIfReady()
+            }
             // `PlaybackRequest` is not Identifiable, so the cover is driven by a plain Bool over
             // the stored request rather than by `item:`.
             .fullScreenCover(isPresented: Binding(get: { request != nil },
@@ -56,6 +66,25 @@ struct AutoPlayHarness: ViewModifier {
 
     private func startIfReady() async {
         guard !started, let store = session.libraryStore else { return }
+        // `-autoPlayShow <text>` plays the first EPISODE of the first show whose title matches.
+        // Subtitle behaviour is a per-FILE property and the reports are about episodes, so a
+        // harness that could only reach movies could not open the file being complained about.
+        if let needle = Self.showNeedle {
+            guard let show = store.shows.first(where: {
+                $0.title.localizedCaseInsensitiveContains(needle)
+            }) else { return }                        // library still loading — the task re-runs
+            guard let episode = show.seasons.sorted(by: { $0.number < $1.number })
+                .flatMap({ $0.episodes.sorted(by: { $0.number < $1.number }) })
+                .dropFirst(index).first else { return }
+            started = true
+            let source = episode.source
+            print("[autoPlay] \(show.title) S\(episode.season)E\(episode.number) — \(Self.describe(source))")
+            request = PlaybackRequest(item: show, source: source, resumeAt: nil,
+                                      label: "\(show.title) — S\(episode.season)·E\(episode.number)",
+                                      contentKey: WatchKey.content(forShow: show, episode: episode),
+                                      episode: episode, fromStart: true)
+            return
+        }
         let candidates = Self.heaviestFirst(store.movies)
         guard !candidates.isEmpty else { return }     // library still loading — the task re-runs
         started = true
