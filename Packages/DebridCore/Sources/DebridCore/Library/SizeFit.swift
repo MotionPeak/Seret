@@ -62,6 +62,42 @@ public func sizeFit(bytes: Int?, resolution: String?, shape: ReleaseShape) -> Si
     return .far
 }
 
+/// Which side of its ideal band a file falls on.
+///
+/// `SizeFit` deliberately collapses both directions into `.far` — for RANKING that is right, since
+/// a bloated file and a mislabelled tiny one should both lose. But a version list needs to tell
+/// them apart: the big ones get a section of their own so they stay visible instead of sitting at
+/// the bottom of thirty rows, while an undersized release belongs with the ordinary ones.
+public enum SizeClass: Sendable, Equatable {
+    /// Below the band — usually a mislabelled or upscaled release.
+    case under
+    /// Inside the band, close enough to it, or not judgeable.
+    case fits
+    /// Above the band: the 70–80GB REMUXes that open slowly and skip roughly.
+    case over
+}
+
+/// Which side of its ideal band this file falls on. Anything that cannot be judged — an unknown
+/// size, a season pack with no episode count — is `.fits`, never `.over`: calling a release
+/// oversized on no evidence would hide an ordinary one away in the big-files section.
+public func sizeClass(bytes: Int?, resolution: String?, shape: ReleaseShape) -> SizeClass {
+    guard let bytes, bytes > 0 else { return .fits }
+
+    let perFile: Double
+    switch shape {
+    case .movie, .episode:
+        perFile = Double(bytes)
+    case .seasonPack(let episodes):
+        guard let episodes, episodes > 0 else { return .fits }
+        perFile = Double(bytes) / Double(episodes)
+    }
+
+    let band = idealBand(resolution: resolution, shape: shape)
+    if perFile > band.upper { return .over }
+    if perFile < band.lower { return .under }
+    return .fits
+}
+
 /// The size one playable file should reasonably weigh, in bytes. Decimal GB throughout, matching
 /// how torrent indexers advertise sizes (see `TorrentioStreamSource.parseSize`).
 private func idealBand(resolution: String?, shape: ReleaseShape) -> (lower: Double, upper: Double) {

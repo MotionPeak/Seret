@@ -34,8 +34,48 @@ struct PlayerUIPreview: View {
         case "gridfade":            GridTopFadePreview()
         case "person":              PersonScreenPreview()
         case "episodeversions":     EpisodeVersionsPreview()
+        case "versions":            VersionListPreview()
         default:           ScrubBarPreview()
         }
+    }
+}
+
+// MARK: - Version list
+
+/// The real `VersionList` on fabricated streams, so the "Larger files" / "Recommended" split can be
+/// screenshot-verified without a session, a search round-trip, or the focus engine.
+///
+/// The fixture is deliberately the shape that prompted the change: a handful of oversized REMUXes
+/// that the ranking pushes to the bottom, mixed with sensible releases. It also proves the split
+/// itself, since the sections are computed by `splitOversized` here exactly as in the screen.
+private struct VersionListPreview: View {
+    private static func stream(_ name: String, _ gb: Double, _ res: String,
+                               _ source: String, cached: Bool) -> CachedStream {
+        CachedStream(infoHash: name, fileIdx: nil, rawTitle: name,
+                     parsed: ParsedRelease(title: "Sherlock", resolution: res, source: source),
+                     languages: ["en"], sizeBytes: Int(gb * 1_000_000_000),
+                     sourceName: "RD", isCached: cached)
+    }
+
+    private static let all: [CachedStream] = [
+        stream("Sherlock.2160p.REMUX.HDR", 78, "2160p", "REMUX", cached: true),
+        stream("Sherlock.2160p.REMUX.SDR", 64, "2160p", "REMUX", cached: false),
+        stream("Sherlock.2160p.BluRay.x265", 41, "2160p", "BluRay", cached: true),
+        stream("Sherlock.2160p.WEB-DL.x265", 22, "2160p", "WEB-DL", cached: true),
+        stream("Sherlock.1080p.BluRay.x264", 12, "1080p", "BluRay", cached: true),
+        stream("Sherlock.1080p.WEB-DL.x265", 6, "1080p", "WEB-DL", cached: false),
+        stream("Sherlock.720p.BluRay.x264", 3, "720p", "BluRay", cached: true),
+    ]
+
+    var body: some View {
+        let split = Self.all.splitOversized(episodesInSeason: nil)
+        ScrollView {
+            VersionList(larger: split.larger, rest: split.rest, picking: nil, onPick: { _ in })
+                .padding(.horizontal, 60).padding(.vertical, 40)
+                .frame(maxWidth: 1400, alignment: .leading)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.black)
     }
 }
 

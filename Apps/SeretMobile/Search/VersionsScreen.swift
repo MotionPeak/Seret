@@ -25,6 +25,10 @@ struct VersionsScreen: View {
     @Environment(\.dismiss) private var dismiss
     @State private var flow: AddFlowStore?
     @State private var versions: [CachedStream] = []
+    /// The list split for display: oversized releases first, in a section of their own. Nothing is
+    /// dropped — the split only decides where a row is drawn.
+    @State private var larger: [CachedStream] = []
+    @State private var rest: [CachedStream] = []
     @State private var phase: Phase = .loading
     @State private var picking: String?
 
@@ -66,6 +70,7 @@ struct VersionsScreen: View {
             guard let add = f?.add else { phase = .failed; return }
             await add.loadAllVersions()
             versions = add.allVersions
+            (larger, rest) = versions.splitOversized(episodesInSeason: nil)
             phase = versions.isEmpty ? .empty : .ready
         }
     }
@@ -104,9 +109,32 @@ struct VersionsScreen: View {
             // Lazy so the (often 30+) rows realise as they scroll in — building every chip and
             // badge up front made the list stutter on the old Add screen.
             LazyVStack(alignment: .leading, spacing: Theme.Space.sm) {
-                ForEach(versions) { row($0) }
+                // Big releases first under their own header. Ranking them last for being oversized
+                // buried them at the bottom of thirty-odd rows; the ranking is unchanged, they are
+                // just no longer out of sight.
+                if !larger.isEmpty {
+                    sectionHeader("Larger files",
+                                  "Highest bitrate. Slower to start and heavier to skip.")
+                    ForEach(larger) { row($0) }
+                }
+                if !rest.isEmpty {
+                    if !larger.isEmpty {
+                        sectionHeader("Recommended", "Sized to play smoothly on this hardware.")
+                    }
+                    ForEach(rest) { row($0) }
+                }
             }
         }
+    }
+
+    private func sectionHeader(_ title: String, _ caption: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title).font(Theme.Typo.headline())
+            Text(caption).font(Theme.Typo.caption())
+                .foregroundStyle(Theme.Palette.textSecondary)
+        }
+        .padding(.top, Theme.Space.sm)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func row(_ stream: CachedStream) -> some View {
