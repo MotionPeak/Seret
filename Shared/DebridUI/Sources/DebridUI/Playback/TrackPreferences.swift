@@ -29,8 +29,12 @@ public protocol TrackPreferenceStoring: AnyObject {
     /// all of its episodes instead of forgetting between them.
     func resolvedAudio(forTitle titleID: String) -> TrackChoice
     func resolvedSubtitle(forTitle titleID: String) -> TrackChoice
-    /// Record a manual pick against this title AND as the new library-wide default.
+    /// Record a manual AUDIO pick against this title only. It is not made the library-wide default:
+    /// an audio pick is nearly always the original language of one foreign film, and letting it
+    /// carry made every English title afterwards load asking for that language.
     func record(audio: TrackChoice, forTitle titleID: String)
+    /// Record a manual SUBTITLE pick against this title AND as the new library-wide default —
+    /// Hebrew subs on every title without re-picking is what that inherit is for.
     func record(subtitle: TrackChoice, forTitle titleID: String)
 
     /// The audio track that played well for one exact FILE, keyed by `WatchKey.source`.
@@ -81,8 +85,9 @@ public final class TrackPreferences: TrackPreferenceStoring {
     // MARK: - Per-title overrides
     //
     // Device-local, like the global preference above. Values use the same encoding, and a title
-    // with no entry inherits the global default — so choosing a language on one title still
-    // carries to everything not explicitly set.
+    // with no entry inherits the global default. For SUBTITLES a pick also moves that default, so
+    // choosing Hebrew on one title carries to everything not explicitly set. For AUDIO it does
+    // not — see `record(audio:forTitle:)`.
 
     public func resolvedAudio(forTitle titleID: String) -> TrackChoice {
         Self.decode(map(Self.titleAudioKey)[titleID]) ?? preferredAudio
@@ -92,8 +97,14 @@ public final class TrackPreferences: TrackPreferenceStoring {
         Self.decode(map(Self.titleSubtitleKey)[titleID]) ?? preferredSubtitle
     }
 
+    /// This title only. It used to move `preferredAudio` too ("the next unseen title inherits
+    /// this"), and the Apple TV's own preferences showed where that leads: Korean picked on one
+    /// film, Spanish on another, Chinese on a third — each the film's original language — and the
+    /// last of them left as the default for the whole library. Every English REMUX then loaded
+    /// asking for Korean, found none, and stayed on libvlc's first track: the lossless one this
+    /// hardware decodes worst. English-first is already the automatic default, so an inherited
+    /// audio language could only ever move the library AWAY from what plays.
     public func record(audio: TrackChoice, forTitle titleID: String) {
-        preferredAudio = audio                       // the next unseen title inherits this
         store(audio, forTitle: titleID, key: Self.titleAudioKey)
     }
 
@@ -153,8 +164,16 @@ public final class TrackPreferences: TrackPreferenceStoring {
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        preferredAudio = Self.read(defaults, key: Self.audioKey)
         preferredSubtitle = Self.read(defaults, key: Self.subtitleKey)
+        // A language in the AUDIO default is residue: nothing sets it any more, and nothing but the
+        // old pick-inherit ever did (no Settings screen writes it). Clear it here rather than leave
+        // a library opening every title in the last foreign film's language until the viewer works
+        // out which pick, weeks ago, did it. Observers do not fire in init, so the key is removed
+        // by hand.
+        if case .language = Self.read(defaults, key: Self.audioKey) {
+            defaults.removeObject(forKey: Self.audioKey)
+        }
+        preferredAudio = Self.read(defaults, key: Self.audioKey)
     }
 
     /// Encoding: "" = automatic, "off" = off, anything else = a language code. ("off" is not a real

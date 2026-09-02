@@ -842,7 +842,7 @@ import DebridCore
         let prefs = FakeTrackPreferences(audio: .language("he"))
         let model = makeModel(request: Fixture.request(), engine: engine, trackPreferences: prefs)
         model.start(); await model.waitForIdleForTesting()
-        #expect(engine.loadedAudioLanguage == "he,heb")   // both spellings — containers use either
+        #expect(engine.loadedAudioLanguage == "he,heb,en,eng")   // both spellings, then the English fallback
     }
 
     @Test func automaticMeansEnglishAtLoadTime() async {
@@ -851,6 +851,46 @@ import DebridCore
         let model = makeModel(request: Fixture.request(), engine: engine, trackPreferences: prefs)
         model.start(); await model.waitForIdleForTesting()
         #expect(engine.loadedAudioLanguage == "en,eng")
+    }
+
+    /// A preferred language the file does not carry must not hand the choice to libvlc's default —
+    /// the FIRST track, which on a REMUX is the lossless one. English rides along as the fallback in
+    /// the same option, so the engine opens something sensible at load time.
+    @Test func aLanguagePreferenceStillFallsBackToEnglishAtLoadTime() async {
+        let engine = FakeVideoPlayerEngine()
+        let prefs = FakeTrackPreferences(audio: .language("kor"))
+        let model = makeModel(request: Fixture.request(), engine: engine, trackPreferences: prefs)
+        model.start(); await model.waitForIdleForTesting()
+        #expect(engine.loadedAudioLanguage == "kor,en,eng")
+    }
+
+    @Test func anEnglishPreferenceIsNotSpelledTwice() async {
+        let engine = FakeVideoPlayerEngine()
+        let prefs = FakeTrackPreferences(audio: .language("en"))
+        let model = makeModel(request: Fixture.request(), engine: engine, trackPreferences: prefs)
+        model.start(); await model.waitForIdleForTesting()
+        #expect(engine.loadedAudioLanguage == "en,eng")
+    }
+
+    /// Measured on the Apple TV: with a Korean default left behind by a pick on one film, an English
+    /// REMUX loaded asking for Korean, libvlc opened its first track (DTS-HD MA), and the `.language`
+    /// branch found no Korean track and returned — so the codec escape never ran and the film played
+    /// on the one track this hardware decodes worst. A language with no match falls back to the
+    /// automatic choice.
+    @Test func aLanguagePreferenceWithNoSuchTrackStillEscapesTheLosslessTrack() async {
+        let engine = FakeVideoPlayerEngine()
+        let prefs = FakeTrackPreferences(audio: .language("kor"))
+        let model = makeModel(request: Fixture.request(), engine: engine, trackPreferences: prefs)
+        model.start(); await model.waitForIdleForTesting()
+        engine.audioTracks = [
+            MediaTrack(id: "audio/0", kind: .audio, name: "DTS-HD MA 5.1", language: "eng",
+                       codec: "dts ", channels: 6, isSelected: true),
+            MediaTrack(id: "audio/1", kind: .audio, name: "AC-3 5.1", language: "eng",
+                       codec: "a52 ", channels: 6),
+        ]
+        engine.emit(.tracksChanged); await model.waitForIdleForTesting()
+        #expect(engine.selectedAudioID == .some("audio/1"))
+        #expect(model.selectedAudioID == "audio/1")
     }
 
     /// No preference store wired (and `.off`) must not constrain the engine at all.
@@ -1318,6 +1358,31 @@ import DebridCore
         p.record(subtitle: .language("en"), forTitle: "movie:a")
         #expect(p.resolvedAudio(forTitle: "movie:a") == .language("ja"))
         #expect(p.resolvedSubtitle(forTitle: "movie:a") == .language("en"))
+    }
+
+    /// An audio pick is about THAT title — the original language of a foreign film — and must not
+    /// become what every unseen title opens with. Measured on the Apple TV: Korean picked on one film
+    /// had become the library-wide default, so every English REMUX loaded asking for Korean.
+    @Test func anAudioPickOnOneTitleDoesNotBecomeTheDefaultForOthers() {
+        let p = prefs()
+        p.record(audio: .language("kor"), forTitle: "movie:oldboy")
+        #expect(p.resolvedAudio(forTitle: "movie:oldboy") == .language("kor"))
+        #expect(p.resolvedAudio(forTitle: "movie:unseen") == .automatic)
+    }
+
+    /// Nothing but the old pick-inherit ever wrote a language into the audio default (no Settings
+    /// screen sets it), so a stored one is that defect's residue and is cleared on the way in.
+    /// Subtitles keep inheriting — Hebrew subs on every title without re-picking is the point there.
+    @Test func aLanguageAudioDefaultLeftBehindByTheOldInheritIsCleared() {
+        let suite = "seret.tests.pertitle.migrate"
+        let d = UserDefaults(suiteName: suite)!
+        for key in d.dictionaryRepresentation().keys { d.removeObject(forKey: key) }
+        d.set("kor", forKey: "seret.preferredAudioTrack")
+        d.set("he", forKey: "seret.preferredSubtitleTrack")
+        let p = TrackPreferences(defaults: d)
+        #expect(p.resolvedAudio(forTitle: "movie:unseen") == .automatic)
+        #expect(p.resolvedSubtitle(forTitle: "movie:unseen") == .language("he"))
+        #expect(d.string(forKey: "seret.preferredAudioTrack") == nil)
     }
 
     @Test func choicesSurviveARestart() {

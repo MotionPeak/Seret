@@ -57,10 +57,19 @@ extension PlayerModel {
 
     var preferredAudioLanguageOption: String? {
         switch trackPreferences?.resolvedAudio(forTitle: item.id) {
-        case .language(let lang): return Self.languageSpellings(lang)
+        case .language(let lang): return Self.loadTimeAudioLanguages(preferring: lang)
         case .automatic:          return Self.languageSpellings("en")
         case .off, nil:           return nil
         }
+    }
+
+    /// The preferred language first, English after it — libvlc reads the option as a priority
+    /// list. Without the fallback, a language the file does not carry hands the choice to libvlc's
+    /// default, which is the FIRST track: on a REMUX the lossless one this hardware decodes worst.
+    static func loadTimeAudioLanguages(preferring tag: String) -> String {
+        let preferred = languageSpellings(tag)
+        let english = languageSpellings("en")
+        return preferred == english ? preferred : "\(preferred),\(english)"
     }
 
     /// "en" → "en,eng". Falls back to the tag alone for anything not in the app's own set.
@@ -88,36 +97,42 @@ extension PlayerModel {
         let language: String?
         switch prefs.resolvedAudio(forTitle: item.id) {
         case .language(let lang):
-            // Ranked, not first-match: the preference stores a LANGUAGE, so on a release that
-            // carries both a lossless and a compatibility track in that language, first-match
-            // would keep re-picking the one that doesn't play.
-            desired = audioTracks.bestAudio(forLanguage: lang)
-            language = lang
-        case .automatic:
-            // Default: English audio when the release has it; otherwise leave VLCKit's default,
-            // which is the file's first/original-language track — so a foreign film or show plays
-            // in its original language instead of a wrong dub.
-            if let english = audioTracks.bestAudio(forLanguage: "en") {
-                desired = english
-                language = "en"
-            } else if let first = audioTracks.first, let original = first.language,
-                      let best = audioTracks.bestAudio(forLanguage: original), best.id != first.id {
-                // No English: stay in the original language, but take the version of it that
-                // actually decodes. Only when that DIFFERS from the file's first track, so a
-                // release whose default is already the best keeps the engine's own choice untouched
-                // even when the engine cannot tell us what it selected.
-                desired = best
-                language = original
+            if let match = audioTracks.bestAudio(forLanguage: lang) {
+                // Ranked, not first-match: the preference stores a LANGUAGE, so on a release that
+                // carries both a lossless and a compatibility track in that language, first-match
+                // would keep re-picking the one that doesn't play.
+                desired = match
+                language = lang
             } else {
-                desired = nil
-                language = nil
+                // The file has no track in the preferred language, so the preference has nothing to
+                // say about it — and returning here is not neutral. It left libvlc's default
+                // standing, and libvlc's default is the FIRST track: on a REMUX, the lossless one.
+                // Measured on the Apple TV with a Korean preference and an English DTS-HD REMUX: no
+                // Korean track, no override, DTS-HD MA decoded in software for the whole film.
+                (desired, language) = Self.automaticAudioChoice(among: audioTracks)
             }
+        case .automatic:
+            (desired, language) = Self.automaticAudioChoice(among: audioTracks)
         case .off:
             desired = nil   // "off" isn't meaningful for audio — keep the default track
             language = nil
         }
         guard let desired, shouldOverrideEngineChoice(with: desired, preferring: language) else { return }
         applyAudioSelection(desired)
+    }
+
+    /// The automatic pick: English audio when the release has it; otherwise stay in the file's
+    /// original language, but take the version of it that actually decodes — and only when that
+    /// DIFFERS from the file's first track, so a release whose default is already the best keeps
+    /// the engine's own choice untouched even when the engine cannot tell us what it selected.
+    /// A foreign film or show therefore plays in its original language, never a wrong dub.
+    static func automaticAudioChoice(among tracks: [MediaTrack]) -> (MediaTrack?, String?) {
+        if let english = tracks.bestAudio(forLanguage: "en") { return (english, "en") }
+        if let first = tracks.first, let original = first.language,
+           let best = tracks.bestAudio(forLanguage: original), best.id != first.id {
+            return (best, original)
+        }
+        return (nil, nil)
     }
 
     /// Whether moving to `desired` is worth what it costs.
