@@ -72,6 +72,15 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
     /// makes no promise about which thread delivers it.
     private let playbackRequested = OSAllocatedUnfairLock(initialState: false)
 
+    /// The diagnostics log this engine and its libvlc write to — `Library/Caches/vlc.log` — or nil
+    /// when nowhere writable exists. Read from libvlc's threads and the delegate as well as the main
+    /// actor; a `FileHandle` append is one `write(2)`, which is safe enough for a log.
+    private let diagnosticsHandle: FileHandle?
+    /// The last raw VLC state written to the log. libvlc reports `.buffering` once per percent of
+    /// a fill — fifty identical lines per start — so only a CHANGE of state is worth a marker; the
+    /// percentages are already in libvlc's own lines beside it.
+    private let lastLoggedState = OSAllocatedUnfairLock(initialState: Int(-1))
+
     /// `preferences` set the global subtitle look. Font + color are libvlc/freetype options that
     /// must be passed at player creation (`VLCMediaPlayer(options:)`); size is the dynamic
     /// `currentSubTitleFontScale`, applied per load. The engine is built fresh per playback, so a
@@ -80,7 +89,9 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
         var options = ["--freetype-color=\(preferences.color.rgb)"]
         if let font = preferences.font.freetypeName { options.append("--freetype-font=\(font)") }
         player = VLCMediaPlayer(options: options)
-        Self.attachVLCLogger(to: player)
+        let handle = Self.openDiagnosticsLog()
+        diagnosticsHandle = handle
+        Self.attachVLCLogger(to: player, file: handle)
         subtitleScale = Float(preferences.size.scale)
         var cont: AsyncStream<PlaybackEvent>.Continuation!
         events = AsyncStream(bufferingPolicy: .bufferingNewest(64)) { cont = $0 }
@@ -95,59 +106,46 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
         player.delegate = self
     }
 
-    /// Turn on libvlc's own logging when launched with `-vlcLog`. DEBUG-only and off by default.
+    /// Route libvlc's own log into the diagnostics file — always — and to the console under
+    /// `-vlcLog` (DEBUG).
     ///
     /// This exists because an audio fault is invisible from our side of the seam: `PlayerModel`
     /// only ever sees `.playing` and a moving playhead, so audio that cuts in and out looks
     /// identical to audio that is fine. libvlc knows exactly what it is doing — starving, dropping
-    /// to resample, restarting the output device, failing to decode a frame — and says so. Guessing
-    /// from the outside costs a rebuild-and-watch cycle per guess; this costs one.
+    /// to resample, restarting the output device, failing to decode a frame — and says so.
     ///
-    /// Mirrors the `-uiPreview` / `-inputHUD` harness pattern already used in this app.
-    /// Attach to THIS PLAYER's library, not `VLCLibrary.shared()`. `VLCMediaPlayer(options:)`
-    /// builds its own libvlc instance for those options, so loggers set on the shared library see
-    /// nothing but its own start-up banner — which is exactly what the first attempt captured.
-    private static func attachVLCLogger(to player: VLCMediaPlayer) {
+    /// It used to be entirely opt-in, which meant every report from the living room arrived with
+    /// no evidence: the fault had happened on a Tuesday night on a file nobody could name, and
+    /// reproducing it on demand — the only way to get a `-vlcLog` run — kept failing. So the file
+    /// is written on every play, at debug level (the lines that matter — `killing decoder`,
+    /// `Buffering 0%`, `ES track selected` — are debug lines), and rotated by `openDiagnosticsLog`
+    /// so it can never grow past two files. Steady-state playback is quiet, so a two-hour film
+    /// costs a few hundred kilobytes.
+    ///
+    /// Two gotchas, each of which cost a build:
+    /// - Attach to THIS PLAYER's library, not `VLCLibrary.shared()`. `VLCMediaPlayer(options:)`
+    ///   builds its own libvlc instance for those options, so loggers set on the shared library see
+    ///   nothing but its own start-up banner.
+    /// - The console logger does not reach os_log, so `log stream` captures nothing — but it DOES
+    ///   reach stdout, which both Xcode's console and `devicectl device process launch --console`
+    ///   show. The file is the answer for a run that was not started from a console.
+    private static func attachVLCLogger(to player: VLCMediaPlayer, file: FileHandle?) {
+        var loggers: [VLCLogging] = []
         #if DEBUG
-        guard ProcessInfo.processInfo.arguments.contains("-vlcLog") else { return }
-
-        // The CONSOLE logger goes on first, and unconditionally.
-        //
-        // It used to go on last, behind two `guard … else { return }`s that set up a file logger.
-        // On a real Apple TV the first of those always failed — tvOS gives an app no usable
-        // Documents directory — so `-vlcLog` silently attached NOTHING on the one device whose log
-        // anyone actually needed. The flag looked like it worked (the app ran, libvlc's own stderr
-        // still trickled out) while the debug-level stream that answers the decode question never
-        // existed. Diagnostics must not be able to fail quietly; the fallible half is now strictly
-        // additive.
-        //
-        // Its output does not reach os_log, so `log stream` captures nothing — but it DOES reach
-        // stdout, which both Xcode's console and
-        // `devicectl device process launch --console` show.
-        let consoleLogger = VLCConsoleLogger()
-        consoleLogger.level = .debug
-        var loggers: [VLCLogging] = [consoleLogger]
-
-        // A file as well, when somewhere writable exists — for a run that was not started from a
-        // console. Caches, not Documents: it is the location that actually exists on tvOS, and it
-        // still sits inside the app data container, so
-        // `devicectl device copy from --source Library/Caches/vlc.log` reaches it.
-        if let dir = try? FileManager.default.url(for: .cachesDirectory, in: .userDomainMask,
-                                                  appropriateFor: nil, create: true) {
-            let path = dir.appendingPathComponent("vlc.log")
-            if !FileManager.default.fileExists(atPath: path.path) {
-                FileManager.default.createFile(atPath: path.path, contents: nil)
-            }
-            if let handle = try? FileHandle(forWritingTo: path) {
-                handle.seekToEndOfFile()
-                let fileLogger = VLCFileLogger.create(with: handle)
-                fileLogger.level = .debug
-                loggers.append(fileLogger)
-            }
+        if ProcessInfo.processInfo.arguments.contains("-vlcLog") {
+            let consoleLogger = VLCConsoleLogger()
+            consoleLogger.level = .debug
+            loggers.append(consoleLogger)
         }
-        // Attach to THIS PLAYER's library, not `VLCLibrary.shared()` — see the note above `init`.
-        player.libraryInstance.loggers = loggers
         #endif
+        if let file {
+            let fileLogger = VLCFileLogger.create(with: file)
+            fileLogger.level = .debug
+            fileLogger.formatter = TimestampedLogFormatter()
+            loggers.append(fileLogger)
+        }
+        guard !loggers.isEmpty else { return }
+        player.libraryInstance.loggers = loggers
     }
 
     func load(url: URL, headers: [String: String], audioLanguage: String?, audioTrackID: String?) {
@@ -158,6 +156,8 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
             continuation.yield(.state(.failed("Could not open the media URL.")))
             return
         }
+        // The file name only — never the URL, which carries the unrestricted RD token.
+        note("load \(url.lastPathComponent) audio-language=\(audioLanguage ?? "-") audio-track-id=\(audioTrackID ?? "-")")
         for (k, v) in headers { media.addOption(":http-\(k.lowercased())=\(v)") } // unused for RD CDN
         // network-caching becomes libvlc's `pts_delay`: the depth filled before playback starts,
         // after every seek, AND after every clock reset.
@@ -234,8 +234,8 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
         #endif
     }
 
-    func play()  { playbackRequested.withLock { $0 = true };  player.play() }
-    func pause() { playbackRequested.withLock { $0 = false }; player.pause() }
+    func play()  { playbackRequested.withLock { $0 = true };  note("play");  player.play() }
+    func pause() { playbackRequested.withLock { $0 = false }; note("pause"); player.pause() }
 
     /// Seek, and — when paused — force the target frame onto the screen.
     ///
@@ -253,11 +253,12 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
         // point restored from a corrupt store, or a length VLCKit has not reported yet, must land
         // somewhere sane rather than kill the process.
         let ms = (seconds * 1000).isFinite ? min(max(seconds * 1000, 0), Double(Int32.max)) : 0
+        note("seek → \(Int(ms) / 1000)s (from \(player.time.intValue / 1000)s)")
         player.time = VLCTime(int: Int32(ms))
         guard !playbackRequested.withLock({ $0 }), player.state == .paused else { return }
         player.gotoNextFrame()
     }
-    func setRate(_ rate: Double) { player.rate = Float(rate) }
+    func setRate(_ rate: Double) { note("rate \(rate)"); player.rate = Float(rate) }
     /// VLCKit's audio volume is 0…200 (100 = unity, >100 amplifies — VLC's boost). Clamp defensively.
     func setVolume(_ percent: Int) { player.audio?.volume = Int32(min(200, max(0, percent))) }
     /// Tear the session down — and make sure THIS app drops the player last.
@@ -279,6 +280,7 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
     /// lock held. `withExtendedLifetime` (not `_ = held`) because the whole point is a side effect
     /// the optimiser is otherwise free to delete.
     func stop() {
+        note("stop at \(player.time.intValue / 1000)s")
         player.delegate = nil          // no further events into a torn-down stream
         player.stop()
         continuation.finish()
@@ -298,6 +300,7 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
             embeddedTextTrackIDs = Set(player.textTracks.map(\.trackId))
             embeddedSnapshotTaken = true
         }
+        note("add subtitle \(url.lastPathComponent)")
         player.addPlaybackSlave(url, type: .subtitle, enforce: true)
     }
 
@@ -334,11 +337,13 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
     }
 
     func selectAudioTrack(id: String?) {
+        note("select audio \(id ?? "none")")
         guard let id else { player.deselectAllAudioTracks(); return }
         player.audioTracks.first { $0.trackId == id }?.isSelectedExclusively = true
     }
 
     func selectSubtitleTrack(id: String?) {
+        note("select subtitle \(id ?? "off")")
         guard let id else { player.deselectAllTextTracks(); return }   // nil = subtitles off
         player.textTracks.first { $0.trackId == id }?.isSelectedExclusively = true
     }
@@ -392,6 +397,11 @@ extension VLCKitVideoPlayerEngine: VLCMediaPlayerDelegate {
         // face value it reads as "the viewer resumed" and tears down the paused UI underneath them,
         // so intent wins — the rule itself is pure and lives in DebridCore.
         let state = Self.map(newState).reconciled(playbackRequested: playbackRequested.withLock { $0 })
+        let repeated = lastLoggedState.withLock { last -> Bool in
+            defer { last = newState.rawValue }
+            return last == newState.rawValue
+        }
+        if !repeated { note("state \(Self.name(of: newState)) → \(state)") }
         continuation.yield(.state(state))
     }
 
@@ -412,5 +422,95 @@ extension VLCKitVideoPlayerEngine: VLCMediaPlayerDelegate {
     }
     nonisolated func mediaPlayerTrackUpdated(_ trackId: String, with trackType: VLCMedia.TrackType) {
         continuation.yield(.tracksChanged)
+    }
+}
+
+// MARK: - Diagnostics log
+
+extension VLCKitVideoPlayerEngine {
+    /// Where every play leaves its trace: `Library/Caches/vlc.log`, with the previous generation in
+    /// `vlc.previous.log`. Caches, not Documents — it is the location that actually exists on
+    /// tvOS, and it still sits inside the app data container, so
+    /// `xcrun devicectl device copy from --device <id> --domain-type appDataContainer
+    /// --domain-identifier com.solomons.seret.tv --source Library/Caches/vlc.log --destination …`
+    /// reaches it with no console attached and nothing to reproduce. tvOS may purge Caches under
+    /// pressure, which is acceptable for a diagnostic.
+    nonisolated static let diagnosticsFileName = "vlc.log"
+    nonisolated static let previousDiagnosticsFileName = "vlc.previous.log"
+    /// Rotate above this size. A two-hour film with a few seeks writes a few hundred kilobytes, so
+    /// two files hold the last several sessions; a pathological loop (an audio output failing
+    /// thirty times a second) still cannot grow past twice this.
+    nonisolated private static let diagnosticsRotateBytes: UInt64 = 4 << 20
+
+    /// Open the log for appending, rotating first when it has grown past the cap. nil when the
+    /// app has nowhere writable, in which case there is simply no file log.
+    nonisolated static func openDiagnosticsLog() -> FileHandle? {
+        let fm = FileManager.default
+        guard let dir = try? fm.url(for: .cachesDirectory, in: .userDomainMask,
+                                    appropriateFor: nil, create: true) else { return nil }
+        let url = dir.appendingPathComponent(diagnosticsFileName)
+        if let size = (try? fm.attributesOfItem(atPath: url.path))?[.size] as? UInt64,
+           size > diagnosticsRotateBytes {
+            let previous = dir.appendingPathComponent(previousDiagnosticsFileName)
+            try? fm.removeItem(at: previous)
+            try? fm.moveItem(at: url, to: previous)
+        }
+        if !fm.fileExists(atPath: url.path) { fm.createFile(atPath: url.path, contents: nil) }
+        guard let handle = try? FileHandle(forWritingTo: url) else { return nil }
+        handle.seekToEndOfFile()
+        return handle
+    }
+
+    /// One app-side line beside libvlc's own — what the engine was ASKED to do, so a `Buffering 0%`
+    /// can be read as "after that seek" rather than guessed at. `nonisolated` because the delegate
+    /// reports state changes from VLC's threads. `write(contentsOf:)` throws rather than raising,
+    /// so a full disk costs a dropped line, not the process.
+    nonisolated func note(_ line: String) {
+        guard let diagnosticsHandle else { return }
+        try? diagnosticsHandle.write(contentsOf: Data("\(Self.timestamp()) [seret] \(line)\n".utf8))
+    }
+
+    /// `DateFormatter` is documented thread-safe for formatting once configured; it is never
+    /// mutated after this.
+    nonisolated private static let stamp: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS"
+        return f
+    }()
+
+    nonisolated static func timestamp() -> String { stamp.string(from: Date()) }
+
+    nonisolated static func name(of state: VLCMediaPlayerState) -> String {
+        switch state {
+        case .opening: return "opening"
+        case .buffering: return "buffering"
+        case .playing: return "playing"
+        case .paused: return "paused"
+        case .stopping: return "stopping"
+        case .stopped: return "stopped"
+        case .error: return "error"
+        @unknown default: return "state(\(state.rawValue))"
+        }
+    }
+}
+
+/// libvlc's default file formatter carries no time at all, and the file has to make sense weeks
+/// later beside the engine's own markers. Same shape as the console lines, minus the process id.
+private final class TimestampedLogFormatter: NSObject, VLCLogMessageFormatting {
+    var contextFlags: VLCLogContextFlag = []
+    var customContext: Any?
+
+    func format(withMessage message: String, logLevel level: VLCLogLevel,
+                context: VLCLogContext?) -> String {
+        let tag: String
+        switch level {
+        case .error: tag = "ERR"
+        case .warning: tag = "WARN"
+        case .info: tag = "INFO"
+        default: tag = "DBG"
+        }
+        // No module name: libvlc reports "libvlc" for every line here, so it carried nothing.
+        return "\(VLCKitVideoPlayerEngine.timestamp()) [\(tag)] \(message)\n"
     }
 }
