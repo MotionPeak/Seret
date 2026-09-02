@@ -30,13 +30,17 @@ public final class AddStore {
     /// (packs come back alongside single episodes) but ranks only full-season releases. Adding one
     /// caches every episode at once — RD selects all the pack's files and the library expands it.
     private let seasonPack: Int?
+    /// How many ranked candidates "Get best" will try before giving up. ElfCache "cached" isn't
+    /// a guarantee a torrent is instant for THIS account, so the top pick sometimes isn't
+    /// instantly available — fall through to the next best instead of failing outright.
+    private let maxAddAttempts: Int
 
     public init(imdbID: String, kind: StreamQuery.Kind, originalLanguage: String?,
                 streamSource: StreamSource, add: AddProviding, seasonPack: Int? = nil,
-                title: String = "", year: Int? = nil) {
+                title: String = "", year: Int? = nil, maxAddAttempts: Int = 6) {
         self.imdbID = imdbID; self.kind = kind; self.originalLanguage = originalLanguage
         self.streamSource = streamSource; self.addService = add; self.seasonPack = seasonPack
-        self.title = title; self.year = year
+        self.title = title; self.year = year; self.maxAddAttempts = maxAddAttempts
     }
 
     public func loadStreams() async {
@@ -59,23 +63,30 @@ public final class AddStore {
         }
     }
 
-    /// How many ranked candidates "Get best" will try before giving up. ElfCache "cached" isn't
-    /// a guarantee a torrent is instant for THIS account, so the top pick sometimes isn't
-    /// instantly available — fall through to the next best instead of failing outright.
-    private static let maxAddAttempts = 6
-
     /// Adds the best available version, automatically falling back to the next-ranked one if a
     /// pick turns out not to be instantly available (each failed attempt self-cleans in RD).
+    ///
+    /// A version Real-Debrid refuses as copyright-flagged (HTTP 451) does not spend an attempt:
+    /// that is one request that creates nothing, and the blocklist says nothing about the next
+    /// candidate, which is a different torrent. Refusals are bounded separately so a title whose
+    /// whole top of the list is flagged still cannot turn into a request storm.
     public func addBest() async {
         guard !ranked.isEmpty else { return }
         state = .adding
-        for stream in ranked.prefix(Self.maxAddAttempts) {
+        var attempts = 0
+        var probes = 0
+        for stream in ranked {
+            guard attempts < maxAddAttempts, probes < maxAddAttempts * 2 else { break }
             do {
                 let info = try await addService.add(infoHash: stream.infoHash)
                 best = stream            // the version that actually landed
                 state = .added(info)
                 return
+            } catch RDAddError.blocked {
+                probes += 1
+                continue
             } catch {
+                attempts += 1
                 continue                 // not instant for this account → try the next
             }
         }

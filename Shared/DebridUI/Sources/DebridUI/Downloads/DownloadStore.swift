@@ -45,6 +45,13 @@ public final class DownloadStore {
     private let maxAttempts: Int
     private let pollInterval: Duration
     private var pollTask: Task<Void, Never>?
+    /// Info-hashes Real-Debrid has refused as copyright-flagged (HTTP 451) this session.
+    ///
+    /// A 451 is a fact about the HASH, not about the moment, so nothing is learned by asking again.
+    /// "Try Another Version" re-runs the same ranked list, and it used to spend its first request
+    /// re-confirming the refusal it had just reported — which is why a retry looked like it "got
+    /// blocked again" while the version behind it would have started.
+    private var blockedHashes: Set<String> = []
 
     /// Extra delay added to the poll interval after a failure. RD rate-limits, and this loop now
     /// issues a recurring GET /torrents — without backoff a failing account becomes a request
@@ -119,8 +126,21 @@ public final class DownloadStore {
         statuses[contentKey] = DownloadStatus(torrentID: "", contentKey: contentKey, tmdbID: tmdbID,
                                               phase: .queued, fraction: 0,
                                               title: title, posterPath: posterPath)
-        var sawBlocked = false
-        for candidate in candidates.prefix(maxAttempts) {
+        // Two budgets, because the two failures cost different things. A real attempt adds a
+        // torrent to the account (and may leave one behind), so those stay capped at `maxAttempts`.
+        // A 451 is one request that creates nothing and says nothing about the NEXT candidate — a
+        // different torrent, which RD's blocklist has its own opinion about — so it is not a turn.
+        // It is still a request, so refusals are bounded too, more loosely.
+        var attempts = 0
+        var probes = 0
+        var blocked = 0
+        var failed = 0
+        for candidate in candidates {
+            guard attempts < maxAttempts, probes < maxAttempts * 2 else { break }
+            if blockedHashes.contains(candidate.infoHash) {
+                blocked += 1           // already refused this session — skip without asking again
+                continue
+            }
             do {
                 let info = try await service.startDownload(infoHash: candidate.infoHash)
                 try? await records.upsert(DownloadRequestData(
@@ -133,15 +153,36 @@ public final class DownloadStore {
                 startPolling()
                 return
             } catch RDAddError.blocked {
-                sawBlocked = true   // RD refused it as copyright-flagged — other versions likely too
+                blockedHashes.insert(candidate.infoHash)
+                blocked += 1
+                probes += 1
                 continue
             } catch {
+                attempts += 1
+                failed += 1
                 continue            // dead/virus/magnet_error → try the next-best
             }
         }
-        statuses[contentKey] = .failed(contentKey, tmdbID, sawBlocked
-            ? "Real‑Debrid blocked this title — its torrents are flagged for copyright, so none can be added."
-            : "Couldn't start a download. Try another version later.")
+        statuses[contentKey] = .failed(contentKey, tmdbID,
+                                       Self.failureMessage(blocked: blocked, failed: failed))
+    }
+
+    /// What to tell the viewer when nothing started.
+    ///
+    /// Only a title whose EVERY tried version was refused is "blocked". One refusal among ordinary
+    /// failures used to condemn the whole title ("none can be added") — and then the next retry
+    /// started a download, which read as Real-Debrid changing its mind about copyright. It had
+    /// not; the other versions had simply failed for reasons of the moment.
+    static func failureMessage(blocked: Int, failed: Int) -> String {
+        switch (blocked, failed) {
+        case (0, _):
+            return "Couldn't start a download. Try another version later."
+        case (_, 0):
+            return "Real‑Debrid refuses every version of this title it was offered — they're flagged for copyright."
+        default:
+            let refused = blocked == 1 ? "1 version is" : "\(blocked) versions are"
+            return "\(refused) flagged for copyright on Real‑Debrid, and the rest couldn't start. Try another version later."
+        }
     }
 
     /// One poll pass: refresh progress for every active download. A `.ready` title flips into the

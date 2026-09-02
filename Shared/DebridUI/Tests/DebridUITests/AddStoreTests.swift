@@ -20,6 +20,19 @@ private final class FakeAdd: AddProviding, @unchecked Sendable {
     func add(infoHash: String) async throws -> TorrentInfo { try (perHash[infoHash] ?? result).get() }
 }
 
+/// Per-hash outcomes that can throw any error (the RD refusal is not a `FakeError`), with a log of
+/// what was asked — the fallback ORDER is what the budget tests are about.
+private final class ScriptedAdd: AddProviding, @unchecked Sendable {
+    private let outcomes: [String: Result<TorrentInfo, Error>]
+    private(set) var calls: [String] = []
+    init(_ outcomes: [String: Result<TorrentInfo, Error>]) { self.outcomes = outcomes }
+    func add(infoHash: String) async throws -> TorrentInfo {
+        calls.append(infoHash)
+        guard let outcome = outcomes[infoHash] else { throw FakeError.boom }
+        return try outcome.get()
+    }
+}
+
 private func cachedStream(_ hash: String, res: String, langs: [String], size: Int) -> CachedStream {
     CachedStream(infoHash: hash, fileIdx: nil, rawTitle: "t",
                  parsed: ParsedRelease(title: "t", resolution: res),
@@ -91,6 +104,25 @@ private func cachedStream(_ hash: String, res: String, langs: [String], size: In
         await s.addBest()
         if case let .added(info) = s.state { #expect(info.id == "T") } else { Issue.record("expected added") }
         #expect(s.best?.infoHash == "a")   // updated to the version that actually landed
+    }
+
+    @Test func addBestDoesNotSpendAnAttemptOnABlockedVersion() async {
+        // The two best-ranked versions are on RD's blocklist; the instant one is ranked last (a
+        // lower resolution). A refusal is one request that creates nothing, so with a budget of TWO
+        // real attempts — which the old `prefix(2)` would have spent entirely on the refusals — the
+        // version behind them must still be reached.
+        let streams = [cachedStream("x", res: "1080p", langs: ["fr"], size: 50),
+                       cachedStream("y", res: "1080p", langs: ["fr"], size: 60),
+                       cachedStream("z", res: "720p", langs: ["fr"], size: 30)]
+        let add = ScriptedAdd(["x": .failure(RDAddError.blocked), "y": .failure(RDAddError.blocked),
+                               "z": .success(tv())])
+        let s = AddStore(imdbID: "tt1", kind: .movie, originalLanguage: "fr",
+                         streamSource: FakeStreamSource(.success(streams)), add: add, maxAddAttempts: 2)
+        await s.loadStreams()
+        await s.addBest()
+        #expect(add.calls.count == 3)
+        #expect(add.calls.last == "z")
+        if case .added = s.state {} else { Issue.record("expected added, got \(s.state)") }
     }
 
     @Test func addFailureSurfacesAddFailed() async {

@@ -30,6 +30,21 @@ private final class FakeReq: DownloadRequesting, @unchecked Sendable {
     }
 }
 
+/// Per-hash outcomes consumed in order (the last one repeats), plus a log of what was asked — the
+/// fallback ORDER is the behaviour under test, not just the final state.
+private final class ScriptedReq: DownloadRequesting, @unchecked Sendable {
+    private var outcomes: [String: [Result<TorrentInfo, Error>]]
+    private(set) var calls: [String] = []
+    init(_ outcomes: [String: [Result<TorrentInfo, Error>]]) { self.outcomes = outcomes }
+    func startDownload(infoHash: String) async throws -> TorrentInfo {
+        calls.append(infoHash)
+        guard var queue = outcomes[infoHash], !queue.isEmpty else { throw FakeError.boom }
+        let next = queue.removeFirst()
+        outcomes[infoHash] = queue.isEmpty ? [next] : queue
+        return try next.get()
+    }
+}
+
 private final class FakeRecords: DownloadRecording, @unchecked Sendable {
     private(set) var upserts: [DownloadRequestData] = []
     private(set) var deleted: [String] = []
@@ -57,13 +72,14 @@ private final class FakePoller: DownloadPolling, @unchecked Sendable {
 
 @MainActor
 @Suite struct DownloadStoreTests {
-    private func make(req: FakeReq = FakeReq(.success(tv("queued"))),
+    private func make(req: any DownloadRequesting = FakeReq(.success(tv("queued"))),
                       records: FakeRecords = FakeRecords(),
                       poller: FakePoller = FakePoller([]),
                       deleter: FakeDeleter = FakeDeleter(),
-                      onReady: @escaping (DownloadStatus) -> Void = { _ in }) -> DownloadStore {
+                      onReady: @escaping (DownloadStatus) -> Void = { _ in },
+                      maxAttempts: Int = 6) -> DownloadStore {
         DownloadStore(service: req, records: records, poller: poller, deleter: deleter,
-                      onReady: { onReady($0) })
+                      onReady: { onReady($0) }, maxAttempts: maxAttempts)
     }
 
     @Test func cancelDeletesTorrentClearsRecordAndBadge() async {
@@ -117,6 +133,66 @@ private final class FakePoller: DownloadPolling, @unchecked Sendable {
         let s = make(req: FakeReq(.failure(.boom)))
         await s.request(contentKey: DownloadKey.movie(tmdbID: 2), tmdbID: 2, title: "X", kind: .movie, candidates: [stream("h1"), stream("h2")])
         if case .failed = s.status(forContentKey: DownloadKey.movie(tmdbID: 2))?.phase {} else { Issue.record("expected failed") }
+    }
+
+    // MARK: - Copyright-blocked candidates
+
+    private func failureMessage(_ s: DownloadStore, _ key: String) -> String? {
+        if case .failed(let msg)? = s.status(forContentKey: key)?.phase { return msg }
+        Issue.record("expected a failed status for \(key)")
+        return nil
+    }
+
+    @Test func blockedCandidatesDoNotSpendAnAttempt() async {
+        // Two refused as copyright-flagged, one dead, then a good one. With a budget of two REAL
+        // attempts the good one must still be reached: a 451 is one request that creates nothing,
+        // so it is not a turn.
+        let req = ScriptedReq(["h1": [.failure(RDAddError.blocked)], "h2": [.failure(RDAddError.blocked)],
+                               "h3": [.failure(FakeError.boom)], "h4": [.success(tv("queued", id: "T4"))]])
+        let s = make(req: req, maxAttempts: 2)
+        let key = DownloadKey.movie(tmdbID: 3)
+        await s.request(contentKey: key, tmdbID: 3, title: "X", kind: .movie,
+                        candidates: [stream("h1"), stream("h2"), stream("h3"), stream("h4")])
+        #expect(req.calls == ["h1", "h2", "h3", "h4"])
+        #expect(s.status(forContentKey: key)?.torrentID == "T4")
+    }
+
+    @Test func aBlockedVersionAmongFailuresDoesNotCondemnTheTitle() async {
+        // One version is on RD's blocklist and the other simply failed to start. That is not
+        // "none can be added" — the message must say which part is blocked and leave the rest open.
+        let req = ScriptedReq(["h1": [.failure(RDAddError.blocked)], "h2": [.failure(FakeError.boom)]])
+        let s = make(req: req)
+        let key = DownloadKey.movie(tmdbID: 4)
+        await s.request(contentKey: key, tmdbID: 4, title: "X", kind: .movie, candidates: [stream("h1"), stream("h2")])
+        guard let msg = failureMessage(s, key) else { return }
+        #expect(msg.contains("1 version"))
+        #expect(!msg.lowercased().contains("every version"))
+        #expect(!msg.lowercased().contains("none can be added"))
+    }
+
+    @Test func everyVersionBlockedSaysSo() async {
+        let req = ScriptedReq(["h1": [.failure(RDAddError.blocked)], "h2": [.failure(RDAddError.blocked)]])
+        let s = make(req: req)
+        let key = DownloadKey.movie(tmdbID: 5)
+        await s.request(contentKey: key, tmdbID: 5, title: "X", kind: .movie, candidates: [stream("h1"), stream("h2")])
+        guard let msg = failureMessage(s, key) else { return }
+        #expect(msg.lowercased().contains("every version"))
+        #expect(msg.lowercased().contains("copyright"))
+    }
+
+    @Test func retryNeverAsksRealDebridAboutAKnownBlockedVersionAgain() async {
+        // A 451 is a fact about the hash, not about the moment. "Try Another Version" re-runs the
+        // same ranked list, so the retry must move straight past the refused one rather than spend
+        // its first request re-confirming the refusal — and it must not be lured by a fake that
+        // would now let it through.
+        let req = ScriptedReq(["h1": [.failure(RDAddError.blocked), .success(tv("queued", id: "T1"))],
+                               "h2": [.failure(FakeError.boom), .success(tv("queued", id: "T2"))]])
+        let s = make(req: req)
+        let key = DownloadKey.movie(tmdbID: 6)
+        await s.request(contentKey: key, tmdbID: 6, title: "X", kind: .movie, candidates: [stream("h1"), stream("h2")])
+        await s.request(contentKey: key, tmdbID: 6, title: "X", kind: .movie, candidates: [stream("h1"), stream("h2")])
+        #expect(req.calls == ["h1", "h2", "h2"])
+        #expect(s.status(forContentKey: key)?.torrentID == "T2")
     }
 
     @Test func refreshUpdatesProgress() async {
