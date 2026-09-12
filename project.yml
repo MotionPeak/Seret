@@ -49,6 +49,7 @@ targets:
       base:
         PRODUCT_NAME: Seret
         PRODUCT_BUNDLE_IDENTIFIER: com.solomons.seret.tv
+        SWIFT_OBJC_BRIDGING_HEADER: Shared/SeretPlayer/SeretVLCBridge.h
         CODE_SIGN_STYLE: Automatic
         CODE_SIGN_ENTITLEMENTS: Apps/SeretTV/SeretTV.entitlements
         DEVELOPMENT_TEAM: ML9HDN3QZS
@@ -119,6 +120,7 @@ targets:
       base:
         PRODUCT_NAME: Seret
         PRODUCT_BUNDLE_IDENTIFIER: com.solomons.seret.mobile
+        SWIFT_OBJC_BRIDGING_HEADER: Shared/SeretPlayer/SeretVLCBridge.h
         CODE_SIGN_STYLE: Automatic
         CODE_SIGN_ENTITLEMENTS: Apps/SeretMobile/SeretMobile.entitlements
         DEVELOPMENT_TEAM: ML9HDN3QZS

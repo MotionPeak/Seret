@@ -61,6 +61,6 @@ final class PlayerSession: ObservableObject {
     init(request: PlaybackRequest, app: AppSession) {
         let engine = VLCKitVideoPlayerEngine(preferences: app.subtitleSettings.preferences)
         self.engine = engine
-        self.model = app.makePlayer(for: request, engine: engine)
+        self.model = app.makePlayer(for: request, engine: engine, audioProbe: AudioActivityProbe())
     }
 }

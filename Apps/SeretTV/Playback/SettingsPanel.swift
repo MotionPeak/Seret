@@ -111,6 +111,9 @@ private struct PlaybackColumns: View {
             // The last resort when a subtitle still does not line up — and the ONLY one available
             // for a muxed track, which cannot be rewritten the way a downloaded file is.
             groupCaption(timingCaption)
+            // The automatic answer, offered first because it is the one that needs no judgement.
+            // Only for a subtitle we downloaded: a muxed track is timed against this exact file by
+            // construction, and we hold no cue list for it to correlate.
             CheckRow(title: "Show earlier  −0.5s", checked: false) {
                 model.adjustSubtitleDelay(by: -0.5)
             }
@@ -143,6 +146,18 @@ private struct PlaybackColumns: View {
         }
         if model.subtitleDelay != 0 { parts.append(String(format: "%+.1fs", model.subtitleDelay)) }
         return parts.joined(separator: " · ")
+    }
+
+    /// UNUSED while auto-sync is not offered — see `PlayerModel+AutoSync`.
+    /// What the auto-sync row says, which is also its only progress indicator — it listens to a
+    /// few minutes of the film, so it is not instant and must not look stuck.
+    private var autoSyncTitle: String {
+        switch model.autoSyncState {
+        case .idle:      "Sync automatically"
+        case .measuring: "Listening to the film…"
+        case .synced:    "Synced automatically"
+        case .failed:    "Couldn't match the audio — nudge it by hand"
+        }
     }
 
     /// Names the language and, when it matters, says why the row is not actionable.

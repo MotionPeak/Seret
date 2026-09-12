@@ -114,11 +114,61 @@ final class FakeSubtitleProvider: SubtitleProvider, @unchecked Sendable {
     }
     private(set) var downloadedResults: [SubtitleResult] = []
 
+    /// Real SRT text to write at `downloadedURL`, for tests that read the file back (auto-sync
+    /// correlates against the cue times, so an empty placeholder file proves nothing).
+    var downloadedText: String?
+
     func download(_ result: SubtitleResult) async throws -> URL {
         downloadedResults.append(result)
         if let downloadError { throw downloadError }
+        if let downloadedText {
+            let url = FileManager.default.temporaryDirectory
+                .appending(path: "fake-sub-\(result.fileID).srt")
+            try? Data(downloadedText.utf8).write(to: url)
+            return url
+        }
         return downloadedURL
     }
+}
+
+// MARK: - FakeAudioProbe
+
+@MainActor
+final class FakeAudioProbe: AudioLoudnessProbing {
+    /// Builds the signal for whatever window it is ASKED for. A fake that returned a fixed array
+    /// regardless would describe a different part of the film than the cues it is matched against,
+    /// and "measured a 420s offset" would be the fixture talking, not the code.
+    private let generate: (_ from: Double, _ seconds: Double) -> [Float]
+    private(set) var requests: [(url: URL, from: Double, seconds: Double)] = []
+    private(set) var cancelled = false
+
+    init(generate: @escaping (_ from: Double, _ seconds: Double) -> [Float]) {
+        self.generate = generate
+    }
+    /// A probe that decodes nothing — a dead link, a container the decoder will not open.
+    static var silent: FakeAudioProbe { FakeAudioProbe { _, _ in [] } }
+
+    /// Dialogue at these absolute times in the media, each `length` long.
+    static func speaking(at times: [Double], length: Double = 3) -> FakeAudioProbe {
+        FakeAudioProbe { from, seconds in
+            let frames = Int(seconds / 0.1)
+            var v = [Float](repeating: 0.01, count: frames)      // a quiet bed
+            for t in times {
+                let first = Int((t - from) / 0.1)
+                guard first < frames, first + Int(length / 0.1) > 0 else { continue }
+                for f in max(0, first)..<min(first + Int(length / 0.1), frames) { v[f] = 0.6 }
+            }
+            return v
+        }
+    }
+
+    func loudness(url: URL, from startSeconds: Double, seconds: Double) async -> LoudnessWindow? {
+        requests.append((url, startSeconds, seconds))
+        let frames = generate(startSeconds, seconds)
+        guard !frames.isEmpty else { return nil }
+        return LoudnessWindow(frames: frames, startSeconds: startSeconds)
+    }
+    func cancel() { cancelled = true }
 }
 
 // MARK: - Fixture helpers

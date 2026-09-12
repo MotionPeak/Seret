@@ -69,6 +69,8 @@ struct PlayerSettingsSheet: View {
                     // file is on the way in.
                     section(timingTitle, "timer") {
                         FlowLayout {
+                            // The automatic answer first. Only for a subtitle we downloaded — a
+                            // muxed track is timed against this file by construction.
                             chip("−0.5s", selected: false) { model.adjustSubtitleDelay(by: -0.5) }
                             chip("+0.5s", selected: false) { model.adjustSubtitleDelay(by: 0.5) }
                             chip("Reset", selected: false) { model.resetSubtitleDelay() }
@@ -148,6 +150,18 @@ struct PlayerSettingsSheet: View {
             .overlay(Capsule().stroke(Theme.Palette.hairline, lineWidth: selected ? 0 : 1))
         }
         .buttonStyle(.plain)
+    }
+
+    /// UNUSED while auto-sync is not offered — see `PlayerModel+AutoSync`.
+    /// What the auto-sync chip says, which is also its only progress indicator — it listens to a
+    /// few minutes of the film, so it is not instant and must not look stuck.
+    private var autoSyncTitle: String {
+        switch model.autoSyncState {
+        case .idle:      "Sync automatically"
+        case .measuring: "Listening…"
+        case .synced:    "Synced"
+        case .failed:    "Couldn't match audio"
+        }
     }
 
     /// One-tap Hebrew/English download. Dashed border marks it as an action rather than a track.

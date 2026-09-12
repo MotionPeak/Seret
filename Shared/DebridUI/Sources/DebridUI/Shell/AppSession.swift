@@ -557,8 +557,12 @@ public final class AppSession {
     /// Build a fully-wired player for a playback request, or nil if not signed in. The platform
     /// engine + thumbnail source are injected by the app target (VLCKit is per-platform), so this
     /// shared factory owns only the brain wiring (unrestrict / progress / subtitles).
+    /// - Parameter audioProbe: measures the film's audio so a downloaded subtitle can be lined up
+    ///   against it. Supplied by the app because only the app has libvlc; nil simply means the
+    ///   auto-sync action is not offered.
     public func makePlayer(for request: PlaybackRequest,
-                           engine: VideoPlayerEngine) -> PlayerModel? {
+                           engine: VideoPlayerEngine,
+                           audioProbe: AudioLoudnessProbing? = nil) -> PlayerModel? {
         guard let torrents else { return nil }
         let watch = watchStore
         // Captured once: a player outlives a profile switch, and its progress must keep landing
@@ -626,7 +630,8 @@ public final class AppSession {
             // Declares our transport to the system: the iPhone Remote app's ±10s buttons and
             // scrubber, Control Center, Siri and HDMI-CEC TV remotes. Unavailable on macOS, where
             // this package only builds to run `swift test`.
-            nowPlaying: Self.makeNowPlayingCenter())
+            nowPlaying: Self.makeNowPlayingCenter(),
+            audioProbe: audioProbe)
     }
 
     /// The system Now Playing surface, when the platform has MediaPlayer + UIKit (iOS/tvOS).

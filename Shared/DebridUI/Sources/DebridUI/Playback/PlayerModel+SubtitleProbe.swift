@@ -97,6 +97,15 @@ extension PlayerModel {
             // …and only THEN travel to a cue, so the screenshot that answers "does it render?"
             // is taken with the chosen track already on the output. Seeking first and attaching
             // afterwards leaves the two racing, and a blank frame then proves nothing.
+            // `-autoSync` then measures the audio and dials in the offset, which is the only way
+            // to exercise the probe end to end: it needs a real stream, and the result lands in
+            // `vlc.log` beside libvlc's own lines.
+            if ProcessInfo.processInfo.arguments.contains("-autoSync") {
+                self.subtitleProbe("PROBE running auto-sync")
+                await self.autoSyncSubtitle()
+                self.subtitleProbe("PROBE auto-sync → \(self.autoSyncState) "
+                    + String(format: "delay %+.2fs", self.subtitleDelay))
+            }
             if let target = Self.autoSubtitleSeek {
                 self.subtitleProbe("PROBE seeking to \(Int(target))s for a cue")
                 self.engine.seek(to: target)

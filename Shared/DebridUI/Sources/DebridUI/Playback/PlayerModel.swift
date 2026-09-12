@@ -276,6 +276,17 @@ public final class PlayerModel {
     /// An `.off` preference has been pushed to the engine for this source at least once.
     var subtitleOffAsserted = false
     var subtitleFallbackTask: Task<Void, Never>?
+    /// Measures the film's audio so a downloaded subtitle can be lined up against it. Optional —
+    /// nil simply means the auto-sync action is not offered.
+    let audioProbe: AudioLoudnessProbing?
+    /// How much of the film to listen to, and how far out a subtitle may be. Injectable because a
+    /// realistic window is a few thousand frames searched over a few thousand shifts, and eight
+    /// tests of that starve every timing-sensitive suite sharing the machine.
+    let autoSyncWindow: Double
+    let autoSyncMaxLag: Double
+    /// Where an auto-sync measurement has got to. Drives the row's label and spinner.
+    public internal(set) var autoSyncState: AutoSyncState = .idle
+
     /// How long to let VLCKit finish discovering subtitle tracks before falling back to a download.
     /// There is no "discovery finished" event, so this is the only thing separating "this file has
     /// no subtitles" from "they haven't been parsed yet". Injectable so tests don't sleep.
@@ -477,8 +488,14 @@ public final class PlayerModel {
          scanInterval: Double = 0.5,
          scanSeekInterval: Double = 1.5,
          scanMaxDuration: Double = 15,
-         subtitleFallbackDelay: Double = 2) {
+         subtitleFallbackDelay: Double = 2,
+         audioProbe: AudioLoudnessProbing? = nil,
+         autoSyncWindow: Double = 300,
+         autoSyncMaxLag: Double = 120) {
         self.subtitleFallbackDelay = subtitleFallbackDelay
+        self.audioProbe = audioProbe
+        self.autoSyncWindow = autoSyncWindow
+        self.autoSyncMaxLag = autoSyncMaxLag
         self.autoHideDelay = autoHideDelay
         self.loadTimeout = loadTimeout
         self.seekCoalesceWindow = seekCoalesceWindow
@@ -731,6 +748,10 @@ public final class PlayerModel {
     }
 
     /// Test seam: perform a full scrub cycle to `seconds` in one call.
+    /// Test seam: the window auto-sync listens to is chosen from the media's length, which only a
+    /// real engine reports.
+    func setDurationForTesting(_ seconds: Double) { duration = seconds }
+
     func commitScrubForTesting(to seconds: Double) {
         beginScrub()
         updateScrub(by: seconds - scrubTarget)
