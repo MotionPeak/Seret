@@ -53,6 +53,73 @@ extension PlayerModel {
         tracksChangedWindowStart = now
     }
 
+    // MARK: - Driving a pick without a remote
+
+    /// `-autoSubtitle <lang>` — pick that language a few seconds into playback, exactly as the
+    /// viewer does, and then report what the engine is left holding.
+    ///
+    /// Walking the focus engine to the settings panel costs minutes per attempt and lands on the
+    /// wrong row half the time; the report is about what the app DOES with the pick, not about
+    /// how the row was reached. `-autoSubtitleBrowser` takes the search-browser route instead of
+    /// the one-tap pill, because those are two different code paths and only one of them declares
+    /// the pick a viewer decision.
+    ///
+    ///     xcrun simctl launch <udid> com.solomons.seret.tv \
+    ///         -autoPlay -subtitleProbe -autoSubtitle he
+    static var autoSubtitleLanguage: String? {
+        let args = ProcessInfo.processInfo.arguments
+        guard let i = args.firstIndex(of: "-autoSubtitle"), i + 1 < args.count else { return nil }
+        return args[i + 1]
+    }
+
+    static var autoSubtitleUsesBrowser: Bool {
+        ProcessInfo.processInfo.arguments.contains("-autoSubtitleBrowser")
+    }
+
+    /// Fire once, after the stream has settled — a pick made while tracks are still being parsed
+    /// measures the discovery race rather than the pick.
+    func startSubtitleProbeIfRequested() {
+        guard !subtitleProbeStarted, let language = Self.autoSubtitleLanguage else { return }
+        subtitleProbeStarted = true
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(6))
+            guard let self else { return }
+            let route = Self.autoSubtitleUsesBrowser ? "browser" : "pill"
+            self.subtitleProbe("PROBE picking \(language) via the \(route)")
+            if Self.autoSubtitleUsesBrowser {
+                await self.searchSubtitles(language: language)
+                self.subtitleProbe("PROBE search → \(self.subtitleSearchResults.count) results")
+                guard let best = self.subtitleSearchResults.first else { return }
+                await self.useSubtitle(best)
+            } else {
+                await self.requestSubtitle(language: language)
+            }
+            // …and only THEN travel to a cue, so the screenshot that answers "does it render?"
+            // is taken with the chosen track already on the output. Seeking first and attaching
+            // afterwards leaves the two racing, and a blank frame then proves nothing.
+            if let target = Self.autoSubtitleSeek {
+                self.subtitleProbe("PROBE seeking to \(Int(target))s for a cue")
+                self.engine.seek(to: target)
+            }
+            for _ in 0..<12 {
+                try? await Task.sleep(for: .seconds(2))
+                self.subtitleProbe("PROBE selected=\(self.selectedSubtitleID ?? "nil") "
+                    + "picked=\(self.subtitlePickedByUser) rows=\(self.probeRows)")
+            }
+        }
+    }
+
+    /// `-autoSubtitleSeek <seconds>` — where to travel once the pick has landed.
+    static var autoSubtitleSeek: Double? {
+        let args = ProcessInfo.processInfo.arguments
+        guard let i = args.firstIndex(of: "-autoSubtitleSeek"), i + 1 < args.count else { return nil }
+        return Double(args[i + 1])
+    }
+
+    private var probeRows: String {
+        subtitleRows.map { "\($0.language):\($0.state)" }.joined(separator: ",")
+    }
+
     /// The subtitle track set as the engine currently reports it — the thing whose churn would
     /// drive a re-selection. Logged only when it CHANGES, so a burst stands out.
     func probeTrackSetIfChanged() {

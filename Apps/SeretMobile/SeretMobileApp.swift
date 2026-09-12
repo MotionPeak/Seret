@@ -15,7 +15,11 @@ struct SeretMobileApp: App {
                 Color.clear
             } else if let preview = Self.uiPreview {
                 #if DEBUG
-                MagnetUIPreview(target: preview)   // -uiPreview <magnetidle|magnetready|…>
+                if preview.hasPrefix("magnet") {
+                    MagnetUIPreview(target: preview)   // -uiPreview <magnetidle|magnetready|…>
+                } else {
+                    PlayerUIPreview(target: preview)   // -uiPreview <playbacksheet|subtitlebrowser>
+                }
                 #else
                 RootView().environment(session)
                 #endif

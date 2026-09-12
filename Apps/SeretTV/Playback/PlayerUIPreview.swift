@@ -526,17 +526,24 @@ final class SubtitlePreviewDriver {
         await model.searchSubtitles(language: "he")
     }
 
-    /// Play, then surface a mix of embedded and downloaded tracks so the panel shows both groups.
+    /// Play, then ask for Hebrew exactly as the viewer does, so the panel shows both groups AND
+    /// the whole download → attach → select path that the picker's state depends on.
+    ///
+    /// The embedded Hebrew is a `bdpg` bitmap on purpose: that is the shape of the release the
+    /// report came from, and it is the track the language preference used to take the selection
+    /// back to the instant the download landed.
     func primeWithTracks() async {
         model.start()
         try? await Task.sleep(for: .milliseconds(50))
         engine.emit(.time(.init(position: 2480, duration: 7784)))
         engine.subtitleTracks = [
-            MediaTrack(id: "spu/0", kind: .subtitle, name: "English SDH", language: "en"),
-            MediaTrack(id: "spu/1", kind: .subtitle, name: "Français", language: "fr"),
-            MediaTrack(id: "ext/1", kind: .subtitle, name: "Hebrew", language: "he", isExternal: true),
+            MediaTrack(id: "spu/0", kind: .subtitle, name: "English SDH", language: "en", codec: "subt"),
+            MediaTrack(id: "spu/1", kind: .subtitle, name: "Français", language: "fr", codec: "subt"),
+            MediaTrack(id: "spu/2", kind: .subtitle, name: "עברית", language: "he", codec: "bdpg"),
         ]
         engine.emit(.tracksChanged)
+        try? await Task.sleep(for: .milliseconds(30))
+        await model.requestSubtitle(language: "he")
         try? await Task.sleep(for: .milliseconds(30))
     }
 }
@@ -585,6 +592,22 @@ final class PreviewEngine: VideoPlayerEngine {
     func setRate(_ rate: Double) {}
     func selectAudioTrack(id: String?) {}
     func selectSubtitleTrack(id: String?) {}
-    func addExternalSubtitle(url: URL) {}
+
+    /// Surface a slave the way VLCKit does — and only the way VLCKit does.
+    ///
+    /// It used to do nothing, and the panel harness hand-placed a track called "Hebrew" tagged
+    /// `language: "he"` instead. VLCKit gives a slave NEITHER: it arrives named "Track 3" with no
+    /// language at all, which is precisely why the picker printed "Track 3" for the Hebrew the
+    /// viewer had just asked for, and why the language preference could not see it and took the
+    /// selection back. A flattering fixture is a harness that cannot show you the bug.
+    func addExternalSubtitle(url: URL) {
+        guard !attachedSubtitleURLs.contains(url) else { return }   // libvlc keys a slave by URL
+        attachedSubtitleURLs.append(url)
+        subtitleTracks.append(MediaTrack(id: "ext/\(attachedSubtitleURLs.count)", kind: .subtitle,
+                                         name: "Track \(subtitleTracks.count + 1)",
+                                         language: nil, isExternal: true, codec: "subt"))
+        emit(.tracksChanged)
+    }
+    private var attachedSubtitleURLs: [URL] = []
 }
 #endif
