@@ -28,26 +28,39 @@ struct PlayerSettingsSheet: View {
                     }
 
                     section("Subtitles", "captions.bubble.fill") {
-                        FlowLayout {
-                            chip("Off", selected: model.selectedSubtitleID == nil) { model.selectSubtitleOff() }
-                            // Muxed tracks shipped inside the file.
-                            ForEach(labeled(model.embeddedTracks), id: \.track.id) { e in
-                                chip(e.label, selected: model.selectedSubtitleID == e.track.id) {
-                                    model.selectSubtitle(id: e.track.id)
+                        // Grouped, as on tvOS, because the two groups can name the same language:
+                        // a release with a Hebrew track inside it AND a Hebrew subtitle fetched for
+                        // it put two identically-labelled chips side by side, one ticked and one
+                        // not, with nothing to say which was which.
+                        VStack(alignment: .leading, spacing: Theme.Space.md) {
+                            FlowLayout {
+                                chip("Off", selected: model.selectedSubtitleID == nil) { model.selectSubtitleOff() }
+                                // Muxed tracks shipped inside the file.
+                                ForEach(labeled(model.embeddedTracks), id: \.track.id) { e in
+                                    chip(e.label, selected: model.selectedSubtitleID == e.track.id) {
+                                        model.selectSubtitle(id: e.track.id)
+                                    }
                                 }
                             }
                             // Attached from a download this session (auto he/en or a browser pick).
-                            ForEach(labeled(model.downloadedTracks), id: \.track.id) { e in
-                                chip(e.label, selected: model.selectedSubtitleID == e.track.id) {
-                                    model.selectSubtitle(id: e.track.id)
+                            if !model.downloadedTracks.isEmpty {
+                                groupCaption("DOWNLOADED")
+                                FlowLayout {
+                                    ForEach(labeled(model.downloadedTracks), id: \.track.id) { e in
+                                        chip(e.label, selected: model.selectedSubtitleID == e.track.id) {
+                                            model.selectSubtitle(id: e.track.id)
+                                        }
+                                    }
                                 }
                             }
-                            // One-click he/en for the common case (no muxed subs). Hidden once the
-                            // track is attached, since it then appears as a real track above.
-                            ForEach(model.subtitleRows) { row in
-                                if model.attachedTrackID(row) == nil { quickChip(row) }
+                            FlowLayout {
+                                // One-click he/en for the common case (no muxed subs). Hidden once
+                                // the track is attached, since it then appears above instead.
+                                ForEach(model.subtitleRows) { row in
+                                    if model.attachedTrackID(row) == nil { quickChip(row) }
+                                }
+                                searchChip
                             }
-                            searchChip
                         }
                     }
 
@@ -112,6 +125,14 @@ struct PlayerSettingsSheet: View {
                 .font(Theme.Typo.label()).tracking(1).foregroundStyle(Theme.Palette.gold)
             content()
         }
+    }
+
+    /// A small sub-header separating muxed tracks from ones downloaded this session.
+    private func groupCaption(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 11, weight: .semibold)).tracking(1)
+            .foregroundStyle(Theme.Palette.textSecondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func chip(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
@@ -214,11 +235,16 @@ struct PlayerSettingsSheet: View {
     }
 
     private func language(_ track: MediaTrack) -> String {
+        // A downloaded subtitle first: VLCKit names a slave "Track 3" and gives it no language, so
+        // only the language row that owns it can say it is the Hebrew the viewer asked for.
+        if let downloaded = model.downloadedLanguageName(forTrackID: track.id) { return downloaded }
         if let r = track.name.range(of: #"\[([^\]]+)\]"#, options: .regularExpression) {
             let inner = track.name[r].dropFirst().dropLast()
             if !inner.isEmpty { return String(inner) }
         }
-        if let l = track.language, !l.isEmpty { return l.capitalized }
+        // "eng" / "he" rather than "Eng" / "He": a two-letter stub is not a language name, and
+        // this row sits directly under pills that say "Hebrew" and "English" in as many words.
+        if let l = track.language, !l.isEmpty { return PlayerModel.languageName(l) }
         return track.name
     }
 }

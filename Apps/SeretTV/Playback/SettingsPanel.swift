@@ -202,11 +202,16 @@ private struct PlaybackColumns: View {
     }
 
     private func language(_ track: MediaTrack) -> String {
+        // A downloaded subtitle first: VLCKit names a slave "Track 3" and gives it no language, so
+        // only the language row that owns it can say it is the Hebrew the viewer asked for.
+        if let downloaded = model.downloadedLanguageName(forTrackID: track.id) { return downloaded }
         if let r = track.name.range(of: #"\[([^\]]+)\]"#, options: .regularExpression) {
             let inner = track.name[r].dropFirst().dropLast()
             if !inner.isEmpty { return String(inner) }
         }
-        if let l = track.language, !l.isEmpty { return l.capitalized }
+        // "eng" / "he" rather than "Eng" / "He": a two-letter stub is not a language name, and
+        // this row sits directly under pills that say "Hebrew" and "English" in as many words.
+        if let l = track.language, !l.isEmpty { return PlayerModel.languageName(l) }
         return track.name
     }
 }
