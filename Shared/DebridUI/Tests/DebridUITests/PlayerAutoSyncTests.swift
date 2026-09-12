@@ -10,7 +10,10 @@ import DebridCore
 /// into the file is timed against that file by construction. Being out of step is something a
 /// subtitle fetched from somewhere else is.
 @MainActor
-@Suite struct PlayerAutoSyncTests {
+// Serialised: each of these drives a full measurement and writes a subtitle file, and run in
+// parallel they crowded out the sleep-based scan and progress suites sharing the machine — tests
+// that were already the most fragile in the package.
+@Suite(.serialized) struct PlayerAutoSyncTests {
 
     /// Where the subtitle CLAIMS each line is.
     ///
@@ -59,7 +62,7 @@ import DebridCore
         let m = PlayerModel(request: Fixture.request(), engine: engine,
                             unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
                             recordProgress: { _, _, _, _ in }, subtitles: subs, audioProbe: audio,
-                            autoSyncWindow: 60, autoSyncMaxLag: 10)
+                            autoSyncWindow: 90, autoSyncMaxLag: 5, autoSyncMinimumHalf: 25)
         return (m, engine, audio)
     }
 
@@ -68,7 +71,7 @@ import DebridCore
         await m.waitForIdleForTesting()
         await m.requestSubtitle(language: "he")
         await m.waitForIdleForTesting()
-        m.setDurationForTesting(500)           // window lands at 100s in
+        m.setDurationForTesting(900)           // a 90s window with 45s halves
     }
 
     /// A subtitle running 4s LATE is corrected to show every line 4s earlier.

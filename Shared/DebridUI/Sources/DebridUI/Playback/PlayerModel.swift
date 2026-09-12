@@ -284,6 +284,7 @@ public final class PlayerModel {
     /// tests of that starve every timing-sensitive suite sharing the machine.
     let autoSyncWindow: Double
     let autoSyncMaxLag: Double
+    let autoSyncMinimumHalf: Double
     /// Where an auto-sync measurement has got to. Drives the row's label and spinner.
     public internal(set) var autoSyncState: AutoSyncState = .idle
 
@@ -491,11 +492,13 @@ public final class PlayerModel {
          subtitleFallbackDelay: Double = 2,
          audioProbe: AudioLoudnessProbing? = nil,
          autoSyncWindow: Double = 300,
-         autoSyncMaxLag: Double = 120) {
+         autoSyncMaxLag: Double = 120,
+         autoSyncMinimumHalf: Double = SubtitleSync.minimumHalfSeconds) {
         self.subtitleFallbackDelay = subtitleFallbackDelay
         self.audioProbe = audioProbe
         self.autoSyncWindow = autoSyncWindow
         self.autoSyncMaxLag = autoSyncMaxLag
+        self.autoSyncMinimumHalf = autoSyncMinimumHalf
         self.autoHideDelay = autoHideDelay
         self.loadTimeout = loadTimeout
         self.seekCoalesceWindow = seekCoalesceWindow

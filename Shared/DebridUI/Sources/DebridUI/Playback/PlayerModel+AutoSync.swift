@@ -9,44 +9,34 @@ extension PlayerModel {
     // confirmed window, cue parsing, correlation, gates. What does not work is the FEATURE, and the
     // reason is the signal, not the plumbing.
     //
-    // TWO signal designs have now been tried against ground truth, and both failed.
+    // Measure a few minutes of the film's audio, line the subtitle's cues up against where the
+    // speech actually is, and dial in the difference.
     //
-    // The reference is Anna (2019) with a Hebrew subtitle screenshot-verified as correctly aligned:
-    // its "מוסקבה, 1985" sits exactly on the film's own "MOSCOW, 1985" card at ~51s, so over a
-    // window containing that moment the right answer is a shift of ZERO.
+    // Four things had to be right, and each was wrong first. They are recorded here because every
+    // one of them produced a CONFIDENT wrong answer rather than an obvious failure:
     //
-    // 1. Loudness envelope. Measured at minute 24:
-    //        loudness → +86.3s  peak 0.289  OK      score at no-shift  -0.133
-    //    Volume is close to an INVERTED proxy for speech in an action film: the loud passages are
-    //    gunfire and score and carry no subtitles, while the dialogue is quiet.
+    // 1. `:stop-time` is scaled by the playback rate — 300s at 16x stopped the demuxer after 19
+    //    seconds of media. `:start-time` is silently ignored on a network stream. The window is
+    //    reached by seeking and then CONFIRMING with `player.time`.
+    // 2. The audio callback's timestamp is OUTPUT-clock time, also rate-scaled, so at 16x every
+    //    100ms frame spanned 1.6s of film. Rate 1, which costs nothing: throughput is bound by the
+    //    network, not the decoder.
+    // 3. **libvlc does not use WAVE channel order.** Its buffers follow VLC's own —
+    //    `L, R, ML, MR, RL, RR, RC, C, LFE` with absent channels skipped — so 5.1 arrives as
+    //    L, R, RL, RR, C, LFE and the centre is index 4. Reading index 2 correlated a SURROUND
+    //    channel against dialogue cues, which is why loudness, band-limited centre and
+    //    density-matched voice all produced confident nonsense that disagreed with each other.
+    // 4. A single window cannot be believed. Even correct, the full-window search found +87s on a
+    //    stretch where both halves said +0.1s — a lag leaving barely half the window overlapping.
+    //    The search is now capped at a quarter of the window, and the answer must still hold on
+    //    both halves.
     //
-    // 2. Centre-channel voice activity (`VoiceActivity` + `SpeechBandFilter`) — a cinema mix puts
-    //    dialogue in the centre and spreads everything else around it, so 5.1 is requested from
-    //    libvlc and channel 2 band-limited to 300–3400 Hz. It works in the unit tests, including
-    //    the exact case that defeats loudness. On the real film, over the window that CONTAINS the
-    //    verified moment:
-    //        voice     → +78.1s  peak 0.201  REJECTED
-    //        voice-raw → -46.1s  peak 0.200  REJECTED
-    //        loudness  → -89.5s  peak 0.302  OK
-    //        score at no-shift  -0.204
-    //    The three readings disagree with each other by a hundred and sixty seconds, which is what
-    //    pure noise looks like, and the correct answer scores NEGATIVE.
-    //
-    // So the failure is not the feature detector alone. Something upstream of it carries no usable
-    // relationship to the cue times — the remaining suspects are libvlc's channel layout under a
-    // 6-channel request (an upmix would put no dialogue in "centre" at all) and the mapping from
-    // callback PTS to media time across buffering gaps. Each costs a four-minute measurement.
-    //
-    // Until one of those is settled, no entry point calls `autoSyncSubtitle`. The gates below are
-    // the only thing standing between this and a wrecked subtitle, and on the last run they were
-    // the only reason a correct subtitle was not dragged ninety seconds out of true.
+    // Verified on a real stream against a subtitle whose alignment was screenshot-confirmed (its
+    // "מוסקבה, 1985" sits exactly on the film's own "MOSCOW, 1985" card, so the answer is zero):
+    // measured +0.2s, peak 0.423, both halves agreeing, voice energy 3.4x higher under cues than
+    // between them.
 
-    /// How much of the film to listen to. Long enough to cover a good number of lines — the peak
-    /// gets sharper with every one — and short enough that it is a few minutes of the file rather
-    /// than a second copy of it. Audio is interleaved with video in the container, so this really
-    /// is minutes of download.
-    /// The least audio worth correlating. Fewer lines than this and the peak is not a peak —
-    /// measured on a real stream, a minute of a talkative film is about six cues.
+    /// The least audio worth correlating. Fewer lines than this and the peak is not a peak.
     static let autoSyncMinimumSeconds: Double = 60
     /// A measurement below this is a guess. `SubtitleSync` already refuses the unconvincing; this
     /// is the second gate, because dragging a correct subtitle into nonsense is the one outcome
@@ -87,14 +77,14 @@ extension PlayerModel {
               let text = Self.readSubtitle(at: subtitleURL) else { return }
 
         autoSyncState = .measuring
-        note("auto-sync: measuring \(Int(autoSyncWindow))s from \(Int(autoSyncWindowStart))s")
+        note("auto-sync: measuring \(Int(autoSyncWindow))s of the talkiest stretch")
         defer { if autoSyncState == .measuring { autoSyncState = .failed } }
 
         guard let url = try? await unrestrict(currentSource.restrictedLink) else {
             note("auto-sync: could not open the media")
             return
         }
-        let asked = autoSyncWindowStart
+        let asked = autoSyncWindowStart(cues: SubtitleTiming.cueSpans(in: text))
         guard let window = await audioProbe.loudness(url: url, from: asked,
                                                      seconds: autoSyncWindow),
               !window.frames.isEmpty else { note("auto-sync: no audio decoded"); return }
@@ -131,47 +121,109 @@ extension PlayerModel {
         note("auto-sync: \(matched.filter { $0 > 0 }.count) voice frames, "
              + "\(cues.filter { $0 > 0 }.count) cue frames")
 
-        let readings = [("voice", matched), ("voice-raw", voice),
-                        ("loudness", loudness)].compactMap { name, signal in
-            SubtitleSync.measure(speech: signal, cues: cues,
-                                 frameSeconds: SubtitleSync.frameSeconds,
-                                 maxLagSeconds: autoSyncMaxLag)
-                .map { (name, $0) }
-        }
-        for (name, m) in readings { note("auto-sync: \(name) → \(m.summary)") }
-        // What the CORRECT answer would have scored, when there is reason to think it is zero.
-        // Without this a rejection cannot be told from a signal carrying no information at all.
-        let atZero = SubtitleSync.correlation(speech: matched, cues: cues, lag: 0)
-        note(String(format: "auto-sync: score at no-shift %.3f", atZero))
-        // The single number that separates "the feature is wrong" from "the frames are in the wrong
-        // place". If the centre channel really carries dialogue AND the frames line up with media
-        // time, centre energy during cue frames must clearly exceed centre energy between them.
-        // Equal or inverted means the two signals are not describing the same instants, whatever
-        // the correlation search then makes of them.
-        // Which channel, if any, is louder when a subtitle is on screen? A ratio above 1 means that
-        // channel tracks the dialogue; all of them below 1 means the frames are not where we think
-        // they are, and no choice of channel can rescue it.
-        let names = ["L", "R", "C", "LFE", "Ls", "Rs"]
-        for (i, ch) in window.perChannel.enumerated() where ch.count == cues.count {
-            let on = zip(ch, cues).filter { $0.1 > 0 }.map { Double($0.0) }
-            let off = zip(ch, cues).filter { $0.1 == 0 }.map { Double($0.0) }
-            guard !on.isEmpty, !off.isEmpty else { continue }
-            let a = on.reduce(0, +) / Double(on.count), b = off.reduce(0, +) / Double(off.count)
-            note(String(format: "auto-sync: channel %@ during/between = %.2f",
-                        i < names.count ? names[i] : "\(i)", a / Swift.max(b, 1e-9)))
-        }
-        let during = zip(voice, cues).filter { $0.1 > 0 }.map { Double($0.0) }
-        let between = zip(voice, cues).filter { $0.1 == 0 }.map { Double($0.0) }
-        if !during.isEmpty, !between.isEmpty {
-            let a = during.reduce(0, +) / Double(during.count)
-            let b = between.reduce(0, +) / Double(between.count)
-            note(String(format: "auto-sync: voice during cues %.5f vs between %.5f (ratio %.2f)",
-                        a, b, a / Swift.max(b, 1e-9)))
-        }
+        // Everything below is diagnosis, not decision: three full correlation searches, a
+        // frame-by-frame picture and a per-channel breakdown. It is what found the channel-order
+        // bug and it must stay reachable — but a viewer pressing Sync should not pay for it, and
+        // running it in the unit suite starved every sleep-based test on the machine.
+        #if DEBUG
+        if Self.subtitleProbeEnabled {
+            let readings = [("voice", matched), ("voice-raw", voice),
+                            ("loudness", loudness)].compactMap { name, signal in
+                SubtitleSync.measure(speech: signal, cues: cues,
+                                     frameSeconds: SubtitleSync.frameSeconds,
+                                     maxLagSeconds: autoSyncMaxLag)
+                    .map { (name, $0) }
+            }
+            for (name, m) in readings { note("auto-sync: \(name) → \(m.summary)") }
+            // What the CORRECT answer would have scored, when there is reason to think it is zero.
+            // Without this a rejection cannot be told from a signal carrying no information at all.
+            let atZero = SubtitleSync.correlation(speech: matched, cues: cues, lag: 0)
+            note(String(format: "auto-sync: score at no-shift %.3f", atZero))
+            // The single number that separates "the feature is wrong" from "the frames are in the wrong
+            // place". If the centre channel really carries dialogue AND the frames line up with media
+            // time, centre energy during cue frames must clearly exceed centre energy between them.
+            // Equal or inverted means the two signals are not describing the same instants, whatever
+            // the correlation search then makes of them.
+            // The two signals side by side, one character per frame, so where the energy actually sits
+            // relative to the cues can be SEEN rather than inferred from a summary statistic. Every
+            // number so far has been an average, and an average cannot tell "shifted" from "unrelated".
+            if let centre = window.perChannel.dropFirst(4).first, centre.count == cues.count {
+                // Scale to a high PERCENTILE, not the maximum: one door-slam in the centre channel
+                // flattens every line of dialogue to the bottom bucket and the picture shows nothing.
+                let sorted = centre.sorted()
+                let peak = sorted[Int(Double(sorted.count - 1) * 0.9)]
+                func strip(_ range: Range<Int>) -> (String, String) {
+                    let c = range.map { cues[$0] > 0 ? "#" : "." }.joined()
+                    let e = range.map { i -> String in
+                        let level = Int((centre[i] / max(peak, 1e-9)) * 9)
+                        return level <= 0 ? " " : String(level)
+                    }.joined()
+                    return (c, e)
+                }
+                for block in 0..<3 {
+                    let lo = block * 120, hi = min(lo + 120, cues.count)
+                    guard lo < hi else { break }
+                    let (c, e) = strip(lo..<hi)
+                    note("auto-sync: cues \(Int(start) + lo / 10)s |\(c)|")
+                    note("auto-sync: C    \(Int(start) + lo / 10)s |\(e)|")
+                }
+            }
 
-        guard let best = readings.filter({ $0.1.accepted }).max(by: { $0.1.peak < $1.1.peak })?.1,
+            // The correlation profile around no-shift. The search reports only its winner; this shows
+            // whether there is a bump near zero at all — a real signal beaten by noise elsewhere looks
+            // quite different from no signal.
+            let profile = stride(from: -30.0, through: 30.0, by: 3.0).map { lagSeconds -> String in
+                let score = SubtitleSync.correlation(speech: voice, cues: cues,
+                                                     lag: Int(lagSeconds / SubtitleSync.frameSeconds))
+                return String(format: "%+.0f:%+.2f", lagSeconds, score)
+            }
+            note("auto-sync: profile \(profile.joined(separator: " "))")
+
+            // Which channel, if any, is louder when a subtitle is on screen? A ratio above 1 means that
+            // channel tracks the dialogue; all of them below 1 means the frames are not where we think
+            // they are, and no choice of channel can rescue it.
+            // VLC's own order for 5.1, not WAVE order — see `AudioActivityProbe.centreChannel`.
+            let names = ["L", "R", "RL", "RR", "C", "LFE"]
+            for (i, ch) in window.perChannel.enumerated() where ch.count == cues.count {
+                let on = zip(ch, cues).filter { $0.1 > 0 }.map { Double($0.0) }
+                let off = zip(ch, cues).filter { $0.1 == 0 }.map { Double($0.0) }
+                guard !on.isEmpty, !off.isEmpty else { continue }
+                let a = on.reduce(0, +) / Double(on.count), b = off.reduce(0, +) / Double(off.count)
+                note(String(format: "auto-sync: channel %@ during/between = %.2f",
+                            i < names.count ? names[i] : "\(i)", a / Swift.max(b, 1e-9)))
+            }
+            let during = zip(voice, cues).filter { $0.1 > 0 }.map { Double($0.0) }
+            let between = zip(voice, cues).filter { $0.1 == 0 }.map { Double($0.0) }
+            if !during.isEmpty, !between.isEmpty {
+                let a = during.reduce(0, +) / Double(during.count)
+                let b = between.reduce(0, +) / Double(between.count)
+                note(String(format: "auto-sync: voice during cues %.5f vs between %.5f (ratio %.2f)",
+                            a, b, a / Swift.max(b, 1e-9)))
+            }
+
+            // What each half says on its own, so a refusal can be read rather than guessed at.
+            let halfLen = min(voice.count, cues.count) / 2
+            for (name, r) in [("half 1", 0..<halfLen), ("half 2", halfLen..<min(voice.count, cues.count))] {
+                if let m = SubtitleSync.measure(speech: Array(voice[r]), cues: Array(cues[r]),
+                                                frameSeconds: SubtitleSync.frameSeconds,
+                                                maxLagSeconds: autoSyncMaxLag) {
+                    note("auto-sync: \(name) → \(m.summary)")
+                } else {
+                    note("auto-sync: \(name) → no measurement")
+                }
+            }
+        }
+        #endif
+
+        // …and it has to hold on both halves of the window. A single measurement cannot tell a real
+        // alignment from a peak that a self-similar stretch happens to support: with everything
+        // else working, one window measured this subtitle exactly and another, later in the same
+        // film, confidently measured +87 seconds. Splitting costs no extra audio.
+        guard let best = SubtitleSync.corroboratedEstimate(
+                speech: voice, cues: cues, frameSeconds: SubtitleSync.frameSeconds,
+                maxLagSeconds: autoSyncMaxLag, minimumHalfSeconds: autoSyncMinimumHalf),
               best.confidence >= Self.autoSyncMinimumConfidence else {
-            note("auto-sync: no convincing match — leaving the subtitle alone")
+            note("auto-sync: no answer the two halves agree on — leaving the subtitle alone")
             return
         }
 
@@ -187,16 +239,38 @@ extension PlayerModel {
     /// least dialogue in the film and the part most likely to differ between releases — exactly
     /// the stretch that makes a subtitle wrong in the first place. A fifth of the way in is
     /// ordinary talking. Short media fall back to the start rather than past the end.
-    var autoSyncWindowStart: Double {
+    func autoSyncWindowStart(cues: [(start: Double, end: Double)]) -> Double {
         #if DEBUG
-        // `-autoSyncFrom <seconds>` pins the window, so the cost of seeking into a stream can be
-        // measured against reading it from the start with everything else held still.
+        // `-autoSyncFrom <seconds>` pins the window, so one variable can be held still while
+        // another is measured.
         let args = ProcessInfo.processInfo.arguments
         if let i = args.firstIndex(of: "-autoSyncFrom"), i + 1 < args.count,
            let pinned = Double(args[i + 1]) { return pinned }
         #endif
         guard duration > autoSyncWindow * 2 else { return 0 }
-        return min(duration * 0.2, duration - autoSyncWindow)
+        let latest = duration - autoSyncWindow
+        // The TALKIEST window, chosen from the subtitle's own cue list.
+        //
+        // A fixed fraction of the way in is a guess about where the dialogue is, and on a real
+        // action film it guessed wrong: the default window landed on a stretch whose correlation
+        // peak was 0.12 and was refused, while a window over an ordinary conversation measured the
+        // offset exactly. The cue list already says where the talking is, and consulting it costs
+        // nothing — the audio has not been fetched yet.
+        guard !cues.isEmpty else { return min(duration * 0.2, latest) }
+        var best = min(duration * 0.2, latest)
+        var bestCoverage = -1.0
+        // Skip the opening: a release's first minutes are idents and titles, and are the part most
+        // likely to differ between releases — exactly what makes a subtitle wrong to begin with.
+        var start = min(120, latest)
+        while start <= latest {
+            let end = start + autoSyncWindow
+            let coverage = cues.reduce(0.0) { sum, cue in
+                sum + max(0, min(cue.end, end) - max(cue.start, start))
+            }
+            if coverage > bestCoverage { bestCoverage = coverage; best = start }
+            start += 60
+        }
+        return best
     }
 
     /// Read a subtitle file as text, tolerating the encodings these files actually use.

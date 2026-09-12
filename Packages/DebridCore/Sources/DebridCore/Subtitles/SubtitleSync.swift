@@ -74,6 +74,53 @@ public enum SubtitleSync {
         return Estimate(offsetSeconds: m.offsetSeconds, confidence: m.confidence)
     }
 
+    /// How far apart the two halves' answers may be and still count as the same answer.
+    public static let agreementSeconds = 1.5
+    /// The least a half may be and still be asked to corroborate anything.
+    public static let minimumHalfSeconds = 45.0
+    /// How well the whole window's answer must still score on each half. Lower than the bar for a
+    /// peak found from scratch: a half has half the dialogue to match, so it is asked only whether
+    /// the alignment is really present, not whether it could have discovered it alone.
+    public static let corroborationFloor = 0.15
+
+    /// An estimate that has proved itself on both halves of the window, or nil.
+    ///
+    /// One window is not enough to believe. With everything else working, a window a minute into a
+    /// film measured the offset exactly while a window twenty-four minutes into the SAME film with
+    /// the SAME subtitle confidently measured +87 seconds. A constant offset cannot be both, so one
+    /// of them was a spurious peak that a dialogue-dense stretch happened to support — and nothing
+    /// in a single measurement distinguishes the two.
+    ///
+    /// Splitting costs no extra audio: it is the same frames, measured again in halves. A real
+    /// alignment is present in both; a peak that exists only because one stretch resembles itself
+    /// at some shift does not survive being cut in two.
+    /// - Parameter minimumHalfSeconds: the least a half may be and still be asked to corroborate.
+    ///   Injectable so a test can exercise the wiring on a few seconds of signal — the correlation
+    ///   itself is covered by this type's own suites, and running realistic windows in the player
+    ///   tests starved every sleep-based test sharing the machine.
+    public static func corroboratedEstimate(speech: [Float], cues: [Float],
+                                            frameSeconds: Double,
+                                            maxLagSeconds: Double,
+                                            minimumHalfSeconds: Double = SubtitleSync.minimumHalfSeconds) -> Estimate? {
+        guard let whole = measure(speech: speech, cues: cues, frameSeconds: frameSeconds,
+                                  maxLagSeconds: maxLagSeconds), whole.accepted else { return nil }
+        // Each half has to be a real measurement in its own right. The bar is its DURATION, not a
+        // multiple of the lag range: `correlation` already refuses a shift that leaves too little
+        // overlapping, so a wide search over a short half costs nothing but finds nothing either.
+        let half = Swift.min(speech.count, cues.count) / 2
+        guard Double(half) * frameSeconds >= minimumHalfSeconds else { return nil }
+
+        // Ask each half whether the WHOLE's answer holds there — not what it would conclude on its
+        // own. Re-searching a half freely invites the same sliver-overlap false peak that made this
+        // guard necessary; checking one lag cannot.
+        let lag = Int((whole.offsetSeconds / frameSeconds).rounded())
+        for range in [0..<half, half..<Swift.min(speech.count, cues.count)] {
+            let score = correlation(speech: Array(speech[range]), cues: Array(cues[range]), lag: lag)
+            guard score >= corroborationFloor else { return nil }
+        }
+        return Estimate(offsetSeconds: whole.offsetSeconds, confidence: whole.confidence)
+    }
+
     /// The same search, reporting what it found whether or not it passed the gates.
     public static func measure(speech: [Float], cues: [Float],
                                frameSeconds: Double, maxLagSeconds: Double) -> Measurement? {
@@ -82,7 +129,14 @@ public enum SubtitleSync {
         // nothing to line up, and every shift scores identically.
         guard varies(speech), varies(cues) else { return nil }
 
-        let maxLag = Int((maxLagSeconds / frameSeconds).rounded())
+        // A shift can only be searched as far as the window can still overlap itself meaningfully.
+        // Asked for ±120s over a 219-second window, the search reached lags leaving barely half of
+        // it overlapping and found a confident +87s there — while both halves of the same audio
+        // said +0.1s, which was the truth. Capping the range at a quarter of the window keeps every
+        // lag above 75% overlap and removes that class of answer entirely.
+        let windowSeconds = Double(Swift.min(speech.count, cues.count)) * frameSeconds
+        let searchable = Swift.min(maxLagSeconds, windowSeconds * 0.25)
+        let maxLag = Int((searchable / frameSeconds).rounded())
         guard maxLag > 0 else { return nil }
 
         var scores: [Double] = []
@@ -137,26 +191,39 @@ public enum SubtitleSync {
     public static func correlation(speech: [Float], cues: [Float], lag: Int) -> Double {
         let start = max(0, lag)
         let end = min(speech.count, cues.count + lag)
-        guard end - start >= 8 else { return 0 }            // too little overlap to mean anything
+        // HALF the shorter signal, at least. Eight frames was "not literally zero", and a quarter
+        // was still too generous: measured on a real film, a 120-second half produced a confident
+        // 0.435 peak at a lag that left only a third of it overlapping — a sliver long enough to
+        // agree by chance and short enough to mean nothing.
+        let shorter = Swift.min(speech.count, cues.count)
+        guard end - start >= Swift.max(8, shorter / 2) else { return 0 }
 
-        var sumA = 0.0, sumB = 0.0
-        for i in start..<end {
-            sumA += Double(speech[i])
-            sumB += Double(cues[i - lag])
-        }
-        let n = Double(end - start)
-        let meanA = sumA / n, meanB = sumB / n
+        // Unsafe buffers, deliberately. This is the innermost loop of the whole measurement — a
+        // production window is a few thousand frames searched over a few thousand shifts, run four
+        // times — and bounds-checked subscripting dominated it. In the unit suite it was slow
+        // enough to starve every sleep-based test sharing the machine.
+        return speech.withUnsafeBufferPointer { a in
+            cues.withUnsafeBufferPointer { b in
+                var sumA = 0.0, sumB = 0.0
+                for i in start..<end {
+                    sumA += Double(a[i])
+                    sumB += Double(b[i - lag])
+                }
+                let n = Double(end - start)
+                let meanA = sumA / n, meanB = sumB / n
 
-        var dot = 0.0, normA = 0.0, normB = 0.0
-        for i in start..<end {
-            let a = Double(speech[i]) - meanA
-            let b = Double(cues[i - lag]) - meanB
-            dot += a * b
-            normA += a * a
-            normB += b * b
+                var dot = 0.0, normA = 0.0, normB = 0.0
+                for i in start..<end {
+                    let x = Double(a[i]) - meanA
+                    let y = Double(b[i - lag]) - meanB
+                    dot += x * y
+                    normA += x * x
+                    normB += y * y
+                }
+                guard normA > 0, normB > 0 else { return 0 }
+                return dot / (normA * normB).squareRoot()
+            }
         }
-        guard normA > 0, normB > 0 else { return 0 }
-        return dot / (normA * normB).squareRoot()
     }
 
     /// Whether `i` is at least as high as both its neighbours — a peak in its own right rather

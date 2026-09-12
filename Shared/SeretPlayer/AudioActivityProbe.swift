@@ -33,8 +33,18 @@ final class AudioActivityProbe: AudioLoudnessProbing {
     /// correct subtitle.
     nonisolated static let sampleRate: UInt32 = 16000
     nonisolated static let channels: UInt32 = 6
-    /// Centre is index 2 in libvlc's interleaved 5.1 order (L, R, C, LFE, Ls, Rs).
-    nonisolated static let centreChannel = 2
+    /// Centre is index 4, NOT index 2.
+    ///
+    /// libvlc does not hand back WAVE order. Its buffers follow VLC's own channel order —
+    /// `L, R, ML, MR, RL, RR, RC, C, LFE` — with absent channels simply skipped, so a 5.1 stream
+    /// arrives as **L, R, RL, RR, C, LFE**. Index 2 is REAR LEFT.
+    ///
+    /// Reading index 2 meant correlating a surround channel against dialogue cues, which is why
+    /// every feature built on it produced confident nonsense. The measurement said so plainly once
+    /// it was asked: per-channel energy while a subtitle was on screen divided by energy between
+    /// gave `L 0.89  R 0.86  [2] 0.76  [3] 0.73  [4] 1.17  [5] 0.60` — index 4 the only one above
+    /// 1, and also the loudest channel overall, which is what a dialogue-carrying centre looks like.
+    nonisolated static let centreChannel = 4
     /// The longest we will spend measuring, whatever arrives. Generous, because decoding runs at
     /// roughly download speed and the whole point is to gather as much as the connection allows —
     /// but bounded, because a dead link must end as "no estimate" rather than a spinner.

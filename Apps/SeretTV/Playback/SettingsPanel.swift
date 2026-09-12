@@ -114,6 +114,15 @@ private struct PlaybackColumns: View {
             // The automatic answer, offered first because it is the one that needs no judgement.
             // Only for a subtitle we downloaded: a muxed track is timed against this exact file by
             // construction, and we hold no cue list for it to correlate.
+            // The automatic answer, offered first because it is the one that needs no judgement.
+            // Only for a subtitle we downloaded: a muxed track is timed against this exact file by
+            // construction, and we hold no cue list for it to correlate.
+            if model.canAutoSyncSubtitle {
+                CheckRow(title: autoSyncTitle, checked: model.autoSyncState == .synced) {
+                    Task { await model.autoSyncSubtitle() }
+                }
+                .disabled(model.autoSyncState == .measuring)
+            }
             CheckRow(title: "Show earlier  −0.5s", checked: false) {
                 model.adjustSubtitleDelay(by: -0.5)
             }
@@ -148,7 +157,6 @@ private struct PlaybackColumns: View {
         return parts.joined(separator: " · ")
     }
 
-    /// UNUSED while auto-sync is not offered — see `PlayerModel+AutoSync`.
     /// What the auto-sync row says, which is also its only progress indicator — it listens to a
     /// few minutes of the film, so it is not instant and must not look stuck.
     private var autoSyncTitle: String {
