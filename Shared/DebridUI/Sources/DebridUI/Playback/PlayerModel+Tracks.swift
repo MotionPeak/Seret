@@ -190,10 +190,19 @@ extension PlayerModel {
             defer { arrangeSubtitleFallback(for: lang) }
             guard signature != subtitleSelectionSignature else { return }
             subtitleSelectionSignature = signature
-            // Ranked, not first-match. On a REMUX the BITMAP tracks (PGS) are listed first, so
-            // first-match reliably chose the one that ignores the viewer's font settings, cannot be
-            // retimed, and drops cues under load — while a text track sat further down the list.
-            guard let match = subtitleTracks.bestSubtitle(forLanguage: lang) else { return }
+            // A subtitle FETCHED for this language is the app's answer for it, and outranks
+            // anything muxed. VLCKit does not tag a slave with a language, so matching the
+            // preferred language against the track list cannot see it: the search found the file's
+            // own track instead and "corrected" the selection to that — one pass after the attach
+            // had selected the download, in the same turn, with the probe catching both lines at
+            // the same playhead. That is what "I asked for Hebrew and nothing happened" was.
+            //
+            // Ranked, not first-match, for the muxed case. On a REMUX the BITMAP tracks (PGS) are
+            // listed first, so first-match reliably chose the one that ignores the viewer's font
+            // settings, cannot be retimed, and drops cues under load — while a text track sat
+            // further down the list.
+            guard let match = downloadedTrack(forLanguage: lang)
+                    ?? subtitleTracks.bestSubtitle(forLanguage: lang) else { return }
             // Only a TEXT track beats the download to it. A bitmap match is selected so the
             // viewer sees something immediately, but the fetch is left armed to replace it.
             if !match.isBitmapSubtitle {

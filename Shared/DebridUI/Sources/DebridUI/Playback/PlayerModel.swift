@@ -111,7 +111,17 @@ public final class PlayerModel {
     /// appears asynchronously via `.tracksChanged`, not synchronously after `addExternalSubtitle`.
     /// `before` is the text-track id set captured just before the attach, so the freshly-appeared
     /// id is the one not in it. Resolved in `refreshTracks()`.
-    var pendingSubtitleAttach: (language: String, before: Set<String>)?
+    var pendingSubtitleAttach: (language: String, url: URL, before: Set<String>)?
+
+    /// Where each subtitle FILE attached this session ended up, by the URL it was attached from.
+    ///
+    /// libvlc keys a playback slave by URL: handing it one it already holds surfaces no new track
+    /// at all. The attach handshake waits for a newcomer, so a second ask for the same file waited
+    /// for something that could never arrive and timed out into "not found, try Search" — with a
+    /// perfectly good track sitting in the list, deselected. Remembering where each file landed
+    /// turns that second ask into what the viewer meant by it: select the track again.
+    /// Cleared with the rest of the per-file subtitle state on a source change.
+    var attachedSubtitleTracks: [URL: String] = [:]
 
     /// Subtitle tracks to show as plain pills — EXCLUDES on-demand downloads, which are
     /// represented by their language row instead. Without this, a downloaded "Hebrew" sub also
@@ -130,6 +140,32 @@ public final class PlayerModel {
     public func attachedTrackID(_ row: SubtitleRow) -> String? {
         if case .attached(let id) = row.state { return id } else { return nil }
     }
+
+    /// The language a downloaded subtitle was fetched FOR, named for a picker row.
+    ///
+    /// VLCKit calls a slave track "Track 3" and reports no language for it, so the pickers had
+    /// nothing to print but that — the viewer asked for Hebrew and got a row called "Track 3",
+    /// which reads as the app having done something else entirely. The language row that owns the
+    /// track is the only thing that knows.
+    public func downloadedLanguageName(forTrackID id: String) -> String? {
+        subtitleRows.first { attachedTrackID($0) == id }.map { Self.languageName($0.language) }
+    }
+
+    /// "he" → "Hebrew". Falls back to the code in capitals for anything the system cannot name.
+    ///
+    /// Named in English, not `Locale.current`: every other word in these panels is English, and the
+    /// one-tap pills above this row say "Hebrew" in as many words. On a Hebrew-locale device a
+    /// current-locale name would put "עברית" directly beneath "Hebrew" and read as two different
+    /// things.
+    public static func languageName(_ code: String) -> String {
+        // Some containers write a full name where a code belongs ("English", "Brazilian
+        // Portuguese"). Resolving that yields nothing, and the fallback would SHOUT it.
+        guard code.count <= 3 else { return code.capitalized }
+        return Self.englishNames.localizedString(forLanguageCode: code)?.capitalized
+            ?? code.uppercased()
+    }
+
+    private static let englishNames = Locale(identifier: "en_US")
 
     /// Continuous swipe-scrub (Step 2). While `isScrubbing`, the transport shows a preview marker at
     /// `scrubTarget` instead of the live playhead; the seek only happens on `commitScrub()`.
@@ -228,6 +264,8 @@ public final class PlayerModel {
     var resumeProbeStart: Double = 0
     /// The `-autoSeek` probe has fired for this session (see `PlayerModel+SeekProbe`).
     var seekProbeStarted = false
+    /// The `-autoSubtitle` probe has fired for this session (see `PlayerModel+SubtitleProbe`).
+    var subtitleProbeStarted = false
     #endif
     /// `start()` has run. See `start()` — the screen's `.onAppear` can fire more than once.
     var hasStarted = false

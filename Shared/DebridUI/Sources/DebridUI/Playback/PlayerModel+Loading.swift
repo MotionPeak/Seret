@@ -262,6 +262,7 @@ extension PlayerModel {
         subtitleSearchState = .idle
         subtitleSearchLanguage = nil
         pendingSubtitleAttach = nil
+        attachedSubtitleTracks = [:]   // …and where each attached FILE landed is just as positional
         subtitleRows = Self.freshSubtitleRows(hasAccount: subtitles != nil)
         lastSavedPosition = -.infinity
         loadTask?.cancel()
@@ -323,6 +324,7 @@ extension PlayerModel {
         if isSwitching { isSwitching = false }
         #if DEBUG
         startSeekProbeIfRequested()
+        startSubtitleProbeIfRequested()
         #endif
     }
 

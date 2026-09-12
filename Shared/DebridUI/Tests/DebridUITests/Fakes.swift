@@ -62,13 +62,20 @@ final class FakeVideoPlayerEngine: VideoPlayerEngine {
     var deferSlaveAttach = false
 
     func addExternalSubtitle(url: URL) {
+        // libvlc keys a playback slave by URL: one it already holds is not added again, and NO new
+        // track appears. Modelled, because the app's attach handshake waits for a newcomer — and
+        // a wait that can never end is exactly how a second ask for an already-attached language
+        // timed out into "not found".
+        let known = addedSubtitles.contains(url)
         addedSubtitles.append(url)
-        guard !deferSlaveAttach else { return }
+        guard !deferSlaveAttach, !known else { return }
         // Simulate VLCKit surfacing the external sub as a new, generically-named slave track.
-        subtitleTracks.append(MediaTrack(id: "ext/\(addedSubtitles.count)", kind: .subtitle,
+        slaveCount += 1
+        subtitleTracks.append(MediaTrack(id: "ext/\(slaveCount)", kind: .subtitle,
                                          name: "Track \(subtitleTracks.count + 1)", language: nil,
                                          isExternal: true))
     }
+    private var slaveCount = 0
 }
 
 // MARK: - FakeTrackPreferences

@@ -32,6 +32,13 @@ extension PlayerModel {
     private func downloadSubtitle(language: String) async {
         guard let subtitles else { setRow(language, .noAccount); return }
         guard subtitleRows.first(where: { $0.language == language })?.state != .downloading else { return }
+        // Already fetched this language and the track is still there? Then the ask is "put Hebrew
+        // back on", not "fetch Hebrew again" — and re-fetching could not have answered it anyway,
+        // because libvlc will not attach the same file twice. Spends no quota and no waiting.
+        if let existing = downloadedTrack(forLanguage: language) {
+            selectAttachedSubtitle(id: existing.id, language: language)
+            return
+        }
         setRow(language, .downloading)
         do {
             // A show must search by season + episode. This was `SubtitleQuery.movie(item)`
@@ -47,27 +54,24 @@ extension PlayerModel {
             await resolveMoviehashIfNeeded()
             query.moviehash = currentMoviehash
             let results = try await subtitles.search(query, languages: [language])
+            #if DEBUG
+            subtitleProbe("download \(language): search → \(results.count) results")
+            #endif
             guard let best = rankedBest(results) else { setRow(language, .error); return }
             let url = try await subtitles.download(best)
             // Requesting a language IS choosing it — make it sticky so the next episode/title
             // auto-downloads the same language without re-picking.
             trackPreferences?.record(subtitle: .language(language), forTitle: item.id)
             // Correct the timing when this subtitle was authored against a different frame rate.
-            let attachURL = prepareSubtitle(at: url, declaredFPS: best.fps)
-            // VLCKit attaches the slave asynchronously and signals via `.tracksChanged`; the new
-            // track is usually NOT in the list yet. Remember the pending attach and finish it in
-            // `refreshTracks()` once the track appears — that auto-selects it and turns the engine's
-            // generic "Track N" into the language pill. Try once now in case it landed synchronously.
-            let before = Set(engine.subtitleTracks.map(\.id))
-            engine.addExternalSubtitle(url: attachURL)
-            pendingSubtitleAttach = (language, before)
-            refreshTracks()
-            scheduleSubtitleAttachTimeout(language: language)
+            attach(prepareSubtitle(at: url, declaredFPS: best.fps), language: language)
         } catch let SubtitleError.dailyCapReached(reset) {
             setRow(language, .capReached(reset))
         } catch SubtitleError.notAuthenticated {
             setRow(language, .noAccount)
         } catch {
+            #if DEBUG
+            subtitleProbe("download \(language) FAILED: \(error)")
+            #endif
             setRow(language, .error)
         }
     }
@@ -97,19 +101,70 @@ extension PlayerModel {
 
     /// Download a chosen search result and attach it, reusing the same pending-attach handshake as
     /// the language rows (VLCKit surfaces a slave asynchronously via `.tracksChanged`).
+    ///
+    /// Picking a particular release out of the browser is a viewer decision exactly as much as
+    /// tapping the language pill is, and it has to SAY so. It did not — so the automatic pick was
+    /// still live, and the moment the slave appeared it re-decided over it and put the file's own
+    /// track back. The viewer had gone to the trouble of choosing a specific subtitle and watched
+    /// nothing change.
     public func useSubtitle(_ ranked: SubtitleMatch.Ranked) async {
         guard let subtitles else { return }
+        let wasPicked = subtitlePickedByUser
+        subtitlePickedByUser = true
         do {
             let url = try await subtitles.download(ranked.result)
-            let attachURL = prepareSubtitle(at: url, declaredFPS: ranked.result.fps)
-            let before = Set(engine.subtitleTracks.map(\.id))
-            engine.addExternalSubtitle(url: attachURL)
-            pendingSubtitleAttach = (ranked.result.language, before)
-            refreshTracks()
-            scheduleSubtitleAttachTimeout(language: ranked.result.language)
+            attach(prepareSubtitle(at: url, declaredFPS: ranked.result.fps),
+                   language: ranked.result.language)
         } catch {
+            // A pick that chose nothing must not leave the automatic path latched off for the rest
+            // of the source — that would cost the viewer subtitles altogether over a failed fetch.
+            if !wasPicked { subtitlePickedByUser = false }
             subtitleSearchState = .failed
         }
+    }
+
+    /// Hand a downloaded subtitle file to the engine and wait for its track to appear.
+    ///
+    /// The wait is the whole reason this is a handshake: VLCKit surfaces a slave asynchronously via
+    /// `.tracksChanged`, so the track is usually not in the list yet when `addExternalSubtitle`
+    /// returns. `refreshTracks()` is called once here in case it landed synchronously.
+    ///
+    /// A file already attached this session is RE-SELECTED rather than re-attached, because libvlc
+    /// keys a slave by URL and silently ignores a duplicate: no new track appears, so a handshake
+    /// started for it would wait for something that can never arrive.
+    func attach(_ url: URL, language: String) {
+        if let id = attachedSubtitleTracks[url], engine.subtitleTracks.contains(where: { $0.id == id }) {
+            selectAttachedSubtitle(id: id, language: language)
+            return
+        }
+        let before = Set(engine.subtitleTracks.map(\.id))
+        engine.addExternalSubtitle(url: url)
+        pendingSubtitleAttach = (language, url, before)
+        refreshTracks()
+        scheduleSubtitleAttachTimeout(language: language)
+    }
+
+    /// Put an already-attached downloaded track back on screen and re-own it from its language row.
+    func selectAttachedSubtitle(id: String, language: String) {
+        #if DEBUG
+        subtitleProbe("SELECT \(id) (re-select of attached \(language)) <- FLUSHES SPU")
+        #endif
+        engine.selectSubtitleTrack(id: id)
+        selectedSubtitleID = id
+        setRow(language, .attached(id))
+        subtitleTracks = engine.subtitleTracks
+    }
+
+    /// The track a subtitle downloaded for `language` is attached to, while it is still present.
+    ///
+    /// Asked of the ENGINE rather than the published mirror, as the rest of the attach path is: a
+    /// language row's `.attached` id is positional, so it only means anything against the track
+    /// list that exists right now, and a mirror a beat out of date would answer "gone" for a track
+    /// that is there — sending the caller off to re-download a file libvlc will refuse to re-attach.
+    func downloadedTrack(forLanguage language: String) -> MediaTrack? {
+        guard let row = subtitleRows.first(where: { $0.language == language }),
+              let id = attachedTrackID(row) else { return nil }
+        return engine.subtitleTracks.first { $0.id == id }
     }
 
     /// The best-matching result for the file playing, or nil when there are none.
@@ -195,6 +250,7 @@ extension PlayerModel {
         engine.selectSubtitleTrack(id: newID)
         selectedSubtitleID = newID
         setRow(pending.language, .attached(newID))
+        attachedSubtitleTracks[pending.url] = newID   // libvlc will not attach this file again
         pendingSubtitleAttach = nil
         subtitleAttachTimeoutTask?.cancel()      // it landed — nothing left to time out
         subtitleAttachTimeoutTask = nil
