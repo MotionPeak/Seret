@@ -43,6 +43,61 @@ extension PlayerModel {
     /// worse than doing nothing.
     static let autoSyncMinimumConfidence = 0.35
 
+    /// How far a measurement has got, for the bar over the picture.
+    public struct AutoSyncProgress: Equatable, Sendable {
+        /// 0…1 of the window asked for.
+        public let fraction: Double
+        /// Seconds left, once there is enough history to say. Nil rather than a guess — the bar
+        /// shows a plain "measuring" until it can be known.
+        public let secondsRemaining: Int?
+
+        public init(fraction: Double, secondsRemaining: Int?) {
+            self.fraction = fraction
+            self.secondsRemaining = secondsRemaining
+        }
+
+        /// "about 2 min left" / "about 40 sec left", or nil while it cannot be known.
+        public var remainingText: String? {
+            guard let secondsRemaining, secondsRemaining > 0 else { return nil }
+            if secondsRemaining < 90 { return "about \(max(5, (secondsRemaining / 5) * 5)) sec left" }
+            return "about \(Int((Double(secondsRemaining) / 60).rounded())) min left"
+        }
+    }
+
+    /// What the strip across the top of the picture is saying, or nil when there should not be one.
+    ///
+    /// Derived rather than stored, so the bar cannot disagree with the measurement it describes.
+    public struct AutoSyncBanner: Equatable, Sendable {
+        /// Which of the three things the bar is doing, so the view picks a glyph and a tint without
+        /// having to infer either from the wording.
+        public enum Mood: Equatable, Sendable { case measuring, synced, failed }
+        public let text: String
+        public let mood: Mood
+        /// 0…1 while there is something to fill, nil once the measurement is over and the bar is
+        /// only reporting what happened.
+        public let fraction: Double?
+
+        public init(text: String, mood: Mood, fraction: Double?) {
+            self.text = text
+            self.mood = mood
+            self.fraction = fraction
+        }
+    }
+
+    /// The bar over the picture: progress while listening, then the outcome for a few seconds.
+    public var autoSyncBanner: AutoSyncBanner? {
+        if let autoSyncProgress {
+            let left = autoSyncProgress.remainingText
+            return AutoSyncBanner(text: left.map { "Syncing subtitles  ·  \($0)" }
+                                          ?? "Syncing subtitles\u{2026}",
+                                  mood: .measuring, fraction: autoSyncProgress.fraction)
+        }
+        return autoSyncOutcome.map {
+            AutoSyncBanner(text: $0, mood: autoSyncState == .synced ? .synced : .failed,
+                           fraction: nil)
+        }
+    }
+
     public enum AutoSyncState: Equatable, Sendable {
         case idle
         case measuring
@@ -70,15 +125,94 @@ extension PlayerModel {
     /// The offset is applied as a DELAY rather than by rewriting the file: it is instant, it is
     /// undoable with the existing Reset, and it composes with a rate correction the retimer may
     /// already have applied on the way in.
-    public func autoSyncSubtitle() async {
+    /// Begin a sync and return at once.
+    ///
+    /// The measurement takes minutes — reading the audio means downloading it — so it must not be
+    /// something the viewer waits on. It is owned by the model rather than by the view that started
+    /// it, so closing the settings panel and going back to the film leaves it running, and leaving
+    /// the player stops it.
+    public func startAutoSync() {
+        guard autoSyncState != .measuring, canAutoSyncSubtitle else { return }
+        autoSyncTask?.cancel()
+        autoSyncTask = Task { @MainActor [weak self] in
+            await self?.autoSyncSubtitle()
+            self?.autoSyncTask = nil
+        }
+    }
+
+    /// Put the outcome on the bar, and take it down again a few seconds later.
+    ///
+    /// Nothing is reported for a measurement the player cancelled on the way out: the viewer left,
+    /// and the answer is about a film they are no longer watching.
+    func reportAutoSyncOutcome(_ text: String) {
+        guard !Task.isCancelled else { return }
+        autoSyncOutcome = text
+        autoSyncOutcomeTask?.cancel()
+        autoSyncOutcomeTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(self?.autoSyncOutcomeSeconds ?? 0))
+            guard !Task.isCancelled else { return }
+            self?.autoSyncOutcome = nil
+            self?.autoSyncOutcomeTask = nil
+        }
+    }
+
+    /// Poll the probe for progress until the measurement ends.
+    func trackAutoSyncProgress() {
+        autoSyncProgressTask?.cancel()
+        autoSyncProgressTask = Task { @MainActor [weak self] in
+            while let self, self.autoSyncState == .measuring, !Task.isCancelled {
+                self.pollAutoSyncProgress(now: Date())
+                try? await Task.sleep(for: .seconds(1))
+            }
+        }
+    }
+
+    /// One progress sample, folded into the smoothed estimate.
+    ///
+    /// `ETAEstimator` already exists for downloads and does the hard part — it prefers throughput
+    /// observed across samples, smooths it, and returns nil rather than inventing a number when a
+    /// stream stalls. A measurement that is bound by the same network has exactly the same problem.
+    func pollAutoSyncProgress(now: Date) {
+        guard let audioProbe else { return }
+        let gathered = audioProbe.measuredSeconds
+        let fraction = min(1, max(0, gathered / max(autoSyncWindow, 1)))
+        let remaining = autoSyncETA.observe(fraction: fraction,
+                                            totalBytes: Int(autoSyncWindow * 100),
+                                            reportedSpeed: nil, at: now)
+        autoSyncProgress = AutoSyncProgress(fraction: fraction,
+                                            secondsRemaining: remaining.map { Int($0.rounded()) })
+    }
+
+    /// Test seam: take one sample, optionally pretending time has passed.
+    func pollAutoSyncProgressForTesting(after seconds: TimeInterval = 0) async {
+        pollAutoSyncProgress(now: Date().addingTimeInterval(seconds))
+        await settleForTesting()
+    }
+
+    func autoSyncSubtitle() async {
         guard autoSyncState != .measuring,
               let audioProbe,
               let subtitleURL = selectedDownloadedSubtitleFile,
               let text = Self.readSubtitle(at: subtitleURL) else { return }
 
         autoSyncState = .measuring
+        autoSyncETA = ETAEstimator()
+        autoSyncProgress = AutoSyncProgress(fraction: 0, secondsRemaining: nil)
+        autoSyncOutcome = nil
+        trackAutoSyncProgress()
         note("auto-sync: measuring \(Int(autoSyncWindow))s of the talkiest stretch")
-        defer { if autoSyncState == .measuring { autoSyncState = .failed } }
+        // Read by the `defer`, which runs after whichever `return` the measurement takes — so the
+        // bar reports the same thing on every path out, including the early refusals.
+        var applied: Double?
+        defer {
+            if autoSyncState == .measuring { autoSyncState = .failed }
+            autoSyncProgressTask?.cancel()
+            autoSyncProgressTask = nil
+            autoSyncProgress = nil          // the bar shows the outcome now, not the progress
+            reportAutoSyncOutcome(applied.map {
+                String(format: "Subtitles synced  ·  shifted %+.1fs", $0)
+            } ?? "Couldn't sync the subtitles \u{2014} nudge the timing by hand")
+        }
 
         guard let url = try? await unrestrict(currentSource.restrictedLink) else {
             note("auto-sync: could not open the media")
@@ -230,6 +364,7 @@ extension PlayerModel {
         note(String(format: "auto-sync: applying %+.1fs (confidence %.2f)",
                     best.offsetSeconds, best.confidence))
         applySubtitleDelay(best.offsetSeconds)
+        applied = best.offsetSeconds
         autoSyncState = .synced
     }
 

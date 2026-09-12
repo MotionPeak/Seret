@@ -287,6 +287,21 @@ public final class PlayerModel {
     let autoSyncMinimumHalf: Double
     /// Where an auto-sync measurement has got to. Drives the row's label and spinner.
     public internal(set) var autoSyncState: AutoSyncState = .idle
+    /// How far the running measurement has got, for the bar over the picture. Nil when none runs.
+    public internal(set) var autoSyncProgress: AutoSyncProgress?
+    /// What the bar says once the measurement ends — the actual outcome, offset included. Held for
+    /// a few seconds and then cleared: a permanent banner over the picture is a worse outcome than
+    /// no banner, and the settings panel still reports the state for as long as anyone cares.
+    public internal(set) var autoSyncOutcome: String?
+    var autoSyncOutcomeTask: Task<Void, Never>?
+    /// How long the outcome stays on screen — long enough to read a sentence at ten feet. Per
+    /// instance rather than a static, so a test can shorten it without touching every other model.
+    var autoSyncOutcomeSeconds: Double = 6
+    /// Owned by the model, not by the view that started it: a sync takes minutes and has to survive
+    /// the settings panel closing, while still dying with the player.
+    var autoSyncTask: Task<Void, Never>?
+    var autoSyncProgressTask: Task<Void, Never>?
+    var autoSyncETA = ETAEstimator()
 
     /// How long to let VLCKit finish discovering subtitle tracks before falling back to a download.
     /// There is no "discovery finished" event, so this is the only thing separating "this file has
@@ -745,6 +760,13 @@ public final class PlayerModel {
 
     /// Yields the current task so in-flight async work can complete before assertions.
     /// Used only in unit tests — see `PlayerModelTests`.
+    /// Test seam: let the model's own tasks run a turn. Distinct from `waitForIdleForTesting` only
+    /// in name — this one reads as "let what I just started take effect".
+    func settleForTesting() async {
+        await Task.yield()
+        try? await Task.sleep(nanoseconds: 30_000_000)
+    }
+
     public func waitForIdleForTesting() async {
         await Task.yield()
         try? await Task.sleep(nanoseconds: 20_000_000)

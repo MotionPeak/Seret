@@ -392,6 +392,16 @@ extension PlayerModel {
         loadWatchdog?.cancel()
         subtitleFallbackTask?.cancel()          // else it spends OpenSubtitles quota on a dead engine
         subtitleAttachTimeoutTask?.cancel()
+        // A sync outliving the player would keep pulling a stream nobody is watching, for minutes.
+        autoSyncTask?.cancel()
+        autoSyncProgressTask?.cancel()
+        autoSyncOutcomeTask?.cancel()
+        autoSyncTask = nil
+        autoSyncProgressTask = nil
+        autoSyncOutcomeTask = nil
+        autoSyncProgress = nil
+        autoSyncOutcome = nil
+        audioProbe?.cancel()
         cancelScan()
         nowPlaying?.deactivate()
         // Stop the picture and sound FIRST. `recordCurrentProgress()` is a store write, and awaiting
