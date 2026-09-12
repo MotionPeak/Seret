@@ -41,6 +41,38 @@ public final class PlayerModel {
         public var id: String { language }
     }
 
+    /// Why a subtitle chosen in the search browser did not end up on screen.
+    ///
+    /// The language rows have carried their own reasons for a long time — the panel prints
+    /// "Hebrew — daily limit reached" and "Hebrew — add an OpenSubtitles account". The browser had
+    /// nothing: every cause collapsed into `subtitleSearchState = .failed`, and both platforms
+    /// closed the browser the instant the pick returned, so a missing account, an exhausted quota
+    /// and a dead network were indistinguishable from the press having been ignored. On the Apple
+    /// TV that is what the viewer saw, every time.
+    public enum SubtitlePickFailure: Equatable, Sendable {
+        case noAccount
+        case capReached(Date?)
+        case failed
+
+        public var message: String {
+            switch self {
+            case .noAccount:
+                "Add an OpenSubtitles account in Settings to download subtitles."
+            case .capReached(let reset):
+                Self.capMessage(reset)
+            case .failed:
+                "That subtitle couldn't be downloaded. Try another one."
+            }
+        }
+
+        private static func capMessage(_ reset: Date?) -> String {
+            let base = "The OpenSubtitles daily download limit is used up."
+            guard let reset else { return "\(base) Try again tomorrow." }
+            let when = reset.formatted(date: .omitted, time: .shortened)
+            return "\(base) It resets at \(when)."
+        }
+    }
+
     // MARK: - Published state
 
     public internal(set) var phase: Phase = .preparing
@@ -587,6 +619,9 @@ public final class PlayerModel {
     public internal(set) var subtitleSearchResults: [SubtitleMatch.Ranked] = []
     /// The language whose results are currently shown.
     public internal(set) var subtitleSearchLanguage: String?
+    /// Why the last browser pick produced nothing, for the browser to print. Cleared by a pick that
+    /// works and by starting a new search — a stale complaint must not outlive the attempt.
+    public internal(set) var subtitlePickFailure: SubtitlePickFailure?
     /// Seconds the subtitle track is shifted by. Positive shows each line LATER. Session-scoped
     /// and reset for every new source — an offset dialled for one file means nothing for the next.
     public internal(set) var subtitleDelay: Double = 0

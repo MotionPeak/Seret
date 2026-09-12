@@ -260,6 +260,16 @@ struct MobileSubtitleBrowser: View {
 
     var body: some View {
         List {
+            // Why the last pick produced nothing, above the list it was picked from — so the
+            // answer is where the viewer is already looking, and the list stays to retry from.
+            if let failure = model.subtitlePickFailure {
+                Section {
+                    Label(failure.message, systemImage: "exclamationmark.triangle.fill")
+                        .font(.footnote)
+                        .foregroundStyle(Theme.Palette.textPrimary)
+                }
+                .listRowBackground(Theme.Palette.gold.opacity(0.16))
+            }
             Section {
                 Picker("Language", selection: languageBinding) {
                     ForEach(SubtitleLanguages.order(languages, pinned: pinned)) { language in
@@ -272,14 +282,20 @@ struct MobileSubtitleBrowser: View {
             case .idle, .searching:
                 HStack { ProgressView(); Text("Searching…").foregroundStyle(.secondary) }
             case .failed:
-                Text("Couldn't search subtitles. Check the OpenSubtitles account in Settings.")
-                    .foregroundStyle(.secondary)
+                // The banner below carries the actual reason; only speak up if there isn't one.
+                if model.subtitlePickFailure == nil {
+                    Text("Couldn't search subtitles. Check the OpenSubtitles account in Settings.")
+                        .foregroundStyle(.secondary)
+                }
             case .loaded where model.subtitleSearchResults.isEmpty:
                 Text("No subtitles found in this language.").foregroundStyle(.secondary)
             case .loaded:
                 ForEach(model.subtitleSearchResults, id: \.result.fileID) { ranked in
                     Button {
-                        Task { await model.useSubtitle(ranked); dismiss() }
+                        // Dismiss only when a subtitle actually reached the engine. It used to
+                        // dismiss unconditionally, so a pick that failed took the list away
+                        // having changed nothing — indistinguishable from being ignored.
+                        Task { if await model.useSubtitle(ranked) { dismiss() } }
                     } label: {
                         VStack(alignment: .leading, spacing: 4) {
                             HStack {

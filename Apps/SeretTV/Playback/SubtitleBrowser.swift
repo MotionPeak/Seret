@@ -23,6 +23,7 @@ struct SubtitleBrowser: View {
         VStack(alignment: .leading, spacing: 20) {
             header
             languagePills
+            if let failure = model.subtitlePickFailure { failureBanner(failure) }
             results
             Spacer(minLength: 0)
         }
@@ -55,6 +56,23 @@ struct SubtitleBrowser: View {
                 .foregroundStyle(Theme.Palette.textSecondary)
                 .lineLimit(1)
         }
+    }
+
+    /// Why the last pick produced nothing, above the list it was picked from — so the answer is
+    /// where the viewer is already looking, and the list stays there to try again from.
+    private func failureBanner(_ failure: PlayerModel.SubtitlePickFailure) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(Theme.Palette.gold)
+            Text(failure.message)
+                .font(.seretCallout)
+                .foregroundStyle(Theme.Palette.textPrimary)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 22).padding(.vertical, 14)
+        .background(Theme.Palette.gold.opacity(0.14), in: RoundedRectangle(cornerRadius: 14))
+        .overlay(RoundedRectangle(cornerRadius: 14)
+            .strokeBorder(Theme.Palette.gold.opacity(0.45), lineWidth: 1))
     }
 
     private var languagePills: some View {
@@ -112,9 +130,12 @@ struct SubtitleBrowser: View {
             .frame(maxWidth: .infinity, alignment: .center)
             .padding(.top, 60)
         case .failed:
-            Text("Couldn't search subtitles. Check the OpenSubtitles account in Settings.")
-                .foregroundStyle(Theme.Palette.textSecondary)
-                .padding(.top, 40)
+            // The banner above carries the actual reason; only speak up if there isn't one.
+            if model.subtitlePickFailure == nil {
+                Text("Couldn't search subtitles. Check the OpenSubtitles account in Settings.")
+                    .foregroundStyle(Theme.Palette.textSecondary)
+                    .padding(.top, 40)
+            }
         case .loaded where model.subtitleSearchResults.isEmpty:
             Text("No subtitles found in this language.")
                 .foregroundStyle(Theme.Palette.textSecondary)
@@ -124,7 +145,11 @@ struct SubtitleBrowser: View {
                 LazyVStack(spacing: 8) {
                     ForEach(model.subtitleSearchResults, id: \.result.fileID) { ranked in
                         Button {
-                            Task { await model.useSubtitle(ranked); onClose() }
+                            // Close only when a subtitle actually reached the engine. It used to
+                            // close unconditionally, so a pick that failed — no account, quota
+                            // used up, a dead network — took the list away having changed nothing,
+                            // which is indistinguishable from the press being ignored.
+                            Task { if await model.useSubtitle(ranked) { onClose() } }
                         } label: {
                             row(ranked)
                         }

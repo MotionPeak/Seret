@@ -30,7 +30,12 @@ extension PlayerModel {
     }
 
     private func downloadSubtitle(language: String) async {
-        guard let subtitles else { setRow(language, .noAccount); return }
+        guard let subtitles else {
+            // The state five plays on the Apple TV were in, and nothing in the log said so.
+            note("\(language): NO PROVIDER — no OpenSubtitles account on this device")
+            setRow(language, .noAccount)
+            return
+        }
         guard subtitleRows.first(where: { $0.language == language })?.state != .downloading else { return }
         // Already fetched this language and the track is still there? Then the ask is "put Hebrew
         // back on", not "fetch Hebrew again" — and re-fetching could not have answered it anyway,
@@ -54,10 +59,12 @@ extension PlayerModel {
             await resolveMoviehashIfNeeded()
             query.moviehash = currentMoviehash
             let results = try await subtitles.search(query, languages: [language])
-            #if DEBUG
-            subtitleProbe("download \(language): search → \(results.count) results")
-            #endif
-            guard let best = rankedBest(results) else { setRow(language, .error); return }
+            note("\(language): search → \(results.count) results")
+            guard let best = rankedBest(results) else {
+                note("\(language): nothing matched this file")
+                setRow(language, .error)
+                return
+            }
             let url = try await subtitles.download(best)
             // Requesting a language IS choosing it — make it sticky so the next episode/title
             // auto-downloads the same language without re-picking.
@@ -65,13 +72,13 @@ extension PlayerModel {
             // Correct the timing when this subtitle was authored against a different frame rate.
             attach(prepareSubtitle(at: url, declaredFPS: best.fps), language: language)
         } catch let SubtitleError.dailyCapReached(reset) {
+            note("\(language) FAILED: daily cap reached (resets \(reset?.description ?? "unknown"))")
             setRow(language, .capReached(reset))
         } catch SubtitleError.notAuthenticated {
+            note("\(language) FAILED: OpenSubtitles refused the login")
             setRow(language, .noAccount)
         } catch {
-            #if DEBUG
-            subtitleProbe("download \(language) FAILED: \(error)")
-            #endif
+            note("\(language) FAILED: \(error)")
             setRow(language, .error)
         }
     }
@@ -80,7 +87,14 @@ extension PlayerModel {
     /// moviehash is resolved once per source — two small range requests — turning a filename
     /// heuristic into a perfect-sync guarantee.
     public func searchSubtitles(language: String) async {
-        guard let subtitles else { subtitleSearchState = .failed; return }
+        // Starting a search is the viewer moving on from whatever went wrong last time.
+        subtitlePickFailure = nil
+        guard let subtitles else {
+            note("search \(language): NO PROVIDER — no OpenSubtitles account on this device")
+            subtitlePickFailure = .noAccount
+            subtitleSearchState = .failed
+            return
+        }
         subtitleSearchLanguage = language
         subtitleSearchState = .searching
         subtitleSearchResults = []
@@ -90,11 +104,14 @@ extension PlayerModel {
         query.moviehash = currentMoviehash
         do {
             let results = try await subtitles.search(query, languages: [language])
+            note("search \(language) → \(results.count) results")
             subtitleSearchResults = SubtitleMatch.rank(results,
                                                        against: currentSource.releaseNameForMatching,
                                                        videoFPS: engine.videoFPS)
             subtitleSearchState = .loaded
         } catch {
+            note("search \(language) FAILED: \(error)")
+            subtitlePickFailure = Self.pickFailure(for: error)
             subtitleSearchState = .failed
         }
     }
@@ -107,19 +124,49 @@ extension PlayerModel {
     /// still live, and the moment the slave appeared it re-decided over it and put the file's own
     /// track back. The viewer had gone to the trouble of choosing a specific subtitle and watched
     /// nothing change.
-    public func useSubtitle(_ ranked: SubtitleMatch.Ranked) async {
-        guard let subtitles else { return }
+    /// - Returns: whether a subtitle was actually handed to the engine. The browser closes only on
+    ///   `true`; on `false` it stays open and prints `subtitlePickFailure`, because a list that
+    ///   vanishes having changed nothing is the whole complaint.
+    @discardableResult
+    public func useSubtitle(_ ranked: SubtitleMatch.Ranked) async -> Bool {
+        // No provider at all — no OpenSubtitles account in this device's Keychain. This returned on
+        // its own `guard` without a word, which on the Apple TV is a press that does nothing at all.
+        guard let subtitles else { return failPick(.noAccount) }
         let wasPicked = subtitlePickedByUser
         subtitlePickedByUser = true
         do {
             let url = try await subtitles.download(ranked.result)
+            note("subtitle pick: downloaded \(ranked.result.fileID) (\(ranked.result.language))")
             attach(prepareSubtitle(at: url, declaredFPS: ranked.result.fps),
                    language: ranked.result.language)
+            subtitlePickFailure = nil
+            return true
         } catch {
             // A pick that chose nothing must not leave the automatic path latched off for the rest
             // of the source — that would cost the viewer subtitles altogether over a failed fetch.
             if !wasPicked { subtitlePickedByUser = false }
-            subtitleSearchState = .failed
+            // Deliberately NOT `subtitleSearchState = .failed`: that describes the SEARCH, and the
+            // browser draws its list from it. Marking it failed emptied the list the viewer was
+            // standing in, so keeping the browser open bought them a reason and no way to act on
+            // it. The search succeeded; one download did not.
+            return failPick(Self.pickFailure(for: error))
+        }
+    }
+
+    /// Record why a pick produced nothing, and leave the same line in the diagnostics log the next
+    /// device report will be read from.
+    @discardableResult
+    private func failPick(_ reason: SubtitlePickFailure) -> Bool {
+        subtitlePickFailure = reason
+        note("subtitle pick FAILED: \(reason)")
+        return false
+    }
+
+    static func pickFailure(for error: Error) -> SubtitlePickFailure {
+        switch error {
+        case SubtitleError.notAuthenticated:            .noAccount
+        case SubtitleError.dailyCapReached(let reset):  .capReached(reset)
+        default:                                        .failed
         }
     }
 
@@ -146,6 +193,7 @@ extension PlayerModel {
 
     /// Put an already-attached downloaded track back on screen and re-own it from its language row.
     func selectAttachedSubtitle(id: String, language: String) {
+        note("\(language): re-selecting the track already attached for it")
         #if DEBUG
         subtitleProbe("SELECT \(id) (re-select of attached \(language)) <- FLUSHES SPU")
         #endif
@@ -283,7 +331,11 @@ extension PlayerModel {
     private func failPendingSubtitleAttach(language: String) {
         guard pendingSubtitleAttach?.language == language else { return }
         pendingSubtitleAttach = nil
+        note("attach of \(language) never landed — giving up")
         setRow(language, .error)
+        // A browser pick has no language row to carry the bad news, so it needs saying here too:
+        // the download worked and the track never appeared, which on screen is the same silence.
+        subtitlePickFailure = .failed
         // The download chose nothing after all. Leaving the manual-pick latch set disabled the
         // automatic preference for the rest of the source, so a muxed track in the viewer's
         // language — one that may only have finished parsing while the download was being waited
@@ -294,6 +346,9 @@ extension PlayerModel {
         subtitleSelectionSignature = []
         applyTrackPreferencesIfNeeded()
     }
+
+    /// One app-side line into the engine's diagnostics log, beside libvlc's own.
+    func note(_ line: String) { engine.note("[subs] \(line)") }
 
     func setRow(_ language: String, _ state: SubtitleRowState) {
         guard let i = subtitleRows.firstIndex(where: { $0.language == language }) else { return }
