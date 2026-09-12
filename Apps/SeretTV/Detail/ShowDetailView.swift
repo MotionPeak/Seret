@@ -169,7 +169,7 @@ struct ShowDetailView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 14) {
                     ForEach(store.allSeasons, id: \.self) { number in
-                        Button("Season \(number)") { Task { await store.selectSeason(number) } }
+                        Button(SeasonOrder.label(number)) { Task { await store.selectSeason(number) } }
                             .buttonStyle(SeretPillStyle(selected: number == store.selectedSeason))
                             .focused($focusedSeason, equals: number)
                     }

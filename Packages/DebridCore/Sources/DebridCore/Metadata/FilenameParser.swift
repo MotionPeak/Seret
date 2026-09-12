@@ -45,12 +45,35 @@ public struct FilenameParser: Sendable {
         } else if let g = Self.captures(stem, Self.reSeasonBare) {
             season = Int(g[0])
         }
+        (season, episode) = Self.resolvingSpecial(season: season, episode: episode)
 
         return ParsedRelease(
             title: title,
             year: year, season: season, episode: episode,
             resolution: resolution, source: source, videoCodec: videoCodec,
             audioCodec: audioCodec, releaseGroup: releaseGroup)
+    }
+
+    /// `SxxE00` is a SPECIAL that accompanies season xx, not episode zero of it.
+    ///
+    /// `Sherlock.S01E00.1080p.Bluray.x265-HiQVE.mkv` — the unaired pilot, off the real library —
+    /// took the name at its word and became S1E0. That sorted ahead of the premiere, so Play,
+    /// resume and the auto-advance all opened the pilot instead of "A Study in Pink"; TMDB has no
+    /// episode 0 of series 1, so it drew as a nameless card; and the subtitle search asked
+    /// OpenSubtitles for `episode_number=0`, which can never match.
+    ///
+    /// Season 0 is what TMDB and every media server call Specials. The episode number becomes the
+    /// season it belongs to, because that is the only thing the name actually says and it is the
+    /// one choice that cannot collide — two specials both numbered 0 would share a key and merge
+    /// into a single row holding two different files. For the common case of a single pilot it is
+    /// also right: TMDB's `tv/19885/season/0` is "Specials" and its E1 IS "Unaired Pilot". On a
+    /// show whose specials are ordered differently the number is positional rather than accurate,
+    /// which is no worse than the nothing it matched before.
+    ///
+    /// A name that already says `S00Exx` states its own special number and is left exactly as is.
+    static func resolvingSpecial(season: Int?, episode: Int?) -> (Int?, Int?) {
+        guard episode == 0, let season, season > 0 else { return (season, episode) }
+        return (0, season)
     }
 
     // MARK: - Compiled patterns (compiled once — patterns are static literals, so try! is safe)

@@ -73,7 +73,7 @@ struct AutoPlayHarness: ViewModifier {
             guard let show = store.shows.first(where: {
                 $0.title.localizedCaseInsensitiveContains(needle)
             }) else { return }                        // library still loading — the task re-runs
-            guard let episode = show.seasons.sorted(by: { $0.number < $1.number })
+            guard let episode = show.seasons.sortedBySeason()
                 .flatMap({ $0.episodes.sorted(by: { $0.number < $1.number }) })
                 .dropFirst(index).first else { return }
             started = true

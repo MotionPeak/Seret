@@ -176,7 +176,7 @@ struct ShowDetail: View {
                 HStack(spacing: Theme.Space.sm) {
                     ForEach(store.allSeasons, id: \.self) { n in
                         let selected = n == store.selectedSeason
-                        Button("Season \(n)") { Task { await store.selectSeason(n) } }
+                        Button(SeasonOrder.label(n)) { Task { await store.selectSeason(n) } }
                             .font(Theme.Typo.headline())
                             .foregroundStyle(selected ? Theme.Palette.onGold : Theme.Palette.textSecondary)
                             .padding(.vertical, 7).padding(.horizontal, Theme.Space.lg)

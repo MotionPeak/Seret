@@ -181,7 +181,7 @@ private final class ShowAccumulator {
                            source: ranked[0], alternates: Array(ranked.dropFirst()))
         }
         let bySeason = Dictionary(grouping: episodes, by: { $0.season })
-        let seasons = bySeason.keys.sorted().map { number in
+        let seasons = bySeason.keys.sortedBySeason().map { number in
             Season(number: number, episodes: bySeason[number]!.sorted { $0.number < $1.number })
         }
         return MediaItem(id: "show:\(LibraryBuilder.titleKey(title))", kind: .show,

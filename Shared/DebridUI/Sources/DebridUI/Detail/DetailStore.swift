@@ -79,7 +79,9 @@ public final class DetailStore {
         self.versionPrefs = versionPrefs
         self.overview = item.overview
         self.backdropPath = item.backdropPath
-        self.selectedSeason = item.seasons.first?.number ?? 1
+        // Viewing order, so a show that owns only its Specials plus season 1 does not open on
+        // the extras — `item.seasons` is built in that order, but this must not depend on it.
+        self.selectedSeason = item.seasons.sortedBySeason().first?.number ?? 1
     }
 
     // Movies: ranked sources.
@@ -134,7 +136,7 @@ public final class DetailStore {
         var set = Set(item.seasons.map(\.number))
         if let n = numberOfSeasons, n > 0 { set.formUnion(1...n) }
         if set.isEmpty { set.insert(selectedSeason) }
-        return set.sorted()
+        return set.sortedBySeason()
     }
 
     /// One row in a show's episode list: TMDB metadata plus the owned source when downloaded.
@@ -377,7 +379,9 @@ public final class DetailStore {
     /// order), else the first not-known-finished episode, else the very first. Uses whatever
     /// watch state is currently loaded.
     public func nextEpisode() -> Episode? {
-        let all = item.seasons.sorted { $0.number < $1.number }
+        // Specials last: "what to play next" returning a show's unaired pilot is exactly the
+        // bug that filing that pilot as S1E0 caused.
+        let all = item.seasons.sortedBySeason()
             .flatMap { $0.episodes.sorted { $0.number < $1.number } }
         if let inProgress = all.first(where: {
             let w = watchByKey[WatchKey.content(forShow: item, episode: $0)]

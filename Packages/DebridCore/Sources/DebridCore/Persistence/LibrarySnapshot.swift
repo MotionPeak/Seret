@@ -21,7 +21,11 @@ public struct LibrarySnapshot: Sendable, Equatable, Codable {
     /// "2012"), and a double episode (`S01E01E02`) parses as an episode instead of a movie. Both
     /// change the title a torrent groups under, so an existing library has to be re-grouped to
     /// pick them up.
-    public static let currentSchemaVersion = 4
+    ///
+    /// 5: `SxxE00` is a SPECIAL and files under season 0, instead of becoming episode zero of
+    /// season xx. That moves a file between seasons, so a cached library would otherwise keep the
+    /// unaired pilot sitting in front of the premiere for good.
+    public static let currentSchemaVersion = 5
 
     public let schemaVersion: Int
     public let builtAt: Date
