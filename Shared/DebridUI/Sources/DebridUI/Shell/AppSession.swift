@@ -241,10 +241,13 @@ public final class AppSession {
     /// (profiles, downloads) so two containers can NEVER share one store — sharing `default.store`
     /// with different schemas (and CloudKit) clobbered tables and double-registered CloudKit sync,
     /// which broke profiles entirely ("no such table: ZPROFILE", "another instance … syncing").
+    ///
+    /// Resolved through `WritableStorage`, which only returns a location it has actually created. This
+    /// asked for Application Support directly, and on tvOS that cannot be created — so this
+    /// returned nil on every Apple TV and both containers fell back to an IN-MEMORY store. Profiles,
+    /// watch progress, My List, ratings and downloads were all discarded on every relaunch there.
     static func dedicatedStoreURL(_ name: String) -> URL? {
-        try? FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask,
-                                     appropriateFor: nil, create: true)
-            .appendingPathComponent(name)
+        WritableStorage.file(named: name)
     }
 
     private static var profileStoreURL: URL? { dedicatedStoreURL("SeretProfiles.store") }
@@ -709,14 +712,17 @@ public final class AppSession {
             ?? URL(fileURLWithPath: NSTemporaryDirectory())
     }
 
-    /// Durable on-disk location for caches we want to SURVIVE relaunches. tvOS aggressively purges
-    /// `Caches/`, which evicted the library snapshot + OMDb ratings → a cold, blocking rebuild on
-    /// nearly every launch. Application Support is not purged, so the snapshot sticks and the
-    /// library renders instantly on relaunch.
+    /// The most durable on-disk location this platform will actually give us, for caches we want to
+    /// SURVIVE relaunches — the library snapshot and the OMDb ratings.
+    ///
+    /// Application Support is preferred because `Caches` is purgeable, and tvOS purging it evicted
+    /// the snapshot into a cold, blocking rebuild. But naming Application Support outright made
+    /// this WORSE on the device it was meant to help: a tvOS container has no such directory, so
+    /// the snapshot was never written at all and every launch rebuilt from scratch. `WritableStorage`
+    /// hands back a directory it has proved it can create.
     private static var dataDirectory: URL {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? cachesDirectory
-        return base.appending(path: "Seret", directoryHint: .isDirectory)
+        WritableStorage.directory(named: "Seret")
+            ?? cachesDirectory.appending(path: "Seret", directoryHint: .isDirectory)
     }
 }
 

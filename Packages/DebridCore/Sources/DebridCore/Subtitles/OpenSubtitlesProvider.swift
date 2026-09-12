@@ -25,11 +25,16 @@ public actor OpenSubtitlesProvider: SubtitleProvider {
     /// A re-download of the same file (re-watching a title) is served from here — no `POST
     /// /download`, so it doesn't spend the daily quota.
     ///
-    /// Application Support, NOT Caches: **tvOS purges `Caches/`**, which silently threw the cache
-    /// away and re-spent quota. The library snapshot was moved for the same reason.
+    /// Application Support where it exists — it is never purged, and `Caches` is — falling back to
+    /// wherever this platform will actually take a directory. See `WritableStorage`.
+    ///
+    /// This used to name Application Support outright, to stop tvOS purging the cache and re-
+    /// spending quota. On tvOS that directory cannot be created at all, so every write threw EPERM
+    /// and **no subtitle could be downloaded on an Apple TV, ever** — search returned results, the
+    /// pick failed at the last step, and the error was swallowed three layers up.
     public static var defaultCacheDirectory: URL {
-        (FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? FileManager.default.temporaryDirectory).appending(path: "SeretSubtitles")
+        WritableStorage.directory(named: "SeretSubtitles")
+            ?? FileManager.default.temporaryDirectory.appending(path: "SeretSubtitles")
     }
 
     public init(apiKey: String, credentials: Credentials,
