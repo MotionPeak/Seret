@@ -117,7 +117,12 @@ final class AudioActivityProbe: AudioLoudnessProbing {
             }
         }
         guard !frames.mix.isEmpty else { return nil }
+        #if DEBUG
+        return LoudnessWindow(frames: frames.mix, centre: frames.centre,
+                              perChannel: frames.perChannel, startSeconds: origin)
+        #else
         return LoudnessWindow(frames: frames.mix, centre: frames.centre, startSeconds: origin)
+        #endif
     }
 
     /// Seek to `target` and wait until the player agrees it is there, returning the media time it
@@ -159,6 +164,16 @@ final class AudioActivityProbe: AudioLoudnessProbing {
         NSLog("[probe] collected %d frames (%d with centre); player at %.1fs (asked %.1fs)",
               frames.mix.count, frames.centre.filter { $0 > 0 }.count,
               Double(player.time.intValue) / 1000, requestedStart)
+        #if DEBUG
+        NSLog("[probe] channels: %@", collector.channelReport())
+        // …and WHICH audio track this was. The probe never asks for one, so libvlc picks its
+        // default — which need not be the track the film is playing. A 2.0 commentary decoded
+        // instead of the 5.1 feature would have no centre channel to find.
+        let tracks = player.audioTracks.map {
+            "\($0.trackId)\($0.isSelected ? "*" : "") \($0.language ?? "-") ch=\($0.audio?.channelsNumber ?? 0)"
+        }
+        NSLog("[probe] audio tracks: %@", tracks.joined(separator: " | "))
+        #endif
         libvlc_audio_set_callbacks(player.libVLCMediaPlayer, nil, nil, nil, nil, nil, nil)
         player.stop()
         continuation.resume(returning: frames)
@@ -181,11 +196,22 @@ private final class Collector: @unchecked Sendable {
     struct Frames: Sendable {
         let mix: [Float]
         let centre: [Float]
+        #if DEBUG
+        /// Per-frame RMS for every channel, so the question "which channel actually tracks the
+        /// subtitles" can be answered rather than assumed.
+        var perChannel: [[Float]] = []
+        #endif
     }
 
     private struct State {
         var sums: [Double] = []
         var centreSums: [Double] = []
+        #if DEBUG
+        /// Total energy per CHANNEL across the window. The one reading that decides whether
+        /// centre-channel voice detection is even possible here.
+        var channelEnergy = [Double](repeating: 0, count: 8)
+        var channelSamples = 0.0
+        #endif
         var counts: [Int] = []
         var budget = 0
         var firstPTS: Int64?
@@ -195,6 +221,10 @@ private final class Collector: @unchecked Sendable {
         /// Speech-band filter state, carried across chunks — a filter restarted per chunk rings at
         /// every boundary and measures its own transients.
         var band = SpeechBandFilter(sampleRate: 16000)
+        #if DEBUG
+        /// Per-frame RMS for every channel.
+        var channelFrames: [[Double]] = []
+        #endif
     }
 
     private let sampleRate: Double
@@ -212,7 +242,9 @@ private final class Collector: @unchecked Sendable {
                        centreSums: [Double](repeating: 0, count: n),
                        counts: [Int](repeating: 0, count: n),
                        budget: n, firstPTS: nil, complete: false, armed: false,
-                       band: SpeechBandFilter(sampleRate: sampleRate))
+                       band: SpeechBandFilter(sampleRate: sampleRate),
+                       channelFrames: Array(repeating: [Double](repeating: 0, count: n),
+                                            count: Int(AudioActivityProbe.channels)))
         }
     }
 
@@ -242,11 +274,17 @@ private final class Collector: @unchecked Sendable {
         let centreOffset = AudioActivityProbe.centreChannel
         var total = 0.0
         var centre = 0.0
+        #if DEBUG
+        var perChannel = [Double](repeating: 0, count: channels)
+        #endif
         for frame in 0..<count {
             let base = frame * channels
             for ch in 0..<channels {
                 let v = Double(samples[base + ch]) / 32768.0
                 total += v * v
+                #if DEBUG
+                perChannel[ch] += v * v
+                #endif
             }
             // Band-limit the centre BEFORE measuring it, so a score's bass and an effect's top end
             // — both of which sit in the centre often enough — are not counted as speech.
@@ -257,6 +295,9 @@ private final class Collector: @unchecked Sendable {
         let centreRMS = (centre / Double(count)).squareRoot()
 
         let updated = band                      // an immutable copy, so the closure may be @Sendable
+        #if DEBUG
+        let tallies = perChannel
+        #endif
         let done: Bool = state.withLock { s in
             guard s.armed, !s.complete else { return false }
             s.band = updated
@@ -272,6 +313,15 @@ private final class Collector: @unchecked Sendable {
             s.sums[index] += mixRMS
             s.centreSums[index] += centreRMS
             s.counts[index] += 1
+            #if DEBUG
+            for ch in 0..<Swift.min(tallies.count, s.channelEnergy.count) {
+                s.channelEnergy[ch] += tallies[ch]
+            }
+            for ch in 0..<Swift.min(tallies.count, s.channelFrames.count) {
+                s.channelFrames[ch][index] += (tallies[ch] / Double(count)).squareRoot()
+            }
+            s.channelSamples += Double(count)
+            #endif
             return false
         }
         if done { onComplete?() }
@@ -284,6 +334,27 @@ private final class Collector: @unchecked Sendable {
     /// Padding the tail with zeros would hand `SubtitleSync` minutes of fabricated silence to
     /// correlate against, which is worse than a shorter honest window. Measured on a real stream:
     /// 659 of 3000 frames in ninety seconds, and those 659 are perfectly good.
+    #if DEBUG
+    /// RMS per channel across the whole window. The decisive reading: a true 5.1 decode puts
+    /// dialogue in channel 2 (C) with quiet surrounds, while an upmix from stereo makes C exactly
+    /// (L+R)/2 and leaves the surrounds silent or a copy of the front.
+    func channelReport() -> String {
+        state.withLock { s in
+            guard s.channelSamples > 0 else { return "no audio" }
+            let names = ["L", "R", "C", "LFE", "Ls", "Rs", "6", "7"]
+            let rms = s.channelEnergy.map { ($0 / s.channelSamples).squareRoot() }
+            let parts = zip(names, rms).prefix(Int(AudioActivityProbe.channels))
+                .map { String(format: "%@ %.4f", $0, $1) }
+            // Is C simply the average of L and R? That is what an upmix produces, and it would mean
+            // there is no separated dialogue to detect at all.
+            let synthetic = (rms[0] + rms[1]) / 2
+            let ratio = rms[2] / Swift.max(synthetic, 1e-9)
+            return parts.joined(separator: "  ")
+                + String(format: "   | C/((L+R)/2) = %.3f", ratio)
+        }
+    }
+    #endif
+
     func frames() -> Frames {
         state.withLock { s in
             guard let last = s.counts.lastIndex(where: { $0 > 0 }) else {
@@ -293,7 +364,12 @@ private final class Collector: @unchecked Sendable {
             func mean(_ sums: [Double]) -> [Float] {
                 zip(sums.prefix(last + 1), counts).map { $1 > 0 ? Float($0 / Double($1)) : 0 }
             }
+            #if DEBUG
+            return Frames(mix: mean(s.sums), centre: mean(s.centreSums),
+                          perChannel: s.channelFrames.map(mean))
+            #else
             return Frames(mix: mean(s.sums), centre: mean(s.centreSums))
+            #endif
         }
     }
 }

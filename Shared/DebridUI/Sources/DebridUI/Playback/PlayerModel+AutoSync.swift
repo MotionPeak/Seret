@@ -143,6 +143,31 @@ extension PlayerModel {
         // Without this a rejection cannot be told from a signal carrying no information at all.
         let atZero = SubtitleSync.correlation(speech: matched, cues: cues, lag: 0)
         note(String(format: "auto-sync: score at no-shift %.3f", atZero))
+        // The single number that separates "the feature is wrong" from "the frames are in the wrong
+        // place". If the centre channel really carries dialogue AND the frames line up with media
+        // time, centre energy during cue frames must clearly exceed centre energy between them.
+        // Equal or inverted means the two signals are not describing the same instants, whatever
+        // the correlation search then makes of them.
+        // Which channel, if any, is louder when a subtitle is on screen? A ratio above 1 means that
+        // channel tracks the dialogue; all of them below 1 means the frames are not where we think
+        // they are, and no choice of channel can rescue it.
+        let names = ["L", "R", "C", "LFE", "Ls", "Rs"]
+        for (i, ch) in window.perChannel.enumerated() where ch.count == cues.count {
+            let on = zip(ch, cues).filter { $0.1 > 0 }.map { Double($0.0) }
+            let off = zip(ch, cues).filter { $0.1 == 0 }.map { Double($0.0) }
+            guard !on.isEmpty, !off.isEmpty else { continue }
+            let a = on.reduce(0, +) / Double(on.count), b = off.reduce(0, +) / Double(off.count)
+            note(String(format: "auto-sync: channel %@ during/between = %.2f",
+                        i < names.count ? names[i] : "\(i)", a / Swift.max(b, 1e-9)))
+        }
+        let during = zip(voice, cues).filter { $0.1 > 0 }.map { Double($0.0) }
+        let between = zip(voice, cues).filter { $0.1 == 0 }.map { Double($0.0) }
+        if !during.isEmpty, !between.isEmpty {
+            let a = during.reduce(0, +) / Double(during.count)
+            let b = between.reduce(0, +) / Double(between.count)
+            note(String(format: "auto-sync: voice during cues %.5f vs between %.5f (ratio %.2f)",
+                        a, b, a / Swift.max(b, 1e-9)))
+        }
 
         guard let best = readings.filter({ $0.1.accepted }).max(by: { $0.1.peak < $1.1.peak })?.1,
               best.confidence >= Self.autoSyncMinimumConfidence else {

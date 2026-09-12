@@ -19,10 +19,15 @@ public struct LoudnessWindow: Sendable {
     /// dialogue from everything else, since a film mix puts voices there and spreads music and
     /// effects across the rest. Empty when the source gave no usable centre.
     public let centre: [Float]
+    /// DEBUG: per-frame RMS for every channel, so "which channel tracks the subtitles" is a
+    /// question that can be answered rather than assumed.
+    public let perChannel: [[Float]]
     public let startSeconds: Double
-    public init(frames: [Float], centre: [Float] = [], startSeconds: Double) {
+    public init(frames: [Float], centre: [Float] = [], perChannel: [[Float]] = [],
+                startSeconds: Double) {
         self.frames = frames
         self.centre = centre
+        self.perChannel = perChannel
         self.startSeconds = startSeconds
     }
 }
