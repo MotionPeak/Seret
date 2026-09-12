@@ -11,6 +11,7 @@ import DebridCore
 ///   - `scrubbar`  — the transport bar in each of its states
 ///   - `settings`  — the playback settings panel with grouped subtitle tracks
 ///   - `subtitles` — the full subtitle browser with ranked, badged results
+///   - `subtitlesfailed` — the same browser after a pick that could not be honoured
 ///   - `detail`    — the Movie Detail page with a rating-capable stub store
 ///   - `sidemenu`  — the side menu EXPANDED over a stand-in page
 ///   - `sidemenucollapsed` — the same menu at rest, for an A/B of the two states
@@ -26,6 +27,7 @@ struct PlayerUIPreview: View {
         switch target {
         case "settings":   SettingsPanelPreview()
         case "subtitles":  SubtitleBrowserPreview()
+        case "subtitlesfailed": SubtitleBrowserPreview(failing: true)
         case "inputprobe": InputProbePreview()
         case "detail":     MovieDetailPreview()
         case "sidemenu":            SideMenuPreview(startExpanded: true)
@@ -488,11 +490,27 @@ private struct SettingsPanelPreview: View {
 }
 
 /// The full subtitle browser with ranked, badged Hebrew results (an exact hash match sorts first).
+///
+/// `failing: true` is the state the Apple TV was actually in: results listed, and a pick that
+/// cannot be honoured. It exists because the browser used to close itself on failure, so the one
+/// screen a viewer sees when the download is refused had never been looked at.
 private struct SubtitleBrowserPreview: View {
-    @State private var driver = SubtitlePreviewDriver()
+    private let failing: Bool
+    @State private var driver: SubtitlePreviewDriver
+
+    init(failing: Bool = false) {
+        self.failing = failing
+        _driver = State(initialValue: SubtitlePreviewDriver(failing: failing))
+    }
+
     var body: some View {
         SubtitleBrowser(model: driver.model, onClose: {})
-            .task { await driver.primeAndSearch() }
+            .task {
+                await driver.primeAndSearch()
+                if failing, let first = driver.model.subtitleSearchResults.first {
+                    await driver.model.useSubtitle(first)
+                }
+            }
     }
 }
 
@@ -503,7 +521,7 @@ final class SubtitlePreviewDriver {
     let engine = PreviewEngine()
     let model: PlayerModel
 
-    init() {
+    init(failing: Bool = false) {
         let source = MediaSource(torrentID: "t", fileID: nil, restrictedLink: "rd://x",
                                  parsed: ParsedRelease(title: "Dune Part Two", year: 2024,
                                                        resolution: "2160p", source: "WEB-DL",
@@ -514,7 +532,8 @@ final class SubtitlePreviewDriver {
                                       label: "Dune: Part Two", contentKey: "m")
         model = PlayerModel(request: request, engine: engine,
                             unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
-                            recordProgress: { _, _, _, _ in }, subtitles: PreviewSubtitleProvider())
+                            recordProgress: { _, _, _, _ in },
+                            subtitles: PreviewSubtitleProvider(failDownload: failing))
     }
 
     /// Play, then run a Hebrew search so the browser shows ranked rows.
@@ -551,6 +570,8 @@ final class SubtitlePreviewDriver {
 /// A subtitle provider that returns a fixed, ranking-friendly Hebrew set for the harness — one exact
 /// file-hash match (perfect), one same-resolution BluRay (uncertain source), one poor CAM rip.
 struct PreviewSubtitleProvider: SubtitleProvider {
+    /// Refuse the download the way an unconfigured OpenSubtitles account does.
+    var failDownload = false
     func search(_ query: SubtitleQuery, languages: [String]) async throws -> [SubtitleResult] {
         [
             SubtitleResult(fileID: 1, language: "he",
@@ -563,7 +584,10 @@ struct PreviewSubtitleProvider: SubtitleProvider {
                            release: "Dune2.CAM.HEBSUB", downloadCount: 4_200, uploader: "anon"),
         ]
     }
-    func download(_ result: SubtitleResult) async throws -> URL { URL(fileURLWithPath: "/tmp/he.srt") }
+    func download(_ result: SubtitleResult) async throws -> URL {
+        if failDownload { throw SubtitleError.notAuthenticated }
+        return URL(fileURLWithPath: "/tmp/he.srt")
+    }
 }
 
 // MARK: - Stub engine

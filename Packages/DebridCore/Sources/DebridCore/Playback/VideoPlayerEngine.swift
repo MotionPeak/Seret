@@ -60,6 +60,15 @@ public protocol VideoPlayerEngine: AnyObject {
 
     /// Time + state updates as the engine produces them.
     var events: AsyncStream<PlaybackEvent> { get }
+
+    /// Write one line into whatever diagnostics log this engine keeps.
+    ///
+    /// The VLCKit engine already writes every play to `Library/Caches/vlc.log`, which is how a
+    /// living-room fault gets diagnosed without reproducing it. The APP's decisions were invisible
+    /// there, and the subtitle ones are exactly what a report needs: five plays on the Apple TV
+    /// showed not one `add subtitle` line, which is what said the download path was never running
+    /// at all — but nothing in the file could say WHY. Now it can.
+    func note(_ line: String)
 }
 
 public extension VideoPlayerEngine {
@@ -75,4 +84,8 @@ public extension VideoPlayerEngine {
     /// Default: an engine that can't report a frame rate degrades to "unknown", which makes
     /// subtitle ranking skip the fps term rather than penalise every candidate.
     var videoFPS: Double? { nil }
+
+    /// Default: an engine that keeps no log drops the line (every test fake, and any future
+    /// AVPlayer fast-path that has nowhere to write).
+    func note(_ line: String) {}
 }
