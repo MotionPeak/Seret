@@ -21,9 +21,20 @@ final class AudioActivityProbe: AudioLoudnessProbing {
     /// One frame of the loudness signal. 100ms matches `SubtitleSync`'s default frame: fine enough
     /// to place a cue, coarse enough that a direct correlation search stays cheap.
     static let frameSeconds = 0.1
-    /// 8 kHz mono. A loudness envelope needs no more, and it is eight times less to decode and
-    /// sum than the 48 kHz stereo the file actually carries.
-    private static let sampleRate: UInt32 = 8000
+    /// 16 kHz, and SIX channels.
+    ///
+    /// The rate is what the speech band needs: dialogue runs to about 3.4 kHz, and separating that
+    /// from what sits above it requires headroom that 8 kHz (Nyquist 4 kHz) does not have.
+    ///
+    /// The channel count is the whole reason this works at all. A film mix puts dialogue in the
+    /// CENTRE channel and spreads music and effects across the others, so asking libvlc for a 5.1
+    /// layout and reading channel 2 is very close to an isolated dialogue track. A downmix to mono
+    /// throws that away — and mono loudness is exactly what measured NEGATIVE correlation against a
+    /// correct subtitle.
+    nonisolated static let sampleRate: UInt32 = 16000
+    nonisolated static let channels: UInt32 = 6
+    /// Centre is index 2 in libvlc's interleaved 5.1 order (L, R, C, LFE, Ls, Rs).
+    nonisolated static let centreChannel = 2
     /// The longest we will spend measuring, whatever arrives. Generous, because decoding runs at
     /// roughly download speed and the whole point is to gather as much as the connection allows —
     /// but bounded, because a dead link must end as "no estimate" rather than a spinner.
@@ -31,7 +42,7 @@ final class AudioActivityProbe: AudioLoudnessProbing {
 
     private let player: VLCMediaPlayer
     private let collector: Collector
-    private var finished: CheckedContinuation<[Float], Never>?
+    private var finished: CheckedContinuation<Collector.Frames, Never>?
     private var requestedStart: Double = 0
     private var watchdog: Task<Void, Never>?
 
@@ -39,7 +50,7 @@ final class AudioActivityProbe: AudioLoudnessProbing {
         // Its own libvlc instance (that is what `options:` gets you), so nothing here can disturb
         // the player the viewer is watching.
         player = VLCMediaPlayer(options: ["--no-video", "--no-osd", "--no-spu"])
-        collector = Collector(frameSeconds: Self.frameSeconds)
+        collector = Collector(frameSeconds: Self.frameSeconds, sampleRate: Double(Self.sampleRate))
     }
 
     /// Loudness per frame for roughly `seconds` of audio starting at `from`, or an empty array if
@@ -60,8 +71,9 @@ final class AudioActivityProbe: AudioLoudnessProbing {
         //
         // NO `:stop-time` either: it is scaled by the playback rate, so asking for 300s while
         // decoding at 16x stopped the demuxer after 300/16 ≈ 19 seconds of media.
+        requestedStart = startSeconds
         let raw = player.libVLCMediaPlayer
-        libvlc_audio_set_format(raw, "S16N", Self.sampleRate, 1)
+        libvlc_audio_set_format(raw, "S16N", Self.sampleRate, Self.channels)
         libvlc_audio_set_callbacks(raw, audioPlayCallback, nil, nil, nil, nil,
                                    Unmanaged.passUnretained(collector).toOpaque())
         player.media = media
@@ -91,7 +103,7 @@ final class AudioActivityProbe: AudioLoudnessProbing {
         collector.reset(frameBudget: Int(seconds / Self.frameSeconds))
         collector.arm()
 
-        let frames = await withCheckedContinuation { (c: CheckedContinuation<[Float], Never>) in
+        let frames = await withCheckedContinuation { (c: CheckedContinuation<Collector.Frames, Never>) in
             finished = c
             collector.onComplete = { [weak self] in
                 Task { @MainActor in self?.finish() }
@@ -104,8 +116,8 @@ final class AudioActivityProbe: AudioLoudnessProbing {
                 self?.finish()
             }
         }
-        guard !frames.isEmpty else { return nil }
-        return LoudnessWindow(frames: frames, startSeconds: origin)
+        guard !frames.mix.isEmpty else { return nil }
+        return LoudnessWindow(frames: frames.mix, centre: frames.centre, startSeconds: origin)
     }
 
     /// Seek to `target` and wait until the player agrees it is there, returning the media time it
@@ -144,8 +156,9 @@ final class AudioActivityProbe: AudioLoudnessProbing {
         collector.onComplete = nil
         // Where the probe ACTUALLY read from, which is the assumption the whole measurement rests
         // on: frame 0 is taken to be the media time that was asked for.
-        NSLog("[probe] collected %d frames; player ended at %.1fs (asked to start at %.1fs)",
-              frames.count, Double(player.time.intValue) / 1000, requestedStart)
+        NSLog("[probe] collected %d frames (%d with centre); player at %.1fs (asked %.1fs)",
+              frames.mix.count, frames.centre.filter { $0 > 0 }.count,
+              Double(player.time.intValue) / 1000, requestedStart)
         libvlc_audio_set_callbacks(player.libVLCMediaPlayer, nil, nil, nil, nil, nil, nil)
         player.stop()
         continuation.resume(returning: frames)
@@ -164,26 +177,42 @@ private final class Collector: @unchecked Sendable {
     /// Called once the frame budget is full. Set and cleared on the main actor.
     nonisolated(unsafe) var onComplete: (() -> Void)?
 
+    /// One window's two signals: the whole mix, and the band-limited centre channel.
+    struct Frames: Sendable {
+        let mix: [Float]
+        let centre: [Float]
+    }
+
     private struct State {
         var sums: [Double] = []
+        var centreSums: [Double] = []
         var counts: [Int] = []
         var budget = 0
         var firstPTS: Int64?
         var complete = false
         /// Chunks arriving before this is set are on the way to the window, not in it.
         var armed = false
+        /// Speech-band filter state, carried across chunks — a filter restarted per chunk rings at
+        /// every boundary and measures its own transients.
+        var band = SpeechBandFilter(sampleRate: 16000)
     }
 
-    init(frameSeconds: Double) {
+    private let sampleRate: Double
+
+    init(frameSeconds: Double, sampleRate: Double) {
         self.frameSeconds = frameSeconds
-        state = OSAllocatedUnfairLock(initialState: State())
+        self.sampleRate = sampleRate
+        state = OSAllocatedUnfairLock(initialState: State(band: SpeechBandFilter(sampleRate: sampleRate)))
     }
 
     func reset(frameBudget: Int) {
+        let n = max(frameBudget, 1)
         state.withLock {
-            $0 = State(sums: [Double](repeating: 0, count: max(frameBudget, 1)),
-                       counts: [Int](repeating: 0, count: max(frameBudget, 1)),
-                       budget: max(frameBudget, 1), firstPTS: nil, complete: false, armed: false)
+            $0 = State(sums: [Double](repeating: 0, count: n),
+                       centreSums: [Double](repeating: 0, count: n),
+                       counts: [Int](repeating: 0, count: n),
+                       budget: n, firstPTS: nil, complete: false, armed: false,
+                       band: SpeechBandFilter(sampleRate: sampleRate))
         }
     }
 
@@ -198,15 +227,39 @@ private final class Collector: @unchecked Sendable {
     /// smear the signal by exactly the amount we are trying to measure.
     func add(samples: UnsafePointer<Int16>, count: Int, pts: Int64) {
         guard count > 0 else { return }
-        var sum = 0.0
-        for i in 0..<count {
-            let v = Double(samples[i]) / 32768.0
-            sum += v * v
-        }
-        let rms = (sum / Double(count)).squareRoot()
+        // The filter comes out, the arithmetic happens with no lock held, and it goes back in.
+        // `withLock`'s closure is `@Sendable`, so a raw pointer cannot cross into it — and the
+        // sample loop is the one part of this that must not hold a lock anyway, since it runs over
+        // every sample of every chunk.
+        guard var band = state.withLock({ s -> SpeechBandFilter? in
+            guard s.armed, !s.complete else { return nil }
+            return s.band
+        }) else { return }
 
+        // `count` is samples PER CHANNEL — libvlc says so explicitly — and the buffer is
+        // interleaved, so the centre channel is every 6th value starting at index 2.
+        let channels = Int(AudioActivityProbe.channels)
+        let centreOffset = AudioActivityProbe.centreChannel
+        var total = 0.0
+        var centre = 0.0
+        for frame in 0..<count {
+            let base = frame * channels
+            for ch in 0..<channels {
+                let v = Double(samples[base + ch]) / 32768.0
+                total += v * v
+            }
+            // Band-limit the centre BEFORE measuring it, so a score's bass and an effect's top end
+            // — both of which sit in the centre often enough — are not counted as speech.
+            let c = Double(band.process(Float(samples[base + centreOffset]) / 32768.0))
+            centre += c * c
+        }
+        let mixRMS = (total / Double(count * channels)).squareRoot()
+        let centreRMS = (centre / Double(count)).squareRoot()
+
+        let updated = band                      // an immutable copy, so the closure may be @Sendable
         let done: Bool = state.withLock { s in
             guard s.armed, !s.complete else { return false }
+            s.band = updated
             let origin = s.firstPTS ?? pts
             if s.firstPTS == nil { s.firstPTS = pts }
             let offset = Double(pts - origin) / 1_000_000.0          // libvlc PTS is microseconds
@@ -216,7 +269,8 @@ private final class Collector: @unchecked Sendable {
                 s.complete = true
                 return true
             }
-            s.sums[index] += rms
+            s.sums[index] += mixRMS
+            s.centreSums[index] += centreRMS
             s.counts[index] += 1
             return false
         }
@@ -230,11 +284,16 @@ private final class Collector: @unchecked Sendable {
     /// Padding the tail with zeros would hand `SubtitleSync` minutes of fabricated silence to
     /// correlate against, which is worse than a shorter honest window. Measured on a real stream:
     /// 659 of 3000 frames in ninety seconds, and those 659 are perfectly good.
-    func frames() -> [Float] {
+    func frames() -> Frames {
         state.withLock { s in
-            guard let last = s.counts.lastIndex(where: { $0 > 0 }) else { return [] }
-            return zip(s.sums, s.counts).prefix(last + 1)
-                .map { $1 > 0 ? Float($0 / Double($1)) : 0 }
+            guard let last = s.counts.lastIndex(where: { $0 > 0 }) else {
+                return Frames(mix: [], centre: [])
+            }
+            let counts = Array(s.counts.prefix(last + 1))
+            func mean(_ sums: [Double]) -> [Float] {
+                zip(sums.prefix(last + 1), counts).map { $1 > 0 ? Float($0 / Double($1)) : 0 }
+            }
+            return Frames(mix: mean(s.sums), centre: mean(s.centreSums))
         }
     }
 }

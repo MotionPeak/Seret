@@ -9,25 +9,37 @@ extension PlayerModel {
     // confirmed window, cue parsing, correlation, gates. What does not work is the FEATURE, and the
     // reason is the signal, not the plumbing.
     //
-    // Measured on a real Apple TV library (Anna 2019, a Hebrew subtitle screenshot-verified as
-    // correctly aligned — its "מוסקבה, 1985" sits exactly on the film's own "MOSCOW, 1985" card,
-    // so the right answer is a shift of zero):
+    // TWO signal designs have now been tried against ground truth, and both failed.
     //
-    //     window 1428s (asked 1428s) · heard 219s of audio
-    //     matched  → +83.4s  peak 0.269  OK
-    //     envelope → +86.3s  peak 0.289  OK
-    //     score at no-shift  -0.133
+    // The reference is Anna (2019) with a Hebrew subtitle screenshot-verified as correctly aligned:
+    // its "מוסקבה, 1985" sits exactly on the film's own "MOSCOW, 1985" card at ~51s, so over a
+    // window containing that moment the right answer is a shift of ZERO.
     //
-    // At the CORRECT alignment the correlation is negative, and a wrong one scores +0.29. Loudness
-    // is not a proxy for speech on this material — it is close to an inverted one. In an action
-    // film the loud passages are gunfire and score, which carry no subtitles, while the dialogue is
-    // quiet. So the measurement does not merely fail to find the answer; it confidently finds the
-    // opposite, and would have dragged a correct subtitle eighty-six seconds out of true.
+    // 1. Loudness envelope. Measured at minute 24:
+    //        loudness → +86.3s  peak 0.289  OK      score at no-shift  -0.133
+    //    Volume is close to an INVERTED proxy for speech in an action film: the loud passages are
+    //    gunfire and score and carry no subtitles, while the dialogue is quiet.
     //
-    // What is missing is a voice-activity measure rather than a volume one — speech-band energy, a
-    // voicing/spectral-flatness feature, or a real VAD. Until there is one, no entry point calls
-    // `autoSyncSubtitle`, and the gates below are the only thing standing between this and a
-    // wrecked subtitle.
+    // 2. Centre-channel voice activity (`VoiceActivity` + `SpeechBandFilter`) — a cinema mix puts
+    //    dialogue in the centre and spreads everything else around it, so 5.1 is requested from
+    //    libvlc and channel 2 band-limited to 300–3400 Hz. It works in the unit tests, including
+    //    the exact case that defeats loudness. On the real film, over the window that CONTAINS the
+    //    verified moment:
+    //        voice     → +78.1s  peak 0.201  REJECTED
+    //        voice-raw → -46.1s  peak 0.200  REJECTED
+    //        loudness  → -89.5s  peak 0.302  OK
+    //        score at no-shift  -0.204
+    //    The three readings disagree with each other by a hundred and sixty seconds, which is what
+    //    pure noise looks like, and the correct answer scores NEGATIVE.
+    //
+    // So the failure is not the feature detector alone. Something upstream of it carries no usable
+    // relationship to the cue times — the remaining suspects are libvlc's channel layout under a
+    // 6-channel request (an upmix would put no dialogue in "centre" at all) and the mapping from
+    // callback PTS to media time across buffering gaps. Each costs a four-minute measurement.
+    //
+    // Until one of those is settled, no entry point calls `autoSyncSubtitle`. The gates below are
+    // the only thing standing between this and a wrecked subtitle, and on the last run they were
+    // the only reason a correct subtitle was not dragged ninety seconds out of true.
 
     /// How much of the film to listen to. Long enough to cover a good number of lines — the peak
     /// gets sharper with every one — and short enough that it is a few minutes of the file rather
@@ -98,25 +110,29 @@ extension PlayerModel {
             return
         }
 
-        // Two readings of the same audio: the thresholded one (a frame is speech or it is not) and
-        // the raw envelope (louder means more likely to be talking). Which wins is a question about
-        // real mixes, not one to settle from an armchair, so both are measured and the better peak
-        // is taken. A film scored wall to wall has no quiet floor for a threshold to find, and the
-        // envelope still carries the shape; a dialogue-over-silence mix is the other way round.
         let cues = SubtitleTiming.activity(in: text, frameSeconds: SubtitleSync.frameSeconds,
                                            frames: loudness.count, startSeconds: start)
-        let speech = SpeechActivity.fromLoudness(loudness)
-        note("auto-sync: \(speech.filter { $0 > 0 }.count) speech frames, "
-             + "\(cues.filter { $0 > 0 }.count) cue frames")
-        // …and a third, which is the one that should win: the loudest frames, in the same
-        // proportion the SUBTITLE says are dialogue. The audio does not know how talkative this
-        // stretch is; the cue list does, and matching the two densities is what makes the
-        // correlation mean anything.
-        let cueDensity = Double(cues.filter { $0 > 0 }.count) / Double(max(cues.count, 1))
-        let matched = SpeechActivity.densest(loudness, fraction: cueDensity)
 
-        let readings = [("matched", matched), ("threshold", speech),
-                        ("envelope", loudness)].compactMap { name, signal in
+        // Voice, not volume. A loudness envelope measured NEGATIVE correlation at the true
+        // alignment on a real action film — its loud passages are gunfire and score and carry no
+        // subtitles, while the dialogue is quiet. So what gets correlated is the band-limited
+        // CENTRE channel, weighted by how much of the mix it accounts for: a cinema mix puts
+        // dialogue there and spreads everything else around it. A source with no usable centre
+        // degrades to the old loudness reading rather than to nothing.
+        let voice = window.centre.isEmpty
+            ? loudness
+            : VoiceActivity.score(centre: window.centre, mix: loudness)
+        note("auto-sync: \(window.centre.isEmpty ? "no centre channel — using loudness" : "centre channel present")")
+
+        // Thresholded at the density the SUBTITLE claims: the audio does not know how talkative
+        // this stretch is, the cue list does, and matching the two makes the correlation comparable.
+        let cueDensity = Double(cues.filter { $0 > 0 }.count) / Double(max(cues.count, 1))
+        let matched = SpeechActivity.densest(voice, fraction: cueDensity)
+        note("auto-sync: \(matched.filter { $0 > 0 }.count) voice frames, "
+             + "\(cues.filter { $0 > 0 }.count) cue frames")
+
+        let readings = [("voice", matched), ("voice-raw", voice),
+                        ("loudness", loudness)].compactMap { name, signal in
             SubtitleSync.measure(speech: signal, cues: cues,
                                  frameSeconds: SubtitleSync.frameSeconds,
                                  maxLagSeconds: autoSyncMaxLag)

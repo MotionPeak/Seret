@@ -122,12 +122,12 @@ import DebridCore
     /// the one outcome worse than doing nothing.
     @Test func anUnmatchableSignalIsRefused() async {
         var seed: UInt64 = 99
-        let noise = FakeAudioProbe { _, seconds in
+        let noise = FakeAudioProbe(loudnessOnly: { _, seconds in
             (0..<Int(seconds / 0.1)).map { _ in
                 seed = seed &* 6364136223846793005 &+ 1442695040888963407
                 return Float(seed >> 40) / Float(1 << 24)
             }
-        }
+        })
         let (m, _, _) = model(shiftSeconds: 4, probe: noise)
         await prepared(m)
 
@@ -157,6 +157,20 @@ import DebridCore
         await m.autoSyncSubtitle()
         #expect(m.autoSyncState == PlayerModel.AutoSyncState.idle)   // never ran
         #expect(m.subtitleDelay == 0)
+    }
+
+    /// The case that defeated a loudness envelope on a real film: the LOUDEST moments are the ones
+    /// with no subtitle — gunfire and score between the lines — while the dialogue is quiet. Volume
+    /// correlates negatively here; voice does not.
+    @Test func loudEffectsBetweenTheLinesDoNotFoolIt() async {
+        let (m, _, _) = model(shiftSeconds: 4,
+                              probe: .speaking(at: cueTimes.map { $0 - 4 }, effectsBetween: true))
+        await prepared(m)
+
+        await m.autoSyncSubtitle()
+
+        #expect(m.autoSyncState == .synced)
+        #expect(abs(m.subtitleDelay - (-4.0)) < 0.35)
     }
 
     /// The action becomes available exactly when a downloaded subtitle is on screen.

@@ -135,38 +135,56 @@ final class FakeSubtitleProvider: SubtitleProvider, @unchecked Sendable {
 
 @MainActor
 final class FakeAudioProbe: AudioLoudnessProbing {
-    /// Builds the signal for whatever window it is ASKED for. A fake that returned a fixed array
-    /// regardless would describe a different part of the film than the cues it is matched against,
-    /// and "measured a 420s offset" would be the fixture talking, not the code.
-    private let generate: (_ from: Double, _ seconds: Double) -> [Float]
+    /// Builds the window it is ASKED for. A fake that returned a fixed array regardless would
+    /// describe a different part of the film than the cues it is matched against, and "measured a
+    /// 420s offset" would be the fixture talking, not the code.
+    private let generate: (_ from: Double, _ seconds: Double) -> (mix: [Float], centre: [Float])
     private(set) var requests: [(url: URL, from: Double, seconds: Double)] = []
     private(set) var cancelled = false
 
-    init(generate: @escaping (_ from: Double, _ seconds: Double) -> [Float]) {
+    init(generate: @escaping (_ from: Double, _ seconds: Double) -> (mix: [Float], centre: [Float])) {
         self.generate = generate
     }
+    /// Loudness only, no centre channel — the stereo/unknown-layout path.
+    convenience init(loudnessOnly: @escaping (_ from: Double, _ seconds: Double) -> [Float]) {
+        self.init { from, seconds in (loudnessOnly(from, seconds), []) }
+    }
     /// A probe that decodes nothing — a dead link, a container the decoder will not open.
-    static var silent: FakeAudioProbe { FakeAudioProbe { _, _ in [] } }
+    static var silent: FakeAudioProbe { FakeAudioProbe { _, _ in ([], []) } }
 
-    /// Dialogue at these absolute times in the media, each `length` long.
-    static func speaking(at times: [Double], length: Double = 3) -> FakeAudioProbe {
+    /// Dialogue at these absolute times, each `length` long, in the CENTRE channel — plus, when
+    /// asked, loud wide effects BETWEEN the lines. That combination is the one that defeated a
+    /// loudness envelope on a real film: the loudest moments are the ones with no subtitle.
+    static func speaking(at times: [Double], length: Double = 3,
+                         effectsBetween: Bool = false) -> FakeAudioProbe {
         FakeAudioProbe { from, seconds in
             let frames = Int(seconds / 0.1)
-            var v = [Float](repeating: 0.01, count: frames)      // a quiet bed
+            var centre = [Float](repeating: 0.01, count: frames)
+            var mix = [Float](repeating: 0.02, count: frames)
             for t in times {
                 let first = Int((t - from) / 0.1)
-                guard first < frames, first + Int(length / 0.1) > 0 else { continue }
-                for f in max(0, first)..<min(first + Int(length / 0.1), frames) { v[f] = 0.6 }
+                let last = first + Int(length / 0.1)
+                guard first < frames, last > 0 else { continue }
+                for f in max(0, first)..<min(last, frames) {
+                    centre[f] = 0.30                     // quiet dialogue, centred
+                    mix[f] = 0.33
+                }
             }
-            return v
+            if effectsBetween {
+                for f in 0..<frames where centre[f] < 0.1 {
+                    centre[f] = 0.40                     // loud, and everywhere
+                    mix[f] = 2.40
+                }
+            }
+            return (mix, centre)
         }
     }
 
     func loudness(url: URL, from startSeconds: Double, seconds: Double) async -> LoudnessWindow? {
         requests.append((url, startSeconds, seconds))
-        let frames = generate(startSeconds, seconds)
-        guard !frames.isEmpty else { return nil }
-        return LoudnessWindow(frames: frames, startSeconds: startSeconds)
+        let (mix, centre) = generate(startSeconds, seconds)
+        guard !mix.isEmpty else { return nil }
+        return LoudnessWindow(frames: mix, centre: centre, startSeconds: startSeconds)
     }
     func cancel() { cancelled = true }
 }

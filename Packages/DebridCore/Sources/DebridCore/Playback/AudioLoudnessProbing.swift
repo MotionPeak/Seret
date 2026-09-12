@@ -13,10 +13,16 @@ import Foundation
 /// instead of the answer compared minute 24's subtitles against the opening titles and produced a
 /// confident sixty-three-second correction out of nothing.
 public struct LoudnessWindow: Sendable {
+    /// RMS of the whole mix, per frame.
     public let frames: [Float]
+    /// RMS of the CENTRE channel alone, band-limited to the speech range — the signal that tells
+    /// dialogue from everything else, since a film mix puts voices there and spreads music and
+    /// effects across the rest. Empty when the source gave no usable centre.
+    public let centre: [Float]
     public let startSeconds: Double
-    public init(frames: [Float], startSeconds: Double) {
+    public init(frames: [Float], centre: [Float] = [], startSeconds: Double) {
         self.frames = frames
+        self.centre = centre
         self.startSeconds = startSeconds
     }
 }
