@@ -189,6 +189,10 @@ final class AudioActivityProbe: AudioLoudnessProbing {
         continuation.resume(returning: frames)
     }
 
+    /// Seconds of film gathered so far — the collector's own count, read live from the main actor
+    /// while libvlc keeps filling it.
+    var measuredSeconds: Double { collector.collectedSeconds }
+
     func cancel() { finish() }
 }
 
@@ -344,6 +348,13 @@ private final class Collector: @unchecked Sendable {
     /// Padding the tail with zeros would hand `SubtitleSync` minutes of fabricated silence to
     /// correlate against, which is worse than a shorter honest window. Measured on a real stream:
     /// 659 of 3000 frames in ninety seconds, and those 659 are perfectly good.
+    /// How many frames have actually been filled, as seconds. Cheap enough to poll once a second.
+    var collectedSeconds: Double {
+        state.withLock { s in
+            Double(s.counts.lastIndex(where: { $0 > 0 }).map { $0 + 1 } ?? 0) * frameSeconds
+        }
+    }
+
     #if DEBUG
     /// RMS per channel across the whole window. The decisive reading: a true 5.1 decode puts
     /// dialogue in channel 2 (C) with quiet surrounds, while an upmix from stereo makes C exactly

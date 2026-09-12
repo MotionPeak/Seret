@@ -38,7 +38,17 @@ public protocol AudioLoudnessProbing: AnyObject {
     /// `from`. Empty when nothing could be decoded — a dead link, a refused range request, a
     /// container the decoder will not open.
     func loudness(url: URL, from startSeconds: Double, seconds: Double) async -> LoudnessWindow?
+    /// How much audio has been gathered so far, in seconds of film. Read while `loudness` is still
+    /// running, so a measurement that takes minutes can show its progress rather than appearing to
+    /// hang. 0 before anything arrives.
+    var measuredSeconds: Double { get }
     /// Abandon a probe in flight. Called when the viewer leaves, so a measurement cannot outlive
     /// the thing it was measuring.
     func cancel()
+}
+
+public extension AudioLoudnessProbing {
+    /// A probe that cannot report progress simply reports none; the caller shows an indeterminate
+    /// state rather than a wrong number.
+    var measuredSeconds: Double { 0 }
 }
