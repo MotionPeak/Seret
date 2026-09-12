@@ -14,6 +14,7 @@ import SwiftUI
 /// Launch with `-uiPreview <target>`:
 ///   - `playbacksheet`   — the playback sheet after Hebrew has been asked for and attached
 ///   - `subtitlebrowser` — the ranked search browser
+///   - `autosync` / `autosyncdone` / `autosyncfailed` — the subtitle-sync bar over the picture
 ///
 ///     xcrun simctl launch <udid> com.solomons.seret.mobile -uiPreview playbacksheet
 ///
@@ -25,6 +26,9 @@ struct PlayerUIPreview: View {
     var body: some View {
         Group {
             switch target {
+            case "autosync":        MobileAutoSyncPreview(mood: .measuring)
+            case "autosyncdone":    MobileAutoSyncPreview(mood: .synced)
+            case "autosyncfailed":  MobileAutoSyncPreview(mood: .failed)
             case "subtitlebrowser":
                 // Tinted here because in the app the browser is pushed INSIDE the settings sheet,
                 // which sets the gold tint — an untinted harness screenshot would show system blue
@@ -156,5 +160,36 @@ final class MobilePreviewEngine: VideoPlayerEngine {
         emit(.tracksChanged)
     }
     private var attachedSubtitleURLs: [URL] = []
+}
+
+/// The auto-sync bar over a stand-in film frame, in whichever of its three states.
+///
+/// A sync runs for minutes with the film still playing, so this bar is the only thing telling the
+/// viewer it is alive — which makes its legibility over a bright picture, and whether its longest
+/// message fits a narrow phone, the whole question. Only a screenshot settles either.
+private struct MobileAutoSyncPreview: View {
+    let mood: PlayerModel.AutoSyncBanner.Mood
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            LinearGradient(colors: [.orange, .white, .teal, .black],
+                           startPoint: .topLeading, endPoint: .bottomTrailing)
+                .ignoresSafeArea()
+            AutoSyncBar(banner: banner).padding(.top, 14)
+        }
+    }
+
+    private var banner: PlayerModel.AutoSyncBanner {
+        switch mood {
+        case .measuring:
+            .init(text: "Syncing subtitles  \u{00B7}  about 3 min left", mood: .measuring,
+                  fraction: 0.38)
+        case .synced:
+            .init(text: "Subtitles synced  \u{00B7}  shifted +1.4s", mood: .synced, fraction: nil)
+        case .failed:
+            .init(text: "Couldn't sync the subtitles \u{2014} nudge the timing by hand",
+                  mood: .failed, fraction: nil)
+        }
+    }
 }
 #endif

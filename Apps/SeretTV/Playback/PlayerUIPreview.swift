@@ -18,6 +18,7 @@ import DebridCore
 ///   - `opensubtitles` — the OpenSubtitles pairing card: QR, LAN address, keyboard fallback
 ///   - `gridfade`  — a pre-scrolled grid under a pinned header, for tuning the top fade
 ///   - `person`    — the person page: header, As Actor / As Director, ranked credits
+///   - `autosync` / `autosyncdone` / `autosyncfailed` — the subtitle-sync bar over the picture
 ///
 /// Not compiled into release builds.
 struct PlayerUIPreview: View {
@@ -37,6 +38,9 @@ struct PlayerUIPreview: View {
         case "person":              PersonScreenPreview()
         case "episodeversions":     EpisodeVersionsPreview()
         case "versions":            VersionListPreview()
+        case "autosync":            AutoSyncBarPreview(mood: .measuring)
+        case "autosyncdone":        AutoSyncBarPreview(mood: .synced)
+        case "autosyncfailed":      AutoSyncBarPreview(mood: .failed)
         default:           ScrubBarPreview()
         }
     }
@@ -511,6 +515,37 @@ private struct SubtitleBrowserPreview: View {
                     await driver.model.useSubtitle(first)
                 }
             }
+    }
+}
+
+/// The auto-sync bar over a stand-in film frame, in whichever of its three states.
+///
+/// A sync runs for minutes with the film still playing, so this bar is the only thing telling the
+/// viewer it is alive — which makes its legibility over a bright picture the whole point, and that
+/// is a thing only a screenshot can settle.
+private struct AutoSyncBarPreview: View {
+    let mood: PlayerModel.AutoSyncBanner.Mood
+
+    var body: some View {
+        ZStack {
+            // A bright, busy stand-in for the picture: a dark bar on black proves nothing.
+            LinearGradient(colors: [.orange, .white, .teal, .black],
+                           startPoint: .topLeading, endPoint: .bottomTrailing)
+                .ignoresSafeArea()
+            AutoSyncBar(banner: banner)
+        }
+    }
+
+    private var banner: PlayerModel.AutoSyncBanner {
+        switch mood {
+        case .measuring:
+            .init(text: "Syncing subtitles  ·  about 3 min left", mood: .measuring, fraction: 0.38)
+        case .synced:
+            .init(text: "Subtitles synced  ·  shifted +1.4s", mood: .synced, fraction: nil)
+        case .failed:
+            .init(text: "Couldn't sync the subtitles \u{2014} nudge the timing by hand",
+                  mood: .failed, fraction: nil)
+        }
     }
 }
 

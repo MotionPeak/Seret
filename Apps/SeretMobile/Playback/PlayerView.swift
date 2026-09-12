@@ -58,11 +58,22 @@ struct PlayerView: View {
         .overlay(alignment: .bottom) {
             if model.upNextVisible, let next = model.nextEpisode { upNextBar(next) }
         }
+        // A sync runs for minutes while the film keeps playing, so it reports from up here rather
+        // than from the sheet that started it. Below the transport's own top row when the controls
+        // are up, at the top of the picture when they are not.
+        .overlay(alignment: .top) {
+            if let banner = model.autoSyncBanner {
+                AutoSyncBar(banner: banner)
+                    .padding(.top, model.controlsVisible ? 74 : 14)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
         .sheet(isPresented: $showSettings) { PlayerSettingsSheet(model: model) }
         .animation(.easeInOut(duration: 0.2), value: model.controlsVisible)
         .animation(.easeInOut(duration: 0.25), value: model.upNextVisible)
+        .animation(.easeInOut(duration: 0.2), value: model.autoSyncBanner)
         .onAppear { model.start(); OrientationGate.setPlayerActive(true) }
         .task(id: model.currentEpisode?.season) {
             if model.isEpisode { await model.loadSeasonEpisodes() }
@@ -259,5 +270,71 @@ struct PlayerView: View {
                 model.updateScrub(by: target - model.scrubTarget)   // delta API → absolute target
             }
             .onEnded { _ in model.commitScrub() }
+    }
+}
+
+/// The strip across the top while a subtitle sync runs, and for a few seconds after it ends.
+///
+/// It exists because the measurement takes minutes — reading the film's audio means downloading it
+/// — so the sheet closes, the film keeps playing, and the work reports from here. Nothing in it is
+/// tappable, so it can never swallow a tap meant for the gesture layer underneath.
+///
+/// The track sits UNDER the text rather than beside it, and the text wraps rather than truncating.
+/// Both were measured, not guessed: side by side on the widest iPhone made, the text and the track
+/// fought for the width and "Syncing subtitles · about 3 min left" broke across two lines with a
+/// gap beside it — and truncating instead would have cut the one message that tells the viewer what
+/// to do when a sync fails.
+struct AutoSyncBar: View {
+    let banner: PlayerModel.AutoSyncBanner
+
+    var body: some View {
+        HStack(alignment: banner.fraction == nil ? .center : .top, spacing: 9) {
+            Image(systemName: glyph)
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(tint)
+                .padding(.top, banner.fraction == nil ? 0 : 1)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(banner.text)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let fraction = banner.fraction {
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            Capsule().fill(.white.opacity(0.22))
+                            // A floor, so the bar reads as started rather than as broken while the
+                            // first seconds of audio are still arriving.
+                            Capsule().fill(Theme.Palette.goldGradient)
+                                .frame(width: max(5, geo.size.width * fraction))
+                        }
+                    }
+                    .frame(height: 4)
+                    .animation(.easeOut(duration: 0.9), value: fraction)
+                }
+            }
+        }
+        .padding(.horizontal, 14).padding(.vertical, 10)
+        .background(.black.opacity(0.74), in: Capsule())
+        .overlay(Capsule().strokeBorder(Theme.Palette.gold.opacity(0.22)))
+        .padding(.horizontal, 20)
+        .allowsHitTesting(false)
+    }
+
+    private var glyph: String {
+        switch banner.mood {
+        case .measuring: "waveform"
+        case .synced:    "checkmark.circle.fill"
+        case .failed:    "exclamationmark.triangle.fill"
+        }
+    }
+
+    private var tint: Color {
+        switch banner.mood {
+        case .measuring: Theme.Palette.gold
+        case .synced:    .green
+        case .failed:    .orange
+        }
     }
 }

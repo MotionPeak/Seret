@@ -71,11 +71,14 @@ struct PlayerSettingsSheet: View {
                         FlowLayout {
                             // The automatic answer first. Only for a subtitle we downloaded — a
                             // muxed track is timed against this file by construction.
-                            // The automatic answer first. Only for a subtitle we downloaded — a
-                            // muxed track is timed against this file by construction.
+                            //
+                            // Tapping it closes the sheet: the measurement takes minutes, and the
+                            // point of it running in the background is that the viewer goes back to
+                            // the film. It reports from the bar across the top of the picture.
                             if model.canAutoSyncSubtitle {
                                 chip(autoSyncTitle, selected: model.autoSyncState == .synced) {
-                                    Task { await model.autoSyncSubtitle() }
+                                    model.startAutoSync()
+                                    dismiss()
                                 }
                                 .disabled(model.autoSyncState == .measuring)
                             }

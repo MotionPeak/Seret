@@ -94,6 +94,14 @@ struct PlayerView: View {
                     .allowsHitTesting(false)      // the input surface underneath stays live
             }
 
+            // A sync runs for minutes while the film keeps playing, so it reports from up here
+            // rather than from inside the panel that started it. Hidden while the panel or the
+            // browser is up — both of those open at the top of the screen and say it themselves.
+            if let banner = model.autoSyncBanner, !showSettings, !showSubtitleBrowser {
+                AutoSyncBar(banner: banner)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+
             if let fb = model.skipFeedback {          // ride above everything; never eat remote input
                 skipIndicator(fb)
                     .transition(.opacity.combined(with: .scale(scale: 0.85)))
@@ -136,6 +144,7 @@ struct PlayerView: View {
         // animate anything else in the stack.
         .animation(Theme.Anim.pageFade, value: model.phase)
         .animation(Theme.Anim.focus, value: model.skipFeedback)
+        .animation(Theme.Anim.pageFade, value: model.autoSyncBanner)
         // ONLY for the overlays. While watching, the play/pause press is handled by
         // `PlayerInputSurface` — this modifier depends on SwiftUI's focus system owning the focused
         // view, and the input surface is a focusable UIKit one. Guarding on the same condition
@@ -223,6 +232,65 @@ struct PlayerView: View {
         .overlay(Capsule().strokeBorder(.white.opacity(0.12)))
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: forward ? .trailing : .leading)
         .padding(forward ? .trailing : .leading, 120)
+    }
+}
+
+/// The strip across the top of the picture while a subtitle sync runs, and for a few seconds after
+/// it finishes.
+///
+/// It exists because the measurement takes minutes: it has to read several minutes of the film's
+/// audio, which means downloading them. Holding the viewer on the settings panel for that would be
+/// unusable, so the panel closes, the film keeps playing, and this is where the work reports from.
+///
+/// Deliberately built out of nothing focusable and marked `allowsHitTesting(false)`. The player's
+/// remote belongs to `PlayerInputSurface`, which only works because it has no focusable siblings at
+/// rest — a Button up here would quietly take back the arrows and the touch-scrub with them.
+struct AutoSyncBar: View {
+    let banner: PlayerModel.AutoSyncBanner
+    private static let trackWidth: CGFloat = 320
+
+    var body: some View {
+        HStack(spacing: 22) {
+            Image(systemName: glyph)
+                .font(.system(size: 26, weight: .semibold))
+                .foregroundStyle(tint)
+            Text(banner.text)
+                .font(.seret(24, .semibold))
+                .foregroundStyle(.white)
+            if let fraction = banner.fraction {
+                ZStack(alignment: .leading) {
+                    Capsule().fill(.white.opacity(0.16))
+                    Capsule().fill(Theme.Palette.goldGradient)
+                        // A floor, so the bar reads as started rather than as broken while the
+                        // first seconds of audio are still arriving.
+                        .frame(width: max(10, Self.trackWidth * fraction))
+                }
+                .frame(width: Self.trackWidth, height: 8)
+                .animation(.easeOut(duration: 0.9), value: fraction)
+            }
+        }
+        .padding(.horizontal, 34).padding(.vertical, 20)
+        .background(.black.opacity(0.72), in: Capsule())
+        .overlay(Capsule().strokeBorder(Theme.Palette.gold.opacity(0.22)))
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .padding(.top, 50)
+        .allowsHitTesting(false)
+    }
+
+    private var glyph: String {
+        switch banner.mood {
+        case .measuring: "waveform"
+        case .synced:    "checkmark.circle.fill"
+        case .failed:    "exclamationmark.triangle.fill"
+        }
+    }
+
+    private var tint: Color {
+        switch banner.mood {
+        case .measuring: Theme.Palette.gold
+        case .synced:    .green
+        case .failed:    .orange
+        }
     }
 }
 

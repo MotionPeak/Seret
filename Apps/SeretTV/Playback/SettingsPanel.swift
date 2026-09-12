@@ -114,12 +114,14 @@ private struct PlaybackColumns: View {
             // The automatic answer, offered first because it is the one that needs no judgement.
             // Only for a subtitle we downloaded: a muxed track is timed against this exact file by
             // construction, and we hold no cue list for it to correlate.
-            // The automatic answer, offered first because it is the one that needs no judgement.
-            // Only for a subtitle we downloaded: a muxed track is timed against this exact file by
-            // construction, and we hold no cue list for it to correlate.
+            //
+            // Pressing it closes the panel: the measurement takes minutes, and the point of it
+            // running in the background is that the viewer goes back to the film. It reports from
+            // the bar across the top of the picture until it is done.
             if model.canAutoSyncSubtitle {
                 CheckRow(title: autoSyncTitle, checked: model.autoSyncState == .synced) {
-                    Task { await model.autoSyncSubtitle() }
+                    model.startAutoSync()
+                    onPick()
                 }
                 .disabled(model.autoSyncState == .measuring)
             }
