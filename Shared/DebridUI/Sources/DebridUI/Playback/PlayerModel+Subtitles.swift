@@ -254,6 +254,9 @@ extension PlayerModel {
         let lastCue = SubtitleTiming.lastCueEndSeconds(in: text)
         contentEndTime = lastCue
         subtitleRetimeFactor = nil
+        // The same text, read once for two questions: when the dialogue ends, and what the lines
+        // are. Keyed by the file that is about to be attached, which is what the panel looks up.
+        subtitleCues[url] = SubtitleCues.parse(text)
 
         guard let factor = SubtitleRetimer.factor(subtitleFPS: declaredFPS,
                                                   videoFPS: engine.videoFPS,
@@ -269,6 +272,9 @@ extension PlayerModel {
         // Every cue moved, including the last one Up Next keys off.
         contentEndTime = SubtitleTiming.lastCueEndSeconds(in: corrected) ?? lastCue
         subtitleRetimeFactor = factor
+        // The corrected copy is the file the engine gets, so it is the one whose cue times the
+        // panel must show — every cue moved.
+        subtitleCues[destination] = SubtitleCues.parse(corrected)
         return destination
     }
 

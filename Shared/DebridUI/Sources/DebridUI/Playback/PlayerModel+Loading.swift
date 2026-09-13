@@ -244,6 +244,7 @@ extension PlayerModel {
         subtitleSourceFPS = nil      // …and so does a drift correction dialled for that subtitle
         pushedSubtitleDelay = nil
         subtitleRetimeFactor = nil
+        subtitleCues.removeAll()     // they described the previous file's subtitle
         // Everything that identifies WHICH FILE the subtitle machinery is talking about. All of it
         // described the previous file and none of it was cleared here, so a swap or a "Try another
         // version" carried the old file's identity into the new one:

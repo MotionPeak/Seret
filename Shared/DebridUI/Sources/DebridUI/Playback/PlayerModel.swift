@@ -155,6 +155,13 @@ public final class PlayerModel {
     /// Cleared with the rest of the per-file subtitle state on a source change.
     var attachedSubtitleTracks: [URL: String] = [:]
 
+    /// Cue lists for downloaded subtitles, keyed by the file that was attached to the engine.
+    ///
+    /// Parsed on the way in, where the text has already been decoded for the rate check — so asking
+    /// whether a hand sync is possible costs nothing, the panel opens without reading a file, and
+    /// switching between two downloaded tracks shows the right lines for each.
+    var subtitleCues: [URL: [SubtitleCue]] = [:]
+
     /// Subtitle tracks to show as plain pills — EXCLUDES on-demand downloads, which are
     /// represented by their language row instead. Without this, a downloaded "Hebrew" sub also
     /// shows up as a generic "Track N" pill (the duplicate the user reported).
@@ -700,6 +707,17 @@ public final class PlayerModel {
     /// `position` is whatever the last time notification said, which is up to a second ago. For a
     /// scrub bar that is invisible; for "this line was spoken now" it is the whole measurement.
     var preciseNow: Double { engine.preciseTime ?? position }
+
+    /// The lines of the selected subtitle, when it is one we downloaded.
+    public var manualSyncCues: [SubtitleCue] {
+        selectedDownloadedSubtitleFile.flatMap { subtitleCues[$0] } ?? []
+    }
+
+    /// Whether a hand sync is possible at all: a downloaded subtitle whose lines we could read.
+    ///
+    /// A track muxed into the container never qualifies — we hold no cue list for it, so there is
+    /// nothing for a press to be measured against. That is the same boundary auto-sync draws.
+    public var canManualSync: Bool { !manualSyncCues.isEmpty }
 
     /// How far the running drift correction has grown by the current position.
     ///
