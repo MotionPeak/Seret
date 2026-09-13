@@ -19,6 +19,7 @@ import DebridCore
 ///   - `gridfade`  — a pre-scrolled grid under a pinned header, for tuning the top fade
 ///   - `person`    — the person page: header, As Actor / As Director, ranked credits
 ///   - `autosync` / `autosyncdone` / `autosyncfailed` — the subtitle-sync bar over the picture
+///   - `manualsync` / `manualsyncpressed` — sync-to-a-line, before and after the press
 ///
 /// Not compiled into release builds.
 struct PlayerUIPreview: View {
@@ -41,6 +42,8 @@ struct PlayerUIPreview: View {
         case "autosync":            AutoSyncBarPreview(mood: .measuring)
         case "autosyncdone":        AutoSyncBarPreview(mood: .synced)
         case "autosyncfailed":      AutoSyncBarPreview(mood: .failed)
+        case "manualsync":          ManualSyncPanelPreview(pressed: false)
+        case "manualsyncpressed":   ManualSyncPanelPreview(pressed: true)
         default:           ScrubBarPreview()
         }
     }
@@ -668,5 +671,93 @@ final class PreviewEngine: VideoPlayerEngine {
         emit(.tracksChanged)
     }
     private var attachedSubtitleURLs: [URL] = []
+}
+
+// MARK: - Manual sync panel
+
+/// The real `ManualSyncPanel` over black, driven through the REAL path — a download that attaches,
+/// is parsed for its cues, and is then pressed against. Nothing about the session is hand-placed,
+/// so the harness cannot flatter a model that does not actually work.
+///
+/// The fixture is Hebrew on purpose: this is the first place in the app that renders subtitle text
+/// itself, and right-to-left layout is worth looking at rather than assuming.
+private struct ManualSyncPanelPreview: View {
+    let pressed: Bool
+    @State private var engine = PreviewEngine()
+    @State private var model: PlayerModel
+
+    init(pressed: Bool) {
+        self.pressed = pressed
+        let engine = PreviewEngine()
+        let source = MediaSource(torrentID: "t", fileID: nil, restrictedLink: "rd://x",
+                                 parsed: ParsedRelease(title: "Dune Part Two"))
+        let item = MediaItem(id: "m", kind: .movie, title: "Dune: Part Two", year: 2024,
+                             sources: [source], seasons: [], tmdbID: 693134)
+        let request = PlaybackRequest(item: item, source: source, resumeAt: nil,
+                                      label: "Dune: Part Two", contentKey: "m")
+        _engine = State(initialValue: engine)
+        _model = State(initialValue: PlayerModel(
+            request: request, engine: engine,
+            unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
+            recordProgress: { _, _, _, _ in }, subtitles: ManualSyncPreviewProvider()))
+    }
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            ManualSyncPanel(model: model, onClose: {})
+        }
+        .task {
+            model.start()
+            try? await Task.sleep(for: .milliseconds(50))
+            // 2:34.4 into the film — inside the cue authored at 2:32, so that line is pre-selected
+            // and a press measures +2.4s.
+            engine.emit(.time(.init(position: 154.4, duration: 7784)))
+            try? await Task.sleep(for: .milliseconds(30))
+            await model.requestSubtitle(language: "he")
+            try? await Task.sleep(for: .milliseconds(60))
+            model.beginManualSync()
+            if pressed { model.markSyncMoment() }
+        }
+    }
+}
+
+/// Serves one real Hebrew subtitle file, so the preview exercises the parse rather than a fixture
+/// of pre-made cues.
+private struct ManualSyncPreviewProvider: SubtitleProvider {
+    func search(_ query: SubtitleQuery, languages: [String]) async throws -> [SubtitleResult] {
+        [SubtitleResult(fileID: 7, language: "he", release: "Dune.Part.Two.2024.2160p.WEB-DL",
+                        downloadCount: 400, fps: 23.976, moviehashMatch: true, uploader: "syncer")]
+    }
+    func download(_ result: SubtitleResult) async throws -> URL {
+        let url = FileManager.default.temporaryDirectory.appending(path: "preview-manual-sync.srt")
+        try? Data(Self.srt.utf8).write(to: url)
+        return url
+    }
+
+    /// Mixed Hebrew and Latin, because both have to sit in the same list without either breaking
+    /// the other's alignment.
+    private static let srt = """
+    1
+    00:02:20,000 --> 00:02:23,000
+    אני לא יודע מה לומר.
+
+    2
+    00:02:25,000 --> 00:02:28,000
+    אז אל תגיד כלום.
+
+    3
+    00:02:32,000 --> 00:02:35,000
+    זה בדיוק מה שחשבתי.
+
+    4
+    00:02:37,000 --> 00:02:40,000
+    We can switch language mid-scene.
+
+    5
+    00:02:43,000 --> 00:02:46,000
+    And the timecodes still line up.
+
+    """
 }
 #endif
