@@ -273,6 +273,100 @@ import DebridCore
         #expect(m.manualSyncReadout?.selected.text == "Line 3")
     }
 
+    // MARK: - Remembering
+
+    /// Takes the provider rather than making one, because the fake names its file per INSTANCE.
+    /// Two sittings on the same film pull the same cached subtitle in production — the download
+    /// cache names files by OpenSubtitles `file_id` — so a test about restoring has to share one.
+    private func modelWithPreferences(
+        _ prefs: FakeTrackPreferences,
+        subs: FakeSubtitleProvider,
+        engine: FakeVideoPlayerEngine = FakeVideoPlayerEngine()
+    ) async -> PlayerModel {
+        let m = PlayerModel(request: Fixture.request(sources: [Fixture.movieSource()]),
+                            engine: engine, unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
+                            recordProgress: { _, _, _, _ in }, subtitles: subs,
+                            trackPreferences: prefs)
+        m.start()
+        await m.waitForIdleForTesting()
+        await m.requestSubtitle(language: "he")
+        await m.waitForIdleForTesting()
+        m.setDurationForTesting(900)
+        return m
+    }
+
+    private func hebrewProvider(_ srt: String = twoLines) -> FakeSubtitleProvider {
+        let subs = FakeSubtitleProvider()
+        subs.searchResults = [SubtitleResult(fileID: 1, language: "he")]
+        subs.downloadedText = srt
+        return subs
+    }
+
+    @Test func aHandSyncIsRememberedAgainstThisFileAndThisSubtitle() async {
+        let prefs = FakeTrackPreferences()
+        let engine = FakeVideoPlayerEngine()
+        let m = await modelWithPreferences(prefs, subs: hebrewProvider(), engine: engine)
+        m.beginManualSync()
+        engine.preciseTime = 12.4
+
+        m.markSyncMoment()
+
+        let file = m.selectedDownloadedSubtitleFile!.lastPathComponent
+        let saved = prefs.subtitleDelay(forSource: Fixture.sourceKey, subtitle: file)
+        #expect(saved.map { abs($0 - 2.4) < 0.0001 } == true)
+    }
+
+    @Test func aRememberedOffsetIsRestoredWhenTheSameSubtitleIsAttachedAgain() async {
+        let prefs = FakeTrackPreferences()
+        let subs = hebrewProvider()
+        // What the first sitting left behind.
+        let first = await modelWithPreferences(prefs, subs: subs)
+        let file = first.selectedDownloadedSubtitleFile!.lastPathComponent
+        prefs.recordedSubtitleDelays["\(Fixture.sourceKey)|\(file)"] = 3.5
+
+        let second = await modelWithPreferences(prefs, subs: subs)
+
+        #expect(second.subtitleDelay == 3.5)
+    }
+
+    @Test func anOffsetIsNotRestoredForADifferentSubtitleFile() async {
+        let prefs = FakeTrackPreferences()
+        prefs.recordedSubtitleDelays["\(Fixture.sourceKey)|some-other-subtitle.srt"] = 3.5
+
+        let m = await modelWithPreferences(prefs, subs: hebrewProvider())
+
+        #expect(m.subtitleDelay == 0)
+    }
+
+    @Test func resettingTheTimingForgetsTheOffset() async {
+        let prefs = FakeTrackPreferences()
+        let engine = FakeVideoPlayerEngine()
+        let m = await modelWithPreferences(prefs, subs: hebrewProvider(), engine: engine)
+        m.beginManualSync()
+        engine.preciseTime = 12.4
+        m.markSyncMoment()
+        let file = m.selectedDownloadedSubtitleFile!.lastPathComponent
+
+        m.resetSubtitleDelay()
+
+        #expect(prefs.subtitleDelay(forSource: Fixture.sourceKey, subtitle: file) == nil)
+    }
+
+    /// A muxed track has no file to key an offset by, so nudging one must not write anything —
+    /// least of all under a key that would later be restored onto a different subtitle.
+    @Test func anOffsetOnAMuxedTrackIsNotRemembered() {
+        let prefs = FakeTrackPreferences()
+        let m = PlayerModel(request: Fixture.request(sources: [Fixture.movieSource()]),
+                            engine: FakeVideoPlayerEngine(),
+                            unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
+                            recordProgress: { _, _, _, _ in }, subtitles: FakeSubtitleProvider(),
+                            trackPreferences: prefs)
+
+        m.adjustSubtitleDelay(by: 1.5)
+
+        #expect(prefs.recordedSubtitleDelays.isEmpty)
+    }
+
     // MARK: - Not being overwritten by the automatic path
 
     /// Observed from INSIDE the measurement, not from the model's own bookkeeping: the task handle

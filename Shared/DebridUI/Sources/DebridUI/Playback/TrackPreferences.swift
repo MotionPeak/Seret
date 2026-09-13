@@ -47,6 +47,17 @@ public protocol TrackPreferenceStoring: AnyObject {
     /// avoids the decoder teardown the first one paid for.
     func audioTrackID(forSource sourceKey: String) -> String?
     func record(audioTrackID: String, forSource sourceKey: String)
+
+    /// The subtitle offset dialled for one exact FILE and one exact SUBTITLE FILE.
+    ///
+    /// Keyed by both, because an offset belongs to the subtitle it was dialled against: carried to
+    /// the next episode, or to a different subtitle for this one, it would silently mistime a
+    /// subtitle that was correct. `subtitle` is the attached file's name, which the download cache
+    /// derives from the OpenSubtitles `file_id` and is therefore stable across sittings.
+    func subtitleDelay(forSource sourceKey: String, subtitle: String) -> Double?
+    /// Zero forgets rather than storing a zero — which is what makes "Reset timing"
+    /// (`applySubtitleDelay(0)`) clear the record without a second code path to keep in step.
+    func record(subtitleDelay: Double, forSource sourceKey: String, subtitle: String)
 }
 
 /// Defaults so a store that only holds the global preference (a test fake) still satisfies the
@@ -60,6 +71,8 @@ public extension TrackPreferenceStoring {
     func record(subtitle: TrackChoice, forTitle titleID: String) { preferredSubtitle = subtitle }
     func audioTrackID(forSource sourceKey: String) -> String? { nil }
     func record(audioTrackID: String, forSource sourceKey: String) {}
+    func subtitleDelay(forSource sourceKey: String, subtitle: String) -> Double? { nil }
+    func record(subtitleDelay: Double, forSource sourceKey: String, subtitle: String) {}
 }
 
 /// Observable, `UserDefaults`-persisted track preferences. App-global (one preferred audio +
@@ -135,6 +148,43 @@ public final class TrackPreferences: TrackPreferenceStoring {
         }
         m[sourceKey] = audioTrackID
         defaults.set(m, forKey: Self.sourceTrackKey)
+    }
+
+    // MARK: - Per-file subtitle offset
+
+    /// Bounded like the audio map above, and for the same reason: it is a convenience, and every
+    /// entry is individually re-earnable by syncing once.
+    private static let subtitleDelayKey = "seret.subtitleDelays"
+    private static let subtitleDelayLimit = 400
+
+    public func subtitleDelay(forSource sourceKey: String, subtitle: String) -> Double? {
+        delayMap()[Self.delayKey(sourceKey, subtitle)]
+    }
+
+    public func record(subtitleDelay: Double, forSource sourceKey: String, subtitle: String) {
+        var m = delayMap()
+        let key = Self.delayKey(sourceKey, subtitle)
+        // Zero is "no offset", so it FORGETS rather than pinning a zero. That is what lets Reset
+        // clear the record through the same call every other change goes through, instead of a
+        // second path that could drift out of step with this one.
+        guard subtitleDelay != 0 else {
+            guard m[key] != nil else { return }
+            m[key] = nil
+            defaults.set(m, forKey: Self.subtitleDelayKey)
+            return
+        }
+        guard m[key] != subtitleDelay else { return }
+        if m.count >= Self.subtitleDelayLimit, m[key] == nil { m.removeAll() }
+        m[key] = subtitleDelay
+        defaults.set(m, forKey: Self.subtitleDelayKey)
+    }
+
+    private func delayMap() -> [String: Double] {
+        defaults.dictionary(forKey: Self.subtitleDelayKey) as? [String: Double] ?? [:]
+    }
+
+    private static func delayKey(_ sourceKey: String, _ subtitle: String) -> String {
+        "\(sourceKey)|\(subtitle)"
     }
 
     private func map(_ key: String) -> [String: String] {

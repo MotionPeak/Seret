@@ -305,6 +305,7 @@ extension PlayerModel {
         selectedSubtitleID = newID
         setRow(pending.language, .attached(newID))
         attachedSubtitleTracks[pending.url] = newID   // libvlc will not attach this file again
+        restoreSubtitleDelay()      // this file + this subtitle may already have been dialled in
         pendingSubtitleAttach = nil
         subtitleAttachTimeoutTask?.cancel()      // it landed — nothing left to time out
         subtitleAttachTimeoutTask = nil

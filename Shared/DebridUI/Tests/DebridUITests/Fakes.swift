@@ -89,6 +89,17 @@ final class FakeTrackPreferences: TrackPreferenceStoring {
     var preferredSubtitle: TrackChoice
     /// Per-FILE remembered audio track, keyed by `WatchKey.source`.
     var recordedTrackIDs: [String: String] = [:]
+    /// Per-FILE, per-SUBTITLE remembered offset, keyed `"<sourceKey>|<subtitle file name>"`.
+    var recordedSubtitleDelays: [String: Double] = [:]
+    func subtitleDelay(forSource sourceKey: String, subtitle: String) -> Double? {
+        recordedSubtitleDelays["\(sourceKey)|\(subtitle)"]
+    }
+    func record(subtitleDelay: Double, forSource sourceKey: String, subtitle: String) {
+        let key = "\(sourceKey)|\(subtitle)"
+        if subtitleDelay == 0 { recordedSubtitleDelays[key] = nil }
+        else { recordedSubtitleDelays[key] = subtitleDelay }
+    }
+
     func audioTrackID(forSource sourceKey: String) -> String? { recordedTrackIDs[sourceKey] }
     func record(audioTrackID: String, forSource sourceKey: String) {
         recordedTrackIDs[sourceKey] = audioTrackID

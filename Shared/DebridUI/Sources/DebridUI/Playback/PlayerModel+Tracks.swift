@@ -276,6 +276,7 @@ extension PlayerModel {
         selectedSubtitleID = id
         engine.selectSubtitleTrack(id: id)
         recordPreferredSubtitle(forTrackID: id)
+        restoreSubtitleDelay()      // switching back to a track that was synced restores its offset
     }
     public func selectSubtitleOff() {
         subtitlePickedByUser = true

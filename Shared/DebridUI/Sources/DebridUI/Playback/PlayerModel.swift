@@ -704,6 +704,32 @@ public final class PlayerModel {
     func applySubtitleDelay(_ seconds: Double) {
         subtitleDelay = min(max(seconds, -Self.maxSubtitleDelay), Self.maxSubtitleDelay)
         applyEffectiveSubtitleDelay(force: true)
+        rememberSubtitleDelay()
+    }
+
+    /// Keep the offset for this exact file and subtitle, so resuming tomorrow does not mean
+    /// syncing again.
+    ///
+    /// Written for whatever lands in `subtitleDelay` — a press, a nudge, a chip, an auto-sync
+    /// result — because they are all the same answer to the same question, and re-measuring audio
+    /// on every resume is minutes the viewer should not spend twice.
+    func rememberSubtitleDelay() {
+        guard let prefs = trackPreferences, let file = selectedDownloadedSubtitleFile else { return }
+        prefs.record(subtitleDelay: subtitleDelay,
+                     forSource: WatchKey.source(currentSource),
+                     subtitle: file.lastPathComponent)
+    }
+
+    /// Re-apply what was dialled for this file and this subtitle last time, if anything was.
+    ///
+    /// Narrower than the load-time reset on purpose: that clears the offset for every new source,
+    /// and this puts one back only when the same subtitle is attached to the same file again.
+    func restoreSubtitleDelay() {
+        guard let prefs = trackPreferences, let file = selectedDownloadedSubtitleFile,
+              let saved = prefs.subtitleDelay(forSource: WatchKey.source(currentSource),
+                                              subtitle: file.lastPathComponent),
+              saved != subtitleDelay else { return }
+        applySubtitleDelay(saved)
     }
 
     /// The playhead to timestamp a viewer's action against.
