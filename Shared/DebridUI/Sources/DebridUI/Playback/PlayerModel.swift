@@ -732,11 +732,34 @@ public final class PlayerModel {
         applySubtitleDelay(saved)
     }
 
+    /// When the current `position` was true. The sub-second part of `preciseNow` is reconstructed
+    /// from how long ago that was.
+    var positionStamp: ContinuousClock.Instant?
+
+    /// Extrapolate no further than this. A tick arrives every second; if one has not for several,
+    /// playback is stalled or the state is stale, and guessing further would invent a number.
+    static let maxClockExtrapolation: Double = 1.5
+
     /// The playhead to timestamp a viewer's action against.
     ///
-    /// `position` is whatever the last time notification said, which is up to a second ago. For a
-    /// scrub bar that is invisible; for "this line was spoken now" it is the whole measurement.
-    var preciseNow: Double { engine.preciseTime ?? position }
+    /// `position` is whatever the last time notification said, and VLCKit posts that about once a
+    /// second. Asking libvlc directly does NOT help: measured on a real stream, its own clock is
+    /// quantised to the same one-second step — two presses 0.43s apart returned the identical
+    /// 898.414. So the sub-second part cannot be read, only reconstructed: take the last figure the
+    /// engine gave and add however long ago it arrived, scaled by the playback rate.
+    ///
+    /// `engine.preciseTime` is still preferred as the base when an engine offers it, because an
+    /// engine with a genuinely fine clock (an AVPlayer fast-path, say) should not be thrown away —
+    /// on such an engine the elapsed term is a fraction of a tick and costs nothing.
+    ///
+    /// Paused, the playhead is not moving, so the figure stands as it is.
+    var preciseNow: Double {
+        let base = engine.preciseTime ?? position
+        guard phase == .playing, let stamp = positionStamp else { return base }
+        let elapsed = Double(stamp.duration(to: .now).components.seconds)
+            + Double(stamp.duration(to: .now).components.attoseconds) / 1e18
+        return base + min(max(elapsed, 0), Self.maxClockExtrapolation) * playbackSpeed
+    }
 
     /// The lines of the selected subtitle, when it is one we downloaded.
     public var manualSyncCues: [SubtitleCue] {

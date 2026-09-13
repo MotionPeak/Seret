@@ -165,6 +165,7 @@ extension PlayerModel {
         }
 
         position = t.position
+        positionStamp = .now        // when THIS figure was true — see `preciseNow`
         // The drift correction is a function of position, so it has to be recomputed as position
         // moves. VLCKit ticks once a second; within one tick a 4% error is 40ms, imperceptible.
         if isCorrectingSubtitleDrift { applyEffectiveSubtitleDelay() }

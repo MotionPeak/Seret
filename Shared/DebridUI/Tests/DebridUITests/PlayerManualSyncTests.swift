@@ -17,13 +17,13 @@ import DebridCore
                     recordProgress: { _, _, _, _ in }, subtitles: FakeSubtitleProvider())
     }
 
-    @Test func theEnginesOwnClockIsPreferredToTheTick() {
+    @Test func theEnginesOwnClockIsPreferredAsTheBase() {
         let engine = FakeVideoPlayerEngine()
         let m = model(engine: engine)
         m.position = 120                 // the once-a-second tick
-        engine.preciseTime = 120.64      // where the film actually is
+        engine.preciseTime = 120.64      // an engine with a finer clock of its own
 
-        #expect(m.preciseNow == 120.64)
+        #expect(m.preciseNow == 120.64)  // not playing, so nothing is added to it
     }
 
     @Test func theTickIsTheFallbackWhenTheEngineCannotAnswer() {
@@ -33,6 +33,66 @@ import DebridCore
         engine.preciseTime = nil
 
         #expect(m.preciseNow == 120)
+    }
+
+    /// The sub-second part is RECONSTRUCTED, not read.
+    ///
+    /// Measured on a real stream in the tvOS simulator: libvlc's own clock is quantised to the
+    /// same one-second step as its notification — two presses 0.43s apart both reported 898.414.
+    /// So the time since the last tick has to be added back, or every press is a coin-flip inside
+    /// a one-second window, which is the exact imprecision this feature exists to remove.
+    @Test func thePartOfASecondSinceTheLastTickIsAddedBack() async throws {
+        let engine = FakeVideoPlayerEngine()
+        let m = model(engine: engine)
+        m.phase = .playing
+        m.position = 120
+        m.positionStamp = .now
+
+        try await Task.sleep(for: .milliseconds(250))
+
+        // Not the bare tick any more: a quarter-second of film has gone by since it arrived.
+        #expect(m.preciseNow > 120.2)
+        #expect(m.preciseNow < 120.4)
+    }
+
+    /// Paused, the playhead is not moving — adding elapsed wall-clock time would invent progress
+    /// the film has not made, and the longer the pause the more wrong the answer.
+    @Test func nothingIsAddedWhileTheFilmIsPaused() async throws {
+        let engine = FakeVideoPlayerEngine()
+        let m = model(engine: engine)
+        m.phase = .paused
+        m.position = 120
+        m.positionStamp = .now
+
+        try await Task.sleep(for: .milliseconds(250))
+
+        #expect(m.preciseNow == 120)
+    }
+
+    /// A stall stops the ticks; extrapolating across one would run the clock away from the film.
+    @Test func theExtrapolationIsCappedSoAStallCannotRunAway() {
+        let engine = FakeVideoPlayerEngine()
+        let m = model(engine: engine)
+        m.phase = .playing
+        m.position = 120
+        m.positionStamp = .now.advanced(by: .seconds(-30))   // no tick for half a minute
+
+        #expect(m.preciseNow == 120 + PlayerModel.maxClockExtrapolation)
+    }
+
+    /// At half speed, half as much film passes per second of wall clock.
+    @Test func theElapsedTimeIsScaledByThePlaybackRate() async throws {
+        let engine = FakeVideoPlayerEngine()
+        let m = model(engine: engine)
+        m.phase = .playing
+        m.setPlaybackSpeed(0.5)
+        m.position = 120
+        m.positionStamp = .now
+
+        try await Task.sleep(for: .milliseconds(400))
+
+        #expect(m.preciseNow > 120.1)
+        #expect(m.preciseNow < 120.3)    // ~0.2s of film, not ~0.4s
     }
 
     // MARK: - The lines to press against
