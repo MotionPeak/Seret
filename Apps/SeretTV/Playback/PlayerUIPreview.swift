@@ -490,7 +490,7 @@ private struct SettingsPanelPreview: View {
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
-            SettingsPanel(model: driver.model, onSearchSubtitles: {}, onClose: {})
+            SettingsPanel(model: driver.model, onSearchSubtitles: {}, onSyncToLine: {}, onClose: {})
         }
         .task { await driver.primeWithTracks() }
     }
@@ -624,7 +624,20 @@ struct PreviewSubtitleProvider: SubtitleProvider {
     }
     func download(_ result: SubtitleResult) async throws -> URL {
         if failDownload { throw SubtitleError.notAuthenticated }
-        return URL(fileURLWithPath: "/tmp/he.srt")
+        // A REAL file with real cues: a path with nothing behind it parses to no lines, which is
+        // indistinguishable from a muxed track — and would hide every row gated on having cues.
+        let url = FileManager.default.temporaryDirectory.appending(path: "preview-he.srt")
+        try? Data("""
+        1
+        00:02:20,000 --> 00:02:23,000
+        אני לא יודע מה לומר.
+
+        2
+        00:02:25,000 --> 00:02:28,000
+        אז אל תגיד כלום.
+
+        """.utf8).write(to: url)
+        return url
     }
 }
 

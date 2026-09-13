@@ -13,6 +13,7 @@ struct PlayerView: View {
     @State private var showSettings = false
     @State private var showEpisodes = false
     @State private var showSubtitleBrowser = false
+    @State private var showManualSync = false
     /// The playhead when the current scrub gesture started — scrub displacement is relative to it.
     @State private var scrubOrigin: Double = 0
     /// Arrow nudges applied during the current scrub, folded into the origin so the next pan
@@ -97,7 +98,7 @@ struct PlayerView: View {
             // A sync runs for minutes while the film keeps playing, so it reports from up here
             // rather than from inside the panel that started it. Hidden while the panel or the
             // browser is up — both of those open at the top of the screen and say it themselves.
-            if let banner = model.autoSyncBanner, !showSettings, !showSubtitleBrowser {
+            if let banner = model.autoSyncBanner, !showSettings, !showSubtitleBrowser, !showManualSync {
                 AutoSyncBar(banner: banner)
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
@@ -118,6 +119,11 @@ struct PlayerView: View {
             if showSettings {
                 SettingsPanel(model: model,
                               onSearchSubtitles: { showSettings = false; showSubtitleBrowser = true },
+                              onSyncToLine: {
+                                  showSettings = false
+                                  model.beginManualSync()
+                                  showManualSync = true
+                              },
                               onClose: { showSettings = false })
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
@@ -128,6 +134,14 @@ struct PlayerView: View {
                     .transition(.opacity)
             }
 
+            // Above the browser: the sync pad. The film keeps playing behind it — that is the
+            // whole point, since you are pressing on a line you can hear.
+            if showManualSync {
+                ManualSyncPanel(model: model,
+                                onClose: { showManualSync = false; model.endManualSync() })
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+
             #if DEBUG
             // `-inputHUD`: live readout of what the remote actually delivers. Above everything and
             // non-interactive, so it cannot perturb the very input it is measuring.
@@ -136,6 +150,7 @@ struct PlayerView: View {
         }
         .animation(Theme.Anim.pageFade, value: showSettings)
         .animation(Theme.Anim.pageFade, value: showSubtitleBrowser)
+        .animation(Theme.Anim.pageFade, value: showManualSync)
         .animation(Theme.Anim.pageFade, value: showEpisodes)
         .animation(Theme.Anim.pageFade, value: model.upNextVisible)
         .animation(Theme.Anim.pageFade, value: model.isColdOpen)
@@ -155,7 +170,8 @@ struct PlayerView: View {
             // Menu abandons a scrub: whatever is travelling is what the viewer wants stopped, and
             // dismissing the whole player out from under a runaway is not the same thing as
             // stopping it.
-            if model.isScanning { model.endScan() }
+            if showManualSync { showManualSync = false; model.endManualSync() }
+            else if model.isScanning { model.endScan() }
             else if model.isScrubbing { model.cancelScrub() }  // Menu abandons a scrub
             else if model.upNextVisible { model.dismissUpNext() }
             else if showSubtitleBrowser { showSubtitleBrowser = false }   // fallback; the browser also self-closes
@@ -175,6 +191,7 @@ struct PlayerView: View {
         .onChange(of: showSettings) { _, open in if !open { model.revealScrubBar() } }
         .onChange(of: showEpisodes) { _, open in if !open { model.revealScrubBar() } }
         .onChange(of: showSubtitleBrowser) { _, open in if !open { model.revealScrubBar() } }
+        .onChange(of: showManualSync) { _, open in if !open { model.revealScrubBar() } }
         .onChange(of: model.shouldDismiss) { _, dismissNow in if dismissNow { dismiss() } }
         .onDisappear { Task { await model.teardown() } }
     }
@@ -186,7 +203,8 @@ struct PlayerView: View {
     /// and while the surface stayed armed the two competed for focus — and the arrows still drove
     /// skip and hold-to-scan on a player that had already failed.
     private var inputSurfaceActive: Bool {
-        !showSettings && !showEpisodes && !model.upNextVisible && !showSubtitleBrowser && !hasFailed
+        !showSettings && !showEpisodes && !model.upNextVisible && !showSubtitleBrowser
+            && !showManualSync && !hasFailed
     }
 
     private var hasFailed: Bool {

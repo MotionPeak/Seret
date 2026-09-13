@@ -8,6 +8,8 @@ struct SettingsPanel: View {
     @Bindable var model: PlayerModel
     /// Leave the panel and open the full subtitle browser (Task 9).
     let onSearchSubtitles: () -> Void
+    /// Leave the panel and open the sync-to-a-line pad, so the picture is visible while you dial.
+    let onSyncToLine: () -> Void
     let onClose: () -> Void
 
     /// The panel's own inner gutter. Deliberately NOT `Theme.Layout.contentMargin`: it is the same
@@ -17,7 +19,8 @@ struct SettingsPanel: View {
     private static let innerGutter: CGFloat = 60
 
     var body: some View {
-        PlaybackColumns(model: model, onSearchSubtitles: onSearchSubtitles, onPick: onClose)
+        PlaybackColumns(model: model, onSearchSubtitles: onSearchSubtitles,
+                        onSyncToLine: onSyncToLine, onPick: onClose)
             .padding(.horizontal, Self.innerGutter)
             .padding(.vertical, 40)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -38,6 +41,7 @@ struct SettingsPanel: View {
 private struct PlaybackColumns: View {
     @Bindable var model: PlayerModel
     let onSearchSubtitles: () -> Void
+    let onSyncToLine: () -> Void
     let onPick: () -> Void
     /// Seeds focus to the "Subtitles → Off" row when the panel opens, so the arrows navigate the
     /// options immediately — no extra click to "enter" the menu. `@FocusState` + `.onAppear` is the
@@ -124,6 +128,12 @@ private struct PlaybackColumns: View {
                     onPick()
                 }
                 .disabled(model.autoSyncState == .measuring)
+            }
+            // The measurement the viewer can make that the machine cannot: they know when a line
+            // was spoken. Under the automatic answer because that one needs no judgement, above
+            // the ±0.5s chips because this is a measurement and those are a guess.
+            if model.canManualSync {
+                CheckRow(title: "Sync to a line…", checked: false) { onSyncToLine() }
             }
             CheckRow(title: "Show earlier  −0.5s", checked: false) {
                 model.adjustSubtitleDelay(by: -0.5)
