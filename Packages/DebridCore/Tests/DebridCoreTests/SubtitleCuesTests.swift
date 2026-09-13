@@ -135,6 +135,27 @@ import Foundation
         #expect(SubtitleCues.nearest(to: 5, in: []) == nil)
     }
 
+    /// `cueSpans` and `parse` must see the same cues — they are the same parse, and auto-sync
+    /// correlates against one while the panel indexes the other.
+    @Test func cueSpansAgreesWithTheParser() {
+        let srt = """
+        1
+        00:00:05,000 --> 00:00:07,500
+        Hello there.
+
+        2
+        00:01:02,250 --> 00:01:04,000
+        General Kenobi.
+
+        """
+        let spans = SubtitleTiming.cueSpans(in: srt)
+        let cues = SubtitleCues.parse(srt)
+
+        #expect(spans.count == cues.count)
+        #expect(spans.map(\.start) == cues.map(\.start))
+        #expect(spans.map(\.end) == cues.map(\.end))
+    }
+
     @Test func sliceClampsAtBothEnds() {
         let cues = (0..<5).map { SubtitleCue(id: $0, start: Double($0), end: Double($0) + 0.5,
                                              text: "\($0)") }

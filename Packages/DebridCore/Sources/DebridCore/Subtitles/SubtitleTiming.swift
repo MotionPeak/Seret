@@ -19,19 +19,17 @@ public enum SubtitleTiming {
         return maxEnd
     }
 
-    /// Every cue's start and end, in seconds, in the order they appear.
+    /// Every cue's start and end, in seconds, ordered by start time.
     ///
     /// `lastCueEndSeconds` only ever needed the ends. Syncing needs both: the shape being matched
     /// against the audio is "a line is on screen from here to here", and a cue's start is what
     /// carries that.
+    ///
+    /// Delegates to `SubtitleCues`, which parses the same files for the sync panel. One parse, one
+    /// set of dialect quirks to get right. (Callers are order-independent — `activity` fills a frame
+    /// buffer and `autoSyncWindowStart` sums coverage — so sorting is free.)
     public static func cueSpans(in text: String) -> [(start: Double, end: Double)] {
-        let range = NSRange(text.startIndex..., in: text)
-        return spanRegex.matches(in: text, range: range).compactMap { m in
-            guard let s = Range(m.range(at: 1), in: text), let start = parseTimestamp(String(text[s])),
-                  let e = Range(m.range(at: 2), in: text), let end = parseTimestamp(String(text[e])),
-                  end > start else { return nil }
-            return (start, end)
-        }
+        SubtitleCues.parse(text).map { ($0.start, $0.end) }
     }
 
     /// The cues as one frame per `frameSeconds`: 1 while a line is on screen, 0 otherwise — the
@@ -55,9 +53,6 @@ public enum SubtitleTiming {
     // Capture the END timestamp (group 1) of each "start --> end" cue line.
     private static let cueRegex = try! NSRegularExpression(
         pattern: #"\d{2}:\d{2}:\d{2}[,.]\d{1,3}\s*-->\s*(\d{2}:\d{2}:\d{2}[,.]\d{1,3})"#)
-    // …and both sides of it, for `cueSpans`.
-    private static let spanRegex = try! NSRegularExpression(
-        pattern: #"(\d{2}:\d{2}:\d{2}[,.]\d{1,3})\s*-->\s*(\d{2}:\d{2}:\d{2}[,.]\d{1,3})"#)
 
     /// `HH:MM:SS,mmm` or `HH:MM:SS.mmm` → seconds.
     private static func parseTimestamp(_ s: String) -> Double? {
