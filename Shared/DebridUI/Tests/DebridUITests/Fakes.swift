@@ -29,6 +29,9 @@ final class FakeVideoPlayerEngine: VideoPlayerEngine {
     var subtitleTracks: [MediaTrack] = []
     /// What the engine reports as the video's frame rate — drives subtitle fps matching.
     var videoFPS: Double?
+    /// What the engine answers when asked for the time directly, as opposed to the position the
+    /// model last received from an event. Nil models an engine that cannot answer.
+    var preciseTime: Double?
     func setSubtitleDelay(_ seconds: Double) { subtitleDelays.append(seconds) }
 
     let events: AsyncStream<PlaybackEvent>

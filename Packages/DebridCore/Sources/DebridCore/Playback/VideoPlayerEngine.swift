@@ -51,6 +51,17 @@ public protocol VideoPlayerEngine: AnyObject {
     /// the difference between watching an episode and giving up on it.
     func setSubtitleDelay(_ seconds: Double)
 
+    /// The playhead right now, at the engine's own resolution — NOT the figure the time
+    /// notification carries.
+    ///
+    /// VLCKit posts `mediaPlayerTimeChanged` about once a second, so the position the model holds
+    /// can be a full second stale. That is fine for a scrub bar and useless for timestamping a
+    /// viewer's press against a subtitle cue: the error would be larger than the drift being
+    /// corrected. libvlc itself keeps a millisecond clock and will answer at any moment.
+    ///
+    /// Nil when the engine cannot answer, so every caller needs a fallback.
+    var preciseTime: Double? { get }
+
     /// The playing video's frame rate, once the engine has opened the media (nil before that, or
     /// when the engine can't report it). Subtitle matching needs it: a file timed against a
     /// different rate drifts linearly — right at the start, then progressively early until each
@@ -84,6 +95,10 @@ public extension VideoPlayerEngine {
     /// Default: an engine that can't report a frame rate degrades to "unknown", which makes
     /// subtitle ranking skip the fps term rather than penalise every candidate.
     var videoFPS: Double? { nil }
+
+    /// Default: an engine with no finer clock than its own notifications says so, and callers fall
+    /// back to the last reported position.
+    var preciseTime: Double? { nil }
 
     /// Default: an engine that keeps no log drops the line (every test fake, and any future
     /// AVPlayer fast-path that has nowhere to write).

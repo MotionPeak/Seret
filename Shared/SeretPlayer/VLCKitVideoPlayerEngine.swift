@@ -327,6 +327,14 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
         return Double(video.frameRate) / Double(denominator)
     }
 
+    var preciseTime: Double? {
+        // `VLCTime.intValue` is milliseconds. Zero and negative both mean "no answer yet" here:
+        // libvlc reports 0 before the clock starts, and at a genuine time zero the caller's
+        // fallback — a position of 0 — is the same number anyway.
+        let ms = player.time.intValue
+        return ms > 0 ? Double(ms) / 1000 : nil
+    }
+
     var audioTracks: [MediaTrack] { player.audioTracks.map { Self.mediaTrack($0, kind: .audio) } }
     var subtitleTracks: [MediaTrack] {
         player.textTracks.map {

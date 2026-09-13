@@ -695,6 +695,12 @@ public final class PlayerModel {
         applyEffectiveSubtitleDelay(force: true)
     }
 
+    /// The playhead to timestamp a viewer's action against.
+    ///
+    /// `position` is whatever the last time notification said, which is up to a second ago. For a
+    /// scrub bar that is invisible; for "this line was spoken now" it is the whole measurement.
+    var preciseNow: Double { engine.preciseTime ?? position }
+
     /// How far the running drift correction has grown by the current position.
     ///
     /// A cue sitting at file-time `s` must be shown at `s × f`, where `f` is the subtitle's rate
