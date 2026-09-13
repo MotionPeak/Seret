@@ -105,7 +105,15 @@ final class FakeSubtitleProvider: SubtitleProvider, @unchecked Sendable {
     var searchResults: [SubtitleResult] = []
     var searchError: Error?
     var downloadError: Error?
-    var downloadedURL = URL(fileURLWithPath: "/tmp/sub.srt")
+    /// Unique per provider instance, because the file is REAL and the suites run in parallel.
+    ///
+    /// Every test in this package searches with `fileID: 1`, so a name keyed by the file id alone
+    /// was one shared file on disk for the whole package: one test wrote its subtitle text while
+    /// another read it back through `prepareSubtitle`, and the model under test got a stranger's
+    /// cues. That is what made the auto-sync suite fail a different assertion on every other run.
+    private let instanceID = UUID().uuidString
+    lazy var downloadedURL = FileManager.default.temporaryDirectory
+        .appending(path: "fake-sub-\(instanceID).srt")
     private(set) var searchedLanguages: [[String]] = []
     private(set) var searchedQueries: [SubtitleQuery] = []
 
@@ -126,7 +134,7 @@ final class FakeSubtitleProvider: SubtitleProvider, @unchecked Sendable {
         if let downloadError { throw downloadError }
         if let downloadedText {
             let url = FileManager.default.temporaryDirectory
-                .appending(path: "fake-sub-\(result.fileID).srt")
+                .appending(path: "fake-sub-\(instanceID)-\(result.fileID).srt")
             try? Data(downloadedText.utf8).write(to: url)
             return url
         }
