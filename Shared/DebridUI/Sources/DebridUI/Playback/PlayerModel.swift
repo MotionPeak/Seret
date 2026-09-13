@@ -162,6 +162,10 @@ public final class PlayerModel {
     /// switching between two downloaded tracks shows the right lines for each.
     var subtitleCues: [URL: [SubtitleCue]] = [:]
 
+    /// The hand sync in progress, or nil when the panel is closed. (Stored here rather than in
+    /// `PlayerModel+ManualSync.swift` because Swift does not allow stored properties in extensions.)
+    var manualSync: ManualSyncSession?
+
     /// Subtitle tracks to show as plain pills — EXCLUDES on-demand downloads, which are
     /// represented by their language row instead. Without this, a downloaded "Hebrew" sub also
     /// shows up as a generic "Track N" pill (the duplicate the user reported).

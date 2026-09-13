@@ -361,6 +361,15 @@ extension PlayerModel {
             return
         }
 
+        // A cancelled measurement has been superseded — by a hand sync, or by the player leaving.
+        // Cancellation is cooperative, so the result is already in hand by the time the await
+        // returns, and applying it would move a subtitle the viewer has just dialled in
+        // themselves — minutes after they stopped looking at it.
+        guard !Task.isCancelled else {
+            note("auto-sync: cancelled before applying — leaving the subtitle as it is")
+            return
+        }
+
         note(String(format: "auto-sync: applying %+.1fs (confidence %.2f)",
                     best.offsetSeconds, best.confidence))
         applySubtitleDelay(best.offsetSeconds)
