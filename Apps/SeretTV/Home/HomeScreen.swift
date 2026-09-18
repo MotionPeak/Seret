@@ -2,8 +2,8 @@ import DebridCore
 import DebridUI
 import SwiftUI
 
-/// Home tab: a featured hero (most recent Continue item) + Continue Watching and
-/// Recently Added rails, composed on the shared `session.home`. Cards push library Detail.
+/// Home tab: a featured hero (most recent Continue item), a Continue Watching rail and a Recently
+/// Added grid, composed on the shared `session.home`. Cards push library Detail.
 struct HomeScreen: View {
     @Environment(AppSession.self) private var session
 
@@ -63,19 +63,23 @@ struct HomeScreen: View {
                                     LandscapeProgressCard(title: hi.item.title, subtitle: hi.subtitle,
                                                           imageURL: backdropURL(hi.item), fraction: hi.fraction)
                                 }.buttonStyle(.card)
+                                    // Press-and-hold to clear it: the rail had no way to remove a
+                                    // title you only started, so it kept the top of Home for good.
+                                    .contextMenu { ContinueWatchingActions(entry: hi, session: session) }
                             }
                         }
                     }
                     if !home.recentlyAdded.isEmpty {
-                        HomeRail(title: "Recently Added") {
+                        // A grid, not a rail: this is the section you browse, and sideways it
+                        // showed six of sixty while the rest of the page sat empty. `PosterCard`
+                        // rather than a private copy, so a title here carries the same ✓, the same
+                        // label and the same long-press actions it does in My Library.
+                        HomeGrid(title: "Recently Added") {
                             ForEach(home.recentlyAdded) { item in
-                                let isWatched = session.libraryStore?.watchState(for: item)?.finished == true
-                                NavigationLink(value: item) { posterCard(item, watched: isWatched) }
-                                    .buttonStyle(.card)
-                                    // The same actions the library grid offers. This rail used to
-                                    // mark a movie watched and nothing else — no shows, no removal.
-                                    .libraryTitleMenu(for: item, session: session,
-                                                      onRemove: { pendingRemoval = $0 })
+                                PosterCard(item: item,
+                                           watched: session.libraryStore?.watchState(for: item)?.finished == true,
+                                           session: session,
+                                           onRemove: { pendingRemoval = $0 })
                             }
                         }
                     }
@@ -134,38 +138,6 @@ struct HomeScreen: View {
             .buttonStyle(.card)
             .focused($heroFocused)
         }
-    }
-
-    @ViewBuilder
-    private func posterCard(_ item: MediaItem, watched: Bool = false) -> some View {
-        // No title label — posters already carry their title in the artwork. Which is exactly why
-        // a title TMDB could not match needs one drawn: with no poster AND no label the tile was
-        // unidentifiable, and (before RemoteImage learned that a nil url has nothing to wait for)
-        // it sat spinning for good. Mirrors PosterCard's noPoster fallback.
-        Group {
-            if let url = TMDBClient.imageURL(path: item.posterPath, size: "w500") {
-                RemoteImage(url: url)
-            } else {
-                Theme.Palette.surface1.overlay {
-                    Text(item.title)
-                        .cardTitle()
-                        .foregroundStyle(Theme.Palette.textSecondary)
-                        .multilineTextAlignment(.center)
-                        .padding(12)
-                }
-            }
-        }
-            .frame(width: 220, height: 330)
-            .overlay { if watched { Color.black.opacity(0.45) } }   // dim a watched movie
-            .clipShape(RoundedRectangle(cornerRadius: Theme.Layout.posterCorner, style: .continuous))
-            .overlay(alignment: .topTrailing) {
-                if watched {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 34)).foregroundStyle(Theme.Palette.gold)
-                        .background(Circle().fill(.black.opacity(0.55))).padding(12)
-                        .accessibilityLabel("Watched")
-                }
-            }
     }
 
     private var empty: some View {

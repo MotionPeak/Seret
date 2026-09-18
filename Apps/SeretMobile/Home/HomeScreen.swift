@@ -197,7 +197,10 @@ struct HomeScreen: View {
         var urls: [URL] = []
         if let f = home.featured, let u = backdropURL(f.item) { urls.append(u) }
         urls += home.continueWatching.compactMap { backdropURL($0.item) }
-        urls += home.recentlyAdded.compactMap { posterURL($0) }
+        // Only what the viewer lands on. The grid holds sixty now, and warming every one of them
+        // eagerly is sixty decodes on a phone for a wall you have to scroll to reach the end of —
+        // the rest warm lazily as they scroll in.
+        urls += home.recentlyAdded.prefix(20).compactMap { posterURL($0) }
         ImageMemoryCache.prefetch(urls)
     }
 
