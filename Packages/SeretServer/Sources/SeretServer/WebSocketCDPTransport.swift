@@ -31,6 +31,7 @@ public actor WebSocketCDPTransport: CDPTransport {
         case noPageTarget
         case notConnected
         case timedOut(String)
+        case unresolvableHost(String)
     }
 
     private let httpBase: String
@@ -47,9 +48,47 @@ public actor WebSocketCDPTransport: CDPTransport {
         self.group = group
     }
 
+    /// DevTools accepts a `Host` header that is an IP address or `localhost`, and refuses
+    /// everything else with "Host header is specified and is not an IP address or localhost".
+    static func hostNeedsResolving(_ host: String) -> Bool {
+        host != "localhost" && (try? SocketAddress(ipAddress: host, port: 0)) == nil
+    }
+
+    /// `base` with its host swapped for `host`, keeping the scheme and port.
+    static func base(_ base: String, host: String) -> String? {
+        guard var components = URLComponents(string: base) else { return nil }
+        components.host = host
+        return components.string
+    }
+
+    /// The DevTools endpoint with a host DevTools will actually answer to.
+    ///
+    /// A docker service name is a hostname, so `letterboxd-chromium:9223` is refused outright —
+    /// the name has to become an address before it ever reaches the wire. Doing it here fixes the
+    /// WebSocket upgrade too, because DevTools echoes whatever Host it was given straight back in
+    /// `webSocketDebuggerUrl`.
+    private func resolvedBase() throws -> String {
+        guard let components = URLComponents(string: httpBase), let host = components.host else {
+            throw TransportError.noPageTarget
+        }
+        guard Self.hostNeedsResolving(host) else { return httpBase }
+
+        // getaddrinfo blocks. It is one lookup against docker's embedded DNS per connect, inside
+        // an operation that is about to drive a whole browser, so it is not worth a thread hop.
+        guard let address = try? SocketAddress.makeAddressResolvingHost(host,
+                                                                       port: components.port ?? 80),
+              let ip = address.ipAddress,
+              let resolved = Self.base(httpBase, host: ip) else {
+            throw TransportError.unresolvableHost(host)
+        }
+        return resolved
+    }
+
     /// The first page target on the browser, preferring one already on Letterboxd.
     private func pageWebSocketURL() async throws -> String {
-        guard let url = URL(string: httpBase + "/json") else { throw TransportError.noPageTarget }
+        guard let url = URL(string: try resolvedBase() + "/json") else {
+            throw TransportError.noPageTarget
+        }
         // DebridCore's client rather than URLSession directly: on Linux URLSession lives in
         // FoundationNetworking, and that client already carries the guard.
         let data = try await http.data(url)
