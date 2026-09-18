@@ -66,6 +66,30 @@ extension MockTests {
             }
         }
 
+        /// A blocked request is not a missing film. Cloudflare 403s some clients outright, and
+        /// calling that `filmNotFound` tells the caller to give up on a film that is right there.
+        @Test func aRefusedRequestIsTransientNotMissing() async {
+            MockURLProtocol.handler = { request in
+                (HTTPURLResponse(url: request.url!, statusCode: 403, httpVersion: nil, headerFields: nil)!,
+                 Data("Just a moment".utf8))
+            }
+            let resolver = LetterboxdFilmResolver(http: HTTPClient(session: .mock), map: LetterboxdFilmMap())
+            await #expect(throws: LetterboxdError.self) {
+                _ = try await resolver.slug(forTMDB: 73)
+            }
+            do {
+                _ = try await resolver.slug(forTMDB: 73)
+            } catch let error as LetterboxdError {
+                guard case .transient(let message) = error else {
+                    Issue.record("expected .transient, got \(error)")
+                    return
+                }
+                #expect(message.contains("403"))
+            } catch {
+                Issue.record("expected a LetterboxdError, got \(error)")
+            }
+        }
+
         @Test func aSeededMapNeedsNoNetworkAtAll() async throws {
             MockURLProtocol.handler = { _ in
                 Issue.record("resolver hit the network for a slug it had already been given")

@@ -24,8 +24,14 @@ public struct LetterboxdFilmResolver: Sendable {
         let resolved: URL
         do {
             resolved = try await http.resolvedURL(for: url)
-        } catch {
+        } catch HTTPError.status(404, _) {
             throw LetterboxdError.filmNotFound
+        } catch {
+            // Anything else is the request being refused, not the film being absent — and the two
+            // need opposite handling: one is worth retrying, the other never is. Cloudflare 403s
+            // whole classes of client, so flattening them together tells the caller to give up on
+            // a film that exists.
+            throw LetterboxdError.transient("resolving tmdb/\(id): \(error)")
         }
 
         // An id Letterboxd does not know can bounce to the home page rather than 404, so the
