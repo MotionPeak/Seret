@@ -43,10 +43,16 @@ public final class HomeStore {
     /// The viewer's chosen version per title. Optional so a Home built without it (tests, a store
     /// that failed to open) still composes — it just falls back to the quality ranker.
     private let versionPrefs: VersionPreferring?
+    /// How many titles Recently Added holds. tvOS renders it as a grid ten rows deep, so the
+    /// twenty a side-scrolling rail could show is no longer the shape of the screen; the iPhone,
+    /// which still has a rail, asks for fewer.
+    private let recentlyAddedLimit: Int
 
-    public init(watch: WatchProgressProviding, versionPrefs: VersionPreferring? = nil) {
+    public init(watch: WatchProgressProviding, versionPrefs: VersionPreferring? = nil,
+                recentlyAddedLimit: Int = 60) {
         self.watch = watch
         self.versionPrefs = versionPrefs
+        self.recentlyAddedLimit = recentlyAddedLimit
     }
 
     /// Bumped per rebuild, so only the newest one may publish. Home triggers a rebuild from half a
@@ -67,7 +73,7 @@ public final class HomeStore {
         let all = movies + shows
         let added = Array(all.filter { $0.addedAt != nil }
             .sorted { ($0.addedAt ?? .distantPast) > ($1.addedAt ?? .distantPast) }
-            .prefix(20))
+            .prefix(recentlyAddedLimit))
 
         guard let profileID = activeProfileID else {
             guard generation == rebuildGeneration else { return }
@@ -87,6 +93,30 @@ public final class HomeStore {
         guard generation == rebuildGeneration else { return }   // a newer rebuild owns the rails
         continueWatching = resumable
         recentlyAdded = added
+    }
+
+    /// Mark one Continue-Watching entry watched or unwatched.
+    ///
+    /// The rail is where a title has to be removable from: a film opened for ten seconds sits at
+    /// the top of Home, and on tvOS it takes the hero as well. Either mark takes it off, because
+    /// the rail is exactly the rows that are unfinished AND have a position — watched clears the
+    /// first condition and keeps where you were, unwatched clears the second and means start over.
+    ///
+    /// Keyed off the ENTRY, not its `item`: a show's entry carries the series as its item, so
+    /// `item.id` would write the series row and leave the episode on the card exactly where it
+    /// was. `contentKey` already addresses the one movie or episode the card stands for.
+    ///
+    /// The caller rebuilds — the write has to reach the store before the rail is recomposed, and
+    /// this store has no library of its own to recompose from.
+    public func setWatched(_ watched: Bool, entry: HomeItem) async {
+        // No profile, no write: a row keyed to "" is adopted by nobody and would leave the card
+        // sitting on the rail having apparently done nothing.
+        guard let profileID = activeProfileID else { return }
+        // Empty source key means "keep the file already recorded" — an entry whose version was
+        // removed since it was watched still marks.
+        let sourceKey = entry.source.map { WatchKey.source($0) } ?? ""
+        await watch.setWatched(watched, contentKey: entry.contentKey, sourceKey: sourceKey,
+                               profileID: profileID)
     }
 
     /// `preferredSourceKey` is the viewer's chosen version for this title, if any — resuming must

@@ -185,3 +185,171 @@ private struct FakeWatch: WatchProgressProviding {
         #expect(await prefs.singleCalls == 0)
     }
 }
+
+/// Marking from the Continue Watching rail. The rail is the screen you actually remove a title
+/// from — a film you opened for ten seconds sits at the top of Home until something clears it —
+/// so the mark has to act on the entry's own key: the movie, or the ONE episode on the card.
+@Suite struct HomeStoreWatchMarkTests {
+    /// Models the store's real Continue-Watching rule (`!finished && positionSeconds > 0`) so a
+    /// mark's effect on the rail is observable, not just its write.
+    private final class RecordingWatch: WatchProgressProviding, @unchecked Sendable {
+        private let lock = NSLock()
+        private var rows: [String: WatchState] = [:]
+        private(set) var writes: [(key: String, sourceKey: String, position: Double,
+                                   duration: Double, finished: Bool, profileID: String)] = []
+
+        init(_ states: [WatchState]) {
+            rows = Dictionary(uniqueKeysWithValues: states.map { ($0.contentKey, $0) })
+        }
+
+        func recentlyWatched(limit: Int, profileID: String) async throws -> [WatchState] {
+            lock.withLock {
+                Array(rows.values
+                    .filter { !$0.finished && $0.positionSeconds > 0 }
+                    .sorted { $0.updatedAt > $1.updatedAt }
+                    .prefix(limit))
+            }
+        }
+        func progress(forContentKey key: String, profileID: String) async throws -> WatchState? {
+            lock.withLock { rows[key] }
+        }
+        func record(contentKey: String, sourceKey: String, positionSeconds: Double,
+                    durationSeconds: Double, finished: Bool, profileID: String) async throws {
+            lock.withLock {
+                writes.append((contentKey, sourceKey, positionSeconds, durationSeconds,
+                               finished, profileID))
+                rows[contentKey] = WatchState(contentKey: contentKey, sourceKey: sourceKey,
+                                              positionSeconds: positionSeconds,
+                                              durationSeconds: durationSeconds,
+                                              finished: finished, updatedAt: Date())
+            }
+        }
+        func deleteProgress(forContentKeys keys: [String]) async throws {}
+    }
+
+    private func show() -> MediaItem {
+        let src = MediaSource(torrentID: "t9", fileID: 3, restrictedLink: "rd://ep",
+                              parsed: ParsedRelease(title: "Invincible", season: 4, episode: 1,
+                                                    resolution: "2160p"))
+        return MediaItem(id: "show:inv", kind: .show, title: "Invincible", year: 2021, sources: [],
+                         seasons: [Season(number: 4, episodes: [Episode(season: 4, number: 1,
+                                                                        source: src)])])
+    }
+
+    private func movie() -> MediaItem {
+        MediaItem(id: "movie:dune:2021", kind: .movie, title: "Dune", year: 2021,
+                  sources: [MediaSource(torrentID: "t1", fileID: 1, restrictedLink: "rd://m",
+                                        parsed: ParsedRelease(title: "Dune", resolution: "2160p"))],
+                  seasons: [])
+    }
+
+    /// Marking WATCHED keeps the position and runtime — the entry is finished, not erased.
+    @MainActor @Test func markingWatchedFinishesTheEntryAndDropsItFromTheRail() async {
+        let watch = RecordingWatch([WatchState(contentKey: "movie:dune:2021", sourceKey: "t1#1",
+                                               positionSeconds: 30, durationSeconds: 120,
+                                               finished: false, updatedAt: Date())])
+        let store = HomeStore(watch: watch)
+        store.activeProfileID = "p1"
+        await store.rebuild(movies: [movie()], shows: [])
+        #expect(store.continueWatching.count == 1)
+
+        await store.setWatched(true, entry: store.continueWatching[0])
+
+        #expect(watch.writes.count == 1)
+        #expect(watch.writes.first?.key == "movie:dune:2021")
+        #expect(watch.writes.first?.finished == true)
+        #expect(watch.writes.first?.position == 30)      // keeps where you were
+        #expect(watch.writes.first?.duration == 120)
+        #expect(watch.writes.first?.profileID == "p1")
+
+        await store.rebuild(movies: [movie()], shows: [])
+        #expect(store.continueWatching.isEmpty)
+    }
+
+    /// The reported case: started for a second, don't want it on Home. Unwatched clears the
+    /// position, which is what takes it off the rail.
+    @MainActor @Test func markingUnwatchedClearsThePositionAndDropsItFromTheRail() async {
+        let watch = RecordingWatch([WatchState(contentKey: "movie:dune:2021", sourceKey: "t1#1",
+                                               positionSeconds: 8, durationSeconds: 8000,
+                                               finished: false, updatedAt: Date())])
+        let store = HomeStore(watch: watch)
+        store.activeProfileID = "p1"
+        await store.rebuild(movies: [movie()], shows: [])
+
+        await store.setWatched(false, entry: store.continueWatching[0])
+
+        #expect(watch.writes.first?.key == "movie:dune:2021")
+        #expect(watch.writes.first?.finished == false)
+        #expect(watch.writes.first?.position == 0)       // start over
+        #expect(watch.writes.first?.duration == 8000)    // runtime survives
+
+        await store.rebuild(movies: [movie()], shows: [])
+        #expect(store.continueWatching.isEmpty)
+    }
+
+    /// A show's rail entry carries the series as its `item`, so a mark keyed off `item.id` would
+    /// hit the series row and leave the episode you were part-way through exactly where it was.
+    @MainActor @Test func markingAShowEntryWritesTheEpisodeKeyNotTheSeriesKey() async {
+        let watch = RecordingWatch([WatchState(contentKey: "show:inv:s4e1", sourceKey: "t9#3",
+                                               positionSeconds: 353, durationSeconds: 3000,
+                                               finished: false, updatedAt: Date())])
+        let store = HomeStore(watch: watch)
+        store.activeProfileID = "p1"
+        await store.rebuild(movies: [], shows: [show()])
+        #expect(store.continueWatching[0].item.id == "show:inv")
+
+        await store.setWatched(true, entry: store.continueWatching[0])
+
+        #expect(watch.writes.first?.key == "show:inv:s4e1")
+        #expect(watch.writes.first?.sourceKey == "t9#3")
+    }
+
+    /// Nothing is written before the profile resolves — a mark keyed to "" would be adopted by no
+    /// one and would never take the card off the rail.
+    @MainActor @Test func aMarkBeforeTheProfileResolvesWritesNothing() async {
+        let watch = RecordingWatch([WatchState(contentKey: "movie:dune:2021", sourceKey: "t1#1",
+                                               positionSeconds: 30, durationSeconds: 120,
+                                               finished: false, updatedAt: Date())])
+        let store = HomeStore(watch: watch)
+        store.activeProfileID = "p1"
+        await store.rebuild(movies: [movie()], shows: [])
+        let entry = store.continueWatching[0]
+
+        store.activeProfileID = nil
+        await store.setWatched(true, entry: entry)
+
+        #expect(watch.writes.isEmpty)
+    }
+}
+
+/// Recently Added is a full grid on tvOS, not a rail you nudge sideways — it holds ten rows of six.
+@Suite struct HomeStoreRecentlyAddedLimitTests {
+    @MainActor @Test func recentlyAddedHoldsSixtyNewestByDefault() async {
+        let items = (1...65).map {
+            MediaItem(id: "movie:\($0)", kind: .movie, title: "M\($0)", year: 2024, sources: [],
+                      seasons: [], addedAt: Date(timeIntervalSince1970: Double($0)))
+        }
+        let store = HomeStore(watch: FakeWatch(states: []))
+        store.activeProfileID = "p1"
+
+        await store.rebuild(movies: items, shows: [])
+
+        #expect(store.recentlyAdded.count == 60)
+        #expect(store.recentlyAdded.first?.id == "movie:65")   // newest first
+        #expect(store.recentlyAdded.last?.id == "movie:6")     // the five oldest fall off
+    }
+
+    /// The iPhone rail asks for fewer, and a test fixture asks for a handful.
+    @MainActor @Test func theLimitIsSettable() async {
+        let items = (1...10).map {
+            MediaItem(id: "movie:\($0)", kind: .movie, title: "M\($0)", year: 2024, sources: [],
+                      seasons: [], addedAt: Date(timeIntervalSince1970: Double($0)))
+        }
+        let store = HomeStore(watch: FakeWatch(states: []), recentlyAddedLimit: 3)
+        store.activeProfileID = "p1"
+
+        await store.rebuild(movies: items, shows: [])
+
+        #expect(store.recentlyAdded.map(\.id) == ["movie:10", "movie:9", "movie:8"])
+    }
+}
