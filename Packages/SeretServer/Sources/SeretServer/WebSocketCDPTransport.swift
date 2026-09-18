@@ -114,15 +114,19 @@ public actor WebSocketCDPTransport: CDPTransport {
         let once = ResumeOnce()
         let connected: WebSocket = try await withCheckedThrowingContinuation { continuation in
             WebSocket.connect(to: wsURL, on: group) { ws in
+                // Installed here, inside the upgrade, because WebSocketKit keeps the handler in a
+                // NIOLoopBoundBox: setting it anywhere but the socket's own event loop traps the
+                // process outright. This closure already runs there, and it runs before any frame
+                // can arrive, so nothing is missed either.
+                ws.onText { [weak self] _, text in
+                    Task { await self?.deliver(text) }
+                }
                 if once.claim() { continuation.resume(returning: ws) }
             }.whenFailure { error in
                 if once.claim() { continuation.resume(throwing: error) }
             }
         }
 
-        connected.onText { [weak self] _, text in
-            Task { await self?.deliver(text) }
-        }
         socket = connected
     }
 
