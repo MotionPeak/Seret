@@ -30,7 +30,11 @@ extension PlayerModel {
             case .time(let t): await tick(t)
             case .tracksChanged: refreshTracks()
             }
+            // Counted AFTER the handling, so the test seam's "has this landed yet?" means the work
+            // is done rather than merely started. See `waitForIdleForTesting`.
+            handledEventCount += 1
         }
+        eventLoopFinished = true
     }
 
     func handle(state: PlaybackState) {
@@ -81,7 +85,7 @@ extension PlayerModel {
             // system playback stopped — without it the Remote app keeps advancing a frozen playhead.
             pushNowPlaying()
         case .ended:
-            Task { await finish() }
+            finishTask = Task { await finish() }
         case .failed(let reason):
             phase = .failed(reason)
             isBuffering = false     // it is not waiting on frames; it is over
@@ -195,7 +199,7 @@ extension PlayerModel {
             lastSavedPosition = position
             isSavingProgress = true
             let (key, source, at, length) = (contentKey, WatchKey.source(currentSource), position, duration)
-            Task { @MainActor [weak self] in
+            progressSaveTask = Task { @MainActor [weak self] in
                 await self?.recordProgress(key, source, at, length)
                 self?.isSavingProgress = false
             }

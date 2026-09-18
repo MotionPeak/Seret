@@ -447,10 +447,23 @@ public final class DetailStore {
             season.episodes.map { WatchKey.content(forShow: item, episode: $0) }
         }
         guard !keys.isEmpty else { return }
+        // Claim the keys BEFORE the read, with no await between deciding to read them and saying
+        // so — the same discipline `loadWatchForSeason` documents below, and for the same reason.
+        //
+        // Claiming them AFTERWARDS left the entire duration of the read unclaimed. `load()` runs
+        // this concurrently with the TMDB fetch, so whenever the details came back first — which
+        // is whenever the store read is the slower of the two, i.e. whenever the machine is busy —
+        // `loadSeason`'s own watch read found nothing claimed and issued a SECOND batched read for
+        // the very episodes already in flight. Two identical store reads per show page, and the
+        // test that pins this to one read failed about one run in three.
+        let claimed = keys.filter { !watchKeysRead.contains($0) }
+        watchKeysRead.formUnion(claimed)
         guard let states = try? await watch.progress(forContentKeys: keys,
-                                                     profileID: watchProfileID) else { return }
+                                                     profileID: watchProfileID) else {
+            watchKeysRead.subtract(claimed)   // a failed read must not block the retry
+            return
+        }
         for key in keys { watchByKey[key] = states[key] }
-        watchKeysRead.formUnion(keys)
     }
 
     /// Read watch state for every episode the season LISTS — TMDB's episodes merged with whatever

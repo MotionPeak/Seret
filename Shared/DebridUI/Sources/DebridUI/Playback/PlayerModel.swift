@@ -345,11 +345,30 @@ public final class PlayerModel {
     /// A progress write is in flight. The write is fire-and-forget so it cannot stall the event
     /// loop, and this keeps exactly one of them running so they can't reorder or pile up.
     var isSavingProgress = false
+    /// The progress write in flight. Fire-and-forget by design — awaiting it inside the event loop
+    /// is what used to freeze the scrub bar for the length of the write — so this handle exists
+    /// only so the test seam can tell whether it has landed, and nothing cancels it.
+    var progressSaveTask: Task<Void, Never>?
     /// Fallback timer for a subtitle download VLCKit never attaches. Held so it can be cancelled —
     /// an orphan from a previous episode used to fire against the CURRENT one's pending attach.
     var subtitleAttachTimeoutTask: Task<Void, Never>?
     var eventTask: Task<Void, Never>?
     var loadTask: Task<Void, Never>?
+    /// The `.ended` handler, which `handle(state:)` spawns rather than awaits. Held so the test
+    /// seam can wait for it — the end of a file is decided inside it, several awaits deep.
+    /// Never cancelled here: VLCKit reports the end twice and `finish()`'s own latch is what makes
+    /// the second one a no-op, so a second `.ended` must be allowed to run and hit that latch.
+    var finishTask: Task<Void, Never>?
+    /// How many engine events the event loop has finished handling.
+    ///
+    /// This is the signal `waitForIdleForTesting` waits on. It used to sleep 20ms and hope, which
+    /// is not a wait at all: on a loaded machine the assertion ran before the work and five tests
+    /// failed at random across the package.
+    var handledEventCount = 0
+    /// The engine's stream has ended, so nothing further will ever be handled. `stop()` finishes
+    /// it, and anything emitted afterwards is dropped — which the test seam has to know about, or
+    /// it would wait for a count that can no longer move.
+    var eventLoopFinished = false
     var hideControlsTask: Task<Void, Never>?
     var scrubBarHideTask: Task<Void, Never>?
     var lastSavedPosition: Double = -.infinity
@@ -835,18 +854,89 @@ public final class PlayerModel {
 
     // MARK: - Test hook
 
-    /// Yields the current task so in-flight async work can complete before assertions.
-    /// Used only in unit tests — see `PlayerModelTests`.
     /// Test seam: let the model's own tasks run a turn. Distinct from `waitForIdleForTesting` only
     /// in name — this one reads as "let what I just started take effect".
+    ///
+    /// Still a plain sleep, deliberately. Its callers are the auto-sync progress and manual-sync
+    /// suites, which measure elapsed time and are `.serialized` for that reason: what they want
+    /// from this is that real time passes, not that the model went quiet.
     func settleForTesting() async {
         await Task.yield()
         try? await Task.sleep(nanoseconds: 30_000_000)
     }
 
+    /// Wait until the work this model has in flight has actually landed.
+    ///
+    /// This waits on real signals — the load task's completion, and the event loop having HANDLED
+    /// every event the engine has yielded — rather than on a duration. It used to be
+    /// `Task.sleep(20ms)`, which is not a wait but a bet: the work usually finished inside the
+    /// window, and when the machine was busy (the whole package's suites run in parallel) it did
+    /// not, so the assertion ran first. That is what made five tests across three suites fail at
+    /// random, about one run in three.
     public func waitForIdleForTesting() async {
+        await waitForIdle(awaitingLoad: true)
+    }
+
+    /// The same, for a test that is deliberately holding the load open.
+    ///
+    /// `PlayerEpisodeSwapTests` gates the injected unrestrict so the swap window — switched to the
+    /// new episode, engine still on the old file — stays wide for the length of the test. Waiting
+    /// for that load to finish would be waiting for the test to move on, and the test is waiting
+    /// for this: both stop. Everything else still settles.
+    public func waitForIdleWhileLoadIsHeldForTesting() async {
+        await waitForIdle(awaitingLoad: false)
+    }
+
+    private func waitForIdle(awaitingLoad: Bool) async {
         await Task.yield()
-        try? await Task.sleep(nanoseconds: 20_000_000)
+        // The load chain — resume lookup, unrestrict, `engine.load`, the early resume seek — is a
+        // real, finite task. Every "(engine.seeks → []) == [615]" and "loadedAudioLanguage → nil"
+        // failure was this task simply not having run yet.
+        if awaitingLoad { await loadTask?.value }
+        // Engine events are consumed by a long-lived loop that cannot be awaited, so the signal is
+        // the count: wait until it has handled everything the engine has handed it.
+        //
+        // Only while that loop is actually running. A model the test never `start()`ed has no
+        // consumer, and one whose engine has been stopped has a finished stream — in both cases
+        // events are emitted and never handled, and waiting for a count that cannot move would
+        // stall every call until the deadline.
+        if eventTask != nil, let counting = engine as? EventCountingEngineForTesting {
+            await waitForTestingCondition {
+                self.eventLoopFinished || self.handledEventCount >= counting.yieldedEventCount
+            }
+        }
+        // `.ended` is handled by spawning `finish()`, so handling the event is not the same as the
+        // file having finished.
+        await finishTask?.value
+        // …and a tick starts the progress write without awaiting it, on purpose.
+        await progressSaveTask?.value
+        // A handler can start a new load (retry, the next episode) — let that one land too.
+        if awaitingLoad { await loadTask?.value }
+    }
+
+    /// Poll `condition` until it holds. The polling interval is not load-bearing: the condition is
+    /// the signal, and the deadline only exists so a genuine hang fails the test instead of the
+    /// run. Yields first — on the main actor that is usually enough — then backs off to short
+    /// sleeps so waiting on slow awaited work does not burn a core.
+    private func waitForTestingCondition(_ condition: () -> Bool) async {
+        if condition() { return }
+        for _ in 0..<64 {
+            await Task.yield()
+            if condition() { return }
+        }
+        let deadline = Date().addingTimeInterval(5)
+        while Date() < deadline {
+            try? await Task.sleep(nanoseconds: 1_000_000)
+            if condition() { return }
+        }
+    }
+
+    /// Test seam: the one-shot subtitle download fallback is deliberately deferred, so it is a real
+    /// task to await rather than a delay to sleep past.
+    public func waitForSubtitleFallbackForTesting() async {
+        await waitForIdleForTesting()
+        await subtitleFallbackTask?.value
+        await waitForIdleForTesting()
     }
 
     /// Test seam: perform a full scrub cycle to `seconds` in one call.
@@ -859,4 +949,14 @@ public final class PlayerModel {
         updateScrub(by: seconds - scrubTarget)
         commitScrub()
     }
+}
+
+/// A test engine that can say how many events it has handed to the model.
+///
+/// The model consumes engine events in a long-lived loop, which cannot be awaited — so this count
+/// is what `waitForIdleForTesting` compares against to know an emitted event has been HANDLED,
+/// instead of sleeping and hoping. The real engine does not conform; nothing in the app reads it.
+@MainActor
+protocol EventCountingEngineForTesting: AnyObject {
+    var yieldedEventCount: Int { get }
 }

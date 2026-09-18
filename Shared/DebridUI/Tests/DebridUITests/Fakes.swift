@@ -5,7 +5,7 @@ import DebridCore
 // MARK: - FakeVideoPlayerEngine
 
 @MainActor
-final class FakeVideoPlayerEngine: VideoPlayerEngine {
+final class FakeVideoPlayerEngine: VideoPlayerEngine, EventCountingEngineForTesting {
     private(set) var loadedURL: URL?
     private(set) var seekedTo: Double?
     /// Every seek in order — coalescing tests assert on the full history, not just the last.
@@ -41,7 +41,10 @@ final class FakeVideoPlayerEngine: VideoPlayerEngine {
         events = AsyncStream { c = $0 }
         continuation = c
     }
-    func emit(_ e: PlaybackEvent) { continuation.yield(e) }
+    /// Every event handed to the model, counted so `waitForIdleForTesting` can wait until the
+    /// model has HANDLED them rather than sleeping for a fixed 20ms and hoping.
+    private(set) var yieldedEventCount = 0
+    func emit(_ e: PlaybackEvent) { yieldedEventCount += 1; continuation.yield(e) }
 
     func load(url: URL, headers: [String: String], audioLanguage: String?,
               audioTrackID: String?) {

@@ -28,9 +28,11 @@ import DebridCore
 
 
     /// The download fallback is deliberately deferred (see `arrangeSubtitleFallback`) so an
-    /// embedded track still being discovered can win it. Let that window elapse.
-    private func settleSubtitleFallback() async {
-        try? await Task.sleep(for: .seconds(0.12))
+    /// embedded track still being discovered can win it. Wait for that task, not for a duration:
+    /// sleeping past its delay is a bet on the machine being idle, and it is the bet that made
+    /// `autoDownloadsPreferredSubtitleWhenNotEmbedded` fail about one run in three.
+    private func settleSubtitleFallback(_ model: PlayerModel) async {
+        await model.waitForSubtitleFallbackForTesting()
     }
 
     @Test func startUnrestrictsLoadsAndPlays() async {
@@ -1083,7 +1085,7 @@ import DebridCore
         engine.audioTracks = audioPair()
         engine.subtitleTracks = []                           // no embedded Hebrew
         engine.emit(.tracksChanged); await model.waitForIdleForTesting()
-        await settleSubtitleFallback()
+        await settleSubtitleFallback(model)
         #expect(subs.searchedLanguages.contains(["he"]))     // auto-kicked a Hebrew download
     }
 
@@ -1097,9 +1099,9 @@ import DebridCore
         model.start(); await model.waitForIdleForTesting()
         engine.audioTracks = audioPair()
         engine.emit(.tracksChanged); await model.waitForIdleForTesting()
-        await settleSubtitleFallback()
+        await settleSubtitleFallback(model)
         engine.emit(.tracksChanged); await model.waitForIdleForTesting()   // VLCKit re-fires
-        await settleSubtitleFallback()
+        await settleSubtitleFallback(model)
         #expect(subs.searchedLanguages.filter { $0 == ["he"] }.count == 1) // applied once, not per event
     }
 
