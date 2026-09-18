@@ -35,7 +35,13 @@ docker build -f Packages/SeretServer/Dockerfile -t seret-server:latest .
 # --- recreate ---------------------------------------------------------------------------------
 echo "==> recreating container"
 docker rm -f seret-web >/dev/null 2>&1 || true
+# Join the Letterboxd network so the server can reach the browser container by name at
+# letterboxd-chromium:9223. Created here if it does not exist, so this stays a one-command deploy
+# whether or not the browser has been set up yet — an absent browser only fails Letterboxd writes.
+docker network create letterboxd-net >/dev/null 2>&1 || true
+
 docker run -d --name seret-web --restart unless-stopped \
+  --network letterboxd-net \
   --device /dev/dri -p 8080:8080 \
   -e RD_TOKEN="$RD" \
   -e TMDB_API_KEY="$TMDB_KEY" \
