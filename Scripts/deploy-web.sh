@@ -34,6 +34,16 @@ if [ -z "$TMDB_KEY" ]; then
   exit 1
 fi
 
+# Checked against TMDB before anything is torn down. A placeholder or a typo otherwise produces a
+# container that starts, serves, and silently has no metadata at all — no posters, no merged
+# duplicates, titles keyed off the filename — which looks like a library bug, not a bad key.
+if ! curl -fsS -m 15 "https://api.themoviedb.org/3/configuration?api_key=$TMDB_KEY" >/dev/null; then
+  echo "!! TMDB rejected that key (${#TMDB_KEY} chars) - nothing was changed. Pass a working one:" >&2
+  echo "   sudo bash Scripts/deploy-web.sh <TMDB_API_KEY>" >&2
+  exit 1
+fi
+echo "==> TMDB accepted the key"
+
 # --- recover the RD token from the existing container -----------------------------------------
 RD="${RD_TOKEN:-}"
 if [ -z "$RD" ]; then
