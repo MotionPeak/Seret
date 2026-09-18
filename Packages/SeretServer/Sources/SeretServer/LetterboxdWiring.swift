@@ -9,8 +9,9 @@ import DebridCore
 /// simpler than fighting the name.
 enum LetterboxdWiring {
     static func makeWriter() -> LetterboxdDiaryWriter {
-        LetterboxdDiaryWriter(
-            chrome: ChromeSession(transport: WebSocketCDPTransport()),
-            resolver: LetterboxdFilmResolver(http: HTTPClient(), map: LetterboxdFilmMap()))
+        // One session for both: the resolver and the write drive the same browser, and a second
+        // one would fight it for the page.
+        let chrome = ChromeSession(transport: WebSocketCDPTransport())
+        return LetterboxdDiaryWriter(chrome: chrome, resolver: ChromeFilmResolver(chrome: chrome))
     }
 }

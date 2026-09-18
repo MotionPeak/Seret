@@ -34,6 +34,19 @@ public actor ChromeSession {
     public func navigate(to url: String,
                          timeout: Duration = .seconds(30),
                          poll: Duration = .milliseconds(250)) async throws {
+        try await navigate(to: url, timeout: timeout, poll: poll,
+                           accepting: { Self.isSamePage($0, url) })
+    }
+
+    /// Navigates and waits for a document `accepting` recognises, returning where it landed.
+    ///
+    /// A redirect means the page that arrives is not the page that was asked for — `/tmdb/73/`
+    /// lands on the film it names — so arrival has to be the caller's to define.
+    @discardableResult
+    public func navigate(to url: String,
+                         timeout: Duration = .seconds(30),
+                         poll: Duration = .milliseconds(250),
+                         accepting: @Sendable (String) -> Bool) async throws -> String {
         _ = try await transport.send(method: "Page.navigate", params: ["url": url])
 
         let deadline = ContinuousClock.now.advanced(by: timeout)
@@ -44,7 +57,7 @@ public actor ChromeSession {
             state = (document["ready"] as? String) ?? ""
             // `interactive` is enough: the DOM is parsed, and the form and token are server
             // rendered. Waiting for `complete` would wait on every ad and tracker on the page.
-            if state == "interactive" || state == "complete", Self.isSamePage(href, url) { return }
+            if state == "interactive" || state == "complete", accepting(href) { return href }
             try await Task.sleep(for: poll)
         } while ContinuousClock.now < deadline
 
