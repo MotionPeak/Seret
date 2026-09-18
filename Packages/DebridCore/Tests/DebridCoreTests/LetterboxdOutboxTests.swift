@@ -57,6 +57,21 @@ import Foundation
         #expect(try JSONDecoder().decode(LetterboxdWrite.self, from: data) == write)
     }
 
+    @Test func aWriteCarriesTheRewatchFlag() {
+        let first = LetterboxdWrite(tmdbID: 550, rating: 8)
+        let again = LetterboxdWrite(tmdbID: 550, rating: 8, rewatch: true)
+        #expect(first.rewatch == false)
+        #expect(again.rewatch)
+    }
+
+    /// Entries queued before the flag existed must still decode — they are first watches.
+    @Test func olderEncodedWritesDecodeAsFirstWatches() throws {
+        let legacy = #"{"id":"00000000-0000-0000-0000-000000000001","tmdbID":550,"attempts":0}"#
+        let decoded = try JSONDecoder().decode(LetterboxdWrite.self, from: Data(legacy.utf8))
+        #expect(decoded.rewatch == false)
+        #expect(decoded.tmdbID == 550)
+    }
+
     @Test func aClearedRatingIsStillAWriteWorthQueueing() async throws {
         let outbox = InMemoryLetterboxdOutbox()
         try await outbox.enqueue(LetterboxdWrite(tmdbID: 550, rating: nil))
