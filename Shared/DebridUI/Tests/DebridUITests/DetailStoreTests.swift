@@ -288,6 +288,26 @@ private actor FakeMyList: MyListProviding {
         #expect(await watch.singleCalls == 0)         // never fell back to per-key reads
     }
 
+    /// …and still ONE when the read is slower than the details fetch.
+    ///
+    /// `load()` starts the watch read concurrently with TMDB, and `loadSeason` then reads again for
+    /// the keys the episode list has just revealed. `loadWatchForOwnedEpisodes` used to record which
+    /// keys it was covering only AFTER its read returned, leaving the whole duration of the read
+    /// unclaimed — so the season read found nothing claimed and asked the store for the very same
+    /// episodes a second time. The test above only caught it when the machine was busy enough to
+    /// lose the race; this one holds the read open and catches it every time.
+    @Test func theOwnedEpisodeReadClaimsItsKeysBeforeTheSeasonReadCanRepeatThem() async {
+        let e1 = episode(1, 1, "t1"), e2 = episode(1, 2, "t2")
+        let sh = show("9", seasons: [Season(number: 1, episodes: [e1, e2])])
+        let watch = BatchingFakeWatch(suspendsBeforeAnswering: true)
+        let store = DetailStore(item: sh,
+                                details: FakeDetails(tv: .success(tvDetails()), seasons: [:]),
+                                watch: watch, profileID: "p1")
+        await store.load()
+        #expect(await watch.batchCalls == 1)
+        #expect(await watch.singleCalls == 0)
+    }
+
     @Test func reloadWatchPicksUpProgressRecordedSincePlayback() async {
         let m = movie("1", sources: [source("t", "1080p")])
         let key = WatchKey.content(forMovie: m)
@@ -309,13 +329,21 @@ private actor BatchingFakeWatch: WatchProgressProviding {
     private var rows: [String: WatchState]
     private(set) var batchCalls = 0
     private(set) var singleCalls = 0
-    init(_ seed: [String: WatchState] = [:]) { rows = seed }
+    /// Hand the main actor back before answering, so the season read is GUARANTEED to reach its own
+    /// claim check while this read is still in flight. That is the interleaving `load()` produces
+    /// whenever the store read is slower than the TMDB fetch — on a busy machine, often.
+    private let suspendsBeforeAnswering: Bool
+    init(_ seed: [String: WatchState] = [:], suspendsBeforeAnswering: Bool = false) {
+        rows = seed
+        self.suspendsBeforeAnswering = suspendsBeforeAnswering
+    }
     func progress(forContentKey key: String, profileID: String) async throws -> WatchState? {
         singleCalls += 1
         return rows[key]
     }
     func progress(forContentKeys keys: [String], profileID: String) async throws -> [String: WatchState] {
         batchCalls += 1
+        if suspendsBeforeAnswering { for _ in 0..<200 { await Task.yield() } }
         return rows.filter { keys.contains($0.key) }
     }
     func record(contentKey: String, sourceKey: String, positionSeconds: Double,
