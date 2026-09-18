@@ -10,8 +10,16 @@
 set -euo pipefail
 
 TMDB_KEY="${1:-${TMDB_API_KEY:-}}"
+# Recover it from the running container the same way RD_TOKEN is recovered below, so a redeploy
+# needs no secrets retyped — and none end up in shell history.
+if [ -z "$TMDB_KEY" ]; then
+  TMDB_KEY="$(docker inspect seret-web --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null \
+              | sed -n 's/^TMDB_API_KEY=//p' | head -1 || true)"
+  [ -n "$TMDB_KEY" ] && echo "==> recovered TMDB_API_KEY from the existing container (${#TMDB_KEY} chars)"
+fi
 if [ -z "$TMDB_KEY" ]; then
   echo "usage: sudo bash Scripts/deploy-web.sh <TMDB_API_KEY>" >&2
+  echo "       (omit it once a seret-web container exists — it is recovered from there)" >&2
   exit 1
 fi
 
