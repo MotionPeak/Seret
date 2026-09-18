@@ -32,15 +32,15 @@ public actor LetterboxdImporter {
         }
     }
 
-    private let reader: LetterboxdProfileReader
-    private let resolver: LetterboxdFilmResolver
+    private let reader: any LetterboxdProfileReading
+    private let resolver: any LetterboxdFilmResolving
     private let map: LetterboxdFilmMap
     private let mapStore: LetterboxdFilmMapStore
     private let store: LocalWatchStore
     private let resolveDelay: Duration
 
-    public init(reader: LetterboxdProfileReader,
-                resolver: LetterboxdFilmResolver,
+    public init(reader: any LetterboxdProfileReading,
+                resolver: any LetterboxdFilmResolving,
                 map: LetterboxdFilmMap,
                 mapStore: LetterboxdFilmMapStore,
                 store: LocalWatchStore,
@@ -84,7 +84,12 @@ public actor LetterboxdImporter {
             let alreadyKnown = await map.slug(forTMDB: tmdbID) != nil
             var slug: String?
             do {
-                slug = try await resolver.slug(forTMDB: tmdbID)
+                let resolved = try await resolver.slug(forTMDB: tmdbID)
+                // The importer records what it learned rather than trusting the resolver to do it.
+                // The map is what makes resolution a one-time cost, so owning that here keeps the
+                // seam honest: a resolver only has to answer the question.
+                await map.store(resolved, forTMDB: tmdbID)
+                slug = resolved
             } catch {
                 slug = nil
                 unresolved += 1

@@ -3,19 +3,32 @@ import Foundation
 import SwiftData
 @testable import DebridCore
 
-final class ResolveCounter: @unchecked Sendable {
+/// In-memory fakes rather than `MockURLProtocol`: this suite needs SwiftData, so it must nest under
+/// `SwiftDataSuite`, and anything touching the mock's shared handler must nest under `MockTests`.
+/// A suite cannot be under both, and one that tries races and breaks unrelated suites.
+private struct FakeProfileReader: LetterboxdProfileReading {
+    let entries: [LetterboxdEntry]
+    func films() async throws -> [LetterboxdEntry] { entries }
+    func watchlist() async throws -> [LetterboxdEntry] { [] }
+}
+
+private struct FakeResolver: LetterboxdFilmResolving {
+    let slugs: [Int: String]
+    let calls: CallCounter
+
+    func slug(forTMDB id: Int) async throws -> String {
+        calls.bump()
+        guard let slug = slugs[id] else { throw LetterboxdError.filmNotFound }
+        return slug
+    }
+}
+
+final class CallCounter: @unchecked Sendable {
     private let lock = NSLock()
     private var value = 0
 
-    func bump() {
-        lock.lock(); defer { lock.unlock() }
-        value += 1
-    }
-
-    var count: Int {
-        lock.lock(); defer { lock.unlock() }
-        return value
-    }
+    func bump() { lock.lock(); defer { lock.unlock() }; value += 1 }
+    var count: Int { lock.lock(); defer { lock.unlock() }; return value }
 }
 
 final class ProgressLog: @unchecked Sendable {
@@ -46,45 +59,29 @@ extension SwiftDataSuite {
                       sources: [], seasons: [], tmdbID: tmdb)
         }
 
-        /// Serves the profile grid, then a redirect per film resolution.
-        func install(ratings: [(slug: String, rating: Int)], slugForTMDB: [Int: String]) {
-            MockURLProtocol.handler = { request in
-                let url = request.url!
-                if url.path.contains("/films/") {
-                    let items = ratings.map { entry in
-                        "<li class=\"griditem\"><div data-item-slug=\"\(entry.slug)\" data-item-name=\"\(entry.slug) (1994)\"></div><p><span class=\"rating rated-\(entry.rating)\">x</span></p></li>"
-                    }.joined()
-                    let body = "<html><body><ul>\(items)</ul></body></html>"
-                    return (HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!,
-                            Data(body.utf8))
-                }
-                let id = Int(url.pathComponents.filter { $0 != "/" }.last ?? "") ?? -1
-                guard let slug = slugForTMDB[id] else {
-                    return (HTTPURLResponse(url: url, statusCode: 404, httpVersion: nil, headerFields: nil)!, Data())
-                }
-                let final = URL(string: "https://letterboxd.com/film/\(slug)/")!
-                return (HTTPURLResponse(url: final, statusCode: 200, httpVersion: nil, headerFields: nil)!, Data())
-            }
+        func entry(_ slug: String, _ rating: Int?) -> LetterboxdEntry {
+            LetterboxdEntry(slug: slug, name: "\(slug) (1994)", year: 1994, rating: rating)
         }
 
-        func makeImporter(store: LocalWatchStore) -> LetterboxdImporter {
-            let http = HTTPClient(session: .mock)
-            let map = LetterboxdFilmMap()
-            return LetterboxdImporter(
-                reader: LetterboxdProfileReader(http: http, username: "thebigshin", pageDelay: .zero),
-                resolver: LetterboxdFilmResolver(http: http, map: map),
-                map: map,
-                mapStore: LetterboxdFilmMapStore(fileURL: nil),
-                store: store,
-                resolveDelay: .zero)
+        func makeImporter(store: LocalWatchStore,
+                          entries: [LetterboxdEntry],
+                          slugs: [Int: String],
+                          calls: CallCounter = CallCounter(),
+                          mapStore: LetterboxdFilmMapStore = LetterboxdFilmMapStore(fileURL: nil))
+        -> LetterboxdImporter {
+            LetterboxdImporter(reader: FakeProfileReader(entries: entries),
+                               resolver: FakeResolver(slugs: slugs, calls: calls),
+                               map: LetterboxdFilmMap(),
+                               mapStore: mapStore,
+                               store: store,
+                               resolveDelay: .zero)
         }
 
         @Test func writesARatingSeretDoesNotHave() async throws {
             let store = try makeStore()
-            install(ratings: [("speed", 6)], slugForTMDB: [1637: "speed"])
-            defer { MockURLProtocol.handler = nil }
-
-            let summary = try await makeImporter(store: store)
+            let summary = try await makeImporter(store: store,
+                                                 entries: [entry("speed", 6)],
+                                                 slugs: [1637: "speed"])
                 .run(movies: [movie(tmdb: 1637, title: "Speed")], profileID: "owner")
             #expect(summary.written == 1)
             #expect(try await store.rating(forContentKey: "movie:tmdb:1637", profileID: "owner") == 6)
@@ -93,10 +90,10 @@ extension SwiftDataSuite {
         @Test func leavesAnExistingRatingAlone() async throws {
             let store = try makeStore()
             try await store.setRating(9, contentKey: "movie:tmdb:1637", profileID: "owner")
-            install(ratings: [("speed", 6)], slugForTMDB: [1637: "speed"])
-            defer { MockURLProtocol.handler = nil }
 
-            let summary = try await makeImporter(store: store)
+            let summary = try await makeImporter(store: store,
+                                                 entries: [entry("speed", 6)],
+                                                 slugs: [1637: "speed"])
                 .run(movies: [movie(tmdb: 1637, title: "Speed")], profileID: "owner")
             #expect(summary.written == 0)
             #expect(summary.conflicts == 1)
@@ -104,68 +101,49 @@ extension SwiftDataSuite {
         }
 
         /// An already-rated film IS resolved, because a disagreement cannot be seen otherwise —
-        /// but it is counted as needing no work, since local wins and nothing will be written.
+        /// but it counts as needing no work, since local wins and nothing will be written.
         @Test func anAlreadyRatedFilmCountsAsNeedingNoWork() async throws {
             let store = try makeStore()
             try await store.setRating(9, contentKey: "movie:tmdb:1637", profileID: "owner")
-            install(ratings: [("speed", 6)], slugForTMDB: [1637: "speed"])
-            defer { MockURLProtocol.handler = nil }
 
-            let summary = try await makeImporter(store: store)
+            let summary = try await makeImporter(store: store,
+                                                 entries: [entry("speed", 6)],
+                                                 slugs: [1637: "speed"])
                 .run(movies: [movie(tmdb: 1637, title: "Speed")], profileID: "owner")
             #expect(summary.scanned == 1)
             #expect(summary.needingWork == 0)
             #expect(summary.written == 0)
         }
 
-        /// The cache is what keeps resolution a one-time cost. A second run must resolve nothing.
-        @Test func aSecondRunResolvesNothingOverTheNetwork() async throws {
-            let store = try makeStore()
-            let resolves = ResolveCounter()
-            MockURLProtocol.handler = { request in
-                let url = request.url!
-                if url.path.contains("/films/") {
-                    let body = "<html><body><ul><li class=\"griditem\"><div data-item-slug=\"speed\" data-item-name=\"speed (1994)\"></div><p><span class=\"rating rated-6\">x</span></p></li></ul></body></html>"
-                    return (HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!,
-                            Data(body.utf8))
-                }
-                resolves.bump()
-                let final = URL(string: "https://letterboxd.com/film/speed/")!
-                return (HTTPURLResponse(url: final, statusCode: 200, httpVersion: nil, headerFields: nil)!, Data())
-            }
-            defer { MockURLProtocol.handler = nil }
-
-            let importer = makeImporter(store: store)
-            let films = [movie(tmdb: 1637, title: "Speed")]
-            _ = try await importer.run(movies: films, profileID: "owner")
-            let afterFirst = resolves.count
-            _ = try await importer.run(movies: films, profileID: "owner")
-
-            #expect(afterFirst == 1)
-            #expect(resolves.count == 1)   // the second run resolved nothing
-        }
-
         @Test func aFilmLetterboxdDoesNotKnowIsCountedNotFatal() async throws {
             let store = try makeStore()
-            install(ratings: [("speed", 6)], slugForTMDB: [:])    // every resolution 404s
-            defer { MockURLProtocol.handler = nil }
-
-            let summary = try await makeImporter(store: store)
+            let summary = try await makeImporter(store: store,
+                                                 entries: [entry("speed", 6)],
+                                                 slugs: [:])
                 .run(movies: [movie(tmdb: 1637, title: "Speed")], profileID: "owner")
             #expect(summary.unresolved == 1)
             #expect(summary.written == 0)
         }
 
+        @Test func anUnratedLetterboxdEntryWritesNothing() async throws {
+            let store = try makeStore()
+            let summary = try await makeImporter(store: store,
+                                                 entries: [entry("speed", nil)],
+                                                 slugs: [1637: "speed"])
+                .run(movies: [movie(tmdb: 1637, title: "Speed")], profileID: "owner")
+            #expect(summary.written == 0)
+            #expect(try await store.rating(forContentKey: "movie:tmdb:1637", profileID: "owner") == nil)
+        }
+
         @Test func reportsProgressAsItGoes() async throws {
             let store = try makeStore()
-            install(ratings: [("speed", 6), ("heat", 9)], slugForTMDB: [1637: "speed", 949: "heat"])
-            defer { MockURLProtocol.handler = nil }
-
             let seen = ProgressLog()
-            _ = try await makeImporter(store: store).run(
-                movies: [movie(tmdb: 1637, title: "Speed"), movie(tmdb: 949, title: "Heat")],
-                profileID: "owner",
-                onProgress: { seen.record($0) })
+            _ = try await makeImporter(store: store,
+                                       entries: [entry("speed", 6), entry("heat", 9)],
+                                       slugs: [1637: "speed", 949: "heat"])
+                .run(movies: [movie(tmdb: 1637, title: "Speed"), movie(tmdb: 949, title: "Heat")],
+                     profileID: "owner",
+                     onProgress: { seen.record($0) })
             #expect(seen.all.count == 2)
             #expect(seen.all.last?.total == 2)
             #expect(seen.all.last?.done == 2)
@@ -173,13 +151,41 @@ extension SwiftDataSuite {
 
         @Test func aShowIsNeverConsidered() async throws {
             let store = try makeStore()
-            install(ratings: [("speed", 6)], slugForTMDB: [1637: "speed"])
-            defer { MockURLProtocol.handler = nil }
-
             let show = MediaItem(id: "show:tmdb:1396", kind: .show, title: "Breaking Bad", year: 2008,
                                  sources: [], seasons: [], tmdbID: 1396)
-            let summary = try await makeImporter(store: store).run(movies: [show], profileID: "owner")
+            let summary = try await makeImporter(store: store,
+                                                 entries: [entry("speed", 6)],
+                                                 slugs: [1637: "speed"])
+                .run(movies: [show], profileID: "owner")
             #expect(summary.scanned == 0)
+        }
+
+        @Test func eachFilmIsResolvedExactlyOncePerRun() async throws {
+            let store = try makeStore()
+            let calls = CallCounter()
+            _ = try await makeImporter(store: store,
+                                       entries: [entry("speed", 6)],
+                                       slugs: [1637: "speed"],
+                                       calls: calls)
+                .run(movies: [movie(tmdb: 1637, title: "Speed")], profileID: "owner")
+            #expect(calls.count == 1)
+        }
+
+        /// The resolved map is written out, so the next launch starts with it. Resolution being a
+        /// one-time cost depends on this actually happening.
+        @Test func theResolvedMapIsPersisted() async throws {
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent("lbimport-\(UUID().uuidString).json")
+            defer { try? FileManager.default.removeItem(at: url) }
+
+            let store = try makeStore()
+            _ = try await makeImporter(store: store,
+                                       entries: [entry("speed", 6)],
+                                       slugs: [1637: "speed"],
+                                       mapStore: LetterboxdFilmMapStore(fileURL: url))
+                .run(movies: [movie(tmdb: 1637, title: "Speed")], profileID: "owner")
+
+            #expect(LetterboxdFilmMapStore(fileURL: url).load() == [1637: "speed"])
         }
     }
 }
