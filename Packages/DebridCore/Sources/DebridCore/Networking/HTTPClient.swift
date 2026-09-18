@@ -180,4 +180,29 @@ public struct HTTPClient: Sendable {
         allowed.insert(charactersIn: "-._~")
         return s.addingPercentEncoding(withAllowedCharacters: allowed) ?? s
     }
+
+    /// The URL a request finally lands on, without downloading the page.
+    ///
+    /// URLSession follows redirects itself, so the destination is simply the response's URL. HEAD
+    /// keeps it to headers — Letterboxd maps a TMDB id to a film with a 302 and the film page is
+    /// ~318 KB we have no use for. A server that refuses HEAD gets one GET retry.
+    ///
+    /// Lives in this file because `session` is private, which in Swift is file-scoped.
+    public func resolvedURL(for url: URL) async throws -> URL {
+        for method in ["HEAD", "GET"] {
+            var request = URLRequest(url: url)
+            request.httpMethod = method
+
+            let (_, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                throw HTTPError.transport("no HTTP response resolving \(url)")
+            }
+            if http.statusCode == 405, method == "HEAD" { continue }
+            guard (200..<300).contains(http.statusCode) else {
+                throw HTTPError.status(code: http.statusCode, body: "")
+            }
+            return http.url ?? url
+        }
+        throw HTTPError.transport("HEAD and GET both refused resolving \(url)")
+    }
 }
