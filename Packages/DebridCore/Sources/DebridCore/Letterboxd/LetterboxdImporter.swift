@@ -36,14 +36,14 @@ public actor LetterboxdImporter {
     private let resolver: any LetterboxdFilmResolving
     private let map: LetterboxdFilmMap
     private let mapStore: LetterboxdFilmMapStore
-    private let store: LocalWatchStore
+    private let store: any LetterboxdRatingStoring
     private let resolveDelay: Duration
 
     public init(reader: any LetterboxdProfileReading,
                 resolver: any LetterboxdFilmResolving,
                 map: LetterboxdFilmMap,
                 mapStore: LetterboxdFilmMapStore,
-                store: LocalWatchStore,
+                store: any LetterboxdRatingStoring,
                 resolveDelay: Duration = .milliseconds(400)) {
         self.reader = reader
         self.resolver = resolver
