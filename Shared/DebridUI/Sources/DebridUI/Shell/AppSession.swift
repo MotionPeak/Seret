@@ -713,7 +713,8 @@ public final class AppSession {
     public func makeLetterboxdImportModel(library: LibraryStore) -> LetterboxdImportModel? {
         guard let watchStore = localWatchStore else { return nil }
 
-        let settingsStore = UserDefaultsLetterboxdSettingsStore()
+        let settingsStore = UbiquitousLetterboxdSettingsStore()
+        settingsStore.synchronize()
         let mapStore = LetterboxdFilmMapStore(fileURL: LetterboxdFilmMapStore.defaultURL())
 
         return LetterboxdImportModel(settingsStore: settingsStore) { profileID, onProgress in

@@ -97,3 +97,23 @@ final class RanFlag: @unchecked Sendable {
         #expect(!message.lowercased().contains("connection"))
     }
 }
+
+@Suite struct UbiquitousLetterboxdSettingsStoreTests {
+    /// iCloud may be unavailable — no account, offline, or a first launch before any sync. The
+    /// username still has to work on the device where it was typed.
+    @Test func aValueSurvivesWhenICloudHasNothing() {
+        let defaults = UserDefaults(suiteName: "lbtest-\(UUID().uuidString)")!
+        let store = UbiquitousLetterboxdSettingsStore(local: defaults)
+        store.save(LetterboxdSettings(username: "thebigshin", isEnabled: true))
+        #expect(store.load().username == "thebigshin")
+        #expect(store.load().isEnabled)
+    }
+
+    /// The local mirror is written on every save, so the device that typed it never depends on sync.
+    @Test func everySaveAlsoLandsInLocalDefaults() {
+        let defaults = UserDefaults(suiteName: "lbtest-\(UUID().uuidString)")!
+        UbiquitousLetterboxdSettingsStore(local: defaults)
+            .save(LetterboxdSettings(username: "thebigshin", isEnabled: true))
+        #expect(defaults.data(forKey: "letterboxd.settings") != nil)
+    }
+}
