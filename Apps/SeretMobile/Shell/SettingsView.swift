@@ -8,6 +8,13 @@ struct SettingsView: View {
         secretStore: KeychainSecretStore(service: "com.solomons.seret.opensubtitles"))
     @State private var showingProfiles = false
     @State private var editingActive = false
+    /// Built once and held, so an in-flight import survives redrawing this screen.
+    @State private var letterboxdModel: LetterboxdImportModel?
+
+    /// Nil until there is a library and a watch store to write into.
+    private var letterboxd: LetterboxdImportModel? {
+        letterboxdModel
+    }
 
     var body: some View {
         Form {
@@ -115,6 +122,10 @@ struct SettingsView: View {
             }
             .listRowBackground(Theme.Palette.surface1)
 
+            if let letterboxd {
+                LetterboxdSettingsSection(model: letterboxd, profileID: session.activeProfileID)
+            }
+
             Section {
                 LabeledContent("Version", value: appVersion)
                     .foregroundStyle(Theme.Palette.textSecondary)
@@ -131,6 +142,10 @@ struct SettingsView: View {
         .background(CanvasBackground())
         .tint(Theme.Palette.gold)
         .navigationTitle("Settings")
+        .task {
+            guard letterboxdModel == nil, let library = session.libraryStore else { return }
+            letterboxdModel = session.makeLetterboxdImportModel(library: library)
+        }
         .sheet(isPresented: $showingProfiles) {
             NavigationStack {
                 WhoIsWatchingScreen(onPicked: { showingProfiles = false })

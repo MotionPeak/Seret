@@ -68,6 +68,10 @@ public final class AppSession {
     /// The on-device watch state, and the only backing there is. It outlived Trakt, which is
     /// exactly why it was built.
     public private(set) var localWatch: LocalWatchProvider?
+    /// The same store `localWatch` wraps, for the one caller that must name the profile itself
+    /// rather than have it resolved: the Letterboxd import refuses to run until the profile is
+    /// known, and two sources of profile truth is what produced orphaned rows before.
+    public private(set) var localWatchStore: LocalWatchStore?
     /// Profile roster store (CRUD) — used by the Who's-Watching / profile-manager UI (later slice).
     public private(set) var profileStore: ProfileStore?
     /// Per-profile "My List" store — claimed-title membership (later slice wires claim on add/play).
@@ -194,6 +198,7 @@ public final class AppSession {
         versionPreferences = nil
         activeProfiles = nil
         localWatch = nil
+        localWatchStore = nil
         profileStoreMode = "none"
         state = .signedOut
     }
@@ -318,6 +323,7 @@ public final class AppSession {
     /// The profile resolver must spell a nil profile as "" — exactly what `LibraryStore` and
     /// `DetailStore` use — or reads miss writes.
     private func makeWatchStack(local: LocalWatchStore?) {
+        localWatchStore = local
         localWatch = local.map { store in
             LocalWatchProvider(store: store,
                                profileID: { [weak self] in self?.activeProfileID ?? "" })
@@ -696,6 +702,33 @@ public final class AppSession {
         AcquisitionStore(item: item) { [weak self] kind in
             guard let self, let imdbID else { return nil }
             return self.makeAddStore(imdbID: imdbID, kind: kind, originalLanguage: originalLanguage)
+        }
+    }
+
+    /// The Letterboxd import. Nil until there is a watch store to write into.
+    ///
+    /// The library is read when the import RUNS, not when the model is built, so a refresh that
+    /// adds titles is picked up by an import started afterwards. The film map is seeded from disk
+    /// and written back, which is what makes slug resolution a one-time cost per film.
+    public func makeLetterboxdImportModel(library: LibraryStore) -> LetterboxdImportModel? {
+        guard let watchStore = localWatchStore else { return nil }
+
+        let settingsStore = UserDefaultsLetterboxdSettingsStore()
+        let mapStore = LetterboxdFilmMapStore(fileURL: LetterboxdFilmMapStore.defaultURL())
+
+        return LetterboxdImportModel(settingsStore: settingsStore) { profileID, onProgress in
+            let username = settingsStore.load().username
+            let http = HTTPClient()
+            let map = LetterboxdFilmMap(seed: mapStore.load())
+            let importer = LetterboxdImporter(
+                reader: LetterboxdProfileReader(http: http, username: username),
+                resolver: LetterboxdFilmResolver(http: http, map: map),
+                map: map,
+                mapStore: mapStore,
+                store: watchStore,
+                resolveDelay: .milliseconds(400))
+            let movies = await MainActor.run { library.movies }
+            return try await importer.run(movies: movies, profileID: profileID, onProgress: onProgress)
         }
     }
 

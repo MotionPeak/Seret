@@ -14,6 +14,8 @@ struct SettingsView: View {
         secretStore: KeychainSecretStore(service: "com.solomons.seret.opensubtitles"))
     @State private var showingProfiles = false
     @State private var editingActive = false
+    /// Built once and held, so an in-flight import survives redrawing this screen.
+    @State private var letterboxdModel: LetterboxdImportModel?
 
     var body: some View {
         ZStack {
@@ -24,6 +26,9 @@ struct SettingsView: View {
                     subtitleAppearance
                     OpenSubtitlesSection(model: model)
                     playback
+                    if let letterboxdModel {
+                        LetterboxdCard(model: letterboxdModel, profileID: session.activeProfileID)
+                    }
                     // Profiles are switched off — nothing to manage. See `ProfilesFeature`.
                     if ProfilesFeature.isEnabled { profile }
                     account
@@ -33,6 +38,10 @@ struct SettingsView: View {
                 .padding(.bottom, 90)
                 .focusSection()                      // let DOWN from the nav rail enter the form
             }
+        }
+        .task {
+            guard letterboxdModel == nil, let library = session.libraryStore else { return }
+            letterboxdModel = session.makeLetterboxdImportModel(library: library)
         }
         .fullScreenCover(isPresented: $showingProfiles) {
             WhoIsWatchingScreen(onPicked: { showingProfiles = false }).environment(session)
