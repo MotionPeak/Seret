@@ -31,6 +31,7 @@ func configure(_ app: Application, config: ServerConfig) async throws {
     registerLibraryRoutes(app)
     registerDetailRoutes(app)
     registerPlayRoutes(app)
+    registerLetterboxdRoutes(app)
     registerPlayerPages(app)
 
     // NOTE: deliberately no boot-time warm-up. Building the library at startup means any failure
