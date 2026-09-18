@@ -116,6 +116,14 @@ struct RemoteImage<Placeholder: View>: View {
     var contentMode: ContentMode = .fill
     @ViewBuilder var placeholder: () -> Placeholder
     @State private var loaded: UIImage?
+    /// The url this view currently wants, mirrored into state because a task that has ALREADY been
+    /// cancelled cannot see it any other way — the view value its closure captured still holds the
+    /// url as it was when the load started. (Port of the tvOS fix; see that copy, which carries the
+    /// measurements and the regression suite.)
+    @State private var wanted: URL?
+    /// Folded into the `.task` id, because a cancelled task can do no further work of its own, so
+    /// another load has to come from a NEW task — and only an id change starts one.
+    @State private var attempt = 0
 
     var body: some View {
         // Synchronous cache check (current url first) → no placeholder flash when a page reappears.
@@ -128,13 +136,46 @@ struct RemoteImage<Placeholder: View>: View {
             }
         }
         .animation(Theme.Motion.fade, value: image != nil)
-        .onChange(of: url) { loaded = nil }     // a reused cell pointed at a new url → drop the old
-        .task(id: url) {
-            guard let url, ImageMemoryCache.shared.object(forKey: url as NSURL) == nil else { return }
-            let image = await ImageMemoryCache.load(url)
-            guard !Task.isCancelled else { return }
-            loaded = image
+        // A reused cell pointed at a new url → drop the old. `initial` so `wanted` is set at once.
+        .onChange(of: url, initial: true) { wanted = url; loaded = nil; attempt = 0 }
+        .task(id: RemoteImageLoad.Key(url: url, attempt: attempt)) { await load() }
+    }
+
+    private func load() async {
+        guard let url else { return }
+        // A cache hit is RECORDED, not merely rendered: `body` reads the cache without retaining
+        // what it finds, so an entry NSCache later evicts left the tile on its placeholder with no
+        // load behind it and no way for `.task` to fire again.
+        if let hit = ImageMemoryCache.shared.object(forKey: url as NSURL) { loaded = hit; return }
+
+        let image = await ImageMemoryCache.load(url)
+        if let image { loaded = image; return }
+
+        // A cancelled load produced neither an image nor a failure, and the tile it left behind can
+        // never ask again on its own. Retry, bounded — unless this cell has already moved on.
+        if RemoteImageLoad.resolve(cancelled: Task.isCancelled,
+                                   stillWanted: wanted == url, attempt: attempt) == .retry {
+            attempt += 1
         }
+    }
+}
+
+/// What a load that produced no image means for the tile. Port of the tvOS copy — the mobile
+/// placeholder is a settled glyph rather than a spinner, so `.settle` and `.ignore` both simply
+/// leave it be, but a cancelled load must still start another attempt or the artwork never arrives.
+enum RemoteImageLoad {
+    /// The `.task` id: the url, plus the attempt counter that is the only way to start a new load.
+    struct Key: Equatable { let url: URL?; let attempt: Int }
+
+    enum Resolution: Equatable { case settle, retry, ignore }
+
+    static let maxRetries = 3
+
+    static func resolve(cancelled: Bool, stillWanted: Bool, attempt: Int,
+                        maxRetries: Int = maxRetries) -> Resolution {
+        guard cancelled else { return .settle }         // the fetch itself failed — that is real
+        guard stillWanted else { return .ignore }       // this cell is on another image now
+        return attempt < maxRetries ? .retry : .settle
     }
 }
 
