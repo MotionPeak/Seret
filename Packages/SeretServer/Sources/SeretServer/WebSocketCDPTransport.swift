@@ -1,5 +1,5 @@
 import Foundation
-import DebridCore
+import AsyncHTTPClient
 import NIOCore
 import NIOPosix
 import WebSocketKit
@@ -36,7 +36,6 @@ public actor WebSocketCDPTransport: CDPTransport {
 
     private let httpBase: String
     private let group: EventLoopGroup
-    private let http = HTTPClient()
     private var socket: WebSocket?
     private var nextID = 0
     private var pending: [Int: CheckedContinuation<[String: any Sendable], any Error>] = [:]
@@ -85,14 +84,18 @@ public actor WebSocketCDPTransport: CDPTransport {
     }
 
     /// The first page target on the browser, preferring one already on Letterboxd.
-    private func pageWebSocketURL() async throws -> String {
-        guard let url = URL(string: try resolvedBase() + "/json") else {
-            throw TransportError.noPageTarget
-        }
-        // DebridCore's client rather than URLSession directly: on Linux URLSession lives in
-        // FoundationNetworking, and that client already carries the guard.
-        let data = try await http.data(url)
-        let targets = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] ?? []
+    func pageWebSocketURL() async throws -> String {
+        // AsyncHTTPClient rather than URLSession: Chrome's DevTools writes `Content-Length:404`
+        // with no space after the colon. That is legal HTTP, almost nothing else does it, and
+        // swift-corelibs-foundation refuses it outright — "Failed writing header", indistinguishable
+        // from the browser being down. NIO's parser reads it.
+        let request = HTTPClientRequest(url: try resolvedBase() + "/json")
+        let response = try await HTTPClient.shared.execute(request, timeout: .seconds(15))
+        guard response.status == .ok else { throw TransportError.noPageTarget }
+
+        let body = try await response.body.collect(upTo: 4 << 20)
+        let targets = (try? JSONSerialization.jsonObject(with: Data(body.readableBytesView)))
+                        as? [[String: Any]] ?? []
         let pages = targets.filter { ($0["type"] as? String) == "page" }
         let preferred = pages.first { ($0["url"] as? String)?.contains("letterboxd.com") == true }
         guard let target = preferred ?? pages.first,
