@@ -19,9 +19,19 @@ struct HomeScreen: View {
     @State private var pendingRemoval: MediaItem?
     @State private var removeErrorMessage: String?
 
+#if DEBUG
+    /// The store the `-uiPreview home` harness renders instead of the session's, so the real screen
+    /// — hero, rail and grid together — can be screenshot-verified without a signed-in session and
+    /// without a watch history the simulator has no cheap way to produce.
+    var previewHome: HomeStore?
+    private var homeStore: HomeStore? { previewHome ?? session.home }
+#else
+    private var homeStore: HomeStore? { session.home }
+#endif
+
     /// True once there's anything to show.
     private var homeReady: Bool {
-        guard let h = session.home else { return false }
+        guard let h = homeStore else { return false }
         return !(h.continueWatching.isEmpty && h.recentlyAdded.isEmpty)
     }
 
@@ -42,7 +52,7 @@ struct HomeScreen: View {
     }
 
     @ViewBuilder private var content: some View {
-        if let home = session.home, homeReady {
+        if let home = homeStore, homeReady {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 50) {
                     hero(home)
@@ -65,7 +75,7 @@ struct HomeScreen: View {
                                 }.buttonStyle(.card)
                                     // Press-and-hold to clear it: the rail had no way to remove a
                                     // title you only started, so it kept the top of Home for good.
-                                    .contextMenu { ContinueWatchingActions(entry: hi, session: session) }
+                                    .contextMenu { ContinueWatchingActions(entry: hi, home: home, session: session) }
                             }
                         }
                     }

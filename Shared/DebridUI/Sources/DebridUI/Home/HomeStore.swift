@@ -106,8 +106,11 @@ public final class HomeStore {
     /// `item.id` would write the series row and leave the episode on the card exactly where it
     /// was. `contentKey` already addresses the one movie or episode the card stands for.
     ///
-    /// The caller rebuilds — the write has to reach the store before the rail is recomposed, and
-    /// this store has no library of its own to recompose from.
+    /// The entry leaves the rail here, not at the next rebuild: this store has no library of its
+    /// own to recompose from, so the authoritative pass has to come from the caller — and making
+    /// the viewer watch the card they just cleared sit there until a round-trip through the
+    /// library finishes is the one thing the mark exists to avoid. The hero is this list's first
+    /// element, so it clears with it.
     public func setWatched(_ watched: Bool, entry: HomeItem) async {
         // No profile, no write: a row keyed to "" is adopted by nobody and would leave the card
         // sitting on the rail having apparently done nothing.
@@ -117,6 +120,7 @@ public final class HomeStore {
         let sourceKey = entry.source.map { WatchKey.source($0) } ?? ""
         await watch.setWatched(watched, contentKey: entry.contentKey, sourceKey: sourceKey,
                                profileID: profileID)
+        continueWatching.removeAll { $0.contentKey == entry.contentKey }
     }
 
     /// `preferredSourceKey` is the viewer's chosen version for this title, if any — resuming must

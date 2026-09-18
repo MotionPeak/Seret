@@ -14,6 +14,9 @@ import SwiftUI
 /// keeps where you were and leaves a ✓, unwatched throws the resume point away.
 struct ContinueWatchingActions: View {
     let entry: HomeItem
+    /// The store to act on, passed rather than read off the session: the screen already holds it,
+    /// and taking it explicitly is what lets the `-uiPreview home` harness drive a real mark.
+    let home: HomeStore
     let session: AppSession
 
     /// A show's card stands for one episode, so its marks have to say so — "Mark Watched" on a
@@ -31,8 +34,11 @@ struct ContinueWatchingActions: View {
 
     /// The one movie or episode this card stands for.
     private func markEntry(_ watched: Bool) {
-        let entry = entry
-        withRefresh { home, _ in await home.setWatched(watched, entry: entry) }
+        let entry = entry, home = home, library = session.libraryStore
+        Task {
+            await home.setWatched(watched, entry: entry)
+            await Self.refresh(home: home, library: library)
+        }
     }
 
     /// Every episode of the series, the same fan-out the library grid offers. Detached from the
@@ -44,17 +50,20 @@ struct ContinueWatchingActions: View {
         guard let profileID = session.activeProfileID else { return }
         let marker = session.makeShowWatchMarker()
         let show = entry.item
-        withRefresh { _, _ in await marker?.mark(watched, show: show, profileID: profileID) }
+        let home = home, library = session.libraryStore
+        Task {
+            await marker?.mark(watched, show: show, profileID: profileID)
+            await Self.refresh(home: home, library: library)
+        }
     }
 
-    /// Run a mark, then re-read watch state and recompose the rails, so the card leaves Continue
-    /// Watching and its ✓ appears in Recently Added without waiting for Home to be revisited.
-    private func withRefresh(_ mark: @escaping (HomeStore, LibraryStore) async -> Void) {
-        guard let home = session.home, let library = session.libraryStore else { return }
-        Task {
-            await mark(home, library)
-            await library.reloadWatchStates()
-            await home.rebuild(movies: library.movies, shows: library.shows)
-        }
+    /// Re-read watch state and recompose the rails, so the ✓ reaches Recently Added and the rail
+    /// settles on what was actually written. Best-effort: `HomeStore` has already taken the card
+    /// off the rail, and it has no library of its own to rebuild from, so with no library store
+    /// there is simply nothing further to reconcile.
+    private static func refresh(home: HomeStore, library: LibraryStore?) async {
+        guard let library else { return }
+        await library.reloadWatchStates()
+        await home.rebuild(movies: library.movies, shows: library.shows)
     }
 }

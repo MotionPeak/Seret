@@ -304,6 +304,29 @@ private struct FakeWatch: WatchProgressProviding {
         #expect(watch.writes.first?.sourceKey == "t9#3")
     }
 
+    /// The card goes as the menu dismisses. The authoritative recompose belongs to the caller —
+    /// this store has no library to rebuild from — so without this the viewer watches the entry
+    /// they just cleared sit on the rail, and in the hero, until a round-trip finishes.
+    @MainActor @Test func theEntryLeavesTheRailWithoutWaitingForARebuild() async {
+        let watch = RecordingWatch([WatchState(contentKey: "movie:dune:2021", sourceKey: "t1#1",
+                                               positionSeconds: 8, durationSeconds: 8000,
+                                               finished: false, updatedAt: Date()),
+                                    WatchState(contentKey: "show:inv:s4e1", sourceKey: "t9#3",
+                                               positionSeconds: 353, durationSeconds: 3000,
+                                               finished: false, updatedAt: Date().addingTimeInterval(-9))])
+        let store = HomeStore(watch: watch)
+        store.activeProfileID = "p1"
+        await store.rebuild(movies: [movie()], shows: [show()])
+        #expect(store.continueWatching.count == 2)
+        #expect(store.featured?.contentKey == "movie:dune:2021")
+
+        await store.setWatched(false, entry: store.continueWatching[0])
+
+        // No rebuild in between.
+        #expect(store.continueWatching.map(\.contentKey) == ["show:inv:s4e1"])
+        #expect(store.featured?.contentKey == "show:inv:s4e1")   // the hero follows the rail
+    }
+
     /// Nothing is written before the profile resolves — a mark keyed to "" would be adopted by no
     /// one and would never take the card off the rail.
     @MainActor @Test func aMarkBeforeTheProfileResolvesWritesNothing() async {

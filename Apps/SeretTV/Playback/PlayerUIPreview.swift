@@ -20,6 +20,7 @@ import DebridCore
 ///   - `person`    — the person page: header, As Actor / As Director, ranked credits
 ///   - `autosync` / `autosyncdone` / `autosyncfailed` — the subtitle-sync bar over the picture
 ///   - `manualsync` / `manualsyncpressed` — sync-to-a-line, before and after the press
+///   - `home`      — the Home screen whole: hero, Continue Watching rail, Recently Added grid
 ///
 /// Not compiled into release builds.
 struct PlayerUIPreview: View {
@@ -44,6 +45,7 @@ struct PlayerUIPreview: View {
         case "autosyncfailed":      AutoSyncBarPreview(mood: .failed)
         case "manualsync":          ManualSyncPanelPreview(pressed: false)
         case "manualsyncpressed":   ManualSyncPanelPreview(pressed: true)
+        case "home":                HomeScreenPreview()
         default:           ScrubBarPreview()
         }
     }
@@ -773,4 +775,145 @@ private struct ManualSyncPreviewProvider: SubtitleProvider {
 
     """
 }
+
+
+// MARK: - Home
+
+/// The real `HomeScreen` over a fabricated `HomeStore`, so the hero, the Continue Watching rail and
+/// the Recently Added grid can be seen together — and the rail's press-and-hold menu opened —
+/// without a signed-in session.
+///
+/// A watch history is the one fixture the simulator cannot cheaply produce: Continue Watching is
+/// written by actually playing something, so an unseeded simulator renders a Home with no hero and
+/// no rail at all, which is exactly the half of this screen worth looking at.
+///
+/// The titles are real rows out of the library snapshot, so the posters resolve and the grid is
+/// measured against the artwork it will really carry.
+private struct HomeScreenPreview: View {
+    @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()))
+    @State private var home = HomeStore(watch: PreviewWatch())
+    @State private var ready = false
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if ready { HomeScreen(previewHome: home) } else { Color.black }
+            }
+        }
+        .environment(session)
+        .task {
+            home.activeProfileID = "preview"
+            await home.rebuild(movies: Self.movies, shows: Self.shows)
+            ready = true
+        }
+    }
+
+    /// Two entries, because the two kinds offer different menus: a movie is marked on its own, an
+    /// episode names itself and adds the whole-series marks underneath.
+    private struct PreviewWatch: WatchProgressProviding {
+        func recentlyWatched(limit: Int, profileID: String) async throws -> [WatchState] {
+            [WatchState(contentKey: "movie:tmdb:73", sourceKey: "t#1", positionSeconds: 1_920,
+                        durationSeconds: 7_140, finished: false, updatedAt: Date()),
+             WatchState(contentKey: "show:tmdb:95557:s3e1", sourceKey: "t#2", positionSeconds: 240,
+                        durationSeconds: 2_700, finished: false, updatedAt: Date().addingTimeInterval(-60))]
+        }
+        func progress(forContentKey key: String, profileID: String) async throws -> WatchState? { nil }
+        func record(contentKey: String, sourceKey: String, positionSeconds: Double,
+                    durationSeconds: Double, finished: Bool, profileID: String) async throws {}
+        func deleteProgress(forContentKeys keys: [String]) async throws {}
+    }
+
+    private static func source(_ id: String) -> MediaSource {
+        MediaSource(torrentID: id, fileID: 1, restrictedLink: "rd://\(id)",
+                    parsed: ParsedRelease(title: "T", resolution: "2160p"))
+    }
+
+    /// Sixty real rows out of the library snapshot, newest first — id, title, year, poster.
+    ///
+    /// Sixty DISTINCT posters, not six repeated: two tiles asking for the same URL is a permanent
+    /// spinner (one claims the download, the other waits out its budget on a poster the winner
+    /// cached under the same key), and a fixture that repeats artwork renders a page of fake
+    /// breakage that has nothing to do with the screen being looked at.
+    private static let posters: [(String, String, Int, String)] = [
+        ("movie:tmdb:73", "American History X", 1998, "/x2drgoXYZ8484lqyDj7L1CEVR4T.jpg"),
+        ("movie:tmdb:762504", "Nope", 2022, "/AcKVlWaNVVVFQwro3nLXqPljcYA.jpg"),
+        ("movie:tmdb:238", "The Godfather", 1972, "/3bhkrj58Vtu7enYsRolD1fZdja1.jpg"),
+        ("movie:tmdb:340666", "Nocturnal Animals", 2016, "/mdLDgQBD0va09npSQX5Zgo2evXM.jpg"),
+        ("movie:tmdb:103663", "The Hunt", 2012, "/jkixsXzRh28q3PCqFoWcf7unghT.jpg"),
+        ("movie:tmdb:701387", "Bugonia", 2025, "/rSdOua3wKMEaFWDcKAYWRjXQWOt.jpg"),
+        ("movie:tmdb:26513", "Punishment Park", 1971, "/fPGnMnp80ycqUHdgP1T3nzCyYKe.jpg"),
+        ("movie:tmdb:406", "La Haine", 1995, "/hY4exng4s29RzDbtQInjx9MA3PZ.jpg"),
+        ("movie:tmdb:26719", "House of Games", 1987, "/4i27Ut4cIoLbcNpW7aeuUQErEPE.jpg"),
+        ("movie:tmdb:1592", "Primal Fear", 1996, "/qJf2TzE8nRTFbFMPJNW6c8mI0KU.jpg"),
+        ("movie:tmdb:4553", "The Machinist", 2004, "/diAYqR4xdF9Hnj7qun6DEQhRrT2.jpg"),
+        ("movie:tmdb:2649", "The Game", 1997, "/4UOa079915QjiTA2u5hT2yKVgUu.jpg"),
+        ("movie:tmdb:655", "Paris, Texas", 1984, "/sP27Qm4THyRZyHjHYMfIDtJP6YE.jpg"),
+        ("movie:tmdb:274", "The Silence of the Lambs", 1991, "/uS9m8OBk1A8eM9I042bx8XXpqAq.jpg"),
+        ("movie:tmdb:62", "2001: A Space Odyssey", 1968, "/ve72VxNqjGM69Uky4WTo2bK6rfq.jpg"),
+        ("movie:tmdb:28", "Apocalypse Now", 1979, "/gQB8Y5RCMkv2zwzFHbUJX3kAhvA.jpg"),
+        ("movie:tmdb:117", "The Untouchables", 1987, "/tPq0R4jTO4Ey8ZspFaWK9wGA4Ls.jpg"),
+        ("movie:tmdb:424", "Schindler's List", 1993, "/sF1U4EUQS8YHUYjNl3pMGNIQyr0.jpg"),
+        ("movie:tmdb:380", "Rain Man", 1988, "/iTNHwO896WKkaoPtpMMS74d8VNi.jpg"),
+        ("movie:tmdb:500", "Reservoir Dogs", 1992, "/xi8Iu6qyTfyZVDVy60raIOYJJmk.jpg"),
+        ("movie:tmdb:968", "Dog Day Afternoon", 1975, "/mavrhr0ig2aCRR8d48yaxtD5aMQ.jpg"),
+        ("movie:tmdb:510", "One Flew Over the Cuckoo's Nest", 1975, "/kjWsMh72V6d8KRLV4EOoSJLT1H7.jpg"),
+        ("movie:tmdb:1018", "Mulholland Drive", 2001, "/x7A59t6ySylr1L7aubOQEA480vM.jpg"),
+        ("movie:tmdb:769", "GoodFellas", 1990, "/9OkCLM73MIU2CrKZbqiT8Ln1wY2.jpg"),
+        ("movie:tmdb:98", "Gladiator", 2000, "/wN2xWp1eIwCKOD0BHTcErTBv1Uq.jpg"),
+        ("movie:tmdb:7345", "There Will Be Blood", 2007, "/fa0RDkAlCec0STeMNAhPaF89q6U.jpg"),
+        ("movie:tmdb:77016", "End of Watch", 2012, "/pDeVKQICkcdwwjHxGj0MeS14YJ6.jpg"),
+        ("movie:tmdb:496243", "Parasite", 2019, "/7IiTTgloJzvGI1TAYymCfbfl3vT.jpg"),
+        ("movie:tmdb:901563", "Close", 2022, "/dlMNnWs7Mz8Nk5AC447Ew1tD5pn.jpg"),
+        ("movie:tmdb:670", "Oldboy", 2003, "/pWDtjs568ZfOTMbURQBYuT4Qxka.jpg"),
+        ("movie:tmdb:206487", "Predestination", 2014, "/38Xr1JnV1ZcLQ55zmdSp6n475cZ.jpg"),
+        ("movie:tmdb:598", "City of God", 2002, "/k7eYdWvhYQyRQoU2TB2A2Xu2TfD.jpg"),
+        ("movie:tmdb:1417", "Pan's Labyrinth", 2006, "/z7xXihu5wHuSMWymq5VAulPVuvg.jpg"),
+        ("movie:tmdb:950396", "The Gorge", 2025, "/7iMBZzVZtG0oBug4TfqDb9ZxAOa.jpg"),
+        ("movie:tmdb:451915", "Beautiful Boy", 2018, "/u2Gfv0mz3xePsgyCPHovrnFL1sB.jpg"),
+        ("movie:tmdb:11104", "Chungking Express", 1994, "/43I9DcNoCzpyzK8JCkJYpHqHqGG.jpg"),
+        ("movie:tmdb:1422", "The Departed", 2006, "/nT97ifVT2J1yMQmeq20Qblg61T.jpg"),
+        ("movie:tmdb:103", "Taxi Driver", 1976, "/ekstpH614fwDX8DUln1a2Opz0N8.jpg"),
+        ("movie:tmdb:648878", "Eddington", 2025, "/4GIqZUgPZ146BhibsPHMHef2nXX.jpg"),
+        ("movie:tmdb:272", "Batman Begins", 2005, "/sPX89Td70IDDjVr85jdSBb4rWGr.jpg"),
+        ("movie:tmdb:155", "The Dark Knight", 2008, "/qJ2tW6WMUDux911r6m7haRef0WH.jpg"),
+        ("movie:tmdb:567748", "The Guilty", 2021, "/m8aR1k35oZMOzZ1kYWUyt401mwq.jpg"),
+        ("movie:tmdb:890980", "God's Crooked Lines", 2022, "/n3X9tWYFYfE96BoNgtVffuwzQo.jpg"),
+        ("movie:tmdb:131631", "The Hunger Games: Mockingjay - Part 1", 2014, "/4FAA18ZIja70d1Tu5hr5cj2q1sB.jpg"),
+        ("movie:tmdb:101299", "The Hunger Games: Catching Fire", 2013, "/vrQHDXjVmbYzadOXQ0UaObunoy2.jpg"),
+        ("movie:tmdb:577922", "Tenet", 2020, "/aCIFMriQh8rvhxpN1IWGgvH0Tlg.jpg"),
+        ("movie:tmdb:1083381", "Backrooms", 2026, "/rhGx6E3qRNMgj3i5su2oukNHwIQ.jpg"),
+        ("movie:tmdb:70160", "The Hunger Games", 2012, "/apa5G43Hha7kH7wJG0gkkHT7FA9.jpg"),
+        ("movie:tmdb:336843", "Maze Runner: The Death Cure", 2018, "/s8K0US4tUEoOrQ1LDh0eppuwGDx.jpg"),
+        ("movie:tmdb:10138", "Iron Man 2", 2010, "/6WBeq4fCfn7AN0o21W9qNcRF2l9.jpg"),
+        ("movie:tmdb:294254", "Maze Runner: The Scorch Trials", 2015, "/mYw7ZyejqSCPFlrT2jHZOESZDU3.jpg"),
+        ("movie:tmdb:1368337", "The Odyssey", 2026, "/5rhTDKUhPYvpdQIijFIs5VoWsON.jpg"),
+        ("movie:tmdb:1726", "Iron Man", 2008, "/78lPtwv72eTNqFW9COBYI0dWDJa.jpg"),
+        ("movie:tmdb:1325734", "The Drama", 2026, "/rnIOUhzwJDfgQakx8EjoNyItKgs.jpg"),
+        ("movie:tmdb:696506", "Mickey 17", 2025, "/edKpE9B5qN3e559OuMCLZdW1iBZ.jpg"),
+        ("movie:tmdb:503919", "The Lighthouse", 2019, "/yAKNmpcUweGH6WMCEWenwU9PsbE.jpg"),
+        ("movie:tmdb:559", "Spider-Man 3", 2007, "/qFmwhVUoUSXjkKRmca5yGDEXBIj.jpg"),
+        ("movie:tmdb:315635", "Spider-Man: Homecoming", 2017, "/c24sv2weTHPsmDa7jEMN0m2P3RT.jpg"),
+        ("movie:tmdb:433808", "The Ritual", 2017, "/9022CYEGqYETCeXN1oE3uwYJWub.jpg"),
+        ("movie:tmdb:1124", "The Prestige", 2006, "/Ag2B2KHKQPukjH7WutmgnnSNurZ.jpg")
+    ]
+
+    /// The grid's full capacity, because what is being verified is what a full page looks like.
+    private static var movies: [MediaItem] {
+        posters.enumerated().map { i, row in
+            let (id, title, year, poster) = row
+            return MediaItem(id: id, kind: .movie, title: title, year: year,
+                             sources: [source("t\(i)")], seasons: [], posterPath: poster,
+                             addedAt: Date().addingTimeInterval(-Double(i) * 3_600))
+        }
+    }
+
+    private static var shows: [MediaItem] {
+        [MediaItem(id: "show:tmdb:95557", kind: .show, title: "INVINCIBLE", year: 2021,
+                   sources: [],
+                   seasons: [Season(number: 3, episodes: [Episode(season: 3, number: 1,
+                                                                  source: source("t-inv"))])],
+                   posterPath: "/4tblBrslcKSifMVZ3TmtT2ukMor.jpg", addedAt: Date())]
+    }
+}
+
 #endif
