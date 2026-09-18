@@ -9,6 +9,11 @@
 #   OMDB_API_KEY=xxxx sudo -E bash Scripts/deploy-web.sh <TMDB_API_KEY>
 set -euo pipefail
 
+# DSM does not put /usr/local/bin on root's PATH under sudo, and that is where docker lives. Every
+# `docker` below depends on this.
+export PATH="/usr/local/bin:/usr/bin:/bin:$PATH"
+command -v docker >/dev/null || { echo "!! no docker on PATH ($PATH)" >&2; exit 1; }
+
 TMDB_KEY="${1:-${TMDB_API_KEY:-}}"
 # Recover it from the running container the same way RD_TOKEN is recovered below, so a redeploy
 # needs no secrets retyped — and none end up in shell history.
@@ -18,8 +23,14 @@ if [ -z "$TMDB_KEY" ]; then
   [ -n "$TMDB_KEY" ] && echo "==> recovered TMDB_API_KEY from the existing container (${#TMDB_KEY} chars)"
 fi
 if [ -z "$TMDB_KEY" ]; then
-  echo "usage: sudo bash Scripts/deploy-web.sh <TMDB_API_KEY>" >&2
-  echo "       (omit it once a seret-web container exists — it is recovered from there)" >&2
+  # Say WHICH thing is missing rather than just printing usage — the three causes need different
+  # fixes and "usage:" sends you looking for the wrong one.
+  if ! docker inspect seret-web >/dev/null 2>&1; then
+    echo "!! no 'seret-web' container to recover from — pass the key once:" >&2
+  else
+    echo "!! the running seret-web has no TMDB_API_KEY in its environment — pass it once:" >&2
+  fi
+  echo "   sudo bash Scripts/deploy-web.sh <TMDB_API_KEY>" >&2
   exit 1
 fi
 
