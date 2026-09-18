@@ -24,6 +24,33 @@ struct DiaryEntryRequest: Content {
     var rewatch: Bool?
 }
 
+/// Turns a write failure into a response that names the cause.
+///
+/// The three failures in practice need three different fixes — sign the browser back in, go solve
+/// a Cloudflare challenge, or repair the route to the browser container — and Vapor's default for
+/// an unrecognised error is a 500 reading "Something went wrong", which points at none of them.
+func diaryAbort(for error: any Error) -> Abort {
+    switch error {
+    case LetterboxdError.notAuthenticated:
+        return Abort(.unauthorized, reason: "the browser's Letterboxd session is signed out")
+    case LetterboxdError.challenged:
+        return Abort(.serviceUnavailable, reason: "Cloudflare is challenging the browser")
+    case LetterboxdError.filmNotFound:
+        return Abort(.notFound, reason: "Letterboxd has no film for that TMDB id")
+    case LetterboxdError.structureChanged:
+        return Abort(.badGateway, reason: "the film page carries no film uid any more")
+    case LetterboxdError.transient(let message):
+        return Abort(.badGateway, reason: message)
+    case ChromeError.navigationTimedOut(let requested, let at, let state):
+        return Abort(.badGateway,
+                     reason: "the browser never reached \(requested) - it is at \(at) (\(state))")
+    default:
+        // Anything else is the browser being undrivable rather than Letterboxd refusing, and the
+        // error's own description is the only thing that says which.
+        return Abort(.badGateway, reason: "could not drive the browser: \(error)")
+    }
+}
+
 /// `POST /api/letterboxd/diary` — append one diary entry.
 ///
 /// Deliberately a plain endpoint with no queue: Plan A exists to prove the captured form contract
@@ -35,7 +62,11 @@ func registerLetterboxdRoutes(_ app: Application) {
                                     rating: body.rating,
                                     watchedAt: body.watchedAt,
                                     rewatch: body.rewatch ?? false)
-        try await req.application.letterboxdWriter.write(write)
+        do {
+            try await req.application.letterboxdWriter.write(write)
+        } catch {
+            throw diaryAbort(for: error)
+        }
         return .ok
     }
 }
