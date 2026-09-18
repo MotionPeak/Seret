@@ -52,10 +52,10 @@ public struct LetterboxdDiaryWriter: Sendable {
     }
 
     /// Reads a live token and the film's identifier out of the loaded page.
-    private static let readPage = """
+    static let readPage = """
     (() => {
       const csrf = document.querySelector('input[name="__csrf"]')?.value || '';
-      const uid = (document.documentElement.innerHTML.match(/film:\\\\d+/) || [])[0] || '';
+      const uid = (document.documentElement.innerHTML.match(/film:\\d+/) || [])[0] || '';
       return { csrf, uid };
     })()
     """

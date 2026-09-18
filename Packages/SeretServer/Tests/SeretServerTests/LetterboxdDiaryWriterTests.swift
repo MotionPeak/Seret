@@ -80,6 +80,15 @@ private final class ScriptedTransport: CDPTransport, @unchecked Sendable {
         #expect(post.contains("specifiedDate"))
     }
 
+    /// The page read is JavaScript built inside a Swift literal, where one backslash too many
+    /// turns `\d` into "a backslash, then a d" - a regex that matches nothing on a page where the
+    /// uid is right there. Nothing else exercises this string: the fakes hand back a uid rather
+    /// than running the expression, so it reached the real browser untested and cost a deploy.
+    @Test func thePageReadAsksForDigitsNotForABackslash() {
+        #expect(LetterboxdDiaryWriter.readPage.contains(#"/film:\d+/"#))
+        #expect(!LetterboxdDiaryWriter.readPage.contains(#"\\d"#))
+    }
+
     /// A film Letterboxd does not know cannot be written, and retrying will not help.
     @Test func anUnknownFilmIsFilmNotFound() async {
         let t = ScriptedTransport(pageValue: goodPage(), postValue: goodPost())
