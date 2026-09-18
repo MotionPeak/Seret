@@ -34,8 +34,16 @@ private final class ScriptedTransport: CDPTransport, @unchecked Sendable {
             return [:]
         }
         guard method == "Runtime.evaluate" else { return [:] }
+        let expression = (params["expression"] as? String) ?? ""
+        // `navigate` polls the document until it is loaded. That probe is not one of the writer's
+        // own evaluates, so it neither counts nor gets recorded — the page is simply always there.
+        if expression.contains("document.readyState") {
+            let href = lock.withLock { navigations.last ?? "" }
+            return ["result": ["value": ["href": href, "ready": "complete"] as [String: any Sendable]]
+                        as [String: any Sendable]]
+        }
         let n = lock.withLock { () -> Int in
-            evaluations.append((params["expression"] as? String) ?? "")
+            evaluations.append(expression)
             return evaluations.count
         }
         return ["result": ["value": n == 1 ? pageValue : postValue] as [String: any Sendable]]
