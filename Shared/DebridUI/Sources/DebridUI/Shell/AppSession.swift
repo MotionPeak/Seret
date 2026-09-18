@@ -733,6 +733,30 @@ public final class AppSession {
         }
     }
 
+    /// The Letterboxd watchlist. Nil until there is a library to mark owned films against.
+    ///
+    /// The syncer is built once and captured, so the entries and the resolved-id cache are shared
+    /// by every appearance of the screen rather than rebuilt per navigation.
+    public func makeWatchlistModel() -> WatchlistModel? {
+        guard let library = libraryStore else { return nil }
+
+        let settingsStore = UbiquitousLetterboxdSettingsStore()
+        settingsStore.synchronize()
+        let settings = settingsStore.load()
+        let store = WatchlistStore(fileURL: WatchlistStore.defaultURL())
+        let http = HTTPClient()
+        let syncer = WatchlistSyncer(
+            reader: LetterboxdProfileReader(http: http, username: settings.username),
+            resolver: TMDBWatchlistTitleResolver(tmdb: TMDBClient(apiKey: Secrets.tmdbAPIKey)),
+            store: store)
+
+        let model = WatchlistModel(cached: store.load(), settings: settings) { onProgress in
+            try await syncer.sync(onProgress: onProgress)
+        }
+        model.ownedTMDBIDs = Set(library.movies.compactMap(\.tmdbID))
+        return model
+    }
+
     /// Watched marks for browse/search posters. One instance is shared by every grid, so switching
     /// tabs does not re-query what is already known.
     public func makeTileWatchMarks() -> TileWatchMarks {

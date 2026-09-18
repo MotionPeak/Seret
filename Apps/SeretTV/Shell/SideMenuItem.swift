@@ -7,7 +7,7 @@ import SwiftUI
 /// focusing the avatar leaves the menu collapsed, which is exactly the bug the first screenshot of
 /// this view caught.
 enum SideMenuItem: String, CaseIterable, Identifiable {
-    case profile, search, home, movies, shows, library, settings
+    case profile, search, home, movies, shows, watchlist, library, settings
 
     var id: String { rawValue }
 
@@ -18,6 +18,7 @@ enum SideMenuItem: String, CaseIterable, Identifiable {
         case .home:     return "Home"
         case .movies:   return "Movies"
         case .shows:    return "Shows"
+        case .watchlist: return "Watchlist"
         case .library:  return "Library"
         case .settings: return "Settings"
         }
@@ -30,13 +31,14 @@ enum SideMenuItem: String, CaseIterable, Identifiable {
         case .home:     return "house"
         case .movies:   return "film"
         case .shows:    return "tv"
+        case .watchlist: return "bookmark"
         case .library:  return "rectangle.stack"
         case .settings: return "gearshape"
         }
     }
 
     /// Rows rendered as a group under the profile. `settings` is pinned to the bottom separately.
-    static let mainRows: [SideMenuItem] = [.search, .home, .movies, .shows, .library]
+    static let mainRows: [SideMenuItem] = [.search, .home, .movies, .shows, .watchlist, .library]
 
     /// Whether selecting this row switches the page (as opposed to pushing or presenting).
     var isPage: Bool { self != .search && self != .profile }

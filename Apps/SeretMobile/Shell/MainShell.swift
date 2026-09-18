@@ -77,6 +77,7 @@ struct MainShell: View {
         switch section {
         case .home:    HomeScreen()
         case .find:    NavigationStack { FindScreen() }
+        case .watchlist: NavigationStack { WatchlistScreen() }
         case .library: NavigationStack { MyLibraryScreen() }
         }
     }
@@ -200,12 +201,13 @@ struct MainShell: View {
     }
 
     enum Section: Hashable, CaseIterable, Identifiable {
-        case home, find, library
+        case home, find, watchlist, library
         var id: Self { self }
         var title: String {
             switch self {
             case .home: "Home"
             case .find: "Find"
+            case .watchlist: "Watchlist"
             case .library: "My Library"
             }
         }
@@ -213,6 +215,7 @@ struct MainShell: View {
             switch self {
             case .home: "house"
             case .find: "magnifyingglass"
+            case .watchlist: "bookmark"
             case .library: "rectangle.stack"
             }
         }
@@ -220,6 +223,7 @@ struct MainShell: View {
             switch self {
             case .home: "house.fill"
             case .find: "magnifyingglass"
+            case .watchlist: "bookmark.fill"
             case .library: "rectangle.stack.fill"
             }
         }
