@@ -830,10 +830,12 @@ private struct HomeScreenPreview: View {
 
     /// Sixty real rows out of the library snapshot, newest first — id, title, year, poster.
     ///
-    /// Sixty DISTINCT posters, not six repeated: two tiles asking for the same URL is a permanent
-    /// spinner (one claims the download, the other waits out its budget on a poster the winner
-    /// cached under the same key), and a fixture that repeats artwork renders a page of fake
-    /// breakage that has nothing to do with the screen being looked at.
+    /// Sixty DISTINCT posters because that is what a real library looks like — NOT, as this said
+    /// before, because repeating one would strand the duplicates on a spinner. That was wrong, and
+    /// measured wrong twice: sixty tiles over six posters all load (`ImageMemoryCache.load` hands
+    /// the loser the winner's bitmap, or fetches again if the winner outruns its wait), and giving
+    /// them colliding `ForEach` ids does not strand anything either — SwiftUI simply collapses the
+    /// sixty elements into six views, so the grid comes out short rather than broken.
     private static let posters: [(String, String, Int, String)] = [
         ("movie:tmdb:73", "American History X", 1998, "/x2drgoXYZ8484lqyDj7L1CEVR4T.jpg"),
         ("movie:tmdb:762504", "Nope", 2022, "/AcKVlWaNVVVFQwro3nLXqPljcYA.jpg"),

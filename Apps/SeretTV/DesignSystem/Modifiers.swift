@@ -135,6 +135,15 @@ struct RemoteImage<Placeholder: View>: View {
     @ViewBuilder var placeholder: (_ failed: Bool) -> Placeholder
     @State private var loaded: UIImage?
     @State private var failed = false
+    /// The url this view currently wants, mirrored into state because a task that has ALREADY been
+    /// cancelled has no other way to see it: the view value its closure captured still holds the url
+    /// as it was when that load began. Reading it tells a cancelled load which kind of cancellation
+    /// it was — the cell has moved on to another poster, or it is still showing this one.
+    @State private var wanted: URL?
+    /// Folded into the `.task` id, because bumping it is the only way to get another load: a
+    /// cancelled task can do no further work of its own (every later `await` returns immediately),
+    /// so a retry has to come from a NEW task, and only an id change starts one.
+    @State private var attempt = 0
 
     var body: some View {
         // Synchronous cache check (current url first) → no placeholder flash when a page reappears.
@@ -150,14 +159,65 @@ struct RemoteImage<Placeholder: View>: View {
             }
         }
         .animation(Theme.Anim.imageFade, value: image != nil)
-        .onChange(of: url) { loaded = nil; failed = false }   // reused cell, new url → drop the old
-        .task(id: url) {
-            guard let url, ImageMemoryCache.shared.object(forKey: url as NSURL) == nil else { return }
-            failed = false
-            let image = await ImageMemoryCache.load(url)
-            guard !Task.isCancelled else { return }
-            if let image { loaded = image } else { failed = true }
+        // Reused cell, new url → drop the old. `initial` so `wanted` is set on the first pass too.
+        .onChange(of: url, initial: true) { wanted = url; loaded = nil; failed = false; attempt = 0 }
+        .task(id: RemoteImageLoad.Key(url: url, attempt: attempt)) { await load() }
+    }
+
+    private func load() async {
+        guard let url else { return }
+        // A cache hit is RECORDED, not merely rendered. `body` reads the cache but keeps no
+        // reference to what it finds there, so a tile whose task took this path held NOTHING of its
+        // own — and NSCache evicts (96 MB ceiling; one Recently Added grid is about ninety of those
+        // megabytes). Once the entry went, that tile had no image, no load running and no way to
+        // re-fire `.task`, whose id had not changed. Keeping the hit retains exactly what is on
+        // screen, which is what the cache should be holding onto anyway.
+        if let hit = ImageMemoryCache.shared.object(forKey: url as NSURL) { loaded = hit; return }
+        failed = false
+
+        let image = await ImageMemoryCache.load(url)
+        if let image { loaded = image; return }
+
+        switch RemoteImageLoad.resolve(cancelled: Task.isCancelled,
+                                       stillWanted: wanted == url, attempt: attempt) {
+        case .settle: failed = true
+        case .retry:  attempt += 1
+        case .ignore: break
         }
+    }
+}
+
+/// What a load that produced no image means for the tile.
+///
+/// Split out from the view because the permanent spinner was exactly a missing branch here. A
+/// cancelled load returns nil — indistinguishable from a failure — and the old code wrote no state
+/// at all for it, so the tile went on claiming to be busy with nothing behind it. `.task(id:)`
+/// re-fires only when its id changes or the view re-appears, and a mounted cell does neither.
+///
+/// Measured on the real library, a cold launch of Home ends 8 of 58 poster loads this way. Most are
+/// benign — a `LazyVGrid` cell discarded outside the render window, which reloads when it comes
+/// back — and `.ignore`/`stillWanted` is what keeps those from costing anything. The ones that hurt
+/// are the cells still on screen.
+enum RemoteImageLoad {
+    /// The `.task` id: the url, plus the attempt counter that is the only way to start a new load.
+    struct Key: Equatable { let url: URL?; let attempt: Int }
+
+    enum Resolution: Equatable {
+        case settle     // there is genuinely no artwork — let the placeholder stop pretending
+        case retry      // interrupted while the tile still wants this url — go again
+        case ignore     // interrupted because the tile moved on — leave the new load's state alone
+    }
+
+    /// Home cancels in bursts — the library's movies and shows land separately, then the profile
+    /// resolves — so one retry is not enough; unbounded would let a url that is cancelled forever
+    /// loop forever.
+    static let maxRetries = 3
+
+    static func resolve(cancelled: Bool, stillWanted: Bool, attempt: Int,
+                        maxRetries: Int = maxRetries) -> Resolution {
+        guard cancelled else { return .settle }         // the fetch itself failed — that is real
+        guard stillWanted else { return .ignore }       // this cell is on another poster now
+        return attempt < maxRetries ? .retry : .settle
     }
 }
 
