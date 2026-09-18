@@ -42,6 +42,10 @@ import DebridCore
     }
 
     /// Opens once and stays open; the first load must not block, only the swap's.
+    ///
+    /// Every settle inside a closed gate is `waitForIdleWhileLoadIsHeldForTesting()`: the swap's
+    /// load is blocked HERE, on purpose, so a settle that waited for it would wait for this test to
+    /// reach `gate.open()` — which is below the settle.
     actor Gate {
         private var closed = false
         private var waiters: [CheckedContinuation<Void, Never>] = []
@@ -85,13 +89,13 @@ import DebridCore
 
         await gate.close()          // hold E2's unrestrict open — the swap window stays wide
         model.playNext()            // → E2, but the engine is still on E1
-        await model.waitForIdleForTesting()
+        await model.waitForIdleWhileLoadIsHeldForTesting()
 
         // E1 keeps ticking near its end while E2 is still being resolved.
         for t in [176.0, 177.0, 178.0] {
             engine.emit(.time(.init(position: t, duration: 200)))
         }
-        await model.waitForIdleForTesting()
+        await model.waitForIdleWhileLoadIsHeldForTesting()
 
         // The bar re-arming here is the whole defect: its countdown then advances again, unattended.
         #expect(model.upNextVisible == false)
@@ -115,13 +119,13 @@ import DebridCore
         await gate.close()
         let episodeOneKey = model.contentKey
         model.playNext()
-        await model.waitForIdleForTesting()
+        await model.waitForIdleWhileLoadIsHeldForTesting()
         let episodeTwoKey = model.contentKey
 
         for t in [176.0, 177.0, 178.0] {
             engine.emit(.time(.init(position: t, duration: 200)))
         }
-        await model.waitForIdleForTesting()
+        await model.waitForIdleWhileLoadIsHeldForTesting()
 
         #expect(writes.positions(forKey: episodeTwoKey).isEmpty)
         // …and the episode the viewer actually finished is finalised at its tail, not lost.
@@ -143,12 +147,12 @@ import DebridCore
 
         await gate.close()
         model.playNext()
-        await model.waitForIdleForTesting()
+        await model.waitForIdleWhileLoadIsHeldForTesting()
 
         for t in [176.0, 177.0, 178.0] {
             engine.emit(.time(.init(position: t, duration: 200)))
         }
-        await model.waitForIdleForTesting()
+        await model.waitForIdleWhileLoadIsHeldForTesting()
 
         // Still waiting on E2's first frame — the overlay must still be a cold load.
         #expect(model.hasRenderedFrame == false)
@@ -171,17 +175,17 @@ import DebridCore
 
         await gate.close()          // hold E2's unrestrict open
         model.playNext()            // → E2, engine still holds E1
-        await model.waitForIdleForTesting()
+        await model.waitForIdleWhileLoadIsHeldForTesting()
         #expect(model.currentEpisode?.number == 2)
 
         // E1 rebuffers and recovers while E2 is still resolving.
         engine.emit(.state(.buffering))
         engine.emit(.state(.playing))
-        await model.waitForIdleForTesting()
+        await model.waitForIdleWhileLoadIsHeldForTesting()
 
         // …then `engine.load()` replaces the media, which VLCKit reports as stopped → `.ended`.
         engine.emit(.state(.ended))
-        await model.waitForIdleForTesting()
+        await model.waitForIdleWhileLoadIsHeldForTesting()
 
         // Still E2. Without the guard this is E3.
         #expect(model.currentEpisode?.number == 2)
@@ -200,10 +204,10 @@ import DebridCore
 
         await gate.close()
         model.playNext()
-        await model.waitForIdleForTesting()
+        await model.waitForIdleWhileLoadIsHeldForTesting()
 
         engine.emit(.state(.playing))
-        await model.waitForIdleForTesting()
+        await model.waitForIdleWhileLoadIsHeldForTesting()
 
         #expect(model.hasRenderedFrame == false)
         #expect(model.isSwitching == true)

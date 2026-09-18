@@ -140,6 +140,6 @@ extension PlayerModel {
     /// finished was never finalised, and a position of 0 was filed under the INCOMING episode's key.
     func recordOutgoingProgress() {
         let (key, source, at, length) = (contentKey, WatchKey.source(currentSource), position, duration)
-        Task { await self.recordProgress(key, source, at, length) }
+        progressSaveTask = Task { await self.recordProgress(key, source, at, length) }
     }
 }
