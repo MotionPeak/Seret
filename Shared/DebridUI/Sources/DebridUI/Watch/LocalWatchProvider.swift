@@ -71,8 +71,15 @@ public struct LocalWatchProvider: WatchProgressProviding, Sendable {
         // with no row is a first viewing by definition.
         let rating = try? await store.rating(forContentKey: contentKey, profileID: profileID)
         let rollup = try? await store.rollup(forContentKey: contentKey, profileID: profileID)
+        // Did a playhead put it here, or did somebody just say so? Any finish that came from
+        // playback has a position at least four fifths in — the watched threshold is never lower
+        // than that, cue-driven or not — while a Continue Watching tile being long-pressed
+        // carries whatever fraction it was left at, which is exactly why it was still on the rail.
+        let fromPlayback = durationSeconds > 0
+            && positionSeconds >= WatchThreshold.plausibleCueFraction * durationSeconds
         await push.recordFinish(contentKey: contentKey, rating: rating ?? nil,
-                                plays: rollup?.plays ?? 1, at: Date())
+                                plays: rollup?.plays ?? 1, at: Date(),
+                                fromPlayback: fromPlayback)
     }
 
     public func recentlyWatched(limit: Int, profileID: String) async throws -> [WatchState] {

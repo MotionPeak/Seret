@@ -67,7 +67,13 @@ public actor LetterboxdPushCoordinator {
     }
 
     /// Called on the unfinished→finished edge, and only there.
-    public func recordFinish(contentKey: String, rating: Int?, plays: Int, at: Date) async {
+    ///
+    /// `fromPlayback` is what decides whether the entry waits for a rating. A film that reached
+    /// its credits has someone sitting in front of it to ask; a long-press on a grid tile does
+    /// not, and holding that back for two minutes would only delay it for a prompt no screen is
+    /// showing.
+    public func recordFinish(contentKey: String, rating: Int?, plays: Int, at: Date,
+                             fromPlayback: Bool = true) async {
         guard isEnabled() else { return }
         // Letterboxd has no television, and a parsed-title key is not a TMDB id. Neither can ever
         // be written, so neither is queued — a permanent failure in the queue blocks what follows.
@@ -80,13 +86,14 @@ public actor LetterboxdPushCoordinator {
         // Held back, so the viewer can put a rating on it while the credits are still rolling.
         // `watchedAt` is stamped now regardless, so a late send still files the entry on the day
         // the film was actually watched.
+        let hold = fromPlayback ? ratingHold : 0
         let write = LetterboxdWrite(tmdbID: tmdbID, rating: rating, watchedAt: at,
                                     rewatch: rewatch,
-                                    notBefore: at.addingTimeInterval(ratingHold))
+                                    notBefore: at.addingTimeInterval(hold))
         // Awaited: the write must be on disk before this returns, or being killed here loses it.
         try? await outbox.enqueue(write)
 
-        if ratingHold > 0 {
+        if hold > 0 {
             // A second film finishing supersedes the first: its prompt is the one on screen.
             awaitingRating = (write.id, tmdbID, rating)
             let current = rating

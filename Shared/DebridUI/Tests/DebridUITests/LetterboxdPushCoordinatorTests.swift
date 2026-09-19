@@ -345,6 +345,22 @@ private actor HangingRelay: LetterboxdRelaying {
         #expect(await signal.lastLogged == 73)
     }
 
+    /// Marking a film watched from a grid is not a viewing in progress. Nobody is sitting in
+    /// front of it to be asked for a rating, so holding the entry back would only delay it by two
+    /// minutes for a prompt that no screen is showing.
+    @Test func aFinishThatIsNotPlaybackIsSentAtOnce() async throws {
+        let relay = FakeRelay()
+        let signal = await LetterboxdPushSignal()
+        let push = coordinator(relay: relay, signal: signal)
+
+        await push.recordFinish(contentKey: "movie:tmdb:73", rating: nil, plays: 1, at: Date(),
+                                fromPlayback: false)
+        await push.waitForPendingSend()
+
+        #expect(await relay.count == 1)
+        #expect(await signal.ratingPrompt == nil)
+    }
+
     /// An episode never reaches Letterboxd, so nothing should be asking the viewer to rate one.
     @Test func anEpisodeRaisesNoPrompt() async throws {
         let signal = await LetterboxdPushSignal()

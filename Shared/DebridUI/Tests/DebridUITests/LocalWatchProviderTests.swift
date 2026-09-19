@@ -4,6 +4,12 @@ import SwiftData
 import DebridCore
 @testable import DebridUI
 
+/// Records what reached the server, for the hold tests below.
+private actor CapturingRelay: LetterboxdRelaying {
+    private(set) var count = 0
+    func send(_ write: LetterboxdWrite) async throws { count += 1 }
+}
+
 extension SwiftDataSuite {
     @Suite struct LocalWatchProviderTests {
         private func provider(profile: String = "p1") throws -> LocalWatchProvider {
@@ -36,6 +42,48 @@ extension SwiftDataSuite {
                                positionSeconds: 553, durationSeconds: 600,
                                finished: false, profileID: "p1")
             #expect(try await p.progress(forContentKey: "movie:tmdb:7", profileID: "p1")?.finished == true)
+        }
+
+        /// A long-press on a Continue Watching tile is a manual mark, not a film reaching its
+        /// credits — its position is nowhere near the end. The diary entry goes out at once.
+        @Test func markingAPartlyWatchedTitleWatchedIsNotHeldForARating() async throws {
+            let relay = CapturingRelay()
+            let push = LetterboxdPushCoordinator(outbox: InMemoryLetterboxdOutbox(), relay: relay,
+                                                 loggedElsewhere: { _ in false },
+                                                 isEnabled: { true }, ratingHold: 60)
+            let c = try ModelContainer(for: WatchProgress.self,
+                                       configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+            let p = LocalWatchProvider(store: LocalWatchStore(modelContainer: c),
+                                       profileID: { "p1" }, push: push)
+            // A third of the way in, as a rail tile would be.
+            try await p.record(contentKey: "movie:tmdb:73", sourceKey: "T1#1",
+                               positionSeconds: 2000, durationSeconds: 6000,
+                               finished: false, profileID: "p1")
+
+            await p.setWatched(true, contentKey: "movie:tmdb:73", sourceKey: "T1#1",
+                               profileID: "p1")
+            await push.waitForPendingSend()
+
+            #expect(await relay.count == 1)
+        }
+
+        /// ...while a film that actually played to its credits IS held, so the viewer can rate it.
+        @Test func aFilmPlayedToItsCreditsIsHeldForARating() async throws {
+            let relay = CapturingRelay()
+            let push = LetterboxdPushCoordinator(outbox: InMemoryLetterboxdOutbox(), relay: relay,
+                                                 loggedElsewhere: { _ in false },
+                                                 isEnabled: { true }, ratingHold: 60)
+            let c = try ModelContainer(for: WatchProgress.self,
+                                       configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+            let p = LocalWatchProvider(store: LocalWatchStore(modelContainer: c),
+                                       profileID: { "p1" }, push: push)
+
+            try await p.record(contentKey: "movie:tmdb:73", sourceKey: "T1#1",
+                               positionSeconds: 5700, durationSeconds: 6000,
+                               finished: true, profileID: "p1")
+            await push.waitForPendingSend()
+
+            #expect(await relay.count == 0)
         }
 
         /// The regression this whole change exists to prevent: four fifths of the way in is not

@@ -16,7 +16,7 @@ public enum WatchThreshold {
 
     /// A subtitle file ending before this much of the runtime is partial or mistimed, not evidence
     /// that the film ended there.
-    static let plausibleCueFraction = 0.8
+    public static let plausibleCueFraction = 0.8
 
     /// Kept clear of the final frame, so subtitles that caption the credits cannot push the
     /// threshold past the point a viewer actually stops watching.
