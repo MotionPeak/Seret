@@ -1046,9 +1046,11 @@ private struct AlwaysSignedOutRelay: LetterboxdRelaying {
 
 /// and see where focus ends up.
 private struct LetterboxdCardPreview: View {
+    @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()))
     @State private var model = LetterboxdImportModel(
         settingsStore: InMemoryLetterboxdSettingsStore(
-            LetterboxdSettings(username: "thebigshin", isEnabled: false)),
+            LetterboxdSettings(username: "thebigshin", isEnabled: false,
+                               serverURL: "192.168.1.179:8080")),
         run: { _, _ in LetterboxdImporter.Summary(scanned: 0, needingWork: 0, written: 0,
                                                   conflicts: 0, unresolved: 0) })
 
@@ -1081,6 +1083,10 @@ private struct LetterboxdCardPreview: View {
                 .focusSection()
             }
         }
+        // `LetterboxdCard` reads `AppSession` non-optionally, and a missing one is a fatalError
+        // rather than a blank view — this harness rendered pure black until it was provided.
+        // See the Settings card's own environment read.
+        .environment(session)
         .task {
             // Drain once so `lastError` is populated, not just the pending count.
             await push.drain()
@@ -1137,11 +1143,18 @@ private struct WatchlistSpinPreview: View {
 private struct ServerReachabilityPreview: View {
     @State private var lines: [String] = ["probing…"]
 
+    /// Both the address that failed for real and the one that works, so the two messages can be
+    /// read side by side. Driving this by hand through the focus engine costs minutes per attempt;
+    /// running it on appear makes the answer a screenshot.
+    private static let cases = [("192.168.1.179:8000", "the port that was actually typed"),
+                                ("192.168.1.179:8080", "the right one"),
+                                ("192.168.1.42:8080", "a host that is not there")]
+
     var body: some View {
         ZStack {
             CanvasBackground()
-            VStack(alignment: .leading, spacing: 18) {
-                Text("Server reachability").sectionTitle()
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Test Connection — what it says").sectionTitle()
                     .foregroundStyle(Theme.Palette.textPrimary)
                 ForEach(lines, id: \.self) { line in
                     Text(line).calloutText().foregroundStyle(Theme.Palette.textSecondary)
@@ -1154,33 +1167,19 @@ private struct ServerReachabilityPreview: View {
     }
 
     private func probe() async {
-        let address = UbiquitousLetterboxdSettingsStore().load().serverURL
-        let target = address.isEmpty ? "http://192.168.1.179:8080" : address
-        var out = ["settings serverURL: \(address.isEmpty ? "(empty — using the default)" : address)",
-                   "target: \(target)"]
-
-        guard let url = URL(string: (target.hasPrefix("http") ? target : "http://" + target) + "/health") else {
-            lines = out + ["bad URL"]
-            return
-        }
-        do {
-            let (data, response) = try await URLSession.shared.data(from: url)
-            let code = (response as? HTTPURLResponse)?.statusCode ?? -1
-            out.append("GET /health -> \(code)")
-            out.append("body: \(String(decoding: data, as: UTF8.self).prefix(60))")
-            out.append(code == 200 ? "✅ reachable — ATS is not blocking this" : "⚠️ answered, but not 200")
-        } catch {
-            let detail = String(describing: error)
-            out.append("failed: \(detail.prefix(200))")
-            if detail.contains("-1022") || detail.localizedCaseInsensitiveContains("transport security") {
-                out.append("❌ App Transport Security refused it — the call never left the device")
-            } else if detail.contains("-1009") || detail.localizedCaseInsensitiveContains("local network") {
-                out.append("❌ local network access denied")
-            } else {
-                out.append("❌ genuinely could not reach the server")
+        let http = HTTPClient()
+        var out: [String] = []
+        for (address, note) in Self.cases {
+            let test = ServerConnectionTest(address: address,
+                                            probe: { url in _ = try await http.data(url) })
+            await test.run()
+            switch test.result {
+            case .reachable(let a): out.append("✅ \(a) — reached  (\(note))")
+            case .failed(let m):    out.append("❌ \(address) — \(m)")
+            default:                out.append("• \(address) — \(String(describing: test.result))")
             }
+            lines = out
         }
-        lines = out
     }
 }
 

@@ -798,15 +798,23 @@ public final class AppSession {
     /// status, which `WatchlistRemovalRelay` turns into something a screen can say.
     private static func postWatchlistRemoval(to address: String, tmdbID: Int,
                                              http: HTTPClient) async throws {
-        var trimmed = address.trimmingCharacters(in: .whitespacesAndNewlines)
-        // A bare host or `host:port` is what someone types; make it a URL rather than failing.
-        if !trimmed.lowercased().hasPrefix("http") { trimmed = "http://" + trimmed }
-        while trimmed.hasSuffix("/") { trimmed.removeLast() }
-
-        guard let url = URL(string: trimmed + "/api/letterboxd/watchlist") else {
+        // `SeretServerAddress`, not a local copy: the connection test resolves the address the
+        // same way, and a test that checked a different URL from the one the relay posts to would
+        // be worse than no test at all.
+        guard let url = SeretServerAddress.url(address, path: "/api/letterboxd/watchlist") else {
             throw URLError(.badURL)
         }
         try await http.postJSON(url, jsonBody: #"{"tmdbID":\#(tmdbID),"inWatchlist":false}"#)
+    }
+
+    /// A "Test connection" for the Seret server field.
+    ///
+    /// Runs from inside the app process because that is the only place the answer is meaningful:
+    /// reachability from a laptop says nothing about whether THIS device can reach the server.
+    public func makeServerConnectionTest(address: String) -> ServerConnectionTest {
+        let http = HTTPClient()
+        return ServerConnectionTest(address: address,
+                                    probe: { url in _ = try await http.data(url) })
     }
 
     public func makeWatchlistModel() -> WatchlistModel? {

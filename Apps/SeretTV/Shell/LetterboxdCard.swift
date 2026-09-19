@@ -13,8 +13,11 @@ import SwiftUI
 /// jumped from the card above straight to the card below it. A switch is exactly the kind of thing
 /// a remote is good at, so it is offered on both faces.
 struct LetterboxdCard: View {
+    @Environment(AppSession.self) private var session
     @Bindable var model: LetterboxdImportModel
     let profileID: String?
+    /// Built lazily so the card does not probe the network just by being drawn.
+    @State private var connection: ServerConnectionTest?
     /// Nil until a server address is set. Read-only here: the address is typed on the iPhone and
     /// arrives through iCloud, exactly as the username does.
     let push: LetterboxdPushCoordinator?
@@ -55,6 +58,8 @@ struct LetterboxdCard: View {
 
                 phaseContent
                 pushStatus
+
+                serverRow
             }
         }
         .task { await model.refreshPushStatus(from: push) }
@@ -112,6 +117,50 @@ struct LetterboxdCard: View {
                 .buttonStyle(SeretActionButtonStyle())
         } else if let blockedReason {
             Text(blockedReason).settingsCaption()
+        }
+    }
+
+    /// "Can this Apple TV reach the server?", asked from the device that has to.
+    ///
+    /// The address is typed on the iPhone and only read here, so this is the one place the answer
+    /// is meaningful: the TV's own cleartext rules and local-network permission decide it, and
+    /// reachability from a phone or a laptop says nothing about them. It is also the only warning
+    /// anyone gets before a removal silently fails to reach Letterboxd.
+    @ViewBuilder private var serverRow: some View {
+        let address = model.settings.serverURL
+        VStack(alignment: .leading, spacing: 10) {
+            Text(address.isEmpty
+                 ? "No Seret server set — add one on your iPhone to push changes to Letterboxd."
+                 : "Seret server: \(address)")
+                .settingsCaption()
+
+            if !address.isEmpty {
+                Button("Test Connection") {
+                    let test = session.makeServerConnectionTest(address: address)
+                    connection = test
+                    Task { await test.run() }
+                }
+                .buttonStyle(SeretPillStyle(selected: false))
+
+                if let connection { connectionStatus(connection) }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func connectionStatus(_ test: ServerConnectionTest) -> some View {
+        switch test.result {
+        case .untested, .needsAddress:
+            EmptyView()
+        case .testing:
+            HStack(spacing: 10) {
+                ProgressView().tint(Theme.Palette.gold)
+                Text("Testing…").settingsCaption()
+            }
+        case .reachable(let address):
+            SettingsStatus(text: "Reached \(address)", good: true)
+        case .failed(let message):
+            Text(message).calloutText().foregroundStyle(Theme.Palette.destructive)
         }
     }
 }
