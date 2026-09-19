@@ -41,15 +41,34 @@ private struct SeededRNG: RandomNumberGenerator {
                                          using: &rng) == nil)
     }
 
-    /// The reel is presentation; the winner is the fact. It must be the last thing the reel
-    /// shows, or the animation would land on one film and the screen would name another.
-    @Test func theReelEndsOnTheWinner() {
+    /// The reel is presentation; the winner is the fact. It must sit at `winnerIndex`, or the
+    /// animation would come to rest on one film while the screen named another.
+    @Test func theReelRestsOnTheWinner() {
         let entries = (0..<8).map { entry("f\($0)", tmdbID: $0 + 1) }
         var rng = SeededRNG(3)
-        let spin = WatchlistRandomizer.spin(over: entries, using: &rng)
-        let unwrapped = try! #require(spin)
-        #expect(unwrapped.reel.last?.slug == unwrapped.winner.slug)
-        #expect(unwrapped.reel.count > 1)
+        let spin = try! #require(WatchlistRandomizer.spin(over: entries, using: &rng))
+        #expect(spin.reel[spin.winnerIndex].slug == spin.winner.slug)
+    }
+
+    /// A wheel comes to REST; it does not run out of wheel. Without frames queued up past the
+    /// winner the strip visibly empties on the trailing side as it slows, which reads as the
+    /// animation hitting the end of its data rather than losing momentum.
+    @Test func theReelHasMoreFilmsWaitingPastTheWinner() {
+        let entries = (0..<8).map { entry("f\($0)", tmdbID: $0 + 1) }
+        for seed in UInt64(1)...20 {
+            var rng = SeededRNG(seed)
+            let spin = try! #require(WatchlistRandomizer.spin(over: entries, using: &rng))
+            let after = spin.reel.count - 1 - spin.winnerIndex
+            #expect(after >= WatchlistRandomizer.framesPastWinner)
+        }
+    }
+
+    /// Enough run-up that it reads as a spin rather than a cut.
+    @Test func theReelHasRoomToAccelerateBeforeTheWinner() {
+        let entries = (0..<8).map { entry("f\($0)", tmdbID: $0 + 1) }
+        var rng = SeededRNG(9)
+        let spin = try! #require(WatchlistRandomizer.spin(over: entries, using: &rng))
+        #expect(spin.winnerIndex > 10)
     }
 
     /// Every frame the reel shows has artwork. A spin that flickers through grey placeholders
@@ -69,6 +88,7 @@ private struct SeededRNG: RandomNumberGenerator {
                                                           using: &rng))
         #expect(spin.winner.slug == "only")
         #expect(spin.reel.allSatisfy { $0.slug == "only" })
+        #expect(spin.reel.count - 1 - spin.winnerIndex >= WatchlistRandomizer.framesPastWinner)
     }
 
     /// Consecutive duplicates would read as the reel having stalled.

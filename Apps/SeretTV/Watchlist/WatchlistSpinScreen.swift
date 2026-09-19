@@ -54,7 +54,7 @@ struct WatchlistSpinScreen: View {
     private func start() {
         landed = false
         position = 0
-        withAnimation(spinCurve) { position = Double(spin.reel.count - 1) }
+        withAnimation(spinCurve) { position = Double(spin.winnerIndex) }
         // The reel is `.timingCurve`-driven, so "it has stopped" is a matter of the clock rather
         // than something the animation reports back. Matching the duration is what keeps the
         // result from appearing over posters that are still moving.
@@ -71,14 +71,10 @@ struct WatchlistSpinScreen: View {
 
     private var reel: some View {
         ZStack {
-            // The reel's last frame IS the winner at this very position, so crossfading to a
-            // static poster is invisible except for what it removes: the leftover frames trailing
-            // off to one side. Without it the result sits lopsided, flanked on the left and
-            // nothing on the right, because there is nothing after the winner to draw.
+            // The reel stays on screen at rest. It settles with films either side of the winner,
+            // the way a wheel stops with the neighbouring symbols still showing — which is the
+            // whole reason the reel carries frames past the winner rather than ending on it.
             SpinReel(frames: spin.reel, position: position)
-                .opacity(landed ? 0 : 1)
-            winnerPoster
-                .opacity(landed ? 1 : 0)
             // The centre marker the reel runs under: what the film lands *in*.
             RoundedRectangle(cornerRadius: Theme.Layout.posterCorner + 4, style: .continuous)
                 .strokeBorder(Theme.Palette.gold, lineWidth: landed ? 6 : 3)
@@ -88,12 +84,6 @@ struct WatchlistSpinScreen: View {
                 .allowsHitTesting(false)
         }
         .animation(Theme.Anim.pageFade, value: landed)
-    }
-
-    private var winnerPoster: some View {
-        RemoteImage(url: TMDBClient.imageURL(path: spin.winner.posterPath, size: "w500"))
-            .frame(width: SpinReel.posterWidth, height: SpinReel.posterHeight)
-            .clipShape(RoundedRectangle(cornerRadius: Theme.Layout.posterCorner, style: .continuous))
     }
 
     /// Fixed height, conditional content.
@@ -192,7 +182,7 @@ private struct SpinReel: View, Animatable {
     }
 
     private func opacity(for distance: Double) -> Double {
-        max(0.0, 1.0 - abs(distance) * 0.34)
+        max(0.0, 1.0 - abs(distance) * 0.26)
     }
 
     private func poster(_ entry: WatchlistEntry) -> some View {

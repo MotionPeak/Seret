@@ -17,22 +17,35 @@ public enum WatchlistRandomizer {
 
         /// The film the spin landed on.
         public let winner: WatchlistEntry
-        /// What the reel shows, in order. The last frame IS the winner.
+        /// What the reel shows, in order.
         public let reel: [WatchlistEntry]
+        /// Where the reel comes to rest. Deliberately NOT the last frame — see `framesPastWinner`.
+        public let winnerIndex: Int
 
         public static func == (a: Spin, b: Spin) -> Bool {
-            a.winner == b.winner && a.reel == b.reel
+            a.winner == b.winner && a.reel == b.reel && a.winnerIndex == b.winnerIndex
         }
 
-        public init(winner: WatchlistEntry, reel: [WatchlistEntry]) {
+        public init(winner: WatchlistEntry, reel: [WatchlistEntry], winnerIndex: Int) {
             self.winner = winner
             self.reel = reel
+            self.winnerIndex = winnerIndex
         }
     }
 
-    /// How many frames the reel runs for. Enough to read as a spin rather than a cut, and short
-    /// enough that "again" stays cheap.
-    public static let reelLength = 26
+    /// How far the reel travels before settling. Enough to read as a spin rather than a cut, and
+    /// short enough that "again" stays cheap.
+    public static let framesBeforeWinner = 30
+
+    /// Frames kept queued up PAST the winner.
+    ///
+    /// A wheel comes to rest; it does not run out of wheel. Ending the reel on the winner meant
+    /// the strip visibly emptied on its trailing side as it slowed — the film had nothing coming
+    /// after it, which reads as the animation reaching the end of its data rather than losing
+    /// momentum. These are the films you see sitting next to the one it picked.
+    ///
+    /// Matches the spinner's visible radius, so the trailing side is full at rest.
+    public static let framesPastWinner = 4
 
     /// Films a spin may land on: matched to TMDB, still on the list, and carrying artwork.
     ///
@@ -47,7 +60,8 @@ public enum WatchlistRandomizer {
                                                       using generator: inout G) -> Spin? {
         let pool = eligible(entries)
         guard let winner = pool.randomElement(using: &generator) else { return nil }
-        return Spin(winner: winner, reel: reel(to: winner, from: pool, using: &generator))
+        let frames = reel(to: winner, from: pool, using: &generator)
+        return Spin(winner: winner, reel: frames, winnerIndex: framesBeforeWinner)
     }
 
     /// The frames, ending on the winner.
@@ -58,27 +72,33 @@ public enum WatchlistRandomizer {
     private static func reel<G: RandomNumberGenerator>(to winner: WatchlistEntry,
                                                        from pool: [WatchlistEntry],
                                                        using generator: inout G) -> [WatchlistEntry] {
-        guard pool.count > 1 else { return Array(repeating: winner, count: reelLength) }
+        let total = framesBeforeWinner + 1 + framesPastWinner
+        guard pool.count > 1 else { return Array(repeating: winner, count: total) }
 
         var frames: [WatchlistEntry] = []
-        frames.reserveCapacity(reelLength)
+        frames.reserveCapacity(total)
 
-        // One short of the reel: the winner is appended last.
-        while frames.count < reelLength - 1 {
-            let candidates = pool.filter { $0.slug != frames.last?.slug }
-            guard let next = candidates.randomElement(using: &generator) else { break }
+        // Run-up, then the winner at `framesBeforeWinner`, then the films that carry on past it.
+        // Consecutive duplicates are avoided throughout, because a repeated frame reads as the
+        // reel having stalled rather than spun — which matters most with a short pool, where
+        // random draws collide often.
+        while frames.count < total {
+            let isWinnerSlot = frames.count == framesBeforeWinner
+            let candidates = isWinnerSlot
+                ? [winner]
+                : pool.filter { $0.slug != frames.last?.slug && $0.slug != nextFixedSlug(at: frames.count, winner: winner) }
+            guard let next = candidates.randomElement(using: &generator)
+                    ?? pool.filter({ $0.slug != frames.last?.slug }).randomElement(using: &generator)
+            else { break }
             frames.append(next)
         }
 
-        // The frame before the winner must not also be the winner, or the reel appears to stop
-        // one frame early.
-        if frames.last?.slug == winner.slug {
-            if let swap = pool.filter({ $0.slug != winner.slug }).randomElement(using: &generator) {
-                frames[frames.count - 1] = swap
-            }
-        }
-
-        frames.append(winner)
         return frames
+    }
+
+    /// The winner's slug when the NEXT slot is the winner's, so the frame before it is never the
+    /// same film — the reel would otherwise appear to have already stopped.
+    private static func nextFixedSlug(at index: Int, winner: WatchlistEntry) -> String? {
+        index + 1 == framesBeforeWinner ? winner.slug : nil
     }
 }
