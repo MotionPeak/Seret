@@ -76,6 +76,9 @@ public final class AppSession {
     /// app's root can drain it on return — coming back is the moment the Synology is most likely
     /// reachable again after it was not.
     public private(set) var letterboxdPush: LetterboxdPushCoordinator?
+    /// Announces landed diary entries so the player can confirm one. Always present, so a view can
+    /// observe it whether or not a server is configured.
+    public let letterboxdPushSignal = LetterboxdPushSignal()
     /// Profile roster store (CRUD) — used by the Who's-Watching / profile-manager UI (later slice).
     public private(set) var profileStore: ProfileStore?
     /// Per-profile "My List" store — claimed-title membership (later slice wires claim on add/play).
@@ -330,7 +333,7 @@ public final class AppSession {
         localWatchStore = local
         // Nil until a server address is set, and the push is then simply absent — the app records
         // and reads back exactly as it did before, because Letterboxd is a mirror, not a store.
-        letterboxdPush = Self.makeLetterboxdPush()
+        letterboxdPush = Self.makeLetterboxdPush(signal: letterboxdPushSignal)
         localWatch = local.map { store in
             LocalWatchProvider(store: store,
                                profileID: { [weak self] in self?.activeProfileID ?? "" },
@@ -340,7 +343,7 @@ public final class AppSession {
     }
 
     /// Built from the settings the iPhone typed and iCloud carried to this device.
-    private static func makeLetterboxdPush() -> LetterboxdPushCoordinator? {
+    private static func makeLetterboxdPush(signal: LetterboxdPushSignal) -> LetterboxdPushCoordinator? {
         let store = UbiquitousLetterboxdSettingsStore()
         store.synchronize()
         guard let serverURL = store.load().serverBaseURL else { return nil }
@@ -353,7 +356,8 @@ public final class AppSession {
                 LetterboxdLoggedFilms(fileURL: LetterboxdLoggedFilms.defaultURL())
                     .contains(tmdbID: tmdbID)
             },
-            isEnabled: { UbiquitousLetterboxdSettingsStore().load().serverBaseURL != nil })
+            isEnabled: { UbiquitousLetterboxdSettingsStore().load().serverBaseURL != nil },
+            signal: signal)
     }
 
 

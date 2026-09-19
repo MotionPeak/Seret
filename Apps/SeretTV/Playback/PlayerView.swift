@@ -22,11 +22,14 @@ struct PlayerView: View {
     @FocusState private var focus: PlayerFocus?
     @Environment(\.dismiss) private var dismiss
     let backdropURL: URL?
+    let pushSignal: LetterboxdPushSignal?
 
-    init(model: PlayerModel, engine: VLCKitVideoPlayerEngine, backdropURL: URL?) {
+    init(model: PlayerModel, engine: VLCKitVideoPlayerEngine, backdropURL: URL?,
+         pushSignal: LetterboxdPushSignal? = nil) {
         _model = State(initialValue: model)
         _engine = State(initialValue: engine)
         self.backdropURL = backdropURL
+        self.pushSignal = pushSignal
     }
 
     var body: some View {
@@ -101,6 +104,15 @@ struct PlayerView: View {
             if let banner = model.autoSyncBanner, !showSettings, !showSubtitleBrowser, !showManualSync {
                 AutoSyncBar(banner: banner)
                     .transition(.move(edge: .top).combined(with: .opacity))
+            }
+
+            // Same slot as the sync bar and hidden by the same panels, so the two never stack.
+            if !showSettings, !showSubtitleBrowser, !showManualSync {
+                Color.clear
+                    .letterboxdLoggedConfirmation(signal: pushSignal, contentKey: model.contentKey) {
+                        LetterboxdLoggedBar()
+                    }
+                    .allowsHitTesting(false)
             }
 
             if let fb = model.skipFeedback {          // ride above everything; never eat remote input
@@ -263,6 +275,29 @@ struct PlayerView: View {
 /// Deliberately built out of nothing focusable and marked `allowsHitTesting(false)`. The player's
 /// remote belongs to `PlayerInputSurface`, which only works because it has no focusable siblings at
 /// rest — a Button up here would quietly take back the arrows and the touch-scrub with them.
+/// "Logged to Letterboxd", for three seconds, when an entry actually lands.
+///
+/// Nothing appears for a failed write: it is not actionable while a film is playing, and the
+/// Letterboxd settings card carries it.
+struct LetterboxdLoggedBar: View {
+    var body: some View {
+        HStack(spacing: 18) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 26, weight: .semibold))
+                .foregroundStyle(Theme.Palette.gold)
+            Text("Logged to Letterboxd")
+                .font(.seret(24, .semibold))
+                .foregroundStyle(.white)
+        }
+        .padding(.horizontal, 34).padding(.vertical, 20)
+        .background(.black.opacity(0.66), in: Capsule())
+        .overlay(Capsule().strokeBorder(.white.opacity(0.12)))
+        // The same inset AutoSyncBar uses. Without it this sits above everything else in the
+        // player, hard against an edge a real television overscans.
+        .padding(.top, 50)
+    }
+}
+
 struct AutoSyncBar: View {
     let banner: PlayerModel.AutoSyncBanner
     private static let trackWidth: CGFloat = 320

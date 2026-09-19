@@ -20,17 +20,23 @@ struct PlayerHost: View {
     private let request: PlaybackRequest
     private let backdropURL: URL?
     private let onExit: () -> Void
+    /// Passed explicitly rather than read from the environment: a non-optional `@Environment`
+    /// Observable read traps when the object does not cross a cover boundary, and this view is
+    /// presented from one.
+    private let pushSignal: LetterboxdPushSignal
 
     init(request: PlaybackRequest, app: AppSession, onExit: @escaping () -> Void) {
         _session = StateObject(wrappedValue: PlayerSession(request: request, app: app))
         self.request = request
         self.onExit = onExit
+        self.pushSignal = app.letterboxdPushSignal
         backdropURL = TMDBClient.imageURL(path: request.item.backdropPath, size: "w1280")
     }
 
     var body: some View {
         if let model = session.model {
-            PlayerView(model: model, engine: session.engine, backdropURL: backdropURL, onExit: onExit)
+            PlayerView(model: model, engine: session.engine, backdropURL: backdropURL,
+                       pushSignal: pushSignal, onExit: onExit)
         } else {
             PlayerPlaceholder(request: request)
         }

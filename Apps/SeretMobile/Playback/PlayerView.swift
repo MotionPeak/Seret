@@ -11,14 +11,17 @@ struct PlayerView: View {
     @State private var showSettings = false
     @State private var dragOffset: CGFloat = 0          // interactive pull-down-to-dismiss
     let backdropURL: URL?
+    let pushSignal: LetterboxdPushSignal?
     /// Leave the player. An explicit closure (the presenter sets its item to nil) rather than
     /// @Environment(\.dismiss), which is unreliable from a fullScreenCover nested inside another.
     let onExit: () -> Void
 
-    init(model: PlayerModel, engine: VLCKitVideoPlayerEngine, backdropURL: URL?, onExit: @escaping () -> Void) {
+    init(model: PlayerModel, engine: VLCKitVideoPlayerEngine, backdropURL: URL?,
+         pushSignal: LetterboxdPushSignal? = nil, onExit: @escaping () -> Void) {
         _model = State(initialValue: model)
         _engine = State(initialValue: engine)
         self.backdropURL = backdropURL
+        self.pushSignal = pushSignal
         self.onExit = onExit
     }
 
@@ -67,6 +70,11 @@ struct PlayerView: View {
                     .padding(.top, model.controlsVisible ? 74 : 14)
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
+        }
+        // Below the sync banner's slot, so the two can never sit on top of each other.
+        .letterboxdLoggedConfirmation(signal: pushSignal, contentKey: model.contentKey) {
+            LetterboxdLoggedBar()
+                .padding(.top, model.controlsVisible ? 74 : 14)
         }
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
@@ -284,6 +292,27 @@ struct PlayerView: View {
 /// fought for the width and "Syncing subtitles · about 3 min left" broke across two lines with a
 /// gap beside it — and truncating instead would have cut the one message that tells the viewer what
 /// to do when a sync fails.
+/// "Logged to Letterboxd", for three seconds, when an entry actually lands.
+///
+/// Nothing appears for a failed write: it is not actionable while a film is playing, and the
+/// Letterboxd settings card carries it.
+struct LetterboxdLoggedBar: View {
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(SeretPalette.gold)
+            Text("Logged to Letterboxd")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
+        .background(.black.opacity(0.62), in: Capsule())
+        .overlay(Capsule().strokeBorder(.white.opacity(0.12)))
+    }
+}
+
 struct AutoSyncBar: View {
     let banner: PlayerModel.AutoSyncBanner
 

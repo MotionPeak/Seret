@@ -52,6 +52,7 @@ struct PlayerUIPreview: View {
         case "home":                HomeScreenPreview()
         case "watchlist":           WatchlistScreenPreview()
         case "letterboxd":          LetterboxdCardPreview()
+        case "letterboxdtoast":     LetterboxdToastPreview()
         case "spin":                WatchlistSpinPreview()
         default:           ScrubBarPreview()
         }
@@ -992,6 +993,31 @@ private enum WatchlistPreviewFixture {
 ///
 /// Sandwiched between two cards that definitely take focus, because the question is not what the
 /// card looks like — it is whether the remote can land on it at all. Walk DOWN from the top card
+/// The confirmation over a stand-in for the picture. It re-fires on a loop so a screenshot can
+/// land inside the three seconds it is up — and so the re-fire path, which a rewatch takes, is
+/// exercised rather than assumed.
+private struct LetterboxdToastPreview: View {
+    @State private var signal = LetterboxdPushSignal()
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            Text("the film, playing")
+                .font(.seret(28, .regular))
+                .foregroundStyle(.white.opacity(0.28))
+        }
+        .letterboxdLoggedConfirmation(signal: signal, contentKey: "movie:tmdb:73") {
+            LetterboxdLoggedBar()
+        }
+        .task {
+            while !Task.isCancelled {
+                signal.logged(tmdbID: 73)
+                try? await Task.sleep(for: .milliseconds(3500))
+            }
+        }
+    }
+}
+
 /// A browser that has been signed out, for the preview above: the failure the owner most needs
 /// the card to explain, and the one that stops the drain.
 private struct AlwaysSignedOutRelay: LetterboxdRelaying {
