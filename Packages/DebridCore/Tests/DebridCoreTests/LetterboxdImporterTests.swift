@@ -67,14 +67,39 @@ extension SwiftDataSuite {
                           entries: [LetterboxdEntry],
                           slugs: [Int: String],
                           calls: CallCounter = CallCounter(),
-                          mapStore: LetterboxdFilmMapStore = LetterboxdFilmMapStore(fileURL: nil))
+                          mapStore: LetterboxdFilmMapStore = LetterboxdFilmMapStore(fileURL: nil),
+                          loggedFilms: LetterboxdLoggedFilms = LetterboxdLoggedFilms(fileURL: nil))
         -> LetterboxdImporter {
             LetterboxdImporter(reader: FakeProfileReader(entries: entries),
                                resolver: FakeResolver(slugs: slugs, calls: calls),
                                map: LetterboxdFilmMap(),
                                mapStore: mapStore,
                                store: store,
+                               loggedFilms: loggedFilms,
                                resolveDelay: .zero)
+        }
+
+        /// The push's rewatch rule needs to know which films Letterboxd already has. An unrated
+        /// diary entry counts: it still means the film has been seen there.
+        @Test func recordsEveryLoggedFilmRatedOrNot() async throws {
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent("logged-\(UUID().uuidString).json")
+            defer { try? FileManager.default.removeItem(at: url) }
+            let logged = LetterboxdLoggedFilms(fileURL: url)
+
+            _ = try await makeImporter(store: try makeStore(),
+                                       entries: [entry("speed", 6), entry("fight-club", nil)],
+                                       slugs: [1637: "speed", 550: "fight-club", 73: "american-history-x"],
+                                       loggedFilms: logged)
+                .run(movies: [movie(tmdb: 1637, title: "Speed"),
+                              movie(tmdb: 550, title: "Fight Club"),
+                              movie(tmdb: 73, title: "American History X")],
+                     profileID: "owner")
+
+            #expect(logged.contains(tmdbID: 1637))
+            #expect(logged.contains(tmdbID: 550))
+            // Never logged there, only owned here — not a rewatch on its first local play.
+            #expect(!logged.contains(tmdbID: 73))
         }
 
         @Test func writesARatingSeretDoesNotHave() async throws {
