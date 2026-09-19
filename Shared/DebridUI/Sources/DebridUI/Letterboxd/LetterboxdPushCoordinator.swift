@@ -1,6 +1,30 @@
 import DebridCore
 import Foundation
 
+/// What a push failure means to the person reading it, and what they can do about it.
+///
+/// The raw enum name reaches the settings card otherwise — "notAuthenticated" on a television,
+/// which explains nothing and suggests nothing. Caught by screenshotting the card rather than by
+/// any test, because every test only ever asserted that a message existed.
+extension LetterboxdError {
+    var ownerFacingMessage: String {
+        switch self {
+        case .notAuthenticated:
+            return "Letterboxd signed us out — sign in again in the browser on your Synology."
+        case .challenged:
+            return "Letterboxd is challenging the browser — open it on your Synology and solve it."
+        case .filmNotFound:
+            return "Letterboxd doesn't have that film, so it was skipped."
+        case .profileUnavailable:
+            return "That Letterboxd profile is private or gone."
+        case .structureChanged:
+            return "Letterboxd changed — Seret needs updating before it can write again."
+        case .transient(let message):
+            return "Couldn't reach Seret on your Synology (\(message))."
+        }
+    }
+}
+
 /// Mirrors finished films onto Letterboxd.
 ///
 /// Local watch state is the truth and Letterboxd is the mirror: a failed write never alters
@@ -54,17 +78,17 @@ public actor LetterboxdPushCoordinator {
                 case .filmNotFound, .structureChanged, .profileUnavailable:
                     // Permanent. Retrying cannot help, and leaving it queued would block the films
                     // behind it for as long as the app is installed.
-                    lastError = "\(error)"
+                    lastError = error.ownerFacingMessage
                     try? await outbox.complete(write.id)
                 case .notAuthenticated, .challenged:
                     // The browser needs a human. Stop the whole drain rather than marching the rest
                     // of the queue into the same wall and inflating every one of their backoffs.
-                    lastError = "\(error)"
-                    try? await outbox.fail(write.id, error: "\(error)", at: now)
+                    lastError = error.ownerFacingMessage
+                    try? await outbox.fail(write.id, error: error.ownerFacingMessage, at: now)
                     return
-                case .transient(let message):
-                    lastError = message
-                    try? await outbox.fail(write.id, error: message, at: now)
+                case .transient:
+                    lastError = error.ownerFacingMessage
+                    try? await outbox.fail(write.id, error: error.ownerFacingMessage, at: now)
                 }
             } catch {
                 let message = String(describing: error)

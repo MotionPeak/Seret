@@ -5,11 +5,37 @@ public struct LetterboxdSettings: Sendable, Codable, Equatable {
     public var username: String
     public var isEnabled: Bool
     public var lastImportAt: Date?
+    /// Host and port of SeretServer, e.g. "192.168.1.179:8080".
+    ///
+    /// Carried by iCloud rather than `UserDefaults` so it is typed once on the iPhone and reaches
+    /// the Apple TV, which has no keyboard worth the name. Empty means the push is off.
+    public var serverAddress: String
 
-    public init(username: String = "", isEnabled: Bool = false, lastImportAt: Date? = nil) {
+    public init(username: String = "", isEnabled: Bool = false, lastImportAt: Date? = nil,
+                serverAddress: String = "") {
         self.username = username
         self.isEnabled = isEnabled
         self.lastImportAt = lastImportAt
+        self.serverAddress = serverAddress
+    }
+
+    /// Decoded leniently so settings written before a field existed still load. A strict decode
+    /// here does not lose the new field — it loses all of them, including the username the import
+    /// needs, and the owner would find the feature silently reset.
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        username = try c.decodeIfPresent(String.self, forKey: .username) ?? ""
+        isEnabled = try c.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? false
+        lastImportAt = try c.decodeIfPresent(Date.self, forKey: .lastImportAt)
+        serverAddress = try c.decodeIfPresent(String.self, forKey: .serverAddress) ?? ""
+    }
+
+    /// A bare `host:port` is what a person types, so it is what this accepts. Anything already
+    /// carrying a scheme is left alone.
+    public var serverURL: URL? {
+        let trimmed = serverAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return URL(string: trimmed.contains("://") ? trimmed : "http://\(trimmed)")
     }
 }
 

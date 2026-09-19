@@ -15,6 +15,9 @@ import SwiftUI
 struct LetterboxdCard: View {
     @Bindable var model: LetterboxdImportModel
     let profileID: String?
+    /// Nil until a server address is set. Read-only here: the address is typed on the iPhone and
+    /// arrives through iCloud, exactly as the username does.
+    let push: LetterboxdPushCoordinator?
 
     private var hasUsername: Bool { !model.settings.username.isEmpty }
     private var hasProfile: Bool { profileID?.isEmpty == false }
@@ -51,7 +54,23 @@ struct LetterboxdCard: View {
                 Toggle("Import my ratings", isOn: isEnabled)
 
                 phaseContent
+                pushStatus
             }
+        }
+        .task { await model.refreshPushStatus(from: push) }
+    }
+
+    /// Finished films waiting to reach Letterboxd, and why the last one did not.
+    ///
+    /// The Apple TV is where films actually get finished, so this is the device most likely to be
+    /// holding a queue — and the one with no other way to find out.
+    @ViewBuilder private var pushStatus: some View {
+        if model.pendingPushes > 0 {
+            Text("\(model.pendingPushes) watch\(model.pendingPushes == 1 ? "" : "es") waiting to send")
+                .settingsCaption()
+        }
+        if let error = model.lastPushError {
+            Text(error).settingsCaption()
         }
     }
 

@@ -21,6 +21,11 @@ public final class LetterboxdImportModel {
 
     public private(set) var phase: Phase = .idle
     public var settings: LetterboxdSettings
+    /// Writes waiting to reach Letterboxd, and why the last one did not. A queue stuck behind an
+    /// expired browser session is invisible otherwise, and an invisible queue is indistinguishable
+    /// from a feature that does not work.
+    public private(set) var pendingPushes: Int = 0
+    public private(set) var lastPushError: String?
 
     private let settingsStore: any LetterboxdSettingsStoring
     private let run: LetterboxdImportRunning
@@ -29,6 +34,19 @@ public final class LetterboxdImportModel {
         self.settingsStore = settingsStore
         self.run = run
         self.settings = settingsStore.load()
+    }
+
+    /// Read when the settings screen appears. The coordinator is nil until an address is set, and
+    /// then there is nothing to report.
+    public func refreshPushStatus(from push: LetterboxdPushCoordinator?) async {
+        guard let push else {
+            pendingPushes = 0
+            lastPushError = nil
+            return
+        }
+        let status = await push.status()
+        pendingPushes = status.pending
+        lastPushError = status.lastError
     }
 
     public func update(_ settings: LetterboxdSettings) {

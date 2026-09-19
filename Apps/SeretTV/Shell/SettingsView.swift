@@ -27,7 +27,8 @@ struct SettingsView: View {
                     OpenSubtitlesSection(model: model)
                     playback
                     if let letterboxdModel {
-                        LetterboxdCard(model: letterboxdModel, profileID: session.activeProfileID)
+                        LetterboxdCard(model: letterboxdModel, profileID: session.activeProfileID,
+                                       push: session.letterboxdPush)
                     }
                     // Profiles are switched off — nothing to manage. See `ProfilesFeature`.
                     if ProfilesFeature.isEnabled { profile }

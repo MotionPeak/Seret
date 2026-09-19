@@ -80,7 +80,11 @@ private actor FakeRelay: LetterboxdRelaying {
         #expect(try await outbox.all().count == 1)
         let status = await push.status()
         #expect(status.pending == 1)
-        #expect(status.lastError != nil)
+        // In the owner's terms, not the enum's. "notAuthenticated" on a television explains
+        // nothing and suggests nothing — and a screenshot is what caught it, not this test.
+        let message = try #require(status.lastError)
+        #expect(message.contains("signed us out"))
+        #expect(!message.contains("notAuthenticated"))
     }
 
     /// Retrying a film Letterboxd does not have cannot ever work, so it is dropped rather than

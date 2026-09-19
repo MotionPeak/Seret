@@ -6,6 +6,7 @@ import DebridUI
 /// then fades out — so launch never shows a bare spinner.
 struct RootView: View {
     @Environment(AppSession.self) private var session
+    @Environment(\.scenePhase) private var scenePhase
     @State private var splashDone = false
 
     var body: some View {
@@ -34,5 +35,11 @@ struct RootView: View {
         }
         .animation(Theme.Anim.pageFade, value: splashDone)
         .animation(Theme.Anim.pageFade, value: session.needsProfileSelection)
+        // Coming back is the moment the Synology is most likely reachable again after it was
+        // not. Backoff still applies inside the coordinator, so this cannot become a retry storm.
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active else { return }
+            Task { await session.letterboxdPush?.drain() }
+        }
     }
 }
