@@ -795,16 +795,17 @@ public final class AppSession {
     /// `POST /api/letterboxd/watchlist` on the owner's SeretServer.
     ///
     /// A bare 2xx is the whole success contract; the server has already named any failure in its
-    /// status, which `WatchlistRemovalRelay` turns into something a screen can say.
-    private static func postWatchlistRemoval(to address: String, tmdbID: Int,
-                                             http: HTTPClient) async throws {
+    /// status, which `WatchlistPushRelay` turns into something a screen can say.
+    private static func postWatchlistChange(to address: String, tmdbID: Int, inWatchlist: Bool,
+                                            http: HTTPClient) async throws {
         // `SeretServerAddress`, not a local copy: the connection test resolves the address the
         // same way, and a test that checked a different URL from the one the relay posts to would
         // be worse than no test at all.
         guard let url = SeretServerAddress.url(address, path: "/api/letterboxd/watchlist") else {
             throw URLError(.badURL)
         }
-        try await http.postJSON(url, jsonBody: #"{"tmdbID":\#(tmdbID),"inWatchlist":false}"#)
+        try await http.postJSON(url,
+                                 jsonBody: #"{"tmdbID":\#(tmdbID),"inWatchlist":\#(inWatchlist)}"#)
     }
 
     /// A "Test connection" for the Seret server field.
@@ -817,28 +818,58 @@ public final class AppSession {
                                     probe: { url in _ = try await http.data(url) })
     }
 
+    /// One syncer and one relay for the whole app.
+    ///
+    /// Shared rather than built per screen because the mirror is a FILE, and every mutation is a
+    /// load-mutate-save: a title page and the watchlist screen holding separate syncers would
+    /// interleave those and silently lose one of the two changes. One actor serialises them.
+    ///
+    /// Rebuilt when the username changes, because the profile reader captures it — memoising
+    /// blindly would keep crawling the old account until the app was relaunched.
+    private struct WatchlistPipeline {
+        let username: String
+        let store: WatchlistStore
+        let syncer: WatchlistSyncer
+        let relay: WatchlistPushRelay
+    }
+
+    private var watchlistPipeline: WatchlistPipeline?
+
+    private func pipeline(for settingsStore: any LetterboxdSettingsStoring,
+                          username: String) -> WatchlistPipeline {
+        if let existing = watchlistPipeline, existing.username == username { return existing }
+
+        let store = WatchlistStore(fileURL: WatchlistStore.defaultURL())
+        let http = HTTPClient()
+        let syncer = WatchlistSyncer(
+            reader: LetterboxdProfileReader(http: http, username: username),
+            resolver: TMDBWatchlistTitleResolver(tmdb: TMDBClient(apiKey: Secrets.tmdbAPIKey)),
+            store: store)
+
+        // Letterboxd can only be written by a real browser, and only SeretServer has one, so a
+        // change made here is relayed to it. Failures leave it pending rather than dropping it —
+        // see `WatchlistPushRelay`.
+        let relay = WatchlistPushRelay(
+            syncer: syncer,
+            settings: { settingsStore.load() },
+            post: { address, tmdbID, inWatchlist in
+                try await Self.postWatchlistChange(to: address, tmdbID: tmdbID,
+                                                   inWatchlist: inWatchlist, http: http)
+            })
+
+        let built = WatchlistPipeline(username: username, store: store, syncer: syncer, relay: relay)
+        watchlistPipeline = built
+        return built
+    }
+
     public func makeWatchlistModel() -> WatchlistModel? {
         guard let library = libraryStore else { return nil }
 
         let settingsStore = UbiquitousLetterboxdSettingsStore()
         settingsStore.synchronize()
         let settings = settingsStore.load()
-        let store = WatchlistStore(fileURL: WatchlistStore.defaultURL())
-        let http = HTTPClient()
-        let syncer = WatchlistSyncer(
-            reader: LetterboxdProfileReader(http: http, username: settings.username),
-            resolver: TMDBWatchlistTitleResolver(tmdb: TMDBClient(apiKey: Secrets.tmdbAPIKey)),
-            store: store)
-
-        // Letterboxd can only be written by a real browser, and only SeretServer has one, so a
-        // removal made here is relayed to it. Failures leave the removal pending rather than
-        // dropping it — see `WatchlistRemovalRelay`.
-        let relay = WatchlistRemovalRelay(
-            syncer: syncer,
-            settings: { settingsStore.load() },
-            post: { address, tmdbID in
-                try await Self.postWatchlistRemoval(to: address, tmdbID: tmdbID, http: http)
-            })
+        let built = pipeline(for: settingsStore, username: settings.username)
+        let (store, syncer, relay) = (built.store, built.syncer, built.relay)
 
         let model = WatchlistModel(cached: store.load(), settings: settings,
                                    remove: { slug in await syncer.remove(slug: slug) },

@@ -1,21 +1,24 @@
 import Foundation
 import DebridCore
 
-/// Posts one watchlist removal to SeretServer. Injected so the relay is testable without a network.
-public typealias WatchlistRemovalPosting =
-    @Sendable (_ serverURL: String, _ tmdbID: Int) async throws -> Void
+/// Posts one watchlist change to SeretServer. Injected so the relay is testable without a network.
+///
+/// `inWatchlist` is the state being asked for, named for the wire property the Letterboxd API
+/// actually validates: true adds the film, false removes it.
+public typealias WatchlistPushPosting =
+    @Sendable (_ serverURL: String, _ tmdbID: Int, _ inWatchlist: Bool) async throws -> Void
 
-/// Tells Letterboxd about removals made in Seret.
+/// Tells Letterboxd about watchlist changes made in Seret, in both directions.
 ///
 /// Writing to Letterboxd needs a real browser — Cloudflare refuses every scripted client, and tvOS
 /// has no WebKit at all — so the Apple TV cannot post this itself. SeretServer drives the
 /// signed-in browser on the NAS, and this relays to it.
 ///
 /// The pending set comes from the watchlist mirror, not a parallel queue: the mirror already
-/// records the removal durably, so a second store could only drift from it. A removal that never
+/// records the change durably, so a second store could only drift from it. A change that never
 /// gets pushed simply stays pending and is retried the next time the relay runs, which is what
 /// makes it survive a server that was switched off.
-public struct WatchlistRemovalRelay: Sendable {
+public struct WatchlistPushRelay: Sendable {
     public struct Outcome: Sendable, Equatable {
         public let pushed: Int
         public let failed: Int
@@ -33,41 +36,51 @@ public struct WatchlistRemovalRelay: Sendable {
 
     private let syncer: WatchlistSyncer
     private let settings: @Sendable () -> LetterboxdSettings
-    private let post: WatchlistRemovalPosting
+    private let post: WatchlistPushPosting
 
     public init(syncer: WatchlistSyncer,
                 settings: @escaping @Sendable () -> LetterboxdSettings,
-                post: @escaping WatchlistRemovalPosting) {
+                post: @escaping WatchlistPushPosting) {
         self.syncer = syncer
         self.settings = settings
         self.post = post
     }
 
-    /// Pushes every pending removal. Safe to call often — with nothing pending it does nothing.
+    /// Pushes every pending change. Safe to call often — with nothing pending it does nothing.
     ///
-    /// Without a server address the removals stay pending rather than being dropped: the owner may
-    /// simply not have set one up yet, and a removal they made is still a removal they want.
+    /// Without a server address the changes stay pending rather than being dropped: the owner may
+    /// simply not have set one up yet, and a change they made is still a change they want.
+    ///
+    /// Adds and removals cannot collide: a row the owner has removed is excluded from the pending
+    /// adds, so no film is ever both.
     @discardableResult
     public func drain() async -> Outcome {
         let address = settings().serverURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !address.isEmpty else { return .idle }
 
-        let pending = await syncer.pendingRemovals()
-        guard !pending.isEmpty else { return .idle }
+        let adds = await syncer.pendingAdds()
+        let removals = await syncer.pendingRemovals()
+        guard !adds.isEmpty || !removals.isEmpty else { return .idle }
 
         var pushed = 0
         var failed = 0
         var firstError: String?
 
-        for entry in pending {
+        // One loop over both directions, so a failing add cannot stop a pending removal from going
+        // out — they are separate films and separate requests.
+        for (entry, inWatchlist) in adds.map({ ($0, true) }) + removals.map({ ($0, false) }) {
             guard let tmdbID = entry.tmdbID else { continue }
             do {
-                try await post(address, tmdbID)
-                await syncer.markRemovalPushed(slug: entry.slug)
+                try await post(address, tmdbID, inWatchlist)
+                if inWatchlist {
+                    await syncer.markAddPushed(slug: entry.slug)
+                } else {
+                    await syncer.markRemovalPushed(slug: entry.slug)
+                }
                 pushed += 1
             } catch {
-                // Left pending on purpose. The next drain tries again, and the film is already
-                // gone from the owner's screen either way — the mirror is the truth locally.
+                // Left pending on purpose. The next drain tries again, and the screen already shows
+                // what the owner asked for either way — the mirror is the truth locally.
                 failed += 1
                 if firstError == nil { firstError = Self.message(for: error) }
             }

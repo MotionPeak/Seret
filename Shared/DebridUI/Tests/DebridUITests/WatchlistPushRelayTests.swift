@@ -10,15 +10,18 @@ private func tempURL() -> URL {
 /// Records what the relay tried to post, and can be told to fail.
 private final class PostSpy: @unchecked Sendable {
     private let lock = NSLock()
-    private var ids: [Int] = []
+    private var calls: [(id: Int, inWatchlist: Bool)] = []
     var failure: (any Error)?
 
     init(failure: (any Error)? = nil) { self.failure = failure }
-    var posted: [Int] { lock.withLock { ids } }
+    var posted: [Int] { lock.withLock { calls.map(\.id) } }
+    /// What each call asked Letterboxd for. An add and a removal are the same endpoint and differ
+    /// only here, so a test that ignored it could not tell them apart.
+    var states: [Bool] { lock.withLock { calls.map(\.inWatchlist) } }
 
-    func post(_ address: String, _ tmdbID: Int) throws {
+    func post(_ address: String, _ tmdbID: Int, _ inWatchlist: Bool) throws {
         if let failure { throw failure }
-        lock.withLock { ids.append(tmdbID) }
+        lock.withLock { calls.append((tmdbID, inWatchlist)) }
     }
 }
 
@@ -34,7 +37,7 @@ private struct StubResolver: WatchlistTitleResolving {
     }
 }
 
-@Suite struct WatchlistRemovalRelayTests {
+@Suite struct WatchlistPushRelayTests {
 
     private func seededSyncer(_ url: URL) async throws -> WatchlistSyncer {
         let syncer = WatchlistSyncer(
@@ -48,11 +51,13 @@ private struct StubResolver: WatchlistTitleResolving {
     }
 
     private func relay(_ syncer: WatchlistSyncer, _ spy: PostSpy,
-                       serverURL: String = "http://nas:8080") -> WatchlistRemovalRelay {
-        WatchlistRemovalRelay(syncer: syncer,
-                              settings: { LetterboxdSettings(username: "u", isEnabled: true,
-                                                             serverURL: serverURL) },
-                              post: { address, id in try spy.post(address, id) })
+                       serverURL: String = "http://nas:8080") -> WatchlistPushRelay {
+        WatchlistPushRelay(syncer: syncer,
+                           settings: { LetterboxdSettings(username: "u", isEnabled: true,
+                                                          serverURL: serverURL) },
+                           post: { address, id, inWatchlist in
+                               try spy.post(address, id, inWatchlist)
+                           })
     }
 
     @Test func pushesAPendingRemovalAndMarksIt() async throws {
@@ -171,5 +176,87 @@ private struct StubResolver: WatchlistTitleResolving {
         let spy = PostSpy(failure: LetterboxdError.notAuthenticated)
         let outcome = await relay(syncer, spy).drain()
         #expect(outcome.firstError?.contains("signed out") == true)
+    }
+
+    // MARK: - Adds
+
+    @Test func pushesAPendingAddAndMarksIt() async throws {
+        let url = tempURL(); defer { try? FileManager.default.removeItem(at: url) }
+        let syncer = try await seededSyncer(url)
+        _ = await syncer.add(tmdbID: 949, title: "Heat", year: 1995, posterPath: nil)
+
+        let spy = PostSpy()
+        let outcome = await relay(syncer, spy).drain()
+
+        #expect(spy.posted == [949])
+        #expect(spy.states == [true])
+        #expect(outcome == .init(pushed: 1, failed: 0))
+        #expect(await syncer.pendingAdds().isEmpty)
+    }
+
+    @Test func aPushedAddIsNotPushedAgain() async throws {
+        let url = tempURL(); defer { try? FileManager.default.removeItem(at: url) }
+        let syncer = try await seededSyncer(url)
+        _ = await syncer.add(tmdbID: 949, title: "Heat", year: 1995, posterPath: nil)
+
+        let spy = PostSpy()
+        _ = await relay(syncer, spy).drain()
+        _ = await relay(syncer, spy).drain()
+        #expect(spy.posted == [949])
+    }
+
+    @Test func aFailedAddStaysPendingAndIsRetried() async throws {
+        let url = tempURL(); defer { try? FileManager.default.removeItem(at: url) }
+        let syncer = try await seededSyncer(url)
+        _ = await syncer.add(tmdbID: 949, title: "Heat", year: 1995, posterPath: nil)
+
+        let spy = PostSpy(failure: LetterboxdError.challenged)
+        let failedOutcome = await relay(syncer, spy).drain()
+        #expect(failedOutcome.failed == 1)
+        #expect(failedOutcome.firstError?.contains("Cloudflare") == true)
+        #expect(await syncer.pendingAdds().count == 1)
+
+        spy.failure = nil
+        #expect(await relay(syncer, spy).drain().pushed == 1)
+    }
+
+    /// Both directions drain together, and each is sent as what it is. One shared endpoint that
+    /// carried the wrong boolean would silently undo the owner's other change.
+    @Test func anAddAndARemovalGoOutAsOppositeStates() async throws {
+        let url = tempURL(); defer { try? FileManager.default.removeItem(at: url) }
+        let syncer = try await seededSyncer(url)
+        _ = await syncer.remove(slug: "fight-club")
+        _ = await syncer.add(tmdbID: 949, title: "Heat", year: 1995, posterPath: nil)
+
+        let spy = PostSpy()
+        let outcome = await relay(syncer, spy).drain()
+
+        #expect(outcome.pushed == 2)
+        #expect(Set(zip(spy.posted, spy.states).map { "\($0)-\($1)" }) == ["949-true", "550-false"])
+        #expect(await syncer.pendingAdds().isEmpty)
+        #expect(await syncer.pendingRemovals().isEmpty)
+    }
+
+    /// Nothing reached Letterboxd, so the add and the removal cancel and there is nothing to send.
+    @Test func anAddTakenBackBeforeDrainingSendsNothing() async throws {
+        let url = tempURL(); defer { try? FileManager.default.removeItem(at: url) }
+        let syncer = try await seededSyncer(url)
+        _ = await syncer.add(tmdbID: 949, title: "Heat", year: 1995, posterPath: nil)
+        _ = await syncer.remove(slug: WatchlistEntry.localSlug(forTMDB: 949))
+
+        let spy = PostSpy()
+        #expect(await relay(syncer, spy).drain() == .idle)
+        #expect(spy.posted.isEmpty)
+    }
+
+    @Test func withNoServerAnAddIsKeptPending() async throws {
+        let url = tempURL(); defer { try? FileManager.default.removeItem(at: url) }
+        let syncer = try await seededSyncer(url)
+        _ = await syncer.add(tmdbID: 949, title: "Heat", year: 1995, posterPath: nil)
+
+        let spy = PostSpy()
+        #expect(await relay(syncer, spy, serverURL: "   ").drain() == .idle)
+        #expect(spy.posted.isEmpty)
+        #expect(await syncer.pendingAdds().count == 1)
     }
 }

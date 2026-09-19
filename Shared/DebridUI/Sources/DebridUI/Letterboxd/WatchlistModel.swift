@@ -7,8 +7,8 @@ public typealias WatchlistSyncRunning =
 /// Marks a film removed and returns the whole mirror as it now stands.
 public typealias WatchlistRemoving = @Sendable (_ slug: String) async -> [WatchlistEntry]
 
-/// Pushes pending removals to Letterboxd, reporting what happened.
-public typealias WatchlistRelaying = @Sendable () async -> WatchlistRemovalRelay.Outcome
+/// Pushes pending watchlist changes to Letterboxd, reporting what happened.
+public typealias WatchlistRelaying = @Sendable () async -> WatchlistPushRelay.Outcome
 
 /// Drives the watchlist screen.
 @MainActor
