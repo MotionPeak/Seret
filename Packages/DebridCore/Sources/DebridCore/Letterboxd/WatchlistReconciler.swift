@@ -22,7 +22,26 @@ public enum WatchlistReconciler {
                                   position: index,
                                   tmdbID: previous?.tmdbID,
                                   posterPath: previous?.posterPath,
-                                  resolvedAt: previous?.resolvedAt)
+                                  resolvedAt: carriedResolution(previous, crawledName: entry.name))
         }
+    }
+
+    /// When a previous attempt may still be trusted.
+    ///
+    /// A resolution answered a question about the name *as it read at the time*. If the name has
+    /// since changed and the attempt found nothing, it was answering a different question — so
+    /// forget it, and the next sync asks again. This is the only route by which a parsing fix
+    /// reaches an already-synced watchlist: every stored entry carries a `resolvedAt`, and the
+    /// syncer only retries the never-tried.
+    ///
+    /// A match that WORKED is kept regardless: its id is right whatever the display name now
+    /// reads, and re-resolving a good match only risks trading it for a worse one.
+    private static func carriedResolution(_ previous: WatchlistEntry?,
+                                          crawledName: String) -> Date? {
+        guard let previous, previous.tmdbID == nil else { return previous?.resolvedAt }
+        // Case alone is not a change — TMDB is searched case-insensitively, so re-resolving over
+        // it would spend a request to arrive at the same answer.
+        let sameQuestion = previous.name.caseInsensitiveCompare(crawledName) == .orderedSame
+        return sameQuestion ? previous.resolvedAt : nil
     }
 }

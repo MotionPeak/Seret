@@ -39,12 +39,22 @@ public actor WatchlistSyncer {
         var done = 0
 
         for index in pending {
+            try Task.checkCancellation()
             let entry = merged[index]
-            if let match = try? await resolver.match(name: entry.name, year: entry.year) {
-                merged[index].tmdbID = match.tmdbID
-                merged[index].posterPath = match.posterPath
+
+            do {
+                if let match = try await resolver.match(name: entry.name, year: entry.year) {
+                    merged[index].tmdbID = match.tmdbID
+                    merged[index].posterPath = match.posterPath
+                }
+                // Searched. Found something or nothing — either way the question has been asked,
+                // and `anUnmatchedFilmIsNotRetriedForever` depends on that being recorded.
+                merged[index].resolvedAt = Date()
+            } catch {
+                // The search FAILED, which is not the same as TMDB not knowing the film. Leaving
+                // `resolvedAt` nil is what lets the next sync ask again; stamping it here made one
+                // bad minute of Wi-Fi a permanent grey box, since only the never-tried are retried.
             }
-            merged[index].resolvedAt = Date()
 
             done += 1
             onProgress?(done, pending.count)

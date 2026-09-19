@@ -10,7 +10,7 @@ import Foundation
 
     @Test func readsSlugNameYearAndRating() throws {
         let page = try LetterboxdProfileParser.parse(fixture("letterboxd-films-page"))
-        #expect(page.entries.count == 4)
+        #expect(page.entries.count == 5)
         #expect(page.entries[0] == LetterboxdEntry(slug: "speed", name: "Speed (1994)", year: 1994, rating: 6))
     }
 
@@ -39,6 +39,19 @@ import Foundation
         #expect(amIOK.name == "Am I OK? (2022)")
         #expect(amIOK.year == 2022)
         #expect(amIOK.rating == 10)
+    }
+
+    /// Letterboxd renders the display name into an HTML *attribute*, so a title carrying an
+    /// apostrophe or an ampersand arrives escaped. It has to be decoded here, at the edge: an
+    /// undecoded name is shown to the owner verbatim AND searched on TMDB verbatim, and TMDB
+    /// answers a query containing `&#039;` with nothing at all — which is how a watchlist full of
+    /// perfectly ordinary films ended up as grey "couldn't match this" boxes.
+    @Test func anEscapedTitleIsDecodedRatherThanStored() throws {
+        let page = try LetterboxdProfileParser.parse(fixture("letterboxd-films-page"))
+        let honey = page.entries[4]
+        #expect(honey.slug == "honey-dont")
+        #expect(honey.name == "Honey Don't! (2025)")
+        #expect(honey.year == 2025)
     }
 
     @Test func findsTheNextPagePath() throws {

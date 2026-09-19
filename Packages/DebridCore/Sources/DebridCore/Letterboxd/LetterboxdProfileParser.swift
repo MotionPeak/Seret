@@ -33,7 +33,14 @@ public enum LetterboxdProfileParser {
 
         for block in wholeMatches(html, itemRegex) {
             guard let slug = firstCapture(block, slugRegex),
-                  let name = firstCapture(block, nameRegex) else { continue }
+                  let escaped = firstCapture(block, nameRegex) else { continue }
+
+            // The name is read out of an HTML attribute, so it arrives escaped — Letterboxd serves
+            // `data-item-name="Honey Don&#039;t! (2025)"`. Decode at the edge, once: everything
+            // downstream treats this as the film's display name, and both of the things that name
+            // is used for — showing it and searching TMDB for it — are wrong if it still carries
+            // `&#039;` or `&amp;`.
+            let name = HTMLEntities.decode(escaped)
 
             let rating = firstCapture(block, ratedRegex).flatMap { Int($0) }
             let year = firstCapture(name, yearRegex).flatMap { Int($0) }

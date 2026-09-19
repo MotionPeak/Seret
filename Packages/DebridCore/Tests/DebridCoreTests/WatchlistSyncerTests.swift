@@ -32,9 +32,13 @@ final class ResolveCalls: @unchecked Sendable {
 private struct FakeTitleResolver: WatchlistTitleResolving {
     let ids: [String: Int]
     let calls: ResolveCalls
+    /// Thrown instead of answering — the search FAILING, which is a different outcome from the
+    /// search succeeding and finding nothing.
+    var failure: (any Error)?
 
     func match(name: String, year: Int?) async throws -> WatchlistMatch? {
         calls.bump(name)
+        if let failure { throw failure }
         let key = WatchlistName.stripYear(from: name)
         guard let id = ids[key] else { return nil }
         return WatchlistMatch(tmdbID: id, posterPath: "/\(key).jpg")
@@ -48,9 +52,10 @@ private struct FakeTitleResolver: WatchlistTitleResolving {
     }
 
     func syncer(_ slugs: [String], ids: [String: Int], url: URL,
-                calls: ResolveCalls = ResolveCalls(), error: (any Error)? = nil) -> WatchlistSyncer {
+                calls: ResolveCalls = ResolveCalls(), error: (any Error)? = nil,
+                resolverFailure: (any Error)? = nil) -> WatchlistSyncer {
         WatchlistSyncer(reader: FakeWatchlistReader(slugs, error: error),
-                        resolver: FakeTitleResolver(ids: ids, calls: calls),
+                        resolver: FakeTitleResolver(ids: ids, calls: calls, failure: resolverFailure),
                         store: WatchlistStore(fileURL: url),
                         resolveDelay: .zero)
     }
@@ -90,6 +95,25 @@ private struct FakeTitleResolver: WatchlistTitleResolving {
         #expect(calls.all.count == 1)
         #expect(again[0].isResolved)
         #expect(again[0].tmdbID == nil)
+    }
+
+    /// A search that FAILS is not a film TMDB does not know.
+    ///
+    /// The two were conflated: the resolver's error was swallowed and `resolvedAt` stamped anyway,
+    /// so one network blip or rate-limit during the first sync marked those films "searched, found
+    /// nothing" — permanently, because the syncer only ever retries what was never tried. A whole
+    /// run of grey boxes could be nothing worse than a bad minute of Wi-Fi.
+    @Test func aFailedSearchIsRetriedRatherThanRecordedAsNoSuchFilm() async throws {
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let first = try await syncer(["speed"], ids: ["speed": 1637], url: url,
+                                     resolverFailure: URLError(.timedOut)).sync()
+        #expect(first[0].tmdbID == nil)
+        #expect(first[0].isResolved == false)   // never tried, as far as the mirror is concerned
+
+        let second = try await syncer(["speed"], ids: ["speed": 1637], url: url).sync()
+        #expect(second[0].tmdbID == 1637)
     }
 
     @Test func aRemovedFilmDisappears() async throws {
