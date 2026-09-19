@@ -12,16 +12,19 @@ struct PlayerView: View {
     @State private var dragOffset: CGFloat = 0          // interactive pull-down-to-dismiss
     let backdropURL: URL?
     let pushSignal: LetterboxdPushSignal?
+    let filmRating: FinishedFilmRating?
     /// Leave the player. An explicit closure (the presenter sets its item to nil) rather than
     /// @Environment(\.dismiss), which is unreliable from a fullScreenCover nested inside another.
     let onExit: () -> Void
 
     init(model: PlayerModel, engine: VLCKitVideoPlayerEngine, backdropURL: URL?,
-         pushSignal: LetterboxdPushSignal? = nil, onExit: @escaping () -> Void) {
+         pushSignal: LetterboxdPushSignal? = nil, filmRating: FinishedFilmRating? = nil,
+         onExit: @escaping () -> Void) {
         _model = State(initialValue: model)
         _engine = State(initialValue: engine)
         self.backdropURL = backdropURL
         self.pushSignal = pushSignal
+        self.filmRating = filmRating
         self.onExit = onExit
     }
 
@@ -72,9 +75,20 @@ struct PlayerView: View {
             }
         }
         // Below the sync banner's slot, so the two can never sit on top of each other.
-        .letterboxdLoggedConfirmation(signal: pushSignal, contentKey: model.contentKey) {
-            LetterboxdLoggedBar()
+        .letterboxdDiaryBar(signal: pushSignal, contentKey: model.contentKey) { state in
+            switch state {
+            case .logged:
+                LetterboxdLoggedBar()
+                    .padding(.top, model.controlsVisible ? 74 : 14)
+            case .askingRating(let tmdbID, let current):
+                LetterboxdRatingBar(current: current) { value in
+                    Task { await filmRating?.rate(value, contentKey: model.contentKey,
+                                                  tmdbID: tmdbID) }
+                } onDismiss: {
+                    Task { await filmRating?.dismiss(tmdbID: tmdbID) }
+                }
                 .padding(.top, model.controlsVisible ? 74 : 14)
+            }
         }
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
@@ -296,6 +310,62 @@ struct PlayerView: View {
 ///
 /// Nothing appears for a failed write: it is not actionable while a film is playing, and the
 /// Letterboxd settings card carries it.
+/// The post-credits prompt: ten taps, and a way out.
+///
+/// Same slot as the logged confirmation, because it is the same bar at an earlier moment — the
+/// entry is already queued, and this is what it is waiting for.
+struct LetterboxdRatingBar: View {
+    let current: Int?
+    let onRate: (Int?) -> Void
+    let onDismiss: () -> Void
+
+    private var shown: Int { current ?? 0 }
+
+    var body: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 8) {
+                Text(shown > 0 ? "RATE IT · \(shown)/10" : "RATE IT?")
+                    .font(.system(size: 11, weight: .bold)).kerning(1.2)
+                    .foregroundStyle(SeretPalette.gold)
+                Spacer(minLength: 12)
+                Button(action: onDismiss) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(.white.opacity(0.6))
+                        .padding(6)
+                        .contentShape(Rectangle())
+                }
+                .accessibilityLabel("Log it without a rating")
+            }
+
+            HStack(spacing: 2) {
+                ForEach(1...10, id: \.self) { value in
+                    Button {
+                        // Tapping the current rating again clears it, exactly as the title page
+                        // row behaves — otherwise there is no way to undo a mis-tap here.
+                        onRate(current == value ? nil : value)
+                    } label: {
+                        Image(systemName: shown >= value ? "star.fill" : "star")
+                            .font(.system(size: 15))
+                            .foregroundStyle(shown >= value ? SeretPalette.gold
+                                                            : .white.opacity(0.45))
+                            // A 15pt glyph is not a tap target; ten of them side by side is a
+                            // row of near-misses without this.
+                            .frame(width: 30, height: 34)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Rate \(value) out of 10")
+                }
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(.black.opacity(0.72), in: RoundedRectangle(cornerRadius: 16))
+        .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(.white.opacity(0.12)))
+    }
+}
+
 struct LetterboxdLoggedBar: View {
     var body: some View {
         HStack(spacing: 8) {

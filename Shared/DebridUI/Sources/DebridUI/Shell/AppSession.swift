@@ -83,6 +83,11 @@ public final class AppSession {
     /// Announces landed diary entries so the player can confirm one. Always present, so a view can
     /// observe it whether or not a server is configured.
     public let letterboxdPushSignal = LetterboxdPushSignal()
+    /// Answers the rating prompt a finished film raises — local store first, held entry second.
+    /// Built per call because both halves are optional and can arrive after sign-in.
+    public var finishedFilmRating: FinishedFilmRating {
+        FinishedFilmRating(local: watchStore as? WatchRatingProviding, push: letterboxdPush)
+    }
     /// Profile roster store (CRUD) — used by the Who's-Watching / profile-manager UI (later slice).
     public private(set) var profileStore: ProfileStore?
     /// Per-profile "My List" store — claimed-title membership (later slice wires claim on add/play).

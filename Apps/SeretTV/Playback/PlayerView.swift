@@ -5,7 +5,13 @@ import DebridCore
 /// What still takes SwiftUI focus inside the player. At rest NOTHING does — `PlayerInputSurface`
 /// owns the remote and is deliberately non-focusable, which is what lets touch-scrub and
 /// directional clicks coexist. Only the lifted episode strip is a focusable surface.
-enum PlayerFocus: Hashable { case episodes }
+enum PlayerFocus: Hashable {
+    case episodes
+    /// One case PER STAR of the post-credits rating row. Binding all ten to a single value let the
+    /// focus engine pick whichever it liked — it took the LAST, so the row opened aimed at 10/10
+    /// and one press would have filed that. Caught by screenshotting the `-uiPreview` harness.
+    case rating(Int)
+}
 
 struct PlayerView: View {
     @State private var model: PlayerModel
@@ -23,13 +29,15 @@ struct PlayerView: View {
     @Environment(\.dismiss) private var dismiss
     let backdropURL: URL?
     let pushSignal: LetterboxdPushSignal?
+    let filmRating: FinishedFilmRating?
 
     init(model: PlayerModel, engine: VLCKitVideoPlayerEngine, backdropURL: URL?,
-         pushSignal: LetterboxdPushSignal? = nil) {
+         pushSignal: LetterboxdPushSignal? = nil, filmRating: FinishedFilmRating? = nil) {
         _model = State(initialValue: model)
         _engine = State(initialValue: engine)
         self.backdropURL = backdropURL
         self.pushSignal = pushSignal
+        self.filmRating = filmRating
     }
 
     var body: some View {
@@ -109,10 +117,21 @@ struct PlayerView: View {
             // Same slot as the sync bar and hidden by the same panels, so the two never stack.
             if !showSettings, !showSubtitleBrowser, !showManualSync {
                 Color.clear
-                    .letterboxdLoggedConfirmation(signal: pushSignal, contentKey: model.contentKey) {
-                        LetterboxdLoggedBar()
+                    .letterboxdDiaryBar(signal: pushSignal, contentKey: model.contentKey) { state in
+                        switch state {
+                        case .logged:
+                            LetterboxdLoggedBar()
+                        case .askingRating(let tmdbID, let current):
+                            LetterboxdRatingBar(current: current, focus: $focus) { value in
+                                Task { await answerRating(value, tmdbID: tmdbID) }
+                            } onDismiss: {
+                                Task { await dismissRating(tmdbID: tmdbID) }
+                            }
+                        }
                     }
-                    .allowsHitTesting(false)
+                    // The confirmation is inert, but the stars have to be pressable — and the
+                    // stars are the ONLY focusable thing this overlay ever mounts.
+                    .allowsHitTesting(isAskingRating)
             }
 
             if let fb = model.skipFeedback {          // ride above everything; never eat remote input
@@ -186,6 +205,12 @@ struct PlayerView: View {
             else if model.isScanning { model.endScan() }
             else if model.isScrubbing { model.cancelScrub() }  // Menu abandons a scrub
             else if model.upNextVisible { model.dismissUpNext() }
+            // Before the panels: the stars own the remote while they are up, so Menu has to be
+            // able to hand it back without also walking out of the film.
+            else if isAskingRating,
+                    let film = LetterboxdContentKey.tmdbID(fromMovieKey: model.contentKey) {
+                Task { await dismissRating(tmdbID: film) }
+            }
             else if showSubtitleBrowser { showSubtitleBrowser = false }   // fallback; the browser also self-closes
             else if showSettings { showSettings = false }
             else if showEpisodes { showEpisodes = false }
@@ -216,7 +241,30 @@ struct PlayerView: View {
     /// skip and hold-to-scan on a player that had already failed.
     private var inputSurfaceActive: Bool {
         !showSettings && !showEpisodes && !model.upNextVisible && !showSubtitleBrowser
-            && !showManualSync && !hasFailed
+            && !showManualSync && !hasFailed && !isAskingRating
+    }
+
+    /// True while a diary entry for THIS film is held waiting on a rating.
+    ///
+    /// Load-bearing twice over: it is what puts the stars in reach of the remote, and what keeps
+    /// `PlayerInputSurface` from competing with them for it. A focusable sibling at rest is what
+    /// made touch-scrub and directional clicks mutually exclusive in the first place, so the stars
+    /// may only ever exist while this is true.
+    private var isAskingRating: Bool {
+        guard let prompt = pushSignal?.ratingPrompt,
+              let film = LetterboxdContentKey.tmdbID(fromMovieKey: model.contentKey)
+        else { return false }
+        return prompt.tmdbID == film
+    }
+
+    private func answerRating(_ value: Int?, tmdbID: Int) async {
+        await filmRating?.rate(value, contentKey: model.contentKey, tmdbID: tmdbID)
+        model.revealScrubBar()
+    }
+
+    private func dismissRating(tmdbID: Int) async {
+        await filmRating?.dismiss(tmdbID: tmdbID)
+        model.revealScrubBar()
     }
 
     private var hasFailed: Bool {
@@ -295,6 +343,97 @@ struct LetterboxdLoggedBar: View {
         // The same inset AutoSyncBar uses. Without it this sits above everything else in the
         // player, hard against an edge a real television overscans.
         .padding(.top, 50)
+    }
+}
+
+/// The post-credits prompt: ten stars, and a way out.
+///
+/// Sits in the same slot as the logged confirmation because it is the same bar at an earlier
+/// moment — the entry is already queued, and this is what it is waiting for.
+///
+/// 🚨 The only focusable thing the player ever mounts besides the episode strip. `PlayerView`
+/// guards it behind `isAskingRating` and drops `PlayerInputSurface` for as long as it is up: a
+/// focusable sibling at rest is what made touch-scrub and arrow clicks mutually exclusive.
+struct LetterboxdRatingBar: View {
+    let current: Int?
+    var focus: FocusState<PlayerFocus?>.Binding
+    let onRate: (Int?) -> Void
+    let onDismiss: () -> Void
+
+    /// What the row is aimed at right now: the focused star, falling back to the rating the film
+    /// already carries. tvOS has no hover, so per-star focus is what makes the row fill and the
+    /// heading count up as the remote travels — and seeing "Rate it 8/10" before pressing is what
+    /// stops a mis-press filing the wrong score.
+    private var shown: Int {
+        if case .rating(let value) = focus.wrappedValue { return value }
+        return current ?? 0
+    }
+
+    var body: some View {
+        VStack(spacing: 14) {
+            Text("LOGGING TO LETTERBOXD")
+                .font(.seret(.caption1, .semibold)).kerning(1.5)
+                .foregroundStyle(Theme.Palette.gold)
+            Text(shown > 0 ? "Rate it \(shown)/10" : "Rate it?")
+                .font(.seret(26, .semibold))
+                .foregroundStyle(.white)
+                .contentTransition(.numericText())
+
+            HStack(spacing: 14) {
+                ForEach(1...10, id: \.self) { value in
+                    Button { onRate(value) } label: {
+                        Image(systemName: shown >= value ? "star.fill" : "star")
+                            .font(.title3)
+                            .padding(6)
+                    }
+                    .buttonStyle(RatingStarStyle(filled: shown >= value))
+                    .focused(focus, equals: .rating(value))
+                    .accessibilityLabel("Rate \(value) out of 10")
+                }
+            }
+            .focusSection()
+
+            Text("Press Menu to log it without a rating.")
+                .font(.seretCaption).foregroundStyle(Theme.Palette.textSecondary)
+        }
+        .padding(.horizontal, 44).padding(.vertical, 26)
+        .background(RoundedRectangle(cornerRadius: 24).fill(.black.opacity(0.82))
+            .overlay(RoundedRectangle(cornerRadius: 24).stroke(.white.opacity(0.12))))
+        // Sized to its contents and kept off the edges. Left to fill the width it ran almost
+        // bezel to bezel, which a real television overscans into.
+        .fixedSize(horizontal: true, vertical: false)
+        // The same top inset AutoSyncBar uses, for the same reason.
+        .padding(.top, 50)
+        // Opens aimed at the rating the film already has — a rewatch starts from your own score —
+        // and at the leftmost star otherwise. Never a guess: any seeded middle value is a score
+        // the viewer did not choose sitting one press away from being filed.
+        .onAppear { focus.wrappedValue = .rating(current ?? 1) }
+        .onDisappear { focus.wrappedValue = nil }
+    }
+}
+
+/// A chrome-free star, matching the title page's `UserRatingRow`. tvOS draws a grey rounded
+/// platter behind every `.card` button, so ten of them read as ten grey boxes instead of a rating;
+/// a custom style is the only way to suppress it.
+private struct RatingStarStyle: ButtonStyle {
+    let filled: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        Render(configuration: configuration, filled: filled)
+    }
+
+    private struct Render: View {
+        let configuration: ButtonStyleConfiguration
+        let filled: Bool
+        @Environment(\.isFocused) private var focused
+
+        var body: some View {
+            configuration.label
+                .foregroundStyle(filled || focused ? Theme.Palette.gold : Color.white.opacity(0.45))
+                .scaleEffect(focused ? 1.35 : 1)
+                .shadow(color: focused ? Theme.Palette.gold.opacity(0.55) : .clear, radius: 12)
+                .animation(Theme.Anim.focus, value: focused)
+        }
     }
 }
 

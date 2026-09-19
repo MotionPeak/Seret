@@ -27,6 +27,8 @@ import DebridCore
 ///     refusals separately from an unreachable server
 ///   - `letterboxd` — the Settings Letterboxd card with the import blocked, between two cards
 ///     that DO take focus, so "can the remote reach it?" is answerable from a screenshot
+///   - `letterboxdrating` / `letterboxdrerating` — the post-credits rating prompt, unrated and
+///     already rated 7. Prints what the press produced, so a screenshot answers it
 ///
 /// Not compiled into release builds.
 struct PlayerUIPreview: View {
@@ -56,6 +58,8 @@ struct PlayerUIPreview: View {
         case "watchlist":           WatchlistScreenPreview()
         case "letterboxd":          LetterboxdCardPreview()
         case "letterboxdtoast":     LetterboxdToastPreview()
+        case "letterboxdrating":    LetterboxdRatingPreview(existing: nil)
+        case "letterboxdrerating":  LetterboxdRatingPreview(existing: 7)
         case "spin":                WatchlistSpinPreview()
         case "serverprobe":         ServerReachabilityPreview()
         default:           ScrubBarPreview()
@@ -1075,8 +1079,11 @@ private struct LetterboxdToastPreview: View {
                 .font(.seret(28, .regular))
                 .foregroundStyle(.white.opacity(0.28))
         }
-        .letterboxdLoggedConfirmation(signal: signal, contentKey: "movie:tmdb:73") {
-            LetterboxdLoggedBar()
+        .letterboxdDiaryBar(signal: signal, contentKey: "movie:tmdb:73") { state in
+            switch state {
+            case .logged: LetterboxdLoggedBar()
+            case .askingRating: EmptyView()      // its own case below
+            }
         }
         .task {
             while !Task.isCancelled {
@@ -1084,6 +1091,48 @@ private struct LetterboxdToastPreview: View {
                 try? await Task.sleep(for: .milliseconds(3500))
             }
         }
+    }
+}
+
+/// The post-credits rating prompt, over a stand-in for the picture.
+///
+/// Static — no loop — because the question here is whether the remote can reach the stars and
+/// which one it lands on, and a bar that re-mounts every few seconds would keep stealing focus
+/// back mid-walk. `-uiPreview letterboxdrating` for an unrated film; the second case below is
+/// the one that matters for a rewatch.
+private struct LetterboxdRatingPreview: View {
+    let existing: Int?
+    @State private var signal = LetterboxdPushSignal()
+    @State private var picked: String = "nothing picked yet"
+    @FocusState private var focus: PlayerFocus?
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            VStack(spacing: 16) {
+                Text("the film, playing")
+                    .font(.seret(28, .regular))
+                    .foregroundStyle(.white.opacity(0.28))
+                // The measurable part: a screenshot says what the press actually produced,
+                // rather than leaving it to be inferred from the stars.
+                Text(picked)
+                    .font(.seret(22, .semibold))
+                    .foregroundStyle(Theme.Palette.gold)
+            }
+        }
+        .letterboxdDiaryBar(signal: signal, contentKey: "movie:tmdb:73") { state in
+            switch state {
+            case .logged: LetterboxdLoggedBar()
+            case .askingRating(_, let current):
+                LetterboxdRatingBar(current: current, focus: $focus) { value in
+                    picked = value.map { "rated \($0)/10" } ?? "rating cleared"
+                } onDismiss: {
+                    picked = "dismissed — logged unrated"
+                }
+            }
+        }
+        .onExitCommand { picked = "dismissed — logged unrated" }
+        .task { signal.askForRating(tmdbID: 73, current: existing) }
     }
 }
 

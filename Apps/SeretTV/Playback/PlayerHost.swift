@@ -21,17 +21,20 @@ struct PlayerHost: View {
     /// Passed explicitly rather than read from the environment: a non-optional `@Environment`
     /// Observable read traps when the object does not cross the presentation boundary.
     private let pushSignal: LetterboxdPushSignal
+    /// Passed for the same reason as the signal above.
+    private let filmRating: FinishedFilmRating
 
     init(request: PlaybackRequest, app: AppSession, backdropSize: String) {
         _session = StateObject(wrappedValue: PlayerSession(request: request, app: app))
         backdropURL = TMDBClient.imageURL(path: request.item.backdropPath, size: backdropSize)
         pushSignal = app.letterboxdPushSignal
+        filmRating = app.finishedFilmRating
     }
 
     var body: some View {
         if let model = session.model {
             PlayerView(model: model, engine: session.engine, backdropURL: backdropURL,
-                       pushSignal: pushSignal)
+                       pushSignal: pushSignal, filmRating: filmRating)
         } else {
             PlaybackUnavailableView()
         }
