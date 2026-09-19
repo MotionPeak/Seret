@@ -35,16 +35,24 @@ public actor LetterboxdPushCoordinator {
     private let relay: any LetterboxdRelaying
     private let loggedElsewhere: @Sendable (Int) -> Bool
     private let isEnabled: @Sendable () -> Bool
+    /// Told only about entries that landed, so a view can confirm one. Optional because the push
+    /// works perfectly well with nobody listening.
+    private let signal: LetterboxdPushSignal?
     private var lastError: String?
+    /// The send in flight, if any. Held so one drain cannot start on top of another, and so a test
+    /// can wait for a send it deliberately stalled.
+    private var sendTask: Task<Void, Never>?
 
     public init(outbox: any LetterboxdOutbox,
                 relay: any LetterboxdRelaying,
                 loggedElsewhere: @escaping @Sendable (Int) -> Bool,
-                isEnabled: @escaping @Sendable () -> Bool) {
+                isEnabled: @escaping @Sendable () -> Bool,
+                signal: LetterboxdPushSignal? = nil) {
         self.outbox = outbox
         self.relay = relay
         self.loggedElsewhere = loggedElsewhere
         self.isEnabled = isEnabled
+        self.signal = signal
     }
 
     /// Called on the unfinished→finished edge, and only there.
@@ -59,9 +67,30 @@ public actor LetterboxdPushCoordinator {
         let rewatch = plays > 1 || loggedElsewhere(tmdbID)
 
         let write = LetterboxdWrite(tmdbID: tmdbID, rating: rating, watchedAt: at, rewatch: rewatch)
+        // Awaited: the write must be on disk before this returns, or being killed here loses it.
         try? await outbox.enqueue(write)
-        await drain(now: at)
+
+        // NOT awaited. The caller is the 1s playback tick, and sending drives a browser on the
+        // Synology — nearly nine seconds, measured. The player allows one save in flight at a
+        // time, so waiting here stops position-saving for the whole of it.
+        startSend(now: at)
     }
+
+    /// Kicks off a drain unless one is already running. Two concurrent drains would take the same
+    /// write off the queue twice and file the film twice.
+    private func startSend(now: Date) {
+        guard sendTask == nil else { return }
+        sendTask = Task { [weak self] in
+            await self?.drain(now: now)
+            await self?.clearSendTask()
+        }
+    }
+
+    private func clearSendTask() { sendTask = nil }
+
+    /// Waits for a send already in flight. For tests that stall the relay on purpose; nothing in
+    /// the app waits for a send, which is the entire point of the change that introduced this.
+    public func waitForPendingSend() async { await sendTask?.value }
 
     /// Sends everything that is due. Safe to call often — on enqueue, on foreground, on a refresh.
     public func drain(now: Date = Date()) async {
@@ -73,6 +102,8 @@ public actor LetterboxdPushCoordinator {
                 try await relay.send(write)
                 try? await outbox.complete(write.id)
                 lastError = nil
+                let tmdbID = write.tmdbID
+                await MainActor.run { signal?.logged(tmdbID: tmdbID) }
             } catch let error as LetterboxdError {
                 switch error {
                 case .filmNotFound, .structureChanged, .profileUnavailable:

@@ -19,6 +19,25 @@ private actor FakeRelay: LetterboxdRelaying {
     var last: LetterboxdWrite? { writes.last }
 }
 
+/// A relay that blocks until it is released, so "did the caller wait for it?" is answerable.
+private actor HangingRelay: LetterboxdRelaying {
+    private var released = false
+    private var waiting: [CheckedContinuation<Void, Never>] = []
+    private(set) var started = 0
+
+    func send(_ write: LetterboxdWrite) async throws {
+        started += 1
+        if released { return }
+        await withCheckedContinuation { waiting.append($0) }
+    }
+
+    func release() {
+        released = true
+        waiting.forEach { $0.resume() }
+        waiting.removeAll()
+    }
+}
+
 @Suite struct LetterboxdPushCoordinatorTests {
     private func coordinator(relay: FakeRelay,
                              outbox: any LetterboxdOutbox = InMemoryLetterboxdOutbox(),
@@ -30,8 +49,9 @@ private actor FakeRelay: LetterboxdRelaying {
 
     @Test func aFinishedFilmIsQueuedAndSent() async throws {
         let relay = FakeRelay()
-        await coordinator(relay: relay)
-            .recordFinish(contentKey: "movie:tmdb:73", rating: 9, plays: 1, at: Date())
+        let push = coordinator(relay: relay)
+        await push.recordFinish(contentKey: "movie:tmdb:73", rating: 9, plays: 1, at: Date())
+        await push.waitForPendingSend()
 
         #expect(await relay.count == 1)
         #expect(await relay.last?.tmdbID == 73)
@@ -45,13 +65,15 @@ private actor FakeRelay: LetterboxdRelaying {
         let push = coordinator(relay: relay)
         await push.recordFinish(contentKey: "show:tmdb:1396:s1e2", rating: nil, plays: 1, at: Date())
         await push.recordFinish(contentKey: "movie:speed:1994", rating: nil, plays: 1, at: Date())
+        await push.waitForPendingSend()
         #expect(await relay.count == 0)
     }
 
     @Test func aSecondPlayIsARewatch() async throws {
         let relay = FakeRelay()
-        await coordinator(relay: relay)
-            .recordFinish(contentKey: "movie:tmdb:73", rating: nil, plays: 2, at: Date())
+        let push = coordinator(relay: relay)
+        await push.recordFinish(contentKey: "movie:tmdb:73", rating: nil, plays: 2, at: Date())
+        await push.waitForPendingSend()
         #expect(await relay.last?.rewatch == true)
     }
 
@@ -59,15 +81,17 @@ private actor FakeRelay: LetterboxdRelaying {
     /// time. The local play count is 1 and it is still a rewatch.
     @Test func aFilmAlreadyLoggedThereIsARewatchOnItsFirstLocalPlay() async throws {
         let relay = FakeRelay()
-        await coordinator(relay: relay, logged: [73])
-            .recordFinish(contentKey: "movie:tmdb:73", rating: nil, plays: 1, at: Date())
+        let push = coordinator(relay: relay, logged: [73])
+        await push.recordFinish(contentKey: "movie:tmdb:73", rating: nil, plays: 1, at: Date())
+        await push.waitForPendingSend()
         #expect(await relay.last?.rewatch == true)
     }
 
     @Test func aFirstViewingIsNotARewatch() async throws {
         let relay = FakeRelay()
-        await coordinator(relay: relay)
-            .recordFinish(contentKey: "movie:tmdb:73", rating: nil, plays: 1, at: Date())
+        let push = coordinator(relay: relay)
+        await push.recordFinish(contentKey: "movie:tmdb:73", rating: nil, plays: 1, at: Date())
+        await push.waitForPendingSend()
         #expect(await relay.last?.rewatch == false)
     }
 
@@ -76,6 +100,7 @@ private actor FakeRelay: LetterboxdRelaying {
         let outbox = InMemoryLetterboxdOutbox()
         let push = coordinator(relay: FakeRelay(failing: .notAuthenticated), outbox: outbox)
         await push.recordFinish(contentKey: "movie:tmdb:73", rating: nil, plays: 1, at: Date())
+        await push.waitForPendingSend()
 
         #expect(try await outbox.all().count == 1)
         let status = await push.status()
@@ -93,6 +118,7 @@ private actor FakeRelay: LetterboxdRelaying {
         let outbox = InMemoryLetterboxdOutbox()
         let push = coordinator(relay: FakeRelay(failing: .filmNotFound), outbox: outbox)
         await push.recordFinish(contentKey: "movie:tmdb:73", rating: nil, plays: 1, at: Date())
+        await push.waitForPendingSend()
         #expect(try await outbox.all().isEmpty)
     }
 
@@ -103,6 +129,7 @@ private actor FakeRelay: LetterboxdRelaying {
                                              loggedElsewhere: { _ in false },
                                              isEnabled: { false })
         await push.recordFinish(contentKey: "movie:tmdb:73", rating: 9, plays: 1, at: Date())
+        await push.waitForPendingSend()
         #expect(await relay.count == 0)
         #expect(try await outbox.all().isEmpty)
     }
@@ -114,6 +141,7 @@ private actor FakeRelay: LetterboxdRelaying {
         let push = coordinator(relay: relay, outbox: outbox)
         let now = Date()
         await push.recordFinish(contentKey: "movie:tmdb:73", rating: nil, plays: 1, at: now)
+        await push.waitForPendingSend()
         #expect(await relay.count == 1)
 
         await push.drain(now: now)
@@ -121,6 +149,28 @@ private actor FakeRelay: LetterboxdRelaying {
 
         await push.drain(now: now.addingTimeInterval(LetterboxdBackoff.delay(forAttempt: 1) + 1))
         #expect(await relay.count == 2)
+    }
+
+    /// 🚨 The caller is the 1s playback tick, and the send drives a browser on the Synology —
+    /// nearly nine seconds, measured. The player allows one save in flight at a time, so awaiting
+    /// the send here stops position-saving for the whole of it: quit in that window and the resume
+    /// point is stale by however long it took.
+    ///
+    /// The write is on disk before this returns, so there is nothing to wait for.
+    @Test func finishingDoesNotWaitForTheSend() async throws {
+        let relay = HangingRelay()
+        let outbox = InMemoryLetterboxdOutbox()
+        let push = LetterboxdPushCoordinator(outbox: outbox, relay: relay,
+                                             loggedElsewhere: { _ in false },
+                                             isEnabled: { true })
+
+        await push.recordFinish(contentKey: "movie:tmdb:73", rating: 9, plays: 1, at: Date())
+
+        // Returned while the send is still in flight, and the write is already durable.
+        #expect(try await outbox.all().count == 1)
+        await relay.release()
+        await push.waitForPendingSend()
+        #expect(try await outbox.all().isEmpty)
     }
 
     /// A browser that needs a human stops the whole drain. Marching the rest of the queue into the
