@@ -338,7 +338,8 @@ private struct MovieDetailPreview: View {
         let item = MediaItem(id: "m", kind: .movie, title: "The Odyssey", year: 2026,
                              sources: [s], seasons: [], tmdbID: 1_242_011,
                              overview: "Odysseus takes the long way home.")
-        return DetailStore(item: item, details: PreviewDetails(), watch: PreviewWatchRating())
+        return DetailStore(item: item, details: PreviewDetails(), watch: PreviewWatchRating(),
+                           ratings: PreviewRatings(), letterboxd: PreviewLetterboxdRating())
     }()
     @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()))
 
@@ -354,6 +355,21 @@ private struct MovieDetailPreview: View {
 }
 
 /// Inert details provider — the harness renders from the cached `MediaItem` alone.
+/// Fixed scores, so the four-chip ratings row can be screenshot-verified without a network, an
+/// OMDb key, or a Letterboxd round-trip. The Letterboxd figure is a real one: it has to read
+/// correctly as "out of five" sitting beside IMDb's "out of ten".
+private struct PreviewRatings: RatingsProviding {
+    func ratings(imdbID: String) async throws -> OMDbRatings {
+        OMDbRatings(imdb: 8.1, rottenTomatoes: 92, metacritic: 78)
+    }
+}
+
+private struct PreviewLetterboxdRating: LetterboxdRatingProviding {
+    func rating(forTMDB id: Int) async throws -> LetterboxdFilmRating? {
+        LetterboxdFilmRating(score: 4.38, count: 3_654_485)
+    }
+}
+
 private struct PreviewDetails: MediaDetailsProviding {
     /// Carries cast and a director so the harness can check the two controls that used to be inert
     /// text: the focusable cast rail, and the pressable director pill.
@@ -361,6 +377,7 @@ private struct PreviewDetails: MediaDetailsProviding {
         TMDBMovieDetails(
             id: tmdbID, title: "The Odyssey", releaseDate: "2026-07-17", overview: nil,
             posterPath: nil, backdropPath: nil, runtime: 168, genres: [], voteAverage: 7.4,
+            imdbID: "tt9218128",
             cast: [TMDBCastMember(id: 1, name: "Matt Damon", character: "Odysseus",
                                   profilePath: nil, order: 0),
                    TMDBCastMember(id: 2, name: "Tom Holland", character: "Telemachus",

@@ -21,9 +21,14 @@ public struct LetterboxdRatingsClient: Sendable {
 
     /// Returns nil when the film exists but carries no score yet.
     ///
-    /// Throws `LetterboxdError.filmNotFound` when Letterboxd has no film for the id at all — every
-    /// TV show, since Letterboxd indexes films only. Keeping that apart from "no score" matters:
-    /// one is a permanent fact about the title, the other is a transient state of the page.
+    /// Throws `LetterboxdError.filmNotFound` when Letterboxd has no film for the id. Keeping that
+    /// apart from "no score" matters: one is a permanent fact about the title, the other is a
+    /// transient state of the page.
+    ///
+    /// The id MUST be a TMDB *movie* id. TMDB numbers films and shows separately and Letterboxd's
+    /// `/tmdb/{id}/` endpoint only knows the film space — it does not reject a show's id, it
+    /// resolves it to whatever film holds that number. TMDB TV 1396 is Breaking Bad; that URL
+    /// lands on `/film/mirror/`. Callers filter by kind; this cannot.
     public func rating(forTMDB id: Int) async throws -> LetterboxdFilmRating? {
         let slug = try await resolver.slug(forTMDB: id)
         let url = baseURL.appendingPathComponent("film/\(slug)", isDirectory: true)

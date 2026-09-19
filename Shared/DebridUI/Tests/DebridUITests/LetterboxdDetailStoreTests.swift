@@ -63,8 +63,10 @@ struct LetterboxdDetailStoreTests {
         #expect(await calls.count == 1)
     }
 
-    /// Letterboxd indexes films only. Asking about a show spends a request to be told no, on every
-    /// single title-page open, so the store must not ask at all.
+    /// Not thrift — correctness. TMDB numbers films and shows separately, and Letterboxd's
+    /// `/tmdb/{id}/` endpoint only knows the film space, so a show's id does not fail: it resolves
+    /// to an unrelated film. This item's 1396 is Breaking Bad; that URL lands on Tarkovsky's
+    /// Mirror. Ask about a show and its page shows a stranger's score.
     @Test func aShowIsNeverAskedAbout() async {
         let calls = Calls()
         let store = DetailStore(item: show(), details: StubDetails(), watch: nil,

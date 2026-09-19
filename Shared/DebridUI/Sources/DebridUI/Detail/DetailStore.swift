@@ -261,9 +261,13 @@ public final class DetailStore {
         }
     }
 
-    /// Letterboxd indexes films only, and can be reached by TMDB id alone. A show, or a title with
-    /// no TMDB id, is not asked about at all — the answer is known, and asking would spend a
-    /// request on every title-page open to be told it.
+    /// Films only, and this guard is load-bearing for CORRECTNESS, not thrift.
+    ///
+    /// TMDB numbers films and shows in separate id spaces, and Letterboxd's `/tmdb/{id}/` endpoint
+    /// only knows the film one. It does not reject a show's id — it silently resolves it to
+    /// whatever film happens to hold that number. Measured: TMDB TV 1396 is Breaking Bad, and
+    /// `letterboxd.com/tmdb/1396/` lands on `/film/mirror/`. Asking about a show would put a
+    /// stranger's score on its page.
     private func loadLetterboxdRating() async {
         guard let provider = letterboxdProvider, item.kind == .movie, let tmdbID = item.tmdbID else {
             return
