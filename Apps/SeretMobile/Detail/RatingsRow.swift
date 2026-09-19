@@ -2,14 +2,19 @@ import DebridCore
 import DebridUI
 import SwiftUI
 
-/// IMDb / Rotten Tomatoes / Metacritic badges from OMDb, styled as Gold-Glass chips:
-/// a gold IMDb wordmark, the 🍅 tomato, and Metacritic's color-coded square (green/yellow/red).
-/// Renders only the scores that exist; the row disappears when there are none.
+/// Aggregate scores as Gold-Glass chips: a gold IMDb wordmark, the 🍅 tomato, Metacritic's
+/// color-coded square (green/yellow/red), and Letterboxd's three dots.
+///
+/// Each service keeps its own units — IMDb out of ten, two percentages, Letterboxd out of five —
+/// because normalising them would misrepresent all four. Renders only the scores that exist; the
+/// row disappears when there are none.
 struct RatingsRow: View {
     let ratings: OMDbRatings?
+    /// Letterboxd's community score, on its own 0.5–5 scale. Films only — Letterboxd has no shows.
+    var letterboxd: LetterboxdFilmRating?
 
     var body: some View {
-        if ratings?.hasAny == true {
+        if ratings?.hasAny == true || letterboxd != nil {
             HStack(spacing: Theme.Space.sm) {
                 if let r = ratings {
                     if let imdb = r.imdb {
@@ -41,6 +46,12 @@ struct RatingsRow: View {
                                 .font(.system(size: 11, weight: .semibold))
                                 .foregroundStyle(Theme.Palette.textSecondary)
                         }
+                    }
+                }
+                if let lb = letterboxd {
+                    chip {
+                        LetterboxdMark(diameter: 8)
+                        value(String(format: "%.1f", lb.score))
                     }
                 }
             }

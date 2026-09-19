@@ -1,20 +1,13 @@
 import Foundation
 
-/// Persistent, TTL'd cache of OMDb ratings keyed by IMDb id, backed by one JSON file. Keeps us
-/// well under OMDb's 1,000/day free quota: a given title costs ~1 fetch per TTL window. Reads
-/// degrade silently (missing / unreadable file → empty), mirroring `LibrarySnapshotStore`.
-public actor OMDbRatingsCache {
-    struct Entry: Codable, Sendable {
-        let ratings: OMDbRatings
-        let fetchedAt: Date
-    }
-
-    private let directory: URL
-    private let ttl: TimeInterval
-    private let now: @Sendable () -> Date
-    private var memory: [String: Entry]
-
-    private var fileURL: URL { directory.appending(path: "omdb-ratings.json") }
+/// Persistent, TTL'd cache of OMDb ratings keyed by IMDb id. Keeps us well under OMDb's 1,000/day
+/// free quota: a given title costs about one fetch per TTL window.
+///
+/// The TTL and stale-fallback rules live in `TTLFileCache`, which the Letterboxd ratings cache is
+/// built on too — one implementation of those rules rather than two that can drift. This type is
+/// the naming layer: it says the key is an IMDb id and which file the entries belong in.
+public struct OMDbRatingsCache: Sendable {
+    private let cache: TTLFileCache<OMDbRatings>
 
     /// - Parameters:
     ///   - ttl: how long an entry stays "fresh" (default 7 days).
@@ -22,37 +15,19 @@ public actor OMDbRatingsCache {
     public init(directory: URL,
                 ttl: TimeInterval = 7 * 24 * 60 * 60,
                 now: @escaping @Sendable () -> Date = { Date() }) {
-        self.directory = directory
-        self.ttl = ttl
-        self.now = now
-        let url = directory.appending(path: "omdb-ratings.json")
-        if let data = try? Data(contentsOf: url),
-           let decoded = try? JSONDecoder().decode([String: Entry].self, from: data) {
-            self.memory = decoded
-        } else {
-            self.memory = [:]
-        }
+        self.cache = TTLFileCache(directory: directory,
+                                  fileName: "omdb-ratings.json",
+                                  ttl: ttl,
+                                  now: now)
     }
 
     /// Fresh entry only (within TTL), else nil.
-    public func cached(imdbID: String) -> OMDbRatings? {
-        guard let entry = memory[imdbID], now().timeIntervalSince(entry.fetchedAt) < ttl else {
-            return nil
-        }
-        return entry.ratings
-    }
+    public func cached(imdbID: String) async -> OMDbRatings? { await cache.cached(imdbID) }
 
     /// Any stored entry regardless of age — the offline/stale fallback.
-    public func stored(imdbID: String) -> OMDbRatings? { memory[imdbID]?.ratings }
+    public func stored(imdbID: String) async -> OMDbRatings? { await cache.stored(imdbID) }
 
-    public func store(_ ratings: OMDbRatings, imdbID: String) {
-        memory[imdbID] = Entry(ratings: ratings, fetchedAt: now())
-        persist()
-    }
-
-    private func persist() {
-        guard let data = try? JSONEncoder().encode(memory) else { return }
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        try? data.write(to: fileURL, options: .atomic)
+    public func store(_ ratings: OMDbRatings, imdbID: String) async {
+        await cache.store(ratings, key: imdbID)
     }
 }

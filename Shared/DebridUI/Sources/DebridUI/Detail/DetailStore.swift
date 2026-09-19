@@ -20,6 +20,7 @@ public final class DetailStore {
     /// Whether the active profile has this title in its My List (drives the Add/In-My-List button).
     public private(set) var inMyList = false
     private let ratingsProvider: RatingsProviding?
+    private let letterboxdProvider: LetterboxdRatingProviding?
 
     public private(set) var richState: RichState = .idle
     public private(set) var backdropPath: String?
@@ -40,6 +41,11 @@ public final class DetailStore {
     /// after TMDB details resolve. nil until loaded (or if unavailable).
     public private(set) var ratings: OMDbRatings?
     public private(set) var ratingsState: RichState = .idle
+
+    /// Letterboxd's community score, on its own 0.5–5 scale. Films only — Letterboxd has no shows,
+    /// so a show leaves this nil and never spends a request finding that out.
+    public private(set) var letterboxdRating: LetterboxdFilmRating?
+    public private(set) var letterboxdState: RichState = .idle
 
     /// Rich title-page fields. Cast / director / creators / similar ride along with the TMDB
     /// details call (`append_to_response`), so they cost no extra request.
@@ -69,13 +75,15 @@ public final class DetailStore {
 
     public init(item: MediaItem, details: MediaDetailsProviding, watch: WatchProgressProviding?,
                 profileID: String? = nil, myList: MyListProviding? = nil,
-                ratings: RatingsProviding? = nil, versionPrefs: VersionPreferring? = nil) {
+                ratings: RatingsProviding? = nil, versionPrefs: VersionPreferring? = nil,
+                letterboxd: LetterboxdRatingProviding? = nil) {
         self.item = item
         self.details = details
         self.watch = watch
         self.profileID = profileID
         self.myList = myList
         self.ratingsProvider = ratings
+        self.letterboxdProvider = letterboxd
         self.versionPrefs = versionPrefs
         self.overview = item.overview
         self.backdropPath = item.backdropPath
@@ -232,6 +240,15 @@ public final class DetailStore {
     /// Supplemental, non-blocking: enrich with the public scores once TMDB has given us the IMDb id.
     /// Failure leaves everything nil and the rest of the screen intact.
     private func loadRatings() async {
+        // Concurrently, for the same reason the caller overlaps this with the franchise load: they
+        // feed one row, and run in sequence they land a round-trip apart. Neither waits on the
+        // other, so a slow Letterboxd page never holds the OMDb chips back.
+        async let omdb: Void = loadOMDbRatings()
+        async let letterboxd: Void = loadLetterboxdRating()
+        _ = await (omdb, letterboxd)
+    }
+
+    private func loadOMDbRatings() async {
         // OMDb aggregate chips — only when a key is configured.
         if let provider = ratingsProvider, let imdb = imdbID {
             ratingsState = .loading
@@ -241,6 +258,26 @@ public final class DetailStore {
             } catch {
                 ratingsState = .failed
             }
+        }
+    }
+
+    /// Films only, and this guard is load-bearing for CORRECTNESS, not thrift.
+    ///
+    /// TMDB numbers films and shows in separate id spaces, and Letterboxd's `/tmdb/{id}/` endpoint
+    /// only knows the film one. It does not reject a show's id — it silently resolves it to
+    /// whatever film happens to hold that number. Measured: TMDB TV 1396 is Breaking Bad, and
+    /// `letterboxd.com/tmdb/1396/` lands on `/film/mirror/`. Asking about a show would put a
+    /// stranger's score on its page.
+    private func loadLetterboxdRating() async {
+        guard let provider = letterboxdProvider, item.kind == .movie, let tmdbID = item.tmdbID else {
+            return
+        }
+        letterboxdState = .loading
+        do {
+            letterboxdRating = try await provider.rating(forTMDB: tmdbID)
+            letterboxdState = .loaded
+        } catch {
+            letterboxdState = .failed
         }
     }
 

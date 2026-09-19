@@ -51,7 +51,8 @@ struct PersonScreen: View {
                                      profileID: session.activeProfileID,
                                      myList: session.myListStore,
                                      ratings: session.ratingsProvider,
-                                     versionPrefs: session.versionPreferences))
+                                     versionPrefs: session.versionPreferences,
+                                     letterboxd: session.letterboxdRatingProvider))
             }
         }
     }

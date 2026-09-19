@@ -22,10 +22,12 @@ struct DetailView: View {
 
     init(item: MediaItem, details: MediaDetailsProviding, watch: WatchProgressProviding?,
          profileID: String? = nil, myList: MyListProviding? = nil, ratings: RatingsProviding? = nil,
-         versionPrefs: VersionPreferring? = nil) {
+         versionPrefs: VersionPreferring? = nil,
+         letterboxd: LetterboxdRatingProviding? = nil) {
         _store = State(initialValue: DetailStore(item: item, details: details, watch: watch,
                                                  profileID: profileID, myList: myList, ratings: ratings,
-                                                 versionPrefs: versionPrefs))
+                                                 versionPrefs: versionPrefs,
+                                                 letterboxd: letterboxd))
     }
 
     var body: some View {

@@ -39,7 +39,8 @@ struct RootView: View {
                              profileID: session.activeProfileID,
                              myList: session.myListStore,
                              ratings: session.ratingsProvider,
-                             versionPrefs: session.versionPreferences)
+                             versionPrefs: session.versionPreferences,
+                             letterboxd: session.letterboxdRatingProvider)
             }
         }
         // Direct playback from a rail (Home's Resume) — same build recipe as DetailScreen's player
