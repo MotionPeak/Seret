@@ -24,6 +24,15 @@ struct LetterboxdSettingsSection: View {
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
 
+            // Typed here and read on the Apple TV, like the username: removing a film from the
+            // watchlist has to be written by a real browser, and only the server has one.
+            TextField("Seret server, e.g. 192.168.1.179:8080", text: Binding(
+                get: { model.settings.serverURL },
+                set: { var s = model.settings; s.serverURL = $0; model.update(s) }))
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .keyboardType(.URL)
+
             switch model.phase {
             case .idle:
                 Button("Import now") { Task { await model.importNow(profileID: profileID) } }

@@ -24,7 +24,10 @@ public enum WatchlistReconciler {
                                   posterPath: previous?.posterPath,
                                   resolvedAt: carriedResolution(previous, crawledName: entry.name),
                                   // Carried, or Remove would be undone by the very next sync.
-                                  removedAt: previous?.removedAt)
+                                  removedAt: previous?.removedAt,
+                                  // Carried for the same reason as the mark itself: a crawl must
+                                  // not make an already-pushed removal look pending again.
+                                  removalPushedAt: previous?.removalPushedAt)
         }
     }
 

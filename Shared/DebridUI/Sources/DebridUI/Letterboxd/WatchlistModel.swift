@@ -7,6 +7,9 @@ public typealias WatchlistSyncRunning =
 /// Marks a film removed and returns the whole mirror as it now stands.
 public typealias WatchlistRemoving = @Sendable (_ slug: String) async -> [WatchlistEntry]
 
+/// Pushes pending removals to Letterboxd, reporting what happened.
+public typealias WatchlistRelaying = @Sendable () async -> WatchlistRemovalRelay.Outcome
+
 /// Drives the watchlist screen.
 @MainActor
 @Observable
@@ -29,17 +32,22 @@ public final class WatchlistModel {
     /// acquire that silently includes things they already have.
     public var ownedTMDBIDs: Set<Int> = []
 
+    /// Why the last push to Letterboxd failed, if it did. Nil when there is nothing to say.
+    public private(set) var relayMessage: String?
+
     private let settings: LetterboxdSettings
     private let minimumInterval: TimeInterval
     private let now: @Sendable () -> Date
     private let run: WatchlistSyncRunning
     private let removeSlug: WatchlistRemoving
+    private let relay: WatchlistRelaying
 
     public init(cached: [WatchlistEntry],
                 settings: LetterboxdSettings,
                 minimumInterval: TimeInterval = 600,
                 now: @escaping @Sendable () -> Date = { Date() },
                 remove: @escaping WatchlistRemoving = { _ in [] },
+                relay: @escaping WatchlistRelaying = { .idle },
                 run: @escaping WatchlistSyncRunning) {
         self.allEntries = cached
         self.settings = settings
@@ -47,6 +55,7 @@ public final class WatchlistModel {
         self.now = now
         self.run = run
         self.removeSlug = remove
+        self.relay = relay
     }
 
     public func isOwned(_ entry: WatchlistEntry) -> Bool {
@@ -57,6 +66,9 @@ public final class WatchlistModel {
     /// Called when the screen appears. Opening it repeatedly should not re-crawl; the button is
     /// there for "I just added one".
     public func syncIfStale() async {
+        // Always attempted, even when the crawl is skipped: a removal made while the server was
+        // off is still waiting, and opening the screen is the natural moment to retry it.
+        await pushRemovals()
         if let last = settings.lastImportAt, now().timeIntervalSince(last) < minimumInterval { return }
         await syncNow()
     }
@@ -76,6 +88,17 @@ public final class WatchlistModel {
         }
         let stored = await removeSlug(entry.slug)
         if !stored.isEmpty { allEntries = stored }
+        await pushRemovals()
+    }
+
+    /// Tells Letterboxd about anything removed here that it has not heard about yet.
+    ///
+    /// Runs after a removal and when the screen opens, because the server may have been off when
+    /// the removal was made. A failure is reported but changes nothing locally — the film is gone
+    /// from this screen either way, and the removal stays pending for the next attempt.
+    public func pushRemovals() async {
+        let outcome = await relay()
+        relayMessage = outcome.failed > 0 ? outcome.firstError : nil
     }
 
     /// A random film off the watchlist, with the reel to animate through to reach it. Nil when

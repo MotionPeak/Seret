@@ -737,6 +737,23 @@ public final class AppSession {
     ///
     /// The syncer is built once and captured, so the entries and the resolved-id cache are shared
     /// by every appearance of the screen rather than rebuilt per navigation.
+    /// `POST /api/letterboxd/watchlist` on the owner's SeretServer.
+    ///
+    /// A bare 2xx is the whole success contract; the server has already named any failure in its
+    /// status, which `WatchlistRemovalRelay` turns into something a screen can say.
+    private static func postWatchlistRemoval(to address: String, tmdbID: Int,
+                                             http: HTTPClient) async throws {
+        var trimmed = address.trimmingCharacters(in: .whitespacesAndNewlines)
+        // A bare host or `host:port` is what someone types; make it a URL rather than failing.
+        if !trimmed.lowercased().hasPrefix("http") { trimmed = "http://" + trimmed }
+        while trimmed.hasSuffix("/") { trimmed.removeLast() }
+
+        guard let url = URL(string: trimmed + "/api/letterboxd/watchlist") else {
+            throw URLError(.badURL)
+        }
+        try await http.postJSON(url, jsonBody: #"{"tmdbID":\#(tmdbID),"inWatchlist":false}"#)
+    }
+
     public func makeWatchlistModel() -> WatchlistModel? {
         guard let library = libraryStore else { return nil }
 
@@ -750,8 +767,19 @@ public final class AppSession {
             resolver: TMDBWatchlistTitleResolver(tmdb: TMDBClient(apiKey: Secrets.tmdbAPIKey)),
             store: store)
 
+        // Letterboxd can only be written by a real browser, and only SeretServer has one, so a
+        // removal made here is relayed to it. Failures leave the removal pending rather than
+        // dropping it — see `WatchlistRemovalRelay`.
+        let relay = WatchlistRemovalRelay(
+            syncer: syncer,
+            settings: { settingsStore.load() },
+            post: { address, tmdbID in
+                try await Self.postWatchlistRemoval(to: address, tmdbID: tmdbID, http: http)
+            })
+
         let model = WatchlistModel(cached: store.load(), settings: settings,
-                                   remove: { slug in await syncer.remove(slug: slug) }) { onProgress in
+                                   remove: { slug in await syncer.remove(slug: slug) },
+                                   relay: { await relay.drain() }) { onProgress in
             try await syncer.sync(onProgress: onProgress)
         }
         model.ownedTMDBIDs = Set(library.movies.compactMap(\.tmdbID))

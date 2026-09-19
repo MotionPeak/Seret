@@ -140,6 +140,35 @@ public struct HTTPClient: Sendable {
         }
     }
 
+    /// Sends a JSON body and discards the response. Succeeds on any 2xx.
+    ///
+    /// Distinct from `post(_:json:)`, which decodes a reply: an endpoint that answers `200` with an
+    /// empty body has nothing to decode, and asking for a `Decodable` back would fail on success.
+    public func postJSON(_ url: URL, jsonBody: String,
+                         headers: [String: String] = [:]) async throws {
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        for (k, v) in headers { request.setValue(v, forHTTPHeaderField: k) }
+        request.httpBody = Data(jsonBody.utf8)
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch {
+            // Cancellation is not a transport failure and must stay recognisable as one.
+            if error is CancellationError { throw error }
+            if (error as? URLError)?.code == .cancelled { throw CancellationError() }
+            throw HTTPError.transport(String(describing: error))
+        }
+        guard let http = response as? HTTPURLResponse else {
+            throw HTTPError.transport("Non-HTTP response")
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            throw HTTPError.status(code: http.statusCode, body: String(decoding: data, as: UTF8.self))
+        }
+    }
+
     /// Sends a `DELETE` and discards the body. Succeeds on any 2xx (RD returns 204).
     public func delete(_ url: URL, headers: [String: String] = [:]) async throws {
         var request = URLRequest(url: url)

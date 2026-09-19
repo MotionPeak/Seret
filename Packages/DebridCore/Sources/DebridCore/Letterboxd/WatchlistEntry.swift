@@ -29,12 +29,22 @@ public struct WatchlistEntry: Sendable, Codable, Equatable, Identifiable {
     /// `Decodable` reads an optional with `decodeIfPresent`.
     public var removedAt: Date?
 
+    /// When the removal was successfully pushed to Letterboxd, if it has been.
+    ///
+    /// The pending set is derived from the mirror rather than kept in a parallel queue: the mirror
+    /// is already durable and already records the removal, so a second store could only drift from
+    /// it. A removal that has never been pushed stays pending until it succeeds, which makes the
+    /// retry self-healing without any backoff bookkeeping.
+    public var removalPushedAt: Date?
+
     public var isResolved: Bool { resolvedAt != nil }
     public var isRemoved: Bool { removedAt != nil }
+    /// Removed here, but Letterboxd has not been told yet.
+    public var needsRemovalPush: Bool { removedAt != nil && removalPushedAt == nil }
 
     public init(slug: String, name: String, year: Int?, position: Int,
                 tmdbID: Int? = nil, posterPath: String? = nil, resolvedAt: Date? = nil,
-                removedAt: Date? = nil) {
+                removedAt: Date? = nil, removalPushedAt: Date? = nil) {
         self.slug = slug
         self.name = name
         self.year = year
@@ -43,5 +53,6 @@ public struct WatchlistEntry: Sendable, Codable, Equatable, Identifiable {
         self.posterPath = posterPath
         self.resolvedAt = resolvedAt
         self.removedAt = removedAt
+        self.removalPushedAt = removalPushedAt
     }
 }

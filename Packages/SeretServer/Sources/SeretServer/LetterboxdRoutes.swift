@@ -2,6 +2,7 @@ import Vapor
 import DebridCore
 
 private struct LetterboxdWriterKey: StorageKey { typealias Value = LetterboxdDiaryWriter }
+private struct LetterboxdWatchlistWriterKey: StorageKey { typealias Value = LetterboxdWatchlistWriter }
 
 extension Application {
     /// Built lazily: the browser is only contacted when something is actually written, so a
@@ -15,6 +16,22 @@ extension Application {
         }
         set { storage[LetterboxdWriterKey.self] = newValue }
     }
+
+    var letterboxdWatchlistWriter: LetterboxdWatchlistWriter {
+        get {
+            if let existing = storage[LetterboxdWatchlistWriterKey.self] { return existing }
+            let writer = LetterboxdWiring.makeWatchlistWriter()
+            storage[LetterboxdWatchlistWriterKey.self] = writer
+            return writer
+        }
+        set { storage[LetterboxdWatchlistWriterKey.self] = newValue }
+    }
+}
+
+struct WatchlistChangeRequest: Content {
+    let tmdbID: Int
+    /// False removes, true adds. Named for the wire property the API actually validates.
+    let inWatchlist: Bool
 }
 
 struct DiaryEntryRequest: Content {
@@ -64,6 +81,23 @@ func registerLetterboxdRoutes(_ app: Application) {
                                     rewatch: body.rewatch ?? false)
         do {
             try await req.application.letterboxdWriter.write(write)
+        } catch {
+            throw diaryAbort(for: error)
+        }
+        return .ok
+    }
+
+    /// `PATCH /api/v0/me/watchlist/{lid}`, by another name.
+    ///
+    /// A POST rather than a DELETE because it carries both directions: the same call adds a film
+    /// back, and an endpoint that can only remove would need a sibling to undo a mistake.
+    app.post("api", "letterboxd", "watchlist") { req async throws -> HTTPStatus in
+        let body = try req.content.decode(WatchlistChangeRequest.self)
+        let write = LetterboxdWrite(tmdbID: body.tmdbID,
+                                    operation: .watchlist,
+                                    inWatchlist: body.inWatchlist)
+        do {
+            try await req.application.letterboxdWatchlistWriter.write(write)
         } catch {
             throw diaryAbort(for: error)
         }

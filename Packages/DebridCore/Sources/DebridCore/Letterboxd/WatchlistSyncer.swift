@@ -25,6 +25,24 @@ public actor WatchlistSyncer {
     /// What is on disk. No network.
     public func cached() -> [WatchlistEntry] { store.load() }
 
+    /// Removals the owner has made here that Letterboxd has not been told about yet.
+    ///
+    /// Only films with a TMDB id: the push resolves a film by that id, so one without is a
+    /// removal that can be honoured locally and nowhere else.
+    public func pendingRemovals() -> [WatchlistEntry] {
+        store.load().filter { $0.needsRemovalPush && $0.tmdbID != nil }
+    }
+
+    /// Records that Letterboxd has accepted the removal, so it stops being pending.
+    @discardableResult
+    public func markRemovalPushed(slug: String, at when: Date = Date()) -> [WatchlistEntry] {
+        var entries = store.load()
+        guard let index = entries.firstIndex(where: { $0.slug == slug }) else { return entries }
+        entries[index].removalPushedAt = when
+        store.save(entries)
+        return entries
+    }
+
     /// Marks a film as removed by the owner and persists it. No network — the mirror is edited in
     /// place and the mark is carried through every later crawl by `WatchlistReconciler`.
     ///

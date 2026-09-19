@@ -157,6 +157,48 @@ private struct FakeTitleResolver: WatchlistTitleResolving {
         #expect(second[0].removedAt == when)
     }
 
+    /// The push queue is derived from the mirror, so a removal is pending from the moment it is
+    /// made until Letterboxd accepts it — across relaunches, with no parallel store to drift.
+    @Test func aRemovalIsPendingUntilItIsPushed() async throws {
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        _ = try await syncer(["a", "b"], ids: ["a": 1, "b": 2], url: url).sync()
+        #expect(await syncer(["a"], ids: [:], url: url).pendingRemovals().isEmpty)
+
+        _ = try await syncer(["a", "b"], ids: ["a": 1, "b": 2], url: url).remove(slug: "a")
+        let pending = await syncer(["a"], ids: [:], url: url).pendingRemovals()
+        #expect(pending.map(\.slug) == ["a"])
+
+        _ = try await syncer(["a"], ids: [:], url: url).markRemovalPushed(slug: "a")
+        #expect(await syncer(["a"], ids: [:], url: url).pendingRemovals().isEmpty)
+    }
+
+    /// A crawl must not make an already-pushed removal look pending again — that would re-send it
+    /// on every sync forever.
+    @Test func aPushedRemovalStaysPushedAcrossACrawl() async throws {
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        _ = try await syncer(["a"], ids: ["a": 1], url: url).sync()
+        _ = try await syncer(["a"], ids: ["a": 1], url: url).remove(slug: "a")
+        _ = try await syncer(["a"], ids: ["a": 1], url: url).markRemovalPushed(slug: "a")
+
+        _ = try await syncer(["a"], ids: ["a": 1], url: url).sync()
+        #expect(await syncer(["a"], ids: [:], url: url).pendingRemovals().isEmpty)
+    }
+
+    /// A film with no TMDB id cannot be pushed — the server resolves by that id — so it must not
+    /// sit in the queue forever being retried.
+    @Test func aRemovalWithNoTmdbIdIsNotPending() async throws {
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        _ = try await syncer(["mystery"], ids: [:], url: url).sync()
+        _ = try await syncer(["mystery"], ids: [:], url: url).remove(slug: "mystery")
+        #expect(await syncer(["mystery"], ids: [:], url: url).pendingRemovals().isEmpty)
+    }
+
     @Test func aRemovedFilmDisappears() async throws {
         let url = tempURL()
         defer { try? FileManager.default.removeItem(at: url) }

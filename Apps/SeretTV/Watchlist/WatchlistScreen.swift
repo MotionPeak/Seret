@@ -70,9 +70,10 @@ struct WatchlistScreen: View {
             }
             Button("Cancel", role: .cancel) { pendingRemoval = nil }
         } message: { entry in
-            // Says plainly what it does and does not do, so nobody expects Letterboxd to change.
-            Text("\(WatchlistName.stripYear(from: entry.name)) will be hidden in Seret. "
-                 + "It stays on your Letterboxd watchlist.")
+            // Letterboxd is told too now, through the server — but only if one is configured,
+            // and the copy should not promise what an unconfigured setup cannot do.
+            Text("\(WatchlistName.stripYear(from: entry.name)) will be removed from your "
+                 + "Letterboxd watchlist.")
         }
         .task {
 #if DEBUG
@@ -139,6 +140,14 @@ struct WatchlistScreen: View {
                     Text("\(model.entries.count) films")
                         .calloutText()
                         .foregroundStyle(Theme.Palette.textSecondary)
+                }
+                // A removal that could not reach Letterboxd is still gone from here, so this is
+                // the only place the owner would ever learn it is half-done.
+                if let message = model.relayMessage {
+                    Label(message, systemImage: "exclamationmark.triangle.fill")
+                        .calloutText()
+                        .lineLimit(1)
+                        .foregroundStyle(Theme.Palette.destructive)
                 }
             case .syncing(let done, let total):
                 ProgressView().tint(Theme.Palette.gold)

@@ -14,4 +14,9 @@ enum LetterboxdWiring {
         let chrome = ChromeSession(transport: WebSocketCDPTransport())
         return LetterboxdDiaryWriter(chrome: chrome, resolver: ChromeFilmResolver(chrome: chrome))
     }
+
+    static func makeWatchlistWriter() -> LetterboxdWatchlistWriter {
+        let chrome = ChromeSession(transport: WebSocketCDPTransport())
+        return LetterboxdWatchlistWriter(chrome: chrome, resolver: ChromeFilmResolver(chrome: chrome))
+    }
 }

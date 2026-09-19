@@ -5,11 +5,37 @@ public struct LetterboxdSettings: Sendable, Codable, Equatable {
     public var username: String
     public var isEnabled: Bool
     public var lastImportAt: Date?
+    /// Where SeretServer lives, e.g. `http://192.168.1.179:8080`.
+    ///
+    /// Writing to Letterboxd needs a real browser, and only the server has one — tvOS has no
+    /// WebKit at all. So a removal made on the Apple TV is pushed through here. Empty means the
+    /// removal is honoured locally and Letterboxd is simply not told, which is the behaviour
+    /// before any of this existed.
+    ///
+    /// It rides the same iCloud key-value store as the username, and for the same reason: it is
+    /// typed once on the iPhone and read on the TV.
+    public var serverURL: String
 
-    public init(username: String = "", isEnabled: Bool = false, lastImportAt: Date? = nil) {
+    public init(username: String = "", isEnabled: Bool = false, lastImportAt: Date? = nil,
+                serverURL: String = "") {
         self.username = username
         self.isEnabled = isEnabled
         self.lastImportAt = lastImportAt
+        self.serverURL = serverURL
+    }
+
+    /// Decoded leniently, because this blob is persisted and the store falls back to defaults when
+    /// it cannot be read — which makes a decoding failure silent AND destructive. A missing
+    /// `serverURL` would have thrown, the store would have handed back a blank `LetterboxdSettings`,
+    /// and the username typed on the iPhone would simply have vanished.
+    ///
+    /// Same reasoning as `LetterboxdWrite`: every field added later must be absent-tolerant.
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        username = try c.decodeIfPresent(String.self, forKey: .username) ?? ""
+        isEnabled = try c.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? false
+        lastImportAt = try c.decodeIfPresent(Date.self, forKey: .lastImportAt)
+        serverURL = try c.decodeIfPresent(String.self, forKey: .serverURL) ?? ""
     }
 }
 
