@@ -43,6 +43,67 @@ public actor WatchlistSyncer {
         return entries
     }
 
+    /// Adds a film the owner picked in Seret, and says it still has to reach Letterboxd.
+    ///
+    /// Idempotent, because the control that calls it is a toggle that any number of screens can
+    /// show at once. A film the mirror already holds is left exactly as it is — adding a second row
+    /// for it would show it twice and queue a write with nothing behind it.
+    ///
+    /// Re-adding one the owner had removed is the interesting case, and it splits:
+    ///   * the removal already reached Letterboxd, so asking for the film back is a real write;
+    ///   * the removal never left the device, so this is a pure local undo and nothing is queued.
+    @discardableResult
+    public func add(tmdbID: Int, title: String, year: Int?, posterPath: String?,
+                    at when: Date = Date()) -> [WatchlistEntry] {
+        var entries = store.load()
+
+        if let index = entries.firstIndex(where: { $0.tmdbID == tmdbID }) {
+            guard entries[index].isRemoved else { return entries }
+            // Letterboxd was never told about the removal, so it still lists the film: undoing the
+            // mark is the whole job. Queueing an add here would ask for something already true.
+            let removalReachedLetterboxd = !entries[index].needsRemovalPush
+            entries[index].removedAt = nil
+            entries[index].removalPushedAt = nil
+            if removalReachedLetterboxd {
+                entries[index].addedLocallyAt = when
+                entries[index].addPushedAt = nil
+            }
+            store.save(entries)
+            return entries
+        }
+
+        // Ahead of everything stored: Letterboxd orders newest first and this is the newest there
+        // is. Negative positions are fine — nothing reads a position except the sort.
+        let front = (entries.map(\.position).min() ?? 0) - 1
+        entries.append(.locallyAdded(tmdbID: tmdbID, title: title, year: year,
+                                     posterPath: posterPath, position: front, at: when))
+        store.save(entries)
+        return entries.sorted { $0.position < $1.position }
+    }
+
+    /// Adds the owner made here that Letterboxd has not been told about yet.
+    ///
+    /// A row the owner has since removed is excluded: pushing the add first and the removal second
+    /// would be two writes to arrive where no write at all was needed.
+    public func pendingAdds() -> [WatchlistEntry] {
+        store.load().filter { $0.needsAddPush && !$0.isRemoved && $0.tmdbID != nil }
+    }
+
+    /// Records that Letterboxd has accepted the add, so it stops being pending.
+    @discardableResult
+    public func markAddPushed(slug: String, at when: Date = Date()) -> [WatchlistEntry] {
+        var entries = store.load()
+        guard let index = entries.firstIndex(where: { $0.slug == slug }) else { return entries }
+        entries[index].addPushedAt = when
+        store.save(entries)
+        return entries
+    }
+
+    /// The mirror's row for a TMDB id, which is the only identity the app's screens have.
+    public func entry(forTMDB id: Int) -> WatchlistEntry? {
+        store.load().first { $0.tmdbID == id }
+    }
+
     /// Marks a film as removed by the owner and persists it. No network — the mirror is edited in
     /// place and the mark is carried through every later crawl by `WatchlistReconciler`.
     ///
@@ -55,6 +116,14 @@ public actor WatchlistSyncer {
     public func remove(slug: String) -> [WatchlistEntry] {
         var entries = store.load()
         guard let index = entries.firstIndex(where: { $0.slug == slug }) else { return entries }
+        // Added here and never sent: there is nothing for Letterboxd to undo, and no crawl can hand
+        // back a film it was never given — so the row is deleted rather than marked. A mark exists
+        // only to survive a crawl, and this row has no crawl to survive.
+        if entries[index].needsAddPush {
+            entries.remove(at: index)
+            store.save(entries)
+            return entries
+        }
         if entries[index].removedAt == nil { entries[index].removedAt = Date() }
         store.save(entries)
         return entries
@@ -62,11 +131,16 @@ public actor WatchlistSyncer {
 
     /// Crawls, merges, resolves anything unresolved, persists, and returns the result in order.
     public func sync(onProgress: (@Sendable (Int, Int) -> Void)? = nil) async throws -> [WatchlistEntry] {
+        // Dated BEFORE the request, not after: an add pushed while this crawl was in flight cannot
+        // be in what comes back, and the reconciler needs to know that to keep the film.
+        let crawledAt = Date()
+
         // Throws before anything is written: a failed crawl must leave the mirror alone, because an
         // empty screen after a network blip reads as "your watchlist is gone".
         let crawled = try await reader.watchlist()
 
-        var merged = WatchlistReconciler.merge(crawled: crawled, into: store.load())
+        var merged = WatchlistReconciler.merge(crawled: crawled, into: store.load(),
+                                               crawledAt: crawledAt)
 
         // Only what has never been tried. A film TMDB does not know stays unresolved rather than
         // being searched again on every sync forever.

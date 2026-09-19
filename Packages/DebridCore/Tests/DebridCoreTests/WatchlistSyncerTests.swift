@@ -230,4 +230,181 @@ private struct FakeTitleResolver: WatchlistTitleResolving {
             .sync(onProgress: { done, total in seen.bump("\(done)/\(total)") })
         #expect(seen.all == ["1/2", "2/2"])
     }
+
+    // MARK: - Adding a film in Seret
+
+    @Test func anAddedFilmGoesToTheFrontOfTheMirror() async throws {
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let sut = syncer(["speed"], ids: ["speed": 1637], url: url)
+        _ = try await sut.sync()
+
+        let after = await sut.add(tmdbID: 949, title: "Heat", year: 1995, posterPath: "/h.jpg")
+
+        // Letterboxd lists newest first, and this is the newest thing on the list.
+        #expect(after.first?.tmdbID == 949)
+        #expect(after.first?.name == "Heat (1995)")
+        #expect(after.first?.needsAddPush == true)
+        #expect(after.count == 2)
+    }
+
+    @Test func addingTheSameFilmTwiceLeavesOneRow() async throws {
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let sut = syncer([], ids: [:], url: url)
+
+        _ = await sut.add(tmdbID: 949, title: "Heat", year: 1995, posterPath: nil)
+        let after = await sut.add(tmdbID: 949, title: "Heat", year: 1995, posterPath: nil)
+
+        #expect(after.count == 1)
+    }
+
+    /// The film is already on Letterboxd and already in the mirror under its real slug. Adding a
+    /// placeholder beside it would show it twice and push a redundant write.
+    @Test func addingAFilmLetterboxdAlreadyListsChangesNothing() async throws {
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let sut = syncer(["speed"], ids: ["speed": 1637], url: url)
+        _ = try await sut.sync()
+
+        let after = await sut.add(tmdbID: 1637, title: "Speed", year: 1994, posterPath: nil)
+
+        #expect(after.count == 1)
+        #expect(after[0].slug == "speed")
+        #expect(after[0].needsAddPush == false)
+    }
+
+    /// Removed here, the removal reached Letterboxd, now wanted back. That is a real write.
+    @Test func readdingAFilmWhoseRemovalWasPushedAsksLetterboxdForItBack() async throws {
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let sut = syncer(["speed"], ids: ["speed": 1637], url: url)
+        _ = try await sut.sync()
+        _ = await sut.remove(slug: "speed")
+        _ = await sut.markRemovalPushed(slug: "speed")
+
+        let after = await sut.add(tmdbID: 1637, title: "Speed", year: 1994, posterPath: nil)
+
+        #expect(after.count == 1)
+        #expect(after[0].isRemoved == false)
+        #expect(after[0].needsAddPush == true)
+        #expect(after[0].removalPushedAt == nil)
+    }
+
+    /// Removed here and taken back before the removal ever left the device. Letterboxd still has
+    /// the film, so asking it to add one it already holds is a write with nothing behind it.
+    @Test func takingBackAnUnpushedRemovalNeedsNoWrite() async throws {
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let sut = syncer(["speed"], ids: ["speed": 1637], url: url)
+        _ = try await sut.sync()
+        _ = await sut.remove(slug: "speed")
+
+        let after = await sut.add(tmdbID: 1637, title: "Speed", year: 1994, posterPath: nil)
+
+        #expect(after[0].isRemoved == false)
+        #expect(after[0].needsAddPush == false)
+    }
+
+    @Test func pendingAddsAreOnlyTheUnpushedOnes() async throws {
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let sut = syncer([], ids: [:], url: url)
+        _ = await sut.add(tmdbID: 949, title: "Heat", year: 1995, posterPath: nil)
+        _ = await sut.add(tmdbID: 1637, title: "Speed", year: 1994, posterPath: nil)
+
+        _ = await sut.markAddPushed(slug: WatchlistEntry.localSlug(forTMDB: 949))
+
+        let pending = await sut.pendingAdds()
+        #expect(pending.map(\.tmdbID) == [1637])
+    }
+
+    /// Added by mistake and taken back before anything left the device: there is nothing to push and
+    /// nothing to keep. The row is deleted rather than marked, because a mark exists only to stop a
+    /// crawl handing the film back — and no crawl can hand back a film Letterboxd never received.
+    @Test func removingALocalAddThatNeverLeftTheDeviceDropsItOutright() async throws {
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let sut = syncer([], ids: [:], url: url)
+        _ = await sut.add(tmdbID: 949, title: "Heat", year: 1995, posterPath: nil)
+
+        let after = await sut.remove(slug: WatchlistEntry.localSlug(forTMDB: 949))
+
+        #expect(after.isEmpty)
+        #expect(await sut.pendingRemovals().isEmpty)
+        #expect(await sut.pendingAdds().isEmpty)
+    }
+
+    /// A local add is kept on purpose, but it must not also be pushed as a removal: those are
+    /// opposite writes, and a pushed local add that was then removed IS a pending removal.
+    @Test func aPushedLocalAddRemovedHereBecomesAPendingRemoval() async throws {
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let sut = syncer([], ids: [:], url: url)
+        _ = await sut.add(tmdbID: 949, title: "Heat", year: 1995, posterPath: nil)
+        let slug = WatchlistEntry.localSlug(forTMDB: 949)
+        _ = await sut.markAddPushed(slug: slug)
+
+        _ = await sut.remove(slug: slug)
+
+        #expect(await sut.pendingRemovals().map(\.tmdbID) == [949])
+        #expect(await sut.pendingAdds().isEmpty)
+    }
+
+    @Test func anUnpushedAddSurvivesAFullSync() async throws {
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let sut = syncer(["speed"], ids: ["speed": 1637], url: url)
+        _ = try await sut.sync()
+        _ = await sut.add(tmdbID: 949, title: "Heat", year: 1995, posterPath: nil)
+
+        let after = try await sut.sync()
+
+        #expect(after.count == 2)
+        #expect(after.first?.tmdbID == 949)
+    }
+
+    /// The film is on Letterboxd now, so the crawl speaks for it and the placeholder goes.
+    @Test func aPushedAddIsRetiredOnceTheCrawlListsIt() async throws {
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let store = WatchlistStore(fileURL: url)
+        let sut = WatchlistSyncer(reader: FakeWatchlistReader(["speed", "heat"]),
+                                  resolver: FakeTitleResolver(ids: ["speed": 1637, "heat": 949],
+                                                              calls: ResolveCalls()),
+                                  store: store, resolveDelay: .zero)
+        _ = await sut.add(tmdbID: 949, title: "Heat", year: 1995, posterPath: nil)
+        _ = await sut.markAddPushed(slug: WatchlistEntry.localSlug(forTMDB: 949))
+
+        let after = try await sut.sync()
+
+        #expect(after.map(\.slug) == ["speed", "heat"])
+    }
+
+    @Test func aFilmIsFoundByItsTMDBID() async throws {
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let sut = syncer(["speed"], ids: ["speed": 1637], url: url)
+        _ = try await sut.sync()
+
+        #expect(await sut.entry(forTMDB: 1637)?.slug == "speed")
+        #expect(await sut.entry(forTMDB: 12345) == nil)
+    }
+
+    /// A re-added film keeps its REAL slug, so it is both a pending add and a row the crawl still
+    /// lists. Carrying it as well as crawling it showed the film twice.
+    @Test func aReaddedFilmTheCrawlStillListsAppearsOnce() async throws {
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let sut = syncer(["speed"], ids: ["speed": 1637], url: url)
+        _ = try await sut.sync()
+        _ = await sut.remove(slug: "speed")
+        _ = await sut.markRemovalPushed(slug: "speed")
+        _ = await sut.add(tmdbID: 1637, title: "Speed", year: 1994, posterPath: nil)
+
+        let after = try await sut.sync()
+
+        #expect(after.map(\.slug) == ["speed"])
+        #expect(after[0].needsAddPush == true)
+    }
 }

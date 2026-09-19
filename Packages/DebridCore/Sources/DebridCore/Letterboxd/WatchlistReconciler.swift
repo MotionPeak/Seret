@@ -21,7 +21,14 @@ public enum WatchlistReconciler {
 
         // Films added here that the crawl could not have known about, kept in front of it: they are
         // the newest thing on the list, and Letterboxd orders newest first.
-        let carried = existing.filter { $0.isLocalAdd && isStillLive($0, crawledAt: crawledAt) }
+        //
+        // A slug the crawl DOES carry is excluded — a film removed here, pushed, then re-added keeps
+        // its real slug, so it is both a pending add and a row the crawl still lists, and carrying it
+        // as well as crawling it showed the film twice.
+        let crawledSlugs = Set(crawled.map(\.slug))
+        let carried = existing.filter {
+            $0.isLocalAdd && !crawledSlugs.contains($0.slug) && isStillLive($0, crawledAt: crawledAt)
+        }
 
         return carried + crawled.enumerated().map { index, entry in
             let previous = known[entry.slug]
@@ -36,7 +43,12 @@ public enum WatchlistReconciler {
                                   removedAt: previous?.removedAt,
                                   // Carried for the same reason as the mark itself: a crawl must
                                   // not make an already-pushed removal look pending again.
-                                  removalPushedAt: previous?.removalPushedAt)
+                                  removalPushedAt: previous?.removalPushedAt,
+                                  // Only while the add is still owed. Once Letterboxd has it, this
+                                  // row is plain crawled truth and saying it was added here as well
+                                  // would be a mark that never goes away.
+                                  addedLocallyAt: previous?.needsAddPush == true
+                                      ? previous?.addedLocallyAt : nil)
         }
     }
 
