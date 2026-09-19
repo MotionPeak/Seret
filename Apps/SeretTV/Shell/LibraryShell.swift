@@ -18,6 +18,9 @@ struct LibraryShell: View {
     /// Watched marks for every browse/search poster. Held here so all the grids share one cache and
     /// switching pages does not re-query what is already known.
     @State private var tileMarks: TileWatchMarks?
+    /// The watchlist toggle every tile and title page offers. Built here so one object serves the
+    /// whole shell, and read OPTIONALLY everywhere — see the comment in `BrowseTile`.
+    @State private var watchlistMarks: WatchlistMarks?
 
 
     /// Whether the panel is widened.
@@ -122,6 +125,11 @@ struct LibraryShell: View {
         }
         .task { if tileMarks == nil { tileMarks = session.makeTileWatchMarks() } }
         .environment(tileMarks ?? .placeholder)
+        .task {
+            if watchlistMarks == nil { watchlistMarks = session.makeWatchlistMarks() }
+            await watchlistMarks?.load()
+        }
+        .environment(watchlistMarks ?? .placeholder)
         .onChange(of: tab) { _, new in if new == .home { Task { await session.refreshHome() } } }
         .onChange(of: path.isEmpty) { _, empty in if empty { Task { await session.refreshHome() } } }
         .fullScreenCover(isPresented: $showingProfiles) {

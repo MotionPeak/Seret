@@ -11,6 +11,9 @@ struct RootView: View {
     @State private var router = AppRouter()
     /// Watched marks for every browse/search poster. Held here so all the grids share one cache.
     @State private var tileMarks: TileWatchMarks?
+    /// The watchlist toggle offered by tiles and title pages. One object for the whole shell, read
+    /// OPTIONALLY wherever it is used — see the comment in `FindScreen`.
+    @State private var watchlistMarks: WatchlistMarks?
 
     var body: some View {
         ZStack {
@@ -30,6 +33,11 @@ struct RootView: View {
         }
         .environment(router)
         .task { if tileMarks == nil { tileMarks = session.makeTileWatchMarks() } }
+        .task {
+            if watchlistMarks == nil { watchlistMarks = session.makeWatchlistMarks() }
+            await watchlistMarks?.load()
+        }
+        .environment(watchlistMarks ?? .placeholder)
         .environment(tileMarks ?? .placeholder)
         // Detail (and the player nested in it) is presented HERE — above the TabView/SplitView —
         // so rotating the device doesn't dismiss it.

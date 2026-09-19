@@ -18,6 +18,9 @@ struct PersonScreen: View {
     /// reliably survive a presentation boundary, and reading it as a non-optional `@Environment`
     /// traps the moment the page appears — which is exactly how it failed on iOS.
     @State private var marks: TileWatchMarks?
+    /// The watchlist toggle, built here for the same reason as `marks` — a credit tile offers it,
+    /// and the shell's object does not cross this boundary.
+    @State private var watchlist: WatchlistMarks?
     @State private var store: PersonStore?
 
     /// `store` is the seam the DEBUG `-uiPreview person` harness loads through. Production passes
@@ -48,8 +51,11 @@ struct PersonScreen: View {
         // screen consulted — an actor's page was the one grid in the app where a title you had
         // already watched showed no tick.
         .environment(marks ?? .placeholder)
+        .environment(watchlist ?? .placeholder)
         .task {
             if marks == nil { marks = session.makeTileWatchMarks() }
+            if watchlist == nil { watchlist = session.makeWatchlistMarks() }
+            await watchlist?.load()
             if store == nil { store = session.makePersonStore(for: ref) }
             await store?.load()
         }

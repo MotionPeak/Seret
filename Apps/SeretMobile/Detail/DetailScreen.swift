@@ -14,6 +14,10 @@ struct DetailScreen: View {
     @State private var store: DetailStore
     @State private var playback: PlaybackPresentation?
     @State private var confirmingRemove = false
+    /// Owned by this page rather than read from the shell: Detail is a full-screen cover, and an
+    /// object that does not cross that boundary is a trap. The syncer underneath is shared, so the
+    /// mirror stays consistent with every other surface.
+    @State private var watchlist: WatchlistMarks?
     @State private var removeError: String?
     /// "More Like This" destinations. Presented from HERE, not through `AppRouter`: this screen is
     /// itself a cover owned by the shell, and the shell can't stack a second cover on top of it.
@@ -76,6 +80,17 @@ struct DetailScreen: View {
                 if let source { session.prefetchPlayback(for: source) }
             }
             .task { await store.loadMyList(contentKey: store.item.id) }
+            // Movies only — Letterboxd has no watchlist a show can go on — so a show page does not
+            // pay for an object it cannot use.
+            .task {
+                guard store.item.kind == .movie else { return }
+                if watchlist == nil { watchlist = session.makeWatchlistMarks() }
+                await watchlist?.load()
+            }
+            .environment(watchlist)
+            .watchlistChangeConfirmation(marks: watchlist, tmdbID: store.item.tmdbID) { outcome in
+                WatchlistChangeBar(outcome: outcome)
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button { dismiss() } label: { Image(systemName: "chevron.down").font(.headline) }

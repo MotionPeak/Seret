@@ -191,6 +191,8 @@ struct BrowseTile: View {
     /// boundary — which is the `EnvironmentValues.subscript.getter → assertionFailure` SIGTRAP in
     /// this app's crash reports. Absent marks must mean "no ticks yet", never a dead process.
     @Environment(TileWatchMarks.self) private var marks: TileWatchMarks?
+    /// Optional for the same reason as `marks` above.
+    @Environment(WatchlistMarks.self) private var watchlist: WatchlistMarks?
     /// Set by the shell; a no-op anywhere else. See `requestLibraryRemoval`.
     @Environment(\.requestLibraryRemoval) private var requestRemoval
     private let width: CGFloat = 220
@@ -211,6 +213,15 @@ struct BrowseTile: View {
                    systemImage: watched ? "checkmark.circle.fill" : "checkmark.circle") {
                 toggleWatched(watched)
             }
+            // Films only: Letterboxd has no watchlist a show can go on.
+            if let film = WatchlistFilm(hit: hit), let watchlist {
+                let on = watchlist.contains(tmdbID: film.tmdbID)
+                Button(on ? "Remove from Watchlist" : "Add to Watchlist",
+                       systemImage: on ? "bookmark.fill" : "bookmark") {
+                    Task { await watchlist.toggle(film: film) }
+                }
+            }
+
             // Only for a title you actually own — a Find result you have not added has nothing to
             // remove. Find could mark watched but never remove, which is half of "the option isn't
             // there in all screens".

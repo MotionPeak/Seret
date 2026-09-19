@@ -21,6 +21,9 @@ struct MovieDetail: View {
     /// Drives Play on a title that is not in the library: find the best cached release, add it, play.
     @State private var acquisition: AcquisitionStore?
     @Environment(AppSession.self) private var session
+    /// Absent until `DetailScreen` has built it, and absent in previews — the control is then
+    /// simply not offered, which beats offering one that does nothing.
+    @Environment(WatchlistMarks.self) private var watchlist: WatchlistMarks?
 
     var body: some View {
         ScrollView {
@@ -152,8 +155,26 @@ struct MovieDetail: View {
                 // only unhelpful but untrue.
                 .disabled(acquiring || acquisition == nil || store.imdbID == nil)
             }
+            // Its own control rather than a line in the "…" menu: it is the one thing you do to a
+            // film you have NOT watched, which is most of what reaches an unowned title.
+            watchlistButton()
             Spacer(minLength: 0)
             watchedMenu()
+        }
+    }
+
+    /// Films only — Letterboxd has no watchlist a show can go on.
+    @ViewBuilder private func watchlistButton() -> some View {
+        if let film = WatchlistFilm(item: item), let watchlist {
+            let on = watchlist.contains(tmdbID: film.tmdbID)
+            Button {
+                Task { await watchlist.toggle(film: film) }
+            } label: {
+                Label(on ? "On Watchlist" : "Watchlist",
+                      systemImage: on ? "bookmark.fill" : "bookmark")
+            }
+            .buttonStyle(GhostButtonStyle())
+            .disabled(watchlist.isInFlight(tmdbID: film.tmdbID))
         }
     }
 

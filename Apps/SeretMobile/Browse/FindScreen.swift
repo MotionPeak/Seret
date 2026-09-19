@@ -16,6 +16,9 @@ struct FindScreen: View {
     /// boundary — which is the `EnvironmentValues.subscript.getter → assertionFailure` SIGTRAP in
     /// this app's crash reports. Absent marks must mean "no ticks yet", never a dead process.
     @Environment(TileWatchMarks.self) private var marks: TileWatchMarks?
+    /// Optional for the same reason as `marks` above: a non-optional `@Environment` read of an
+    /// `@Observable` traps when the object has not crossed a presentation boundary.
+    @Environment(WatchlistMarks.self) private var watchlist: WatchlistMarks?
     @Environment(\.horizontalSizeClass) private var hSize
     @State private var query = ""
     /// A title awaiting removal confirmation, and the failure to surface if RD refuses.
@@ -209,6 +212,15 @@ struct FindScreen: View {
                    systemImage: watched ? "checkmark.circle.fill" : "checkmark.circle") {
                 toggleWatched(hit, watched: watched)
             }
+            // Films only: Letterboxd has no watchlist a show can go on.
+            if let film = WatchlistFilm(hit: hit), let watchlist {
+                let on = watchlist.contains(tmdbID: film.tmdbID)
+                Button(on ? "Remove from Watchlist" : "Add to Watchlist",
+                       systemImage: on ? "bookmark.fill" : "bookmark") {
+                    Task { await watchlist.toggle(film: film) }
+                }
+            }
+
             // Only for a title you actually own — a Find result you have not added has nothing to
             // remove. Find could mark watched but never remove.
             if let owned {

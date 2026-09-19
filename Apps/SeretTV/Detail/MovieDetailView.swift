@@ -20,6 +20,9 @@ struct MovieDetailView: View {
     private enum Field: Hashable { case play }
     @FocusState private var initialFocus: Field?
     @Environment(AppSession.self) private var session
+    /// Absent until `DetailView` has built it, and absent in previews — the button is simply not
+    /// offered then, which beats offering one that does nothing.
+    @Environment(WatchlistMarks.self) private var watchlist: WatchlistMarks?
     /// Drives Play on a title that is not in the library: find the best cached release, add it, play.
     @State private var acquisition: AcquisitionStore?
     @State private var acquiredPlayback: AcquiredPlayback?
@@ -154,6 +157,20 @@ struct MovieDetailView: View {
                     Label("Versions", systemImage: "square.stack.3d.up")
                 }
                 .buttonStyle(SeretActionButtonStyle())
+            }
+
+            // Its own control rather than a line in the More menu: it is the one thing on this page
+            // you do to a film you have NOT watched, which is most of what reaches an unowned title.
+            if let film = WatchlistFilm(item: item), let watchlist {
+                let on = watchlist.contains(tmdbID: film.tmdbID)
+                Button {
+                    Task { await watchlist.toggle(film: film) }
+                } label: {
+                    Label(on ? "On Watchlist" : "Watchlist",
+                          systemImage: on ? "bookmark.fill" : "bookmark")
+                }
+                .buttonStyle(SeretActionButtonStyle())
+                .disabled(watchlist.isInFlight(tmdbID: film.tmdbID))
             }
 
             // Everything rare or destructive lives here — off the primary path so it can't be mis-hit.

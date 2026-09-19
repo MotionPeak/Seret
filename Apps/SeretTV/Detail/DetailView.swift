@@ -13,6 +13,10 @@ struct DetailView: View {
     @State private var episodeError: String?
     /// Finds, adds and plays an episode you do not have — the same engine the movie page uses.
     @State private var acquisition: AcquisitionStore?
+    /// Owned by this page rather than read from the shell: Detail is reached by a push AND from
+    /// inside covers, and an object that does not cross one of those boundaries is a trap. The
+    /// syncer underneath is shared, so the mirror stays consistent with every other surface.
+    @State private var watchlist: WatchlistMarks?
     @Environment(AppSession.self) private var session
     @Environment(\.dismiss) private var dismiss
 
@@ -60,6 +64,17 @@ struct DetailView: View {
             if let source { session.prefetchPlayback(for: source) }
         }
         .task { await store.loadMyList(contentKey: store.item.id) }
+        // Movies only — Letterboxd has no watchlist a show can go on — so a show page does not pay
+        // for an object it cannot use.
+        .task {
+            guard store.item.kind == .movie else { return }
+            if watchlist == nil { watchlist = session.makeWatchlistMarks() }
+            await watchlist?.load()
+        }
+        .environment(watchlist)
+        .watchlistChangeConfirmation(marks: watchlist, tmdbID: store.item.tmdbID) { outcome in
+            WatchlistChangeBar(outcome: outcome)
+        }
         // Fires again when the player pops back to this screen (value-nav) — re-read watch state
         // so Resume · <time> reflects the position the player just recorded.
         .onAppear { Task { await store.reloadWatch() } }
