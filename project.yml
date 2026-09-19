@@ -40,6 +40,21 @@ targets:
         OpenSubtitlesAPIKey: "$(OPENSUBTITLES_API_KEY)"
         OMDBAPIKey: "$(OMDB_API_KEY)"
         LSApplicationQueriesSchemes: [youtube, vnd.youtube]
+        # SeretServer is reached over plain HTTP on a LAN address, which the SIMULATOR allows
+        # without either of these — measured, by removing them and watching `-uiPreview
+        # serverprobe` still GET /health -> 200. So neither is what makes the simulator work, and
+        # ATS is NOT the explanation for a failure seen only on the device.
+        #
+        # They are here for the gate the simulator does not enforce: a real Apple TV applies local
+        # network privacy, and without a usage string the system denies access outright rather
+        # than asking. That is a device-only failure mode, invisible to every test here, and it
+        # presents exactly as "Couldn't reach your Seret server".
+        #
+        # NSAllowsLocalNetworking rather than NSAllowsArbitraryLoads: cleartext is permitted only
+        # to local addresses, so the public internet stays HTTPS-only.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+        NSLocalNetworkUsageDescription: Seret uses your local network to reach your Seret server.
         UIBackgroundModes: [remote-notification]
         # Rubik is BOTH the app's UI face and the subtitle face VLCKit resolves by family name.
         # Verified on tvOS 26: all four register under the single "Rubik" family, and code selects
@@ -106,6 +121,21 @@ targets:
         OMDBAPIKey: "$(OMDB_API_KEY)"
         UIBackgroundModes: [remote-notification]
         UIAppFonts: [Rubik-Regular.ttf]      # registers Rubik so VLCKit can use it for subtitles
+        # SeretServer is reached over plain HTTP on a LAN address, which the SIMULATOR allows
+        # without either of these — measured, by removing them and watching `-uiPreview
+        # serverprobe` still GET /health -> 200. So neither is what makes the simulator work, and
+        # ATS is NOT the explanation for a failure seen only on the device.
+        #
+        # They are here for the gate the simulator does not enforce: a real Apple TV applies local
+        # network privacy, and without a usage string the system denies access outright rather
+        # than asking. That is a device-only failure mode, invisible to every test here, and it
+        # presents exactly as "Couldn't reach your Seret server".
+        #
+        # NSAllowsLocalNetworking rather than NSAllowsArbitraryLoads: cleartext is permitted only
+        # to local addresses, so the public internet stays HTTPS-only.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+        NSLocalNetworkUsageDescription: Seret uses your local network to reach your Seret server.
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait

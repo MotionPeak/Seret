@@ -121,6 +121,46 @@ private struct StubResolver: WatchlistTitleResolving {
         #expect(spy.posted.isEmpty)
     }
 
+    /// Every failure used to read "Couldn't reach your Seret server" — including a server that
+    /// answered perfectly well with a 404 or a 500. That sent the owner to check the network when
+    /// the fault was the server, and it is exactly what happened when ATS silently blocked the
+    /// cleartext request: the message was technically true and diagnostically useless.
+    @Test func aBadStatusBlamesTheServerNotTheNetwork() async throws {
+        let url = tempURL(); defer { try? FileManager.default.removeItem(at: url) }
+        let syncer = try await seededSyncer(url)
+        _ = await syncer.remove(slug: "fight-club")
+
+        let spy = PostSpy(failure: HTTPError.status(code: 404, body: ""))
+        let outcome = await relay(syncer, spy).drain()
+        let message = try #require(outcome.firstError)
+        #expect(message.contains("404"))
+        #expect(!message.contains("reach"))
+    }
+
+    /// A blocked cleartext request is not an unreachable server, and saying so is the difference
+    /// between checking the Info.plist and power-cycling the NAS.
+    @Test func aBlockedCleartextRequestSaysItWasBlocked() async throws {
+        let url = tempURL(); defer { try? FileManager.default.removeItem(at: url) }
+        let syncer = try await seededSyncer(url)
+        _ = await syncer.remove(slug: "fight-club")
+
+        let blocked = URLError(.appTransportSecurityRequiresSecureConnection)
+        let spy = PostSpy(failure: HTTPError.transport(String(describing: blocked)))
+        let outcome = await relay(syncer, spy).drain()
+        #expect(outcome.firstError?.lowercased().contains("blocked") == true)
+    }
+
+    /// A genuine transport failure still reads as one.
+    @Test func anUnreachableServerStillSaysSo() async throws {
+        let url = tempURL(); defer { try? FileManager.default.removeItem(at: url) }
+        let syncer = try await seededSyncer(url)
+        _ = await syncer.remove(slug: "fight-club")
+
+        let spy = PostSpy(failure: HTTPError.transport("Could not connect to the server"))
+        let outcome = await relay(syncer, spy).drain()
+        #expect(outcome.firstError?.contains("reach") == true)
+    }
+
     /// A signed-out browser needs a different fix from an unreachable server, so it must not read
     /// as one.
     @Test func aSignedOutBrowserSaysSoRatherThanBlamingTheNetwork() async throws {

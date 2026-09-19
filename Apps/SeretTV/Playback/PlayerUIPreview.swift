@@ -23,6 +23,8 @@ import DebridCore
 ///   - `home`      — the Home screen whole: hero, Continue Watching rail, Recently Added grid
 ///   - `watchlist` — the Letterboxd watchlist grid: matched, owned, and unmatched tiles together
 ///   - `spin` — the watchlist randomiser, mid-reel and landed
+///   - `serverprobe` — can this Apple TV actually reach SeretServer? Names ATS and local-network
+///     refusals separately from an unreachable server
 ///   - `letterboxd` — the Settings Letterboxd card with the import blocked, between two cards
 ///     that DO take focus, so "can the remote reach it?" is answerable from a screenshot
 ///
@@ -54,6 +56,7 @@ struct PlayerUIPreview: View {
         case "letterboxd":          LetterboxdCardPreview()
         case "letterboxdtoast":     LetterboxdToastPreview()
         case "spin":                WatchlistSpinPreview()
+        case "serverprobe":         ServerReachabilityPreview()
         default:           ScrubBarPreview()
         }
     }
@@ -1119,6 +1122,65 @@ private struct WatchlistSpinPreview: View {
                 Text("no eligible films").foregroundStyle(Theme.Palette.textSecondary)
             }
         }
+    }
+}
+
+
+// MARK: - Server reachability
+
+/// Answers one question: can this device reach SeretServer, and if not, who refused?
+///
+/// A watchlist removal reported "Couldn't reach your Seret server" while the server was up and
+/// answering curl from the same LAN. The cause was App Transport Security refusing the cleartext
+/// request — the app never made the call. That is invisible from the server side and looks
+/// identical to a dead NAS, so it needs to be asked from inside the app process.
+private struct ServerReachabilityPreview: View {
+    @State private var lines: [String] = ["probing…"]
+
+    var body: some View {
+        ZStack {
+            CanvasBackground()
+            VStack(alignment: .leading, spacing: 18) {
+                Text("Server reachability").sectionTitle()
+                    .foregroundStyle(Theme.Palette.textPrimary)
+                ForEach(lines, id: \.self) { line in
+                    Text(line).calloutText().foregroundStyle(Theme.Palette.textSecondary)
+                }
+            }
+            .padding(Theme.Layout.contentMargin)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .task { await probe() }
+    }
+
+    private func probe() async {
+        let address = UbiquitousLetterboxdSettingsStore().load().serverURL
+        let target = address.isEmpty ? "http://192.168.1.179:8080" : address
+        var out = ["settings serverURL: \(address.isEmpty ? "(empty — using the default)" : address)",
+                   "target: \(target)"]
+
+        guard let url = URL(string: (target.hasPrefix("http") ? target : "http://" + target) + "/health") else {
+            lines = out + ["bad URL"]
+            return
+        }
+        do {
+            let (data, response) = try await URLSession.shared.data(from: url)
+            let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+            out.append("GET /health -> \(code)")
+            out.append("body: \(String(decoding: data, as: UTF8.self).prefix(60))")
+            out.append(code == 200 ? "✅ reachable — ATS is not blocking this" : "⚠️ answered, but not 200")
+        } catch {
+            let detail = String(describing: error)
+            out.append("failed: \(detail.prefix(200))")
+            if detail.contains("-1022") || detail.localizedCaseInsensitiveContains("transport security") {
+                out.append("❌ App Transport Security refused it — the call never left the device")
+            } else if detail.contains("-1009") || detail.localizedCaseInsensitiveContains("local network") {
+                out.append("❌ local network access denied")
+            } else {
+                out.append("❌ genuinely could not reach the server")
+            }
+        }
+        lines = out
     }
 }
 

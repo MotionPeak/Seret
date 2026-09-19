@@ -91,7 +91,39 @@ public struct WatchlistRemovalRelay: Sendable {
                 return "Letterboxd refused the change"
             }
         }
-        if (error as? URLError) != nil { return "Couldn't reach your Seret server" }
+        // Everything below used to collapse into "Couldn't reach your Seret server", which was
+        // true of nothing in particular. A server answering 404 is reachable; a request the OS
+        // refused to send never left the device. Those need opposite investigations.
+        if let http = error as? HTTPError {
+            switch http {
+            case .status(let code, _):
+                return "Your Seret server answered \(code)"
+            case .transport(let detail):
+                // `HTTPClient` stringifies the underlying URLError, so the code is matched in the
+                // text rather than by catching a URLError that never arrives here.
+                if Self.looksBlocked(detail) {
+                    return "This device blocked the connection — Seret needs local network access"
+                }
+                return "Couldn't reach your Seret server"
+            case .decoding:
+                return "Your Seret server sent something unexpected"
+            }
+        }
         return "Couldn't reach your Seret server"
+    }
+
+    /// App Transport Security refusing a cleartext request, or the local-network permission being
+    /// denied. Both are the device declining to make the call at all, and both look like an
+    /// unreachable server unless they are named.
+    private static func looksBlocked(_ detail: String) -> Bool {
+        let blocked = [
+            "-1022",                                       // appTransportSecurityRequiresSecureConnection
+            "appTransportSecurityRequiresSecureConnection",
+            "App Transport Security",
+            "cleartext",
+            "-1009",                                       // notConnectedToInternet, incl. denied local network
+            "local network",
+        ]
+        return blocked.contains { detail.localizedCaseInsensitiveContains($0) }
     }
 }
