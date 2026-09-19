@@ -111,6 +111,41 @@ public struct HTTPClient: Sendable {
         return data
     }
 
+    /// POSTs a JSON body and validates the status, discarding the response body.
+    ///
+    /// `post(_:json:)` decodes a reply; an endpoint that answers 200 with nothing would fail to
+    /// decode and report a transport error for a call that succeeded.
+    ///
+    /// `encoder` is a parameter because the date strategy is not a detail: Vapor decodes dates as
+    /// ISO-8601, and `JSONEncoder`'s default writes seconds since 2001. A mismatch does not fail —
+    /// it files the record under the wrong date entirely.
+    public func postJSON<Body: Encodable>(_ url: URL, json body: Body,
+                                          headers: [String: String] = [:],
+                                          encoder: JSONEncoder = JSONEncoder()) async throws {
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        for (k, v) in headers { request.setValue(v, forHTTPHeaderField: k) }
+        request.httpBody = try encoder.encode(body)
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch {
+            if error is CancellationError { throw error }
+            if (error as? URLError)?.code == .cancelled { throw CancellationError() }
+            throw HTTPError.transport(String(describing: error))
+        }
+        guard let http = response as? HTTPURLResponse else {
+            throw HTTPError.transport("Non-HTTP response")
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            throw HTTPError.status(code: http.statusCode,
+                                   body: String(decoding: data, as: UTF8.self))
+        }
+    }
+
     /// POSTs a form-urlencoded body and validates the status, discarding the response body.
     /// For endpoints that return 204 No Content (e.g. RD `selectFiles`).
     public func postForm(_ url: URL, form: [String: String], headers: [String: String] = [:]) async throws {
