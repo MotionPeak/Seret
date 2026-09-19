@@ -66,9 +66,9 @@ public final class WatchlistModel {
     /// Called when the screen appears. Opening it repeatedly should not re-crawl; the button is
     /// there for "I just added one".
     public func syncIfStale() async {
-        // Always attempted, even when the crawl is skipped: a removal made while the server was
+        // Always attempted, even when the crawl is skipped: a change made while the server was
         // off is still waiting, and opening the screen is the natural moment to retry it.
-        await pushRemovals()
+        await pushPending()
         if let last = settings.lastImportAt, now().timeIntervalSince(last) < minimumInterval { return }
         await syncNow()
     }
@@ -88,15 +88,16 @@ public final class WatchlistModel {
         }
         let stored = await removeSlug(entry.slug)
         if !stored.isEmpty { allEntries = stored }
-        await pushRemovals()
+        await pushPending()
     }
 
-    /// Tells Letterboxd about anything removed here that it has not heard about yet.
+    /// Tells Letterboxd about anything changed here that it has not heard about yet — removals
+    /// made on this screen, and adds made on a title page or a tile.
     ///
     /// Runs after a removal and when the screen opens, because the server may have been off when
-    /// the removal was made. A failure is reported but changes nothing locally — the film is gone
-    /// from this screen either way, and the removal stays pending for the next attempt.
-    public func pushRemovals() async {
+    /// the change was made. A failure is reported but changes nothing locally — the screen already
+    /// shows what was asked for, and the change stays pending for the next attempt.
+    public func pushPending() async {
         let outcome = await relay()
         relayMessage = outcome.failed > 0 ? outcome.firstError : nil
     }

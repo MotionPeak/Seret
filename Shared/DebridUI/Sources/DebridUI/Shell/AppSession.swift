@@ -882,17 +882,21 @@ public final class AppSession {
 
     /// The watchlist toggle, for every surface that offers it.
     ///
-    /// Over the same syncer as the watchlist screen, so a film added from a tile is on the list the
-    /// screen shows — and so the two cannot interleave writes to the mirror file.
+    /// ONE instance for the app, not one per screen. They would all write through the same syncer,
+    /// so the mirror would stay right — but each keeps its own in-memory set of what is on the
+    /// list, and those drift: take a film off on the title page and the Find tile behind it still
+    /// offers "Remove from Watchlist" until something reloads it.
     ///
     /// Needs no library, unlike `makeWatchlistModel`: marking a film does not depend on owning one.
     public func makeWatchlistMarks() -> WatchlistMarks {
+        if let existing = watchlistMarks { return existing }
+
         let settingsStore = UbiquitousLetterboxdSettingsStore()
         settingsStore.synchronize()
         let built = pipeline(for: settingsStore, username: settingsStore.load().username)
         let (syncer, relay) = (built.syncer, built.relay)
 
-        return WatchlistMarks(
+        let marks = WatchlistMarks(
             entries: { await syncer.cached() },
             add: { film in
                 await syncer.add(tmdbID: film.tmdbID, title: film.title, year: film.year,
@@ -900,7 +904,11 @@ public final class AppSession {
             },
             remove: { slug in await syncer.remove(slug: slug) },
             relay: { await relay.drain() })
+        watchlistMarks = marks
+        return marks
     }
+
+    private var watchlistMarks: WatchlistMarks?
 
     /// Watched marks for browse/search posters. One instance is shared by every grid, so switching
     /// tabs does not re-query what is already known.
