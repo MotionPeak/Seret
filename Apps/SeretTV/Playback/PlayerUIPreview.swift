@@ -21,6 +21,7 @@ import DebridCore
 ///   - `autosync` / `autosyncdone` / `autosyncfailed` — the subtitle-sync bar over the picture
 ///   - `manualsync` / `manualsyncpressed` — sync-to-a-line, before and after the press
 ///   - `home`      — the Home screen whole: hero, Continue Watching rail, Recently Added grid
+///   - `watchlist` — the Letterboxd watchlist grid: matched, owned, and unmatched tiles together
 ///
 /// Not compiled into release builds.
 struct PlayerUIPreview: View {
@@ -46,6 +47,7 @@ struct PlayerUIPreview: View {
         case "manualsync":          ManualSyncPanelPreview(pressed: false)
         case "manualsyncpressed":   ManualSyncPanelPreview(pressed: true)
         case "home":                HomeScreenPreview()
+        case "watchlist":           WatchlistScreenPreview()
         default:           ScrubBarPreview()
         }
     }
@@ -915,6 +917,65 @@ private struct HomeScreenPreview: View {
                    seasons: [Season(number: 3, episodes: [Episode(season: 3, number: 1,
                                                                   source: source("t-inv"))])],
                    posterPath: "/4tblBrslcKSifMVZ3TmtT2ukMor.jpg", addedAt: Date())]
+    }
+}
+
+
+// MARK: - Watchlist
+
+/// The real `WatchlistScreen` on a fabricated model, so its layout can be checked against Home's
+/// without a Letterboxd account or a signed-in session.
+///
+/// The fixture carries all three tile states on purpose: ordinary matched films, one already in the
+/// library (the gold ✓), and one that resolved to nothing — the grey box whose population this
+/// change is meant to shrink. Real TMDB poster paths, so the grid loads actual artwork and the
+/// column metrics can be compared to My Library's by eye.
+private struct WatchlistScreenPreview: View {
+    @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()))
+    @State private var model = WatchlistScreenPreview.makeModel()
+
+    var body: some View {
+        NavigationStack { WatchlistScreen(previewModel: model) }
+            .environment(session)
+    }
+
+    private static func makeModel() -> WatchlistModel {
+        let model = WatchlistModel(cached: WatchlistPreviewFixture.entries,
+                                   settings: LetterboxdSettings(username: "preview")) { _ in
+            WatchlistPreviewFixture.entries
+        }
+        // Two of them are already in the library.
+        model.ownedTMDBIDs = [496243, 949]
+        return model
+    }
+
+}
+
+/// File scope, not a nested static: the view is `@MainActor`, and the model's sync closure is
+/// `@Sendable` — a fixture read from inside it must not be actor-isolated.
+private enum WatchlistPreviewFixture {
+    static let films: [(String, Int, Int?, String?)] = [
+        ("Honey Don't! (2025)", 2025, 1149504, "/fJm3kmd9NLZWypMas7g34oNFgbk.jpg"),
+        ("Ocean's Eleven (2001)", 2001, 161, "/hQQCdZrsHtZyR6NbKH2YyCqd2fR.jpg"),
+        ("Dungeons & Dragons: Honor Among Thieves (2023)", 2023, 493529, "/v7UF7ypAqjsFZFdjksjQ7IUpXdn.jpg"),
+        ("Parasite (2019)", 2019, 496243, "/7IiTTgloJzvGI1TAYymCfbfl3vT.jpg"),
+        ("The Brutalist (2024)", 2024, 549509, "/vP7Yd6couiAaw9jgMd5cjMRj3hQ.jpg"),
+        ("Anora (2024)", 2024, 1064213, "/cgXk2tNYhJZLXdBDO5DidAVzQ82.jpg"),
+        ("Nosferatu (2024)", 2024, 426063, "/5qGIxdEO841C0tdY8vOdLoRVrr0.jpg"),
+        ("Heat (1995)", 1995, 949, "/umSVjVdbVwtx5ryCA2QXL44Durm.jpg"),
+        ("Speed (1994)", 1994, 1637, "/82PkCE4R95KhHICUDF7G4Ly2z3l.jpg"),
+        ("Whiplash (2014)", 2014, 244786, "/7fn624j5lj3xTme2SgiLCeuedmO.jpg"),
+        ("Arrival (2016)", 2016, 329865, "/pEzNVQfdzYDzVK0XqxERIw2x2se.jpg"),
+        ("Dune (2021)", 2021, 438631, "/v1tRXZ4JtD2Iv6fjkPvT4GiwslV.jpg"),
+        // Resolved and found nothing — the state the grid still has to render honestly.
+        ("A Film TMDB Has Never Heard Of (2019)", 2019, nil, nil),
+    ]
+
+    static var entries: [WatchlistEntry] {
+        films.enumerated().map { index, film in
+            WatchlistEntry(slug: "f\(index)", name: film.0, year: film.1, position: index,
+                           tmdbID: film.2, posterPath: film.3, resolvedAt: Date())
+        }
     }
 }
 
