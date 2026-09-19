@@ -12,18 +12,17 @@ private struct FakeResolver: LetterboxdFilmResolving {
 }
 
 /// Records what the writer asked the browser to do, and replies as the page would.
-/// The first evaluate reads the page; the second performs the POST.
+///
+/// One evaluate does the whole write now: the page fetches its own token and uid, then posts. The
+/// readiness probe `navigate` uses is not one of the writer's evaluates, so it neither counts nor
+/// is recorded — the page is simply always there.
 private final class ScriptedTransport: CDPTransport, @unchecked Sendable {
     private let lock = NSLock()
     private var navigations: [String] = []
     private var evaluations: [String] = []
-    let pageValue: [String: any Sendable]
     let postValue: [String: any Sendable]
 
-    init(pageValue: [String: any Sendable], postValue: [String: any Sendable]) {
-        self.pageValue = pageValue
-        self.postValue = postValue
-    }
+    init(postValue: [String: any Sendable]) { self.postValue = postValue }
 
     var navigatedTo: String? { lock.withLock { navigations.first } }
     var expressions: [String] { lock.withLock { evaluations } }
@@ -35,18 +34,13 @@ private final class ScriptedTransport: CDPTransport, @unchecked Sendable {
         }
         guard method == "Runtime.evaluate" else { return [:] }
         let expression = (params["expression"] as? String) ?? ""
-        // `navigate` polls the document until it is loaded. That probe is not one of the writer's
-        // own evaluates, so it neither counts nor gets recorded — the page is simply always there.
         if expression.contains("document.readyState") {
             let href = lock.withLock { navigations.last ?? "" }
             return ["result": ["value": ["href": href, "ready": "complete"] as [String: any Sendable]]
                         as [String: any Sendable]]
         }
-        let n = lock.withLock { () -> Int in
-            evaluations.append(expression)
-            return evaluations.count
-        }
-        return ["result": ["value": n == 1 ? pageValue : postValue] as [String: any Sendable]]
+        lock.withLock { evaluations.append(expression) }
+        return ["result": ["value": postValue] as [String: any Sendable]]
     }
 }
 
@@ -57,77 +51,98 @@ private final class ScriptedTransport: CDPTransport, @unchecked Sendable {
                               resolver: FakeResolver(slugs: slugs))
     }
 
-    fileprivate func goodPage() -> [String: any Sendable] { ["csrf": "TOKEN", "uid": "film:1620206"] }
-    fileprivate func goodPost() -> [String: any Sendable] { ["status": 200, "ok": true, "body": ""] }
+    fileprivate func ok() -> [String: any Sendable] { ["status": 200, "body": "{}"] }
 
     @Test func navigatesToTheFilmPageFirst() async throws {
-        let t = ScriptedTransport(pageValue: goodPage(), postValue: goodPost())
+        let t = ScriptedTransport(postValue: ok())
         try await writer(t).write(LetterboxdWrite(tmdbID: 550, rating: 8,
                                                   watchedAt: Date(), rewatch: true))
         #expect(t.navigatedTo == "https://letterboxd.com/film/fight-club/")
     }
 
-    @Test func thePostCarriesTheCapturedFields() async throws {
-        let t = ScriptedTransport(pageValue: goodPage(), postValue: goodPost())
+    /// The write is a JSON API call, not a form post. `/s/save-diary-entry` still appears as the
+    /// form's `action` on the live page and 404s on every shape of request — measured — so an
+    /// expression that mentions it is aimed at an endpoint that no longer exists.
+    @Test func thePostGoesToTheLogEntriesApi() async throws {
+        let t = ScriptedTransport(postValue: ok())
         try await writer(t).write(
             LetterboxdWrite(tmdbID: 550, rating: 8,
                             watchedAt: Date(timeIntervalSince1970: 1_700_000_000), rewatch: true))
         let post = try #require(t.expressions.last)
-        #expect(post.contains("/s/save-diary-entry"))
-        #expect(post.contains("film:1620206"))
-        #expect(post.contains("TOKEN"))
-        #expect(post.contains("rewatch"))
-        #expect(post.contains("specifiedDate"))
+        #expect(post.contains("/api/v0/production-log-entries"))
+        #expect(post.contains("X-CSRF-TOKEN"))
+        #expect(!post.contains("/s/save-diary-entry"))
     }
 
-    /// The page read is JavaScript built inside a Swift literal, where one backslash too many
-    /// turns `\d` into "a backslash, then a d" - a regex that matches nothing on a page where the
-    /// uid is right there. Nothing else exercises this string: the fakes hand back a uid rather
-    /// than running the expression, so it reached the real browser untested and cost a deploy.
-    @Test func thePageReadAsksForDigitsNotForABackslash() {
-        #expect(LetterboxdDiaryWriter.readPage.contains(#"/film:\d+/"#))
-        #expect(!LetterboxdDiaryWriter.readPage.contains(#"\\d"#))
+    /// The film's id comes from the page, never from here: guessing it would write onto another
+    /// film. The token comes with it, so there is no second read to get out of step.
+    ///
+    /// It has to be the LID. The API rejects the uid outright - "Object not found due to error for
+    /// ID: film:51977" - and accepts `2bdo`, measured against the live endpoint.
+    @Test func theProductionAndTokenBothComeFromThePage() async throws {
+        let t = ScriptedTransport(postValue: ok())
+        try await writer(t).write(LetterboxdWrite(tmdbID: 550, rating: 8, watchedAt: Date()))
+        let post = try #require(t.expressions.last)
+        #expect(post.contains("/film/fight-club/json/"))
+        #expect(post.contains("productionId"))
+        #expect(post.contains("meta.lid"))
+        #expect(!post.contains("meta.uid"))
+        #expect(post.contains("meta.csrf"))
+    }
+
+    @Test func theBodyCarriesTheHalvedRatingAndTheDate() async throws {
+        let t = ScriptedTransport(postValue: ok())
+        try await writer(t).write(
+            LetterboxdWrite(tmdbID: 550, rating: 8,
+                            watchedAt: Date(timeIntervalSince1970: 1_700_000_000), rewatch: true))
+        let post = try #require(t.expressions.last)
+        #expect(post.contains("\"rating\":4"))
+        #expect(post.contains("diaryDetails"))
+        #expect(post.contains("\"rewatch\":true"))
     }
 
     /// A film Letterboxd does not know cannot be written, and retrying will not help.
     @Test func anUnknownFilmIsFilmNotFound() async {
-        let t = ScriptedTransport(pageValue: goodPage(), postValue: goodPost())
+        let t = ScriptedTransport(postValue: ok())
         await #expect(throws: LetterboxdError.filmNotFound) {
             try await writer(t, slugs: [:]).write(LetterboxdWrite(tmdbID: 99, rating: nil))
         }
     }
 
-    /// No token means the page did not load as a signed-in member.
-    @Test func aPageWithoutACsrfIsNotAuthenticated() async {
-        let t = ScriptedTransport(pageValue: ["uid": "film:1"], postValue: goodPost())
+    /// The page handing back no token and no uid means it did not load as a signed-in member.
+    @Test func aPageWithoutSessionMetadataIsNotAuthenticated() async {
+        let t = ScriptedTransport(postValue: ["status": 0, "body": "no session metadata"])
         await #expect(throws: LetterboxdError.notAuthenticated) {
             try await writer(t).write(LetterboxdWrite(tmdbID: 550, rating: nil))
         }
     }
 
     @Test func aChallengedPostIsChallenged() async {
-        let t = ScriptedTransport(pageValue: goodPage(),
-                                  postValue: ["status": 403, "ok": false,
-                                              "body": "Just a moment..."] as [String: any Sendable])
+        let t = ScriptedTransport(postValue: ["status": 403, "body": "Just a moment..."])
         await #expect(throws: LetterboxdError.challenged) {
             try await writer(t).write(LetterboxdWrite(tmdbID: 550, rating: nil))
         }
     }
 
-    /// A plain 403 is a dead session, not a challenge — they need different fixes, and sending the
-    /// owner to the wrong one wastes their time.
+    /// A rejected token is worth retrying with a freshly loaded page; a dead session is not. They
+    /// arrive as the same status, so the body is what separates them.
+    @Test func aRejectedTokenIsTransient() async {
+        let t = ScriptedTransport(postValue: ["status": 403, "body": "Invalid CSRF token"])
+        await #expect(throws: LetterboxdError.transient("Letterboxd rejected the page's CSRF token")) {
+            try await writer(t).write(LetterboxdWrite(tmdbID: 550, rating: nil))
+        }
+    }
+
     @Test func aPlain403IsNotAuthenticated() async {
-        let t = ScriptedTransport(pageValue: goodPage(),
-                                  postValue: ["status": 403, "ok": false, "body": "nope"] as [String: any Sendable])
+        let t = ScriptedTransport(postValue: ["status": 403, "body": "nope"])
         await #expect(throws: LetterboxdError.notAuthenticated) {
             try await writer(t).write(LetterboxdWrite(tmdbID: 550, rating: nil))
         }
     }
 
     @Test func aServerErrorIsTransient() async {
-        let t = ScriptedTransport(pageValue: goodPage(),
-                                  postValue: ["status": 502, "ok": false, "body": ""] as [String: any Sendable])
-        await #expect(throws: LetterboxdError.transient("save-diary-entry returned 502")) {
+        let t = ScriptedTransport(postValue: ["status": 502, "body": ""])
+        await #expect(throws: LetterboxdError.transient("production-log-entries returned 502")) {
             try await writer(t).write(LetterboxdWrite(tmdbID: 550, rating: nil))
         }
     }
