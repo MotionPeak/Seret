@@ -86,7 +86,7 @@ struct MovieDetailView: View {
                                people: store.directors)
             }
             if let best = store.bestSource { QualityChips(parsed: best.parsed) }
-            RatingsRow(ratings: store.ratings)
+            RatingsRow(ratings: store.ratings, letterboxd: store.letterboxdRating)
             if let overview = store.overview {
                 Text(overview).bodyText().frame(maxWidth: 1100, alignment: .leading).lineLimit(4)
             }

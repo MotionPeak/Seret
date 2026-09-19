@@ -28,10 +28,12 @@ struct DetailScreen: View {
 
     init(item: MediaItem, details: MediaDetailsProviding, watch: WatchProgressProviding?,
          profileID: String? = nil, myList: MyListProviding? = nil, ratings: RatingsProviding? = nil,
-         versionPrefs: VersionPreferring? = nil) {
+         versionPrefs: VersionPreferring? = nil,
+         letterboxd: LetterboxdRatingProviding? = nil) {
         _store = State(initialValue: DetailStore(item: item, details: details, watch: watch,
                                                  profileID: profileID, myList: myList, ratings: ratings,
-                                                 versionPrefs: versionPrefs))
+                                                 versionPrefs: versionPrefs,
+                                                 letterboxd: letterboxd))
     }
 
     var body: some View {
@@ -131,7 +133,8 @@ struct DetailScreen: View {
                                      profileID: session.activeProfileID,
                                      myList: session.myListStore,
                                      ratings: session.ratingsProvider,
-                                     versionPrefs: session.versionPreferences))
+                                     versionPrefs: session.versionPreferences,
+                                     letterboxd: session.letterboxdRatingProvider))
             }
         }
         // "Versions" — the full cached/uncached release list for this title, owned or not.

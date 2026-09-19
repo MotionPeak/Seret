@@ -43,6 +43,10 @@ public final class AppSession {
     /// On-demand OMDb ratings provider for the Detail screen (nil while signed out or no key).
     public private(set) var ratingsProvider: RatingsProviding?
 
+    /// Letterboxd's community score for the Detail screen (nil while signed out). Needs no key and
+    /// no account — the film page is public — so unlike OMDb it is always built.
+    public private(set) var letterboxdRatingProvider: LetterboxdRatingProviding?
+
     /// Shared watch-progress store (nil while signed out, or if the container fails to build).
     /// 7c's player + a later Continue-Watching feed reuse this same instance.
     public private(set) var watchStore: WatchProgressProviding?
@@ -180,6 +184,7 @@ public final class AppSession {
         trailers = nil
         detailsProvider = nil
         ratingsProvider = nil
+        letterboxdRatingProvider = nil
         watchStore = nil
         home = nil
         torrents = nil
@@ -461,6 +466,7 @@ public final class AppSession {
         ratingsProvider = omdbKey.isEmpty ? nil
             : OMDbRatingsService(client: OMDbClient(apiKey: omdbKey),
                                  cache: OMDbRatingsCache(directory: Self.dataDirectory))
+        letterboxdRatingProvider = Self.makeLetterboxdRatingProvider()
         // Home resumes playback directly, so it needs the same version preference the title page's
         // Play button uses — otherwise Continue Watching quietly plays a different file.
         home = watchStore.map { HomeStore(watch: $0, versionPrefs: versionPreferences) }
@@ -732,6 +738,26 @@ public final class AppSession {
 
     /// The Letterboxd import. Nil until there is a watch store to write into.
     ///
+    /// Letterboxd's community score, read straight from the public film page.
+    ///
+    /// Shares the import's slug map, so a film either side has already resolved costs no request
+    /// here, and `PersistingFilmResolver` writes new slugs back for both. Scores are cached for a
+    /// week because one costs a ~47 KB page -- the small endpoint that would carry it alone is
+    /// Cloudflare-blocked to every non-browser client.
+    private static func makeLetterboxdRatingProvider() -> LetterboxdRatingProviding {
+        let mapStore = LetterboxdFilmMapStore(fileURL: LetterboxdFilmMapStore.defaultURL())
+        let map = LetterboxdFilmMap(seed: mapStore.load())
+        let http = HTTPClient()
+        let resolver = PersistingFilmResolver(resolver: LetterboxdFilmResolver(http: http, map: map),
+                                              map: map,
+                                              store: mapStore)
+        return LetterboxdRatingService(
+            client: LetterboxdRatingsClient(http: http, resolver: resolver),
+            cache: TTLFileCache(directory: Self.dataDirectory,
+                                fileName: "letterboxd-ratings.json",
+                                ttl: 7 * 24 * 60 * 60))
+    }
+
     /// The library is read when the import RUNS, not when the model is built, so a refresh that
     /// adds titles is picked up by an import started afterwards. The film map is seeded from disk
     /// and written back, which is what makes slug resolution a one-time cost per film.
