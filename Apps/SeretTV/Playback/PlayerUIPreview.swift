@@ -22,6 +22,8 @@ import DebridCore
 ///   - `manualsync` / `manualsyncpressed` — sync-to-a-line, before and after the press
 ///   - `home`      — the Home screen whole: hero, Continue Watching rail, Recently Added grid
 ///   - `watchlist` — the Letterboxd watchlist grid: matched, owned, and unmatched tiles together
+///   - `letterboxd` — the Settings Letterboxd card with the import blocked, between two cards
+///     that DO take focus, so "can the remote reach it?" is answerable from a screenshot
 ///
 /// Not compiled into release builds.
 struct PlayerUIPreview: View {
@@ -48,6 +50,7 @@ struct PlayerUIPreview: View {
         case "manualsyncpressed":   ManualSyncPanelPreview(pressed: true)
         case "home":                HomeScreenPreview()
         case "watchlist":           WatchlistScreenPreview()
+        case "letterboxd":          LetterboxdCardPreview()
         default:           ScrubBarPreview()
         }
     }
@@ -977,6 +980,52 @@ private enum WatchlistPreviewFixture {
                            tmdbID: film.2, posterPath: film.3, resolvedAt: Date())
         }
     }
+}
+
+
+// MARK: - Letterboxd settings card
+
+/// The Settings Letterboxd card in the state the owner actually has: a username synced from the
+/// iPhone, but "Import my ratings" never switched on there.
+///
+/// Sandwiched between two cards that definitely take focus, because the question is not what the
+/// card looks like — it is whether the remote can land on it at all. Walk DOWN from the top card
+/// and see where focus ends up.
+private struct LetterboxdCardPreview: View {
+    @State private var model = LetterboxdImportModel(
+        settingsStore: InMemoryLetterboxdSettingsStore(
+            LetterboxdSettings(username: "thebigshin", isEnabled: false)),
+        run: { _, _ in LetterboxdImporter.Summary(scanned: 0, needingWork: 0, written: 0,
+                                                  conflicts: 0, unresolved: 0) })
+
+    var body: some View {
+        ZStack {
+            CanvasBackground()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 28) {
+                    SettingsCard(title: "Above", icon: "arrow.up") {
+                        Button("Focusable above") {}
+                    }
+                    LetterboxdCard(model: model, profileID: "preview-profile")
+                    SettingsCard(title: "Below", icon: "arrow.down") {
+                        Button("Focusable below") {}
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 40)
+                .focusSection()
+            }
+        }
+    }
+}
+
+/// A settings store that keeps the value in memory — the preview must not touch iCloud or the
+/// device's real defaults.
+private final class InMemoryLetterboxdSettingsStore: LetterboxdSettingsStoring, @unchecked Sendable {
+    private var settings: LetterboxdSettings
+    init(_ settings: LetterboxdSettings) { self.settings = settings }
+    func load() -> LetterboxdSettings { settings }
+    func save(_ settings: LetterboxdSettings) { self.settings = settings }
 }
 
 #endif

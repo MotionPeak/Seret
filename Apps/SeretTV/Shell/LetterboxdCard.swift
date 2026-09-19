@@ -4,64 +4,95 @@ import SwiftUI
 
 /// Letterboxd import, Apple TV side.
 ///
-/// The username is read-only here on purpose: typing one on a remote is a punishment, and the
-/// setting is the same `UserDefaults` key the iPhone writes. Set it there, import from either.
+/// The username stays read-only here on purpose: typing one on a remote is a punishment, and the
+/// setting is the same iCloud-synced key the iPhone writes. Set it there, import from either.
+///
+/// Everything else the import needs, though, must be settable HERE. "Import my ratings" used to
+/// live only on the iPhone while this card gated its button on it — and a `.disabled` button is
+/// removed from tvOS's focus system entirely, so the whole card became unreachable: pressing DOWN
+/// jumped from the card above straight to the card below it. A switch is exactly the kind of thing
+/// a remote is good at, so it is offered on both faces.
 struct LetterboxdCard: View {
     @Bindable var model: LetterboxdImportModel
     let profileID: String?
 
-    private var canImport: Bool {
-        model.settings.isEnabled && !model.settings.username.isEmpty && profileID?.isEmpty == false
+    private var hasUsername: Bool { !model.settings.username.isEmpty }
+    private var hasProfile: Bool { profileID?.isEmpty == false }
+    private var canImport: Bool { model.settings.isEnabled && hasUsername && hasProfile }
+
+    /// Writes through to the same store the iPhone uses, so the switch means the same thing on
+    /// both devices.
+    private var isEnabled: Binding<Bool> {
+        Binding(get: { model.settings.isEnabled },
+                set: { var s = model.settings; s.isEnabled = $0; model.update(s) })
+    }
+
+    /// Why the import cannot run, in the owner's terms. Nil when it can.
+    ///
+    /// This is shown instead of a disabled button, never alongside one: a control the remote
+    /// cannot reach explains nothing, and that is the whole defect this card had.
+    private var blockedReason: String? {
+        if !hasUsername { return "Set your Letterboxd username on your iPhone, in Seret → Settings." }
+        if !model.settings.isEnabled { return "Turn on “Import my ratings” to bring your Letterboxd ratings in." }
+        if !hasProfile { return "Still getting ready — try again in a moment." }
+        return nil
     }
 
     var body: some View {
         SettingsCard(title: "Letterboxd", icon: "film.stack") {
-            VStack(alignment: .leading, spacing: 12) {
-                if model.settings.username.isEmpty {
-                    Text("Set your Letterboxd username on your iPhone, in Seret → Settings.")
-                        .foregroundStyle(Theme.Palette.textSecondary)
-                } else {
+            VStack(alignment: .leading, spacing: 16) {
+                if hasUsername {
                     Text(model.settings.username)
                         .foregroundStyle(Theme.Palette.textPrimary)
                 }
 
-                switch model.phase {
-                case .idle:
-                    Button("Import Ratings") {
-                        Task { await model.importNow(profileID: profileID) }
-                    }
-                    .buttonStyle(SeretActionButtonStyle())
-                    .disabled(!canImport)
+                // Always present, so the card always has something the remote can land on —
+                // whatever else is or isn't set up.
+                Toggle("Import my ratings", isOn: isEnabled)
 
-                case .running(let done, let total):
-                    Text(total > 0 ? "Matching \(done) of \(total)…" : "Reading your profile…")
-                        .foregroundStyle(Theme.Palette.textSecondary)
-
-                case .finished(let summary):
-                    Text(summary.written == 0
-                         ? "Nothing new to fill in"
-                         : "Filled in \(summary.written) rating\(summary.written == 1 ? "" : "s")")
-                        .foregroundStyle(Theme.Palette.textPrimary)
-                    if summary.conflicts > 0 {
-                        Text("\(summary.conflicts) rated differently here — kept yours")
-                            .font(.caption)
-                            .foregroundStyle(Theme.Palette.textSecondary)
-                    }
-                    Button("Import Again") {
-                        Task { await model.importNow(profileID: profileID) }
-                    }
-                    .buttonStyle(SeretActionButtonStyle())
-                    .disabled(!canImport)
-
-                case .failed(let message):
-                    Text(message).foregroundStyle(.red)
-                    Button("Try Again") {
-                        Task { await model.importNow(profileID: profileID) }
-                    }
-                    .buttonStyle(SeretActionButtonStyle())
-                    .disabled(!canImport)
-                }
+                phaseContent
             }
+        }
+    }
+
+    @ViewBuilder private var phaseContent: some View {
+        switch model.phase {
+        case .idle:
+            importAction("Import Ratings")
+
+        case .running(let done, let total):
+            Text(total > 0 ? "Matching \(done) of \(total)…" : "Reading your profile…")
+                .settingsCaption()
+
+        case .finished(let summary):
+            Text(summary.written == 0
+                 ? "Nothing new to fill in"
+                 : "Filled in \(summary.written) rating\(summary.written == 1 ? "" : "s")")
+                .foregroundStyle(Theme.Palette.textPrimary)
+            if summary.conflicts > 0 {
+                Text("\(summary.conflicts) rated differently here — kept yours")
+                    .settingsCaption()
+            }
+            if summary.unresolved > 0 {
+                Text("\(summary.unresolved) not found on Letterboxd")
+                    .settingsCaption()
+            }
+            importAction("Import Again")
+
+        case .failed(let message):
+            // The palette's error colour rather than a raw `.red`, which the app uses nowhere else.
+            Text(message).foregroundStyle(Theme.Palette.destructive)
+            importAction("Try Again")
+        }
+    }
+
+    /// The button when the import can actually run, and the reason it can't when it can't.
+    @ViewBuilder private func importAction(_ title: String) -> some View {
+        if canImport {
+            Button(title) { Task { await model.importNow(profileID: profileID) } }
+                .buttonStyle(SeretActionButtonStyle())
+        } else if let blockedReason {
+            Text(blockedReason).settingsCaption()
         }
     }
 }
