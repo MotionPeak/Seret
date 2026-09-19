@@ -123,7 +123,8 @@ struct SettingsView: View {
             .listRowBackground(Theme.Palette.surface1)
 
             if let letterboxd {
-                LetterboxdSettingsSection(model: letterboxd, profileID: session.activeProfileID)
+                LetterboxdSettingsSection(model: letterboxd, profileID: session.activeProfileID,
+                                          push: session.letterboxdPush)
             }
 
             Section {

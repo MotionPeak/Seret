@@ -37,6 +37,17 @@ public struct LetterboxdSettings: Sendable, Codable, Equatable {
         lastImportAt = try c.decodeIfPresent(Date.self, forKey: .lastImportAt)
         serverURL = try c.decodeIfPresent(String.self, forKey: .serverURL) ?? ""
     }
+
+    /// `serverURL` parsed into something that can actually be sent to.
+    ///
+    /// A bare `host:port` is what a person types, and a URL without a scheme is not a URL. Named
+    /// apart from the stored string it reads because both are wanted: the watchlist relay passes
+    /// the address along as typed, and the diary push needs a base to build paths on.
+    public var serverBaseURL: URL? {
+        let trimmed = serverURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return URL(string: trimmed.contains("://") ? trimmed : "http://\(trimmed)")
+    }
 }
 
 public protocol LetterboxdSettingsStoring: Sendable {

@@ -992,6 +992,12 @@ private enum WatchlistPreviewFixture {
 ///
 /// Sandwiched between two cards that definitely take focus, because the question is not what the
 /// card looks like — it is whether the remote can land on it at all. Walk DOWN from the top card
+/// A browser that has been signed out, for the preview above: the failure the owner most needs
+/// the card to explain, and the one that stops the drain.
+private struct AlwaysSignedOutRelay: LetterboxdRelaying {
+    func send(_ write: LetterboxdWrite) async throws { throw LetterboxdError.notAuthenticated }
+}
+
 /// and see where focus ends up.
 private struct LetterboxdCardPreview: View {
     @State private var model = LetterboxdImportModel(
@@ -999,6 +1005,17 @@ private struct LetterboxdCardPreview: View {
             LetterboxdSettings(username: "thebigshin", isEnabled: false)),
         run: { _, _ in LetterboxdImporter.Summary(scanned: 0, needingWork: 0, written: 0,
                                                   conflicts: 0, unresolved: 0) })
+
+    /// A queue that cannot drain, so the status rows have something to say. A fixture that leaves
+    /// them empty would render the card exactly as it looked before and prove nothing.
+    @State private var push = LetterboxdPushCoordinator(
+        outbox: InMemoryLetterboxdOutbox([
+            LetterboxdWrite(tmdbID: 73, rating: 9, watchedAt: Date()),
+            LetterboxdWrite(tmdbID: 550, rating: nil, watchedAt: Date())
+        ]),
+        relay: AlwaysSignedOutRelay(),
+        loggedElsewhere: { _ in false },
+        isEnabled: { true })
 
     var body: some View {
         ZStack {
@@ -1008,7 +1025,7 @@ private struct LetterboxdCardPreview: View {
                     SettingsCard(title: "Above", icon: "arrow.up") {
                         Button("Focusable above") {}
                     }
-                    LetterboxdCard(model: model, profileID: "preview-profile")
+                    LetterboxdCard(model: model, profileID: "preview-profile", push: push)
                     SettingsCard(title: "Below", icon: "arrow.down") {
                         Button("Focusable below") {}
                     }
@@ -1017,6 +1034,11 @@ private struct LetterboxdCardPreview: View {
                 .padding(.vertical, 40)
                 .focusSection()
             }
+        }
+        .task {
+            // Drain once so `lastError` is populated, not just the pending count.
+            await push.drain()
+            await model.refreshPushStatus(from: push)
         }
     }
 }

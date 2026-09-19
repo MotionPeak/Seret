@@ -37,6 +37,7 @@ public actor LetterboxdImporter {
     private let map: LetterboxdFilmMap
     private let mapStore: LetterboxdFilmMapStore
     private let store: any LetterboxdRatingStoring
+    private let loggedFilms: LetterboxdLoggedFilms
     private let resolveDelay: Duration
 
     public init(reader: any LetterboxdProfileReading,
@@ -44,12 +45,15 @@ public actor LetterboxdImporter {
                 map: LetterboxdFilmMap,
                 mapStore: LetterboxdFilmMapStore,
                 store: any LetterboxdRatingStoring,
+                loggedFilms: LetterboxdLoggedFilms
+                    = LetterboxdLoggedFilms(fileURL: LetterboxdLoggedFilms.defaultURL()),
                 resolveDelay: Duration = .milliseconds(400)) {
         self.reader = reader
         self.resolver = resolver
         self.map = map
         self.mapStore = mapStore
         self.store = store
+        self.loggedFilms = loggedFilms
         self.resolveDelay = resolveDelay
     }
 
@@ -59,10 +63,14 @@ public actor LetterboxdImporter {
         // Films only: Letterboxd has no television, and a show key is not a film key.
         let films = movies.filter { LetterboxdContentKey.tmdbID(fromMovieKey: $0.id) != nil }
 
-        let ratings = try await reader.films()
-            .reduce(into: [String: Int]()) { out, entry in
-                if let rating = entry.rating { out[entry.slug] = rating }
-            }
+        let logged = try await reader.films()
+        let ratings = logged.reduce(into: [String: Int]()) { out, entry in
+            if let rating = entry.rating { out[entry.slug] = rating }
+        }
+        // Every logged slug, rated or not: an unrated diary entry still means Letterboxd has seen
+        // the film, which is exactly what the push's rewatch rule needs to know.
+        let loggedSlugs = Set(logged.map(\.slug))
+        var loggedTMDBIDs: Set<Int> = []
 
         // Every film is resolved, not just the unrated ones. Skipping the rated ones would be
         // cheaper, but a disagreement can only be seen by resolving the film — so `conflicts` would
@@ -89,6 +97,7 @@ public actor LetterboxdImporter {
                 // The map is what makes resolution a one-time cost, so owning that here keeps the
                 // seam honest: a resolver only has to answer the question.
                 await map.store(resolved, forTMDB: tmdbID)
+                if loggedSlugs.contains(resolved) { loggedTMDBIDs.insert(tmdbID) }
                 slug = resolved
             } catch {
                 slug = nil
@@ -112,6 +121,9 @@ public actor LetterboxdImporter {
         }
 
         mapStore.save(await map.snapshot())
+        // Recorded for the push's rewatch rule: a film already logged there is a rewatch when it
+        // is watched again here, and nothing else in the app can know that.
+        loggedFilms.save(loggedTMDBIDs)
 
         return Summary(scanned: films.count,
                        needingWork: needingWork,

@@ -72,6 +72,10 @@ public final class AppSession {
     /// rather than have it resolved: the Letterboxd import refuses to run until the profile is
     /// known, and two sources of profile truth is what produced orphaned rows before.
     public private(set) var localWatchStore: LocalWatchStore?
+    /// Mirrors finished films onto Letterboxd. Nil until a server address is set. Exposed so each
+    /// app's root can drain it on return — coming back is the moment the Synology is most likely
+    /// reachable again after it was not.
+    public private(set) var letterboxdPush: LetterboxdPushCoordinator?
     /// Profile roster store (CRUD) — used by the Who's-Watching / profile-manager UI (later slice).
     public private(set) var profileStore: ProfileStore?
     /// Per-profile "My List" store — claimed-title membership (later slice wires claim on add/play).
@@ -324,11 +328,32 @@ public final class AppSession {
     /// `DetailStore` use — or reads miss writes.
     private func makeWatchStack(local: LocalWatchStore?) {
         localWatchStore = local
+        // Nil until a server address is set, and the push is then simply absent — the app records
+        // and reads back exactly as it did before, because Letterboxd is a mirror, not a store.
+        letterboxdPush = Self.makeLetterboxdPush()
         localWatch = local.map { store in
             LocalWatchProvider(store: store,
-                               profileID: { [weak self] in self?.activeProfileID ?? "" })
+                               profileID: { [weak self] in self?.activeProfileID ?? "" },
+                               push: letterboxdPush)
         }
         watchStore = localWatch
+    }
+
+    /// Built from the settings the iPhone typed and iCloud carried to this device.
+    private static func makeLetterboxdPush() -> LetterboxdPushCoordinator? {
+        let store = UbiquitousLetterboxdSettingsStore()
+        store.synchronize()
+        guard let serverURL = store.load().serverBaseURL else { return nil }
+
+        return LetterboxdPushCoordinator(
+            outbox: FileLetterboxdOutbox(fileURL: FileLetterboxdOutbox.defaultURL()),
+            relay: HTTPLetterboxdRelay(baseURL: serverURL),
+            // Re-read per film rather than cached: an import between two finishes should count.
+            loggedElsewhere: { tmdbID in
+                LetterboxdLoggedFilms(fileURL: LetterboxdLoggedFilms.defaultURL())
+                    .contains(tmdbID: tmdbID)
+            },
+            isEnabled: { UbiquitousLetterboxdSettingsStore().load().serverBaseURL != nil })
     }
 
 

@@ -16,10 +16,16 @@ public struct LocalWatchProvider: WatchProgressProviding, Sendable {
     /// Main-actor isolated because the active profile lives on `AppSession`, which is `@MainActor`.
     /// Every caller below is already `async`, so awaiting the hop costs nothing.
     private let profileID: @MainActor @Sendable () -> String
+    /// Optional so every existing construction site compiles unchanged, and so the app runs
+    /// normally with no server configured — the push is an extra, not a dependency.
+    private let push: LetterboxdPushCoordinator?
 
-    public init(store: LocalWatchStore, profileID: @escaping @MainActor @Sendable () -> String) {
+    public init(store: LocalWatchStore,
+                profileID: @escaping @MainActor @Sendable () -> String,
+                push: LetterboxdPushCoordinator? = nil) {
         self.store = store
         self.profileID = profileID
+        self.push = push
     }
 
     /// Fraction of runtime past which a title counts as watched. One definition, in `WatchState`:
@@ -48,9 +54,22 @@ public struct LocalWatchProvider: WatchProgressProviding, Sendable {
         // would divide by zero. Only real playback can cross the threshold.
         let reachedEnd = durationSeconds > 0
             && positionSeconds / durationSeconds >= Self.finishedFraction
-        try await store.write(contentKey: contentKey, sourceKey: sourceKey,
-                              positionSeconds: positionSeconds, durationSeconds: durationSeconds,
-                              finished: finished || reachedEnd, profileID: profileID)
+        let crossedIntoFinished = try await store.write(
+            contentKey: contentKey, sourceKey: sourceKey,
+            positionSeconds: positionSeconds, durationSeconds: durationSeconds,
+            finished: finished || reachedEnd, profileID: profileID)
+
+        // Only on the edge, so re-saving position on an already watched film cannot file a second
+        // diary entry for one viewing. The rating and play count are read back rather than passed
+        // in: the store has just collapsed any CloudKit duplicates, so it is the only place they
+        // are right.
+        guard crossedIntoFinished, let push else { return }
+        // `rollup` returns an optional tuple, so the count is unwrapped before it is read; a film
+        // with no row is a first viewing by definition.
+        let rating = try? await store.rating(forContentKey: contentKey, profileID: profileID)
+        let rollup = try? await store.rollup(forContentKey: contentKey, profileID: profileID)
+        await push.recordFinish(contentKey: contentKey, rating: rating ?? nil,
+                                plays: rollup?.plays ?? 1, at: Date())
     }
 
     public func recentlyWatched(limit: Int, profileID: String) async throws -> [WatchState] {

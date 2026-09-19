@@ -5,6 +5,7 @@ import SwiftUI
 /// Resolves launch state, then routes between sign-in and the main shell.
 struct RootView: View {
     @Environment(AppSession.self) private var session
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var showSplash = true
     @State private var router = AppRouter()
@@ -20,6 +21,12 @@ struct RootView: View {
                     .transition(.opacity)
                     .zIndex(1)
             }
+        }
+        // Coming back is the moment the Synology is most likely reachable again after it was
+        // not. Backoff still applies inside the coordinator, so this cannot become a retry storm.
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active else { return }
+            Task { await session.letterboxdPush?.drain() }
         }
         .environment(router)
         .task { if tileMarks == nil { tileMarks = session.makeTileWatchMarks() } }

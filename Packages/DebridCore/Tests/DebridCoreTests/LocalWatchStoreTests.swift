@@ -24,6 +24,28 @@ extension SwiftDataSuite {
             #expect(state?.finished == false)
         }
 
+        /// The Letterboxd push queues on this edge and only this edge. Re-saving position on an
+        /// already finished film must not queue a second diary entry for one viewing.
+        @Test func writeReportsOnlyTheCrossingIntoFinished() async throws {
+            let s = try store()
+            let key = "movie:tmdb:73"
+
+            let first = try await s.write(contentKey: key, sourceKey: "src", positionSeconds: 100,
+                                          durationSeconds: 100, finished: true, profileID: "p")
+            #expect(first)
+
+            let again = try await s.write(contentKey: key, sourceKey: "src", positionSeconds: 100,
+                                          durationSeconds: 100, finished: true, profileID: "p")
+            #expect(!again)
+        }
+
+        @Test func anUnfinishedWriteIsNotAnEdge() async throws {
+            let crossed = try await store().write(contentKey: "movie:tmdb:73", sourceKey: "src",
+                                                  positionSeconds: 10, durationSeconds: 100,
+                                                  finished: false, profileID: "p")
+            #expect(!crossed)
+        }
+
         @Test func unknownKeyReadsAsNil() async throws {
             #expect(try await store().state(forContentKey: "movie:tmdb:7", profileID: "p1") == nil)
         }

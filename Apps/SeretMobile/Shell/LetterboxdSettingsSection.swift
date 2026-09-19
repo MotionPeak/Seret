@@ -7,6 +7,8 @@ import SwiftUI
 struct LetterboxdSettingsSection: View {
     @Bindable var model: LetterboxdImportModel
     let profileID: String?
+    /// Nil until an address is set; the rows below then have nothing to report.
+    let push: LetterboxdPushCoordinator?
 
     private var canImport: Bool {
         model.settings.isEnabled && !model.settings.username.isEmpty && profileID?.isEmpty == false
@@ -70,6 +72,17 @@ struct LetterboxdSettingsSection: View {
                     .disabled(!canImport)
             }
 
+            if model.pendingPushes > 0 {
+                Text("\(model.pendingPushes) watch\(model.pendingPushes == 1 ? "" : "es") waiting to send")
+                    .font(.footnote)
+                    .foregroundStyle(Theme.Palette.textSecondary)
+            }
+            if let error = model.lastPushError {
+                Text(error)
+                    .font(.footnote)
+                    .foregroundStyle(Theme.Palette.textSecondary)
+            }
+
             if let last = model.settings.lastImportAt {
                 Text("Last imported \(last.formatted(date: .abbreviated, time: .shortened))")
                     .font(.footnote)
@@ -77,5 +90,6 @@ struct LetterboxdSettingsSection: View {
             }
         }
         .listRowBackground(Theme.Palette.surface1)
+        .task { await model.refreshPushStatus(from: push) }
     }
 }
