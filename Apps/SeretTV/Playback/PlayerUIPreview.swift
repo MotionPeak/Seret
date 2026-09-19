@@ -39,6 +39,7 @@ struct PlayerUIPreview: View {
         case "subtitlesfailed": SubtitleBrowserPreview(failing: true)
         case "inputprobe": InputProbePreview()
         case "detail":     MovieDetailPreview()
+        case "detailwatchlisted": MovieDetailPreview(onWatchlist: true)
         case "sidemenu":            SideMenuPreview(startExpanded: true)
         case "sidemenucollapsed":   SideMenuPreview(startExpanded: false)
         case "opensubtitles":       OpenSubtitlesPreview()
@@ -334,6 +335,10 @@ private struct EpisodeVersionsPreview: View {
 }
 
 private struct MovieDetailPreview: View {
+    /// Whether the fixture film starts on the watchlist, so both faces of the toggle can be
+    /// screenshot-verified without a Letterboxd account or a server.
+    var onWatchlist = false
+
     @State private var store: DetailStore = {
         let s = MediaSource(torrentID: "t", fileID: nil, restrictedLink: "rd://x",
                             parsed: ParsedRelease(title: "The Odyssey", year: 2026,
@@ -347,14 +352,58 @@ private struct MovieDetailPreview: View {
     }()
     @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()))
 
+    @State private var watchlist: WatchlistMarks?
+
     var body: some View {
         NavigationStack { MovieDetailView(store: store) }
             .environment(session)
             // The similar/franchise rails render `BrowseTile`, which reads this.
             .environment(session.makeTileWatchMarks())
+            // `DetailView` normally provides this; rendering `MovieDetailView` directly skips it,
+            // and the Watchlist button is not offered without it.
+            .environment(watchlist)
             // `DetailView` normally drives the rich load; rendering `MovieDetailView` directly
             // skips it, and without it there is no cast and no director to look at.
             .task { await store.load() }
+            .task {
+                let marks = PreviewWatchlist.marks(startingOn: onWatchlist, tmdbID: 1_242_011)
+                await marks.load()
+                watchlist = marks
+            }
+    }
+}
+
+/// A `WatchlistMarks` over an in-memory mirror. No disk, no server — the button's two faces and
+/// the confirmation are all it exists to show.
+private enum PreviewWatchlist {
+    @MainActor static func marks(startingOn: Bool, tmdbID: Int) -> WatchlistMarks {
+        let mirror = Mirror(entries: startingOn
+            ? [WatchlistEntry.locallyAdded(tmdbID: tmdbID, title: "The Odyssey", year: 2026,
+                                           posterPath: nil, position: -1)]
+            : [])
+        return WatchlistMarks(entries: { await mirror.all },
+                              add: { await mirror.add($0) },
+                              remove: { await mirror.remove($0) },
+                              relay: { .init(pushed: 1, failed: 0) })
+    }
+
+    private actor Mirror {
+        var all: [WatchlistEntry]
+        init(entries: [WatchlistEntry]) { all = entries }
+
+        func add(_ film: WatchlistFilm) -> [WatchlistEntry] {
+            var entry = WatchlistEntry.locallyAdded(tmdbID: film.tmdbID, title: film.title,
+                                                    year: film.year, posterPath: film.posterPath,
+                                                    position: -1)
+            entry.addPushedAt = Date()
+            all.append(entry)
+            return all
+        }
+
+        func remove(_ slug: String) -> [WatchlistEntry] {
+            all.removeAll { $0.slug == slug }
+            return all
+        }
     }
 }
 
