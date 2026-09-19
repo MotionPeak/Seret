@@ -265,4 +265,39 @@ private final class Spy: @unchecked Sendable {
         #expect(!sut.contains(tmdbID: 949))
         #expect(sut.lastOutcome == nil)
     }
+
+    /// Added here with no server, then taken straight back: Letterboxd was never told about either
+    /// half, so there is no Letterboxd write to report. Saying there was is the same lie as claiming
+    /// an add landed when the server is off, in the opposite direction.
+    @Test func takingBackAnUnsentAddClaimsNoLetterboxdWrite() async {
+        let unsent = WatchlistEntry.locallyAdded(tmdbID: 949, title: "Heat", year: 1995,
+                                                 posterPath: nil, position: -1)
+        // The store deletes the row outright, which is what `remove` does to an unsent add.
+        let sut = marks(mirror: [unsent], after: [], settled: [], relay: .idle)
+        await sut.load()
+
+        await sut.toggle(film: heat)
+
+        let message = try? #require(sut.lastOutcome?.message)
+        #expect(message?.lowercased().contains("removed") == true)
+        #expect(message?.contains("Letterboxd") == false)
+        #expect(sut.lastOutcome?.isFailure == false)
+    }
+
+    /// Removed here while the server was off, then put back before the removal ever went out. The
+    /// film never left the Letterboxd watchlist, so nothing was written and nothing should be
+    /// claimed.
+    @Test func reAddingOverAnUnsentRemovalClaimsNoLetterboxdWrite() async {
+        let unsentRemoval = crawled(tmdbID: 949, slug: "heat", removed: true)
+        let restored = crawled(tmdbID: 949, slug: "heat")
+        let sut = marks(mirror: [unsentRemoval], after: [restored], settled: [restored], relay: .idle)
+        await sut.load()
+
+        await sut.toggle(film: heat)
+
+        let message = try? #require(sut.lastOutcome?.message)
+        #expect(message?.lowercased().contains("added") == true)
+        #expect(message?.contains("Letterboxd") == false)
+        #expect(sut.contains(tmdbID: 949))
+    }
 }

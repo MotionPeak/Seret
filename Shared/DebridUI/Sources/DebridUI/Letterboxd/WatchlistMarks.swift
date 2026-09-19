@@ -68,8 +68,10 @@ public final class WatchlistMarks {
     }
 
     private var onWatchlist: Set<Int> = []
-    /// The mirror's slug per film, so a removal names the row Letterboxd knows rather than guessing.
-    private var slugs: [Int: String] = [:]
+    /// The mirror's row per film. The slug is what a removal must name — guessing the placeholder
+    /// for a crawled film hits no row at all — and the pending marks are what say whether a change
+    /// is a Letterboxd write or a purely local one.
+    private var rows: [Int: WatchlistEntry] = [:]
     public private(set) var lastOutcome: Outcome?
     /// Films whose write is in flight, so a control can stay quiet rather than firing twice.
     public private(set) var inFlight: Set<Int> = []
@@ -111,6 +113,10 @@ public final class WatchlistMarks {
     public func toggle(film: WatchlistFilm) async {
         guard !inFlight.contains(film.tmdbID) else { return }
         let wanted = !contains(tmdbID: film.tmdbID)
+        // Read BEFORE the write, because the write is what destroys the evidence: a removal that
+        // cancels an unsent add deletes the row outright, leaving nothing behind to say that
+        // Letterboxd was never involved.
+        let cancelsAnUnsentChange = Self.cancels(rows[film.tmdbID], byAsking: wanted)
 
         inFlight.insert(film.tmdbID)
         defer { inFlight.remove(film.tmdbID) }
@@ -122,7 +128,8 @@ public final class WatchlistMarks {
         } else {
             // The mirror's own slug where there is one. The placeholder is the fallback rather than
             // the default: a crawled film's row is keyed by the slug Letterboxd knows.
-            stored = await removeSlug(slugs[film.tmdbID] ?? WatchlistEntry.localSlug(forTMDB: film.tmdbID))
+            stored = await removeSlug(rows[film.tmdbID]?.slug
+                ?? WatchlistEntry.localSlug(forTMDB: film.tmdbID))
         }
         absorb(stored)
 
@@ -131,24 +138,43 @@ public final class WatchlistMarks {
         // now: the relay clears the pending mark when the server accepts it.
         let settled = await entries()
         absorb(settled)
-        record(outcome, for: film, added: wanted, mirror: settled)
+        record(outcome, for: film, added: wanted, mirror: settled,
+               cancelled: cancelsAnUnsentChange)
     }
 
     private func absorb(_ mirror: [WatchlistEntry]) {
         onWatchlist = Set(mirror.filter { !$0.isRemoved }.compactMap(\.tmdbID))
-        slugs = Dictionary(mirror.compactMap { entry in entry.tmdbID.map { ($0, entry.slug) } },
-                           uniquingKeysWith: { first, _ in first })
+        rows = Dictionary(mirror.compactMap { entry in entry.tmdbID.map { ($0, entry) } },
+                          uniquingKeysWith: { first, _ in first })
     }
 
     /// Says what happened in the owner's terms, which is three different sentences.
+    /// Whether asking for `added` merely takes back a change that never reached Letterboxd.
+    ///
+    /// Both directions: removing a film whose add never went out, and re-adding one whose removal
+    /// never went out. Either way the two cancel, nothing is sent, and nothing may be claimed.
+    private static func cancels(_ row: WatchlistEntry?, byAsking added: Bool) -> Bool {
+        guard let row else { return false }
+        return added ? row.needsRemovalPush : row.needsAddPush
+    }
+
     private func record(_ outcome: WatchlistPushRelay.Outcome, for film: WatchlistFilm,
-                        added: Bool, mirror: [WatchlistEntry]) {
+                        added: Bool, mirror: [WatchlistEntry], cancelled: Bool) {
         let verb = added ? "Added to" : "Removed from"
 
         // The mirror does not reflect what was asked, so the change did not take at all — and there
         // is nothing true to say about a write that never happened. Silence beats a sentence
         // describing someone else's outcome.
         guard contains(tmdbID: film.tmdbID) == added else { return }
+
+        // The two halves cancelled, so nothing of this film's was in that drain — a failure it
+        // reports belongs to some other film, and naming Letterboxd here would describe a write
+        // that never happened.
+        if cancelled {
+            lastOutcome = Outcome(tmdbID: film.tmdbID, added: added,
+                                  message: "\(verb) your watchlist", isFailure: false)
+            return
+        }
 
         if let error = outcome.firstError, outcome.failed > 0 {
             lastOutcome = Outcome(tmdbID: film.tmdbID, added: added, message: error, isFailure: true)
