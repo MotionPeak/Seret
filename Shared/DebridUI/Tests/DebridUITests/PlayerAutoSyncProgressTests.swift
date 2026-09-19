@@ -35,7 +35,7 @@ import DebridCore
         subs.downloadedText = "1\n00:00:05,000 --> 00:00:08,000\nLine\n\n"
         let m = PlayerModel(request: Fixture.request(), engine: FakeVideoPlayerEngine(),
                             unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
-                            recordProgress: { _, _, _, _ in }, subtitles: subs, audioProbe: probe,
+                            recordProgress: { _, _, _, _, _ in }, subtitles: subs, audioProbe: probe,
                             autoSyncWindow: 90, autoSyncMaxLag: 5, autoSyncMinimumHalf: 25)
         return m
     }

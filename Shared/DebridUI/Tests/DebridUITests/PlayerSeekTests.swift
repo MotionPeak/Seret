@@ -13,7 +13,7 @@ import DebridCore
                            scanMaxDuration: Double = 15) -> PlayerModel {
         PlayerModel(request: Fixture.request(), engine: engine,
                     unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
-                    recordProgress: { _, _, _, _ in }, subtitles: nil,
+                    recordProgress: { _, _, _, _, _ in }, subtitles: nil,
                     seekCoalesceWindow: seekCoalesceWindow,
                     scanInterval: scanInterval, scanSeekInterval: scanSeekInterval,
                     scanMaxDuration: scanMaxDuration)
@@ -245,7 +245,7 @@ import DebridCore
         let engine = FakeVideoPlayerEngine()
         let m = PlayerModel(request: Fixture.request(), engine: engine,
                             unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
-                            recordProgress: { _, _, _, _ in }, subtitles: nil)
+                            recordProgress: { _, _, _, _, _ in }, subtitles: nil)
         m.start()
         await m.waitForIdleForTesting()
         engine.emit(.state(.playing))
@@ -266,7 +266,7 @@ import DebridCore
         let engine = FakeVideoPlayerEngine()
         let m = PlayerModel(request: Fixture.request(), engine: engine,
                             unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
-                            recordProgress: { _, _, _, _ in }, subtitles: nil)
+                            recordProgress: { _, _, _, _, _ in }, subtitles: nil)
         m.start()
         await m.waitForIdleForTesting()
         engine.emit(.state(.playing))

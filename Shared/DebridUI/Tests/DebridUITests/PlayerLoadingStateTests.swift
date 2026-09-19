@@ -10,7 +10,7 @@ import DebridCore
                            engine: FakeVideoPlayerEngine) -> PlayerModel {
         PlayerModel(request: request, engine: engine,
                     unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
-                    recordProgress: { _, _, _, _ in }, subtitles: nil)
+                    recordProgress: { _, _, _, _, _ in }, subtitles: nil)
     }
 
     /// `start()` is wired to the player screen's `.onAppear`, and SwiftUI fires that again whenever
@@ -82,7 +82,7 @@ import DebridCore
         let engine = FakeVideoPlayerEngine()
         let model = PlayerModel(request: Fixture.request(resumeAt: 600), engine: engine,
                                 unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
-                                recordProgress: { _, _, _, _ in }, subtitles: nil)
+                                recordProgress: { _, _, _, _, _ in }, subtitles: nil)
         model.start()
         await model.waitForIdleForTesting()
         #expect(engine.seeks == [600])
@@ -111,7 +111,7 @@ import DebridCore
         let model = PlayerModel(request: Fixture.showRequest(playingEpisode: 1), engine: engine,
                                 unrestrict: { link in advancedTo.append(link)
                                               return URL(string: "https://cdn/x.mkv")! },
-                                recordProgress: { _, _, _, _ in }, subtitles: nil)
+                                recordProgress: { _, _, _, _, _ in }, subtitles: nil)
         model.start()
         await model.waitForIdleForTesting()
         #expect(advancedTo == ["rd://e1"])
@@ -130,7 +130,7 @@ import DebridCore
         let model = PlayerModel(request: Fixture.showRequest(playingEpisode: 1), engine: engine,
                                 unrestrict: { link in advancedTo.append(link)
                                               return URL(string: "https://cdn/x.mkv")! },
-                                recordProgress: { _, _, _, _ in }, subtitles: nil)
+                                recordProgress: { _, _, _, _, _ in }, subtitles: nil)
         model.start()
         await model.waitForIdleForTesting()
         engine.emit(.time(.init(position: 100, duration: 120)))
@@ -148,7 +148,7 @@ import DebridCore
         let engine = FakeVideoPlayerEngine()
         let model = PlayerModel(request: Fixture.request(), engine: engine,
                                 unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
-                                recordProgress: { _, _, _, _ in }, subtitles: nil,
+                                recordProgress: { _, _, _, _, _ in }, subtitles: nil,
                                 loadTimeout: 0.1)
         model.start()
         await model.waitForIdleForTesting()
@@ -164,7 +164,7 @@ import DebridCore
         let engine = FakeVideoPlayerEngine()
         let model = PlayerModel(request: Fixture.request(), engine: engine,
                                 unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
-                                recordProgress: { _, _, _, _ in }, subtitles: nil,
+                                recordProgress: { _, _, _, _, _ in }, subtitles: nil,
                                 loadTimeout: 0.1)
         model.start()
         await model.waitForIdleForTesting()
@@ -183,7 +183,7 @@ import DebridCore
         let engine = FakeVideoPlayerEngine()
         let model = PlayerModel(request: Fixture.showRequest(playingEpisode: 1), engine: engine,
                                 unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
-                                recordProgress: { _, _, _, _ in }, subtitles: nil)
+                                recordProgress: { _, _, _, _, _ in }, subtitles: nil)
         model.start()
         await model.waitForIdleForTesting()
         #expect(model.isColdOpen == true)                 // first open: overlay is right
@@ -208,7 +208,7 @@ import DebridCore
         let engine = FakeVideoPlayerEngine()
         let model = PlayerModel(request: Fixture.request(), engine: engine,
                                 unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
-                                recordProgress: { _, _, _, _ in }, subtitles: nil)
+                                recordProgress: { _, _, _, _, _ in }, subtitles: nil)
         model.start()
         await model.waitForIdleForTesting()
 

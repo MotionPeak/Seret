@@ -199,8 +199,9 @@ extension PlayerModel {
             lastSavedPosition = position
             isSavingProgress = true
             let (key, source, at, length) = (contentKey, WatchKey.source(currentSource), position, duration)
+            let watched = hasReachedEnd(at: at, duration: length)
             progressSaveTask = Task { @MainActor [weak self] in
-                await self?.recordProgress(key, source, at, length)
+                await self?.recordProgress(key, source, at, length, watched)
                 self?.isSavingProgress = false
             }
         }

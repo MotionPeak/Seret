@@ -38,7 +38,7 @@ import DebridCore
                                 unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
                                 // A slow write, i.e. a guaranteed suspension point — which is what
                                 // the real one is (a SwiftData write behind an actor).
-                                recordProgress: { _, _, _, _ in
+                                recordProgress: { _, _, _, _, _ in
                                     try? await Task.sleep(for: .seconds(0.05))
                                 },
                                 subtitles: nil)
@@ -61,7 +61,7 @@ import DebridCore
         let engine = FakeVideoPlayerEngine()
         let model = PlayerModel(request: Fixture.request(), engine: engine,
                                 unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
-                                recordProgress: { _, _, _, _ in
+                                recordProgress: { _, _, _, _, _ in
                                     try? await Task.sleep(for: .seconds(0.3))
                                 },
                                 subtitles: nil)
@@ -84,7 +84,7 @@ import DebridCore
         let recorder = ProgressRecorder()
         let model = PlayerModel(request: Fixture.request(), engine: engine,
                                 unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
-                                recordProgress: { _, _, position, _ in recorder.record(position) },
+                                recordProgress: { _, _, position, _, _ in recorder.record(position) },
                                 subtitles: nil)
         await warmUp(model, engine, to: 1000)
         await model.waitForIdleForTesting()
@@ -106,7 +106,7 @@ import DebridCore
         let engine = FakeVideoPlayerEngine()
         let model = PlayerModel(request: Fixture.request(), engine: engine,
                                 unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
-                                recordProgress: { _, _, _, _ in
+                                recordProgress: { _, _, _, _, _ in
                                     try? await Task.sleep(for: .seconds(0.3))
                                 },
                                 subtitles: nil)
@@ -129,7 +129,7 @@ import DebridCore
         let engine = FakeVideoPlayerEngine()
         let model = PlayerModel(request: Fixture.request(), engine: engine,
                                 unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
-                                recordProgress: { _, _, _, _ in }, subtitles: nil)
+                                recordProgress: { _, _, _, _, _ in }, subtitles: nil)
         await warmUp(model, engine, to: 100)
 
         model.skip(600)                        // the engine will simply never honour it
@@ -155,7 +155,7 @@ import DebridCore
         let engine = FakeVideoPlayerEngine()
         let model = PlayerModel(request: Fixture.showRequest(playingEpisode: 1), engine: engine,
                                 unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
-                                recordProgress: { _, _, _, _ in }, subtitles: nil)
+                                recordProgress: { _, _, _, _, _ in }, subtitles: nil)
         model.start()
         await model.waitForIdleForTesting()
         // Cross the Up Next threshold on a short file so the bar appears.
@@ -187,7 +187,7 @@ import DebridCore
         let sources = [Fixture.movieSource("rd://a"), Fixture.movieSource("rd://b")]
         let model = PlayerModel(request: Fixture.request(sources: sources), engine: engine,
                                 unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
-                                recordProgress: { _, _, _, _ in }, subtitles: nil,
+                                recordProgress: { _, _, _, _, _ in }, subtitles: nil,
                                 trackPreferences: prefs)
         engine.subtitleTracks = [MediaTrack(id: "spu/0", kind: .subtitle, name: "Hebrew", language: "he")]
         await warmUp(model, engine, to: 10)

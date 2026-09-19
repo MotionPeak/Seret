@@ -14,7 +14,7 @@ import DebridCore
     private func model(engine: FakeVideoPlayerEngine = FakeVideoPlayerEngine()) -> PlayerModel {
         PlayerModel(request: Fixture.request(sources: [Fixture.movieSource()]), engine: engine,
                     unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
-                    recordProgress: { _, _, _, _ in }, subtitles: FakeSubtitleProvider())
+                    recordProgress: { _, _, _, _, _ in }, subtitles: FakeSubtitleProvider())
     }
 
     @Test func theEnginesOwnClockIsPreferredAsTheBase() {
@@ -112,7 +112,7 @@ import DebridCore
         subs.downloadedText = srt
         let m = PlayerModel(request: Fixture.request(sources: [Fixture.movieSource()]),
                             engine: engine, unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
-                            recordProgress: { _, _, _, _ in }, subtitles: subs)
+                            recordProgress: { _, _, _, _, _ in }, subtitles: subs)
         m.start()
         await m.waitForIdleForTesting()
         await m.requestSubtitle(language: "he")
@@ -345,7 +345,7 @@ import DebridCore
     ) async -> PlayerModel {
         let m = PlayerModel(request: Fixture.request(sources: [Fixture.movieSource()]),
                             engine: engine, unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
-                            recordProgress: { _, _, _, _ in }, subtitles: subs,
+                            recordProgress: { _, _, _, _, _ in }, subtitles: subs,
                             trackPreferences: prefs)
         m.start()
         await m.waitForIdleForTesting()
@@ -419,7 +419,7 @@ import DebridCore
         let m = PlayerModel(request: Fixture.request(sources: [Fixture.movieSource()]),
                             engine: FakeVideoPlayerEngine(),
                             unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
-                            recordProgress: { _, _, _, _ in }, subtitles: FakeSubtitleProvider(),
+                            recordProgress: { _, _, _, _, _ in }, subtitles: FakeSubtitleProvider(),
                             trackPreferences: prefs)
 
         m.adjustSubtitleDelay(by: 1.5)
@@ -479,7 +479,7 @@ import DebridCore
         subs.downloadedText = Self.syncSRT
         let m = PlayerModel(request: Fixture.request(sources: [Fixture.movieSource()]),
                             engine: engine, unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
-                            recordProgress: { _, _, _, _ in }, subtitles: subs, audioProbe: probe,
+                            recordProgress: { _, _, _, _, _ in }, subtitles: subs, audioProbe: probe,
                             autoSyncWindow: 90, autoSyncMaxLag: 5, autoSyncMinimumHalf: 25)
         m.start()
         await m.waitForIdleForTesting()

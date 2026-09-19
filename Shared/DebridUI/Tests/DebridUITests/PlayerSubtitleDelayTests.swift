@@ -15,7 +15,7 @@ import DebridCore
     private func model(engine: FakeVideoPlayerEngine = FakeVideoPlayerEngine()) -> PlayerModel {
         PlayerModel(request: Fixture.request(sources: [Fixture.movieSource()]), engine: engine,
                     unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
-                    recordProgress: { _, _, _, _ in }, subtitles: FakeSubtitleProvider())
+                    recordProgress: { _, _, _, _, _ in }, subtitles: FakeSubtitleProvider())
     }
 
     @Test func nudgingAccumulatesAndReachesTheEngine() {
@@ -195,7 +195,7 @@ import DebridCore
         let m = PlayerModel(request: Fixture.showRequest(episodes: 3, playingEpisode: 1),
                             engine: engine,
                             unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
-                            recordProgress: { _, _, _, _ in },
+                            recordProgress: { _, _, _, _, _ in },
                             subtitles: FakeSubtitleProvider())
         m.start()
         await m.waitForIdleForTesting()
@@ -214,7 +214,7 @@ import DebridCore
         let m = PlayerModel(request: Fixture.showRequest(episodes: 3, playingEpisode: 1),
                             engine: engine,
                             unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
-                            recordProgress: { _, _, _, _ in },
+                            recordProgress: { _, _, _, _, _ in },
                             subtitles: FakeSubtitleProvider())
         m.start()
         await m.waitForIdleForTesting()

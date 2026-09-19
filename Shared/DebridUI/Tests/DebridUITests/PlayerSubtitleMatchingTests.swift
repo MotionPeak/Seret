@@ -26,7 +26,7 @@ import DebridCore
         let src = Self.source()
         return PlayerModel(request: Fixture.request(sources: [src]), engine: engine,
                            unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
-                           recordProgress: { _, _, _, _ in }, subtitles: subs)
+                           recordProgress: { _, _, _, _, _ in }, subtitles: subs)
     }
 
     /// A moviehash match is a perfect-sync guarantee. Returned SECOND, it must still be chosen.

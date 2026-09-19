@@ -261,7 +261,11 @@ public final class PlayerModel {
     var fromStart: Bool
     /// Records progress for the *currently playing* content — PlayerModel passes the live
     /// contentKey + sourceKey so next-episode advances record under the right keys.
-    let recordProgress: (_ contentKey: String, _ sourceKey: String, _ position: Double, _ duration: Double) async -> Void
+    ///
+    /// `finished` is the player's own answer, because only it knows where the dialogue ends. The
+    /// store keeps a runtime-fraction fallback for callers with no player, and whichever says
+    /// "watched" first wins.
+    let recordProgress: (_ contentKey: String, _ sourceKey: String, _ position: Double, _ duration: Double, _ finished: Bool) async -> Void
     let subtitles: SubtitleProvider?
     /// The system Now Playing surface (iPhone Remote app, Control Center, Siri, CEC). Optional —
     /// nil keeps the pre-Now-Playing behavior exactly, which every existing unit test relies on.
@@ -461,6 +465,20 @@ public final class PlayerModel {
         return min(creditsStart, duration - Double(upNextCountdownStart) - 2)
     }
 
+    /// Whether a playhead has passed the point this title counts as watched.
+    ///
+    /// Takes the position and runtime rather than reading `position`/`duration`, because the one
+    /// caller that matters most reads them SYNCHRONOUSLY before handing the write to a Task — an
+    /// episode swap replaces both underneath it otherwise, and the flag would describe the
+    /// incoming episode rather than the one just finished.
+    ///
+    /// `contentEndTime` — the last subtitle cue — is what makes this better than any fraction: it
+    /// is where the dialogue ends, which is where the film is over.
+    func hasReachedEnd(at position: Double, duration: Double) -> Bool {
+        WatchThreshold.hasReachedEnd(position: position, duration: duration,
+                                     lastSubtitleCue: contentEndTime)
+    }
+
     // MARK: - Computed helpers
 
     public var canTryAnotherVersion: Bool { sourceIndex + 1 < sources.count }
@@ -521,7 +539,7 @@ public final class PlayerModel {
     public init(request: PlaybackRequest,
          engine: VideoPlayerEngine,
          unrestrict: @escaping (String) async throws -> URL,
-         recordProgress: @escaping (_ contentKey: String, _ sourceKey: String, _ position: Double, _ duration: Double) async -> Void,
+         recordProgress: @escaping (_ contentKey: String, _ sourceKey: String, _ position: Double, _ duration: Double, _ finished: Bool) async -> Void,
          subtitles: SubtitleProvider?,
          details: MediaDetailsProviding? = nil,
          trackPreferences: TrackPreferenceStoring? = nil,

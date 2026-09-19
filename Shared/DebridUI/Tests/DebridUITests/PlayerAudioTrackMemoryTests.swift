@@ -25,7 +25,7 @@ import DebridCore
                            prefs: FakeTrackPreferences) -> PlayerModel {
         PlayerModel(request: Fixture.request(), engine: engine,
                     unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
-                    recordProgress: { _, _, _, _ in },
+                    recordProgress: { _, _, _, _, _ in },
                     subtitles: nil,
                     trackPreferences: prefs)
     }

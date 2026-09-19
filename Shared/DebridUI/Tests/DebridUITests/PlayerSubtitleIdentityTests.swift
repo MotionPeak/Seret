@@ -12,7 +12,7 @@ import DebridCore
                        _ engine: FakeVideoPlayerEngine) -> PlayerModel {
         PlayerModel(request: Fixture.showRequest(episodes: 3, playingEpisode: 1), engine: engine,
                     unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
-                    recordProgress: { _, _, _, _ in }, subtitles: subs)
+                    recordProgress: { _, _, _, _, _ in }, subtitles: subs)
     }
 
     /// The moviehash is two range requests against the playing file, so it is resolved once and

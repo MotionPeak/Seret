@@ -15,7 +15,7 @@ import DebridCore
     private func makeModel(engine: FakeVideoPlayerEngine) -> PlayerModel {
         PlayerModel(request: Fixture.request(), engine: engine,
                     unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
-                    recordProgress: { _, _, _, _ in }, subtitles: nil,
+                    recordProgress: { _, _, _, _, _ in }, subtitles: nil,
                     seekCoalesceWindow: 0.05)
     }
 

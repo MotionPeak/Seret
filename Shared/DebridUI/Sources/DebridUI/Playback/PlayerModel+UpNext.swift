@@ -128,7 +128,8 @@ extension PlayerModel {
     /// fraction, which meant local state was never written here at all — the tick was the only
     /// thing recording, and with Trakt's API app gone that hook wrote nowhere.
     func recordCurrentProgress() async {
-        await recordProgress(contentKey, WatchKey.source(currentSource), position, duration)
+        await recordProgress(contentKey, WatchKey.source(currentSource), position, duration,
+                             hasReachedEnd(at: position, duration: duration))
     }
 
     /// Finalise the episode playing RIGHT NOW, then let the caller swap without waiting.
@@ -140,6 +141,7 @@ extension PlayerModel {
     /// finished was never finalised, and a position of 0 was filed under the INCOMING episode's key.
     func recordOutgoingProgress() {
         let (key, source, at, length) = (contentKey, WatchKey.source(currentSource), position, duration)
-        progressSaveTask = Task { await self.recordProgress(key, source, at, length) }
+        let watched = hasReachedEnd(at: at, duration: length)
+        progressSaveTask = Task { await self.recordProgress(key, source, at, length, watched) }
     }
 }

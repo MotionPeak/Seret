@@ -513,7 +513,7 @@ final class PreviewDriver {
                                       label: "Dune: Part Two", contentKey: "m")
         model = PlayerModel(request: request, engine: engine,
                             unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
-                            recordProgress: { _, _, _, _ in }, subtitles: nil)
+                            recordProgress: { _, _, _, _, _ in }, subtitles: nil)
     }
 
     /// Bring the model to a live, rendered, playing state at ~41 minutes of a 2h9m film.
@@ -649,7 +649,7 @@ final class SubtitlePreviewDriver {
                                       label: "Dune: Part Two", contentKey: "m")
         model = PlayerModel(request: request, engine: engine,
                             unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
-                            recordProgress: { _, _, _, _ in },
+                            recordProgress: { _, _, _, _, _ in },
                             subtitles: PreviewSubtitleProvider(failDownload: failing))
     }
 
@@ -791,7 +791,7 @@ private struct ManualSyncPanelPreview: View {
         _model = State(initialValue: PlayerModel(
             request: request, engine: engine,
             unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
-            recordProgress: { _, _, _, _ in }, subtitles: ManualSyncPreviewProvider()))
+            recordProgress: { _, _, _, _, _ in }, subtitles: ManualSyncPreviewProvider()))
     }
 
     var body: some View {

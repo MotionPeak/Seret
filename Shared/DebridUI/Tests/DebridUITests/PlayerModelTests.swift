@@ -11,7 +11,7 @@ import DebridCore
         unrestrict: @escaping (String) async throws -> URL = { _ in URL(string: "https://cdn/x.mkv")! },
         subtitles: SubtitleProvider? = nil,
         trackPreferences: TrackPreferenceStoring? = nil,
-        recorded: @escaping (String, String, Double, Double) async -> Void = { _, _, _, _ in },
+        recorded: @escaping (String, String, Double, Double, Bool) async -> Void = { _, _, _, _, _ in },
         resolveResume: ((String) async -> Double?)? = nil,
         prefetchLink: ((String) -> Void)? = nil,
         autoHideDelay: Double = 4,
@@ -108,7 +108,7 @@ import DebridCore
         // between are throttled out.
         let engine = FakeVideoPlayerEngine()
         var saves: [(Double, Double)] = []
-        let model = makeModel(request: Fixture.request(), engine: engine, recorded: { _, _, p, d in saves.append((p, d)) })
+        let model = makeModel(request: Fixture.request(), engine: engine, recorded: { _, _, p, d, _ in saves.append((p, d)) })
         model.start(); await model.waitForIdleForTesting()
         engine.emit(.time(.init(position: 1, duration: 100))); await model.waitForIdleForTesting()
         engine.emit(.time(.init(position: 1.4, duration: 100))); await model.waitForIdleForTesting()   // <1s since last save → skipped
@@ -119,7 +119,7 @@ import DebridCore
     @Test func endedSavesFinalAndRequestsDismiss() async {
         let engine = FakeVideoPlayerEngine()
         var saves: [(Double, Double)] = []
-        let model = makeModel(request: Fixture.request(), engine: engine, recorded: { _, _, p, d in saves.append((p, d)) })
+        let model = makeModel(request: Fixture.request(), engine: engine, recorded: { _, _, p, d, _ in saves.append((p, d)) })
         model.start(); await model.waitForIdleForTesting()
         engine.emit(.time(.init(position: 95, duration: 100))); await model.waitForIdleForTesting()
         engine.emit(.state(.ended)); await model.waitForIdleForTesting()
@@ -132,7 +132,7 @@ import DebridCore
         let engine = FakeVideoPlayerEngine()
         var saves: [(Double, Double)] = []
         let model = makeModel(request: Fixture.request(), engine: engine,
-                              recorded: { _, _, p, d in saves.append((p, d)) })
+                              recorded: { _, _, p, d, _ in saves.append((p, d)) })
         model.start(); await model.waitForIdleForTesting()
         // Play to near the end first. `.ended` straight after start() is indistinguishable from a
         // stream that failed to open, and finish() now treats that as a failure rather than
@@ -149,7 +149,7 @@ import DebridCore
     @Test func teardownPersistsCurrentPosition() async {
         let engine = FakeVideoPlayerEngine()
         var saves: [(Double, Double)] = []
-        let model = makeModel(request: Fixture.request(), engine: engine, recorded: { _, _, p, d in saves.append((p, d)) })
+        let model = makeModel(request: Fixture.request(), engine: engine, recorded: { _, _, p, d, _ in saves.append((p, d)) })
         model.start(); await model.waitForIdleForTesting()
         engine.emit(.time(.init(position: 42, duration: 100))); await model.waitForIdleForTesting()
         await model.teardown()
@@ -527,7 +527,7 @@ import DebridCore
         let engine = FakeVideoPlayerEngine()
         var saves: [(String, Double)] = []               // (contentKey, position)
         let model = makeModel(request: Fixture.showRequest(playingEpisode: 1), engine: engine,
-                              recorded: { key, _, p, _ in saves.append((key, p)) })
+                              recorded: { key, _, p, _, _ in saves.append((key, p)) })
         model.start(); await model.waitForIdleForTesting()
         engine.emit(.time(.init(position: 1400, duration: 1400))); await model.waitForIdleForTesting()
         engine.emit(.state(.ended)); await model.waitForIdleForTesting()
@@ -1273,7 +1273,7 @@ import DebridCore
     private func model(_ engine: FakeVideoPlayerEngine, _ prefs: FakeTrackPreferences) -> PlayerModel {
         PlayerModel(request: Fixture.request(), engine: engine,
                     unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
-                    recordProgress: { _, _, _, _ in }, subtitles: nil,
+                    recordProgress: { _, _, _, _, _ in }, subtitles: nil,
                     trackPreferences: prefs, subtitleFallbackDelay: 0.02)
     }
 
@@ -1402,7 +1402,7 @@ import DebridCore
         let p = prefs()
         let model = PlayerModel(request: Fixture.request(), engine: engine,
                                 unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
-                                recordProgress: { _, _, _, _ in }, subtitles: nil,
+                                recordProgress: { _, _, _, _, _ in }, subtitles: nil,
                                 trackPreferences: p, subtitleFallbackDelay: 0.02)
         engine.subtitleTracks = [MediaTrack(id: "spu/1", kind: .subtitle, name: "Hebrew", language: "he")]
         model.refreshTracks()

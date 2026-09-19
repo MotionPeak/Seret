@@ -33,7 +33,7 @@ import DebridCore
     private func model(_ request: PlaybackRequest) -> PlayerModel {
         PlayerModel(request: request, engine: FakeVideoPlayerEngine(),
                     unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
-                    recordProgress: { _, _, _, _ in }, subtitles: nil)
+                    recordProgress: { _, _, _, _, _ in }, subtitles: nil)
     }
 
     /// Switching to an episode must carry ALL of its owned copies, not just the primary.
@@ -74,7 +74,7 @@ import DebridCore
         let m = PlayerModel(request: Self.request(alternates: [Self.source("e1-alt")]),
                             engine: engine,
                             unrestrict: { URL(string: "https://cdn/\($0.replacingOccurrences(of: "rd://", with: ""))")! },
-                            recordProgress: { _, _, _, _ in }, subtitles: nil)
+                            recordProgress: { _, _, _, _, _ in }, subtitles: nil)
         m.start()
         await m.waitForIdleForTesting()
         #expect(engine.loadedURL?.absoluteString == "https://cdn/e1")

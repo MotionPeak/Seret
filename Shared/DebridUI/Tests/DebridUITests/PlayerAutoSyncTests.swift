@@ -61,7 +61,7 @@ import DebridCore
         let audio = probe ?? FakeAudioProbe.speaking(at: cueTimes.map { $0 - shiftSeconds })
         let m = PlayerModel(request: Fixture.request(), engine: engine,
                             unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
-                            recordProgress: { _, _, _, _ in }, subtitles: subs, audioProbe: audio,
+                            recordProgress: { _, _, _, _, _ in }, subtitles: subs, audioProbe: audio,
                             autoSyncWindow: 90, autoSyncMaxLag: 5, autoSyncMinimumHalf: 25)
         return (m, engine, audio)
     }
@@ -148,7 +148,7 @@ import DebridCore
                                             language: "en", codec: "subt")]
         let m = PlayerModel(request: Fixture.request(), engine: engine,
                             unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
-                            recordProgress: { _, _, _, _ in },
+                            recordProgress: { _, _, _, _, _ in },
                             subtitles: FakeSubtitleProvider(), audioProbe: FakeAudioProbe.silent)
         m.start()
         engine.emit(.tracksChanged)
@@ -197,7 +197,7 @@ import DebridCore
         subs.downloadedText = srt
         let m = PlayerModel(request: Fixture.request(), engine: FakeVideoPlayerEngine(),
                             unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
-                            recordProgress: { _, _, _, _ in }, subtitles: subs)
+                            recordProgress: { _, _, _, _, _ in }, subtitles: subs)
         m.start()
         await m.waitForIdleForTesting()
         await m.requestSubtitle(language: "he")

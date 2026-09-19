@@ -35,7 +35,7 @@ import DebridCore
                         await gate.waitIfClosed()
                         return URL(string: "https://cdn/x.mkv")!
                     },
-                    recordProgress: { key, _, position, duration in
+                    recordProgress: { key, _, position, duration, _ in
                         await MainActor.run { writes.record(key, position, duration) }
                     },
                     subtitles: nil)

@@ -20,7 +20,7 @@ import DebridCore
     private func model(_ subs: FakeSubtitleProvider?) -> PlayerModel {
         PlayerModel(request: Fixture.request(), engine: FakeVideoPlayerEngine(),
                     unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
-                    recordProgress: { _, _, _, _ in }, subtitles: subs)
+                    recordProgress: { _, _, _, _, _ in }, subtitles: subs)
     }
 
     private func ranked() -> SubtitleMatch.Ranked {
@@ -146,7 +146,7 @@ import DebridCore
         let subs = FakeSubtitleProvider()
         let m = PlayerModel(request: Fixture.request(), engine: engine,
                             unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
-                            recordProgress: { _, _, _, _ in }, subtitles: subs)
+                            recordProgress: { _, _, _, _, _ in }, subtitles: subs)
         m.start()
         await m.waitForIdleForTesting()
         _ = await m.useSubtitle(ranked())

@@ -10,7 +10,7 @@ import DebridCore
                          subs: SubtitleProvider? = nil) async -> PlayerModel {
         let model = PlayerModel(request: Fixture.request(), engine: engine,
                                 unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
-                                recordProgress: { _, _, _, _ in }, subtitles: subs)
+                                recordProgress: { _, _, _, _, _ in }, subtitles: subs)
         model.start()
         await model.waitForIdleForTesting()
         return model

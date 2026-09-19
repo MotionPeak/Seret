@@ -643,12 +643,12 @@ public final class AppSession {
             //
             // PlayerModel hands over the CURRENT contentKey + sourceKey, not the request's, so an
             // Up Next auto-advance records against the episode actually playing.
-            recordProgress: { contentKey, sourceKey, position, duration in
+            recordProgress: { contentKey, sourceKey, position, duration, finished in
                 guard duration > 0 else { return }
                 let target = await resolveProfile()
                 try? await watch?.record(contentKey: contentKey, sourceKey: sourceKey,
                                          positionSeconds: position, durationSeconds: duration,
-                                         finished: false, profileID: target)
+                                         finished: finished, profileID: target)
             },
             subtitles: subtitlesProvider,
             details: detailsProvider,

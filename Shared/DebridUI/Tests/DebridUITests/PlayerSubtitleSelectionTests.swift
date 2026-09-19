@@ -27,7 +27,7 @@ import DebridCore
                        subs: FakeSubtitleProvider) -> PlayerModel {
         PlayerModel(request: Fixture.request(sources: [Fixture.movieSource()]), engine: engine,
                     unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
-                    recordProgress: { _, _, _, _ in }, subtitles: subs,
+                    recordProgress: { _, _, _, _, _ in }, subtitles: subs,
                     trackPreferences: prefs, subtitleFallbackDelay: 0.05)
     }
 
@@ -166,7 +166,7 @@ import DebridCore
         subs.searchResults = [SubtitleResult(fileID: 1, language: "he")]
         let m = PlayerModel(request: Fixture.request(), engine: engine,
                             unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
-                            recordProgress: { _, _, _, _ in }, subtitles: subs)
+                            recordProgress: { _, _, _, _, _ in }, subtitles: subs)
         m.start()
         await m.waitForIdleForTesting()
         await m.requestSubtitle(language: "he")

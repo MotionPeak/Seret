@@ -34,7 +34,7 @@ import DebridCore
                                                     resolution: "2160p", videoCodec: "x265"))
         return PlayerModel(request: Fixture.request(sources: [src]), engine: engine,
                            unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
-                           recordProgress: { _, _, _, _ in }, subtitles: subs)
+                           recordProgress: { _, _, _, _, _ in }, subtitles: subs)
     }
 
     /// Drive a model to the point where a subtitle download can be requested, with a known runtime.
