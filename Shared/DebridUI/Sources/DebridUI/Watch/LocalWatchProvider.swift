@@ -28,10 +28,10 @@ public struct LocalWatchProvider: WatchProgressProviding, Sendable {
         self.push = push
     }
 
-    /// Fraction of runtime past which a title counts as watched. One definition, in `WatchState`:
-    /// `resumePosition` needs the same number to tell a position reached by watching from one a
-    /// manual mark carried forward.
-    public static var finishedFraction: Double { WatchState.finishedFraction }
+    /// Fraction of runtime past which a title counts as watched WHEN NOBODY KNOWS BETTER. The
+    /// player passes `finished` itself, because only it knows where the dialogue ends; this is the
+    /// estimate for everything else. `WatchThreshold` owns the number.
+    public static var finishedFraction: Double { WatchThreshold.estimatedFraction }
 
     /// Hand rows recorded before a profile resolved to `owner` — see
     /// `LocalWatchStore.adoptUnprofiledProgress`. Idempotent; runs once per launch.
@@ -50,10 +50,13 @@ public struct LocalWatchProvider: WatchProgressProviding, Sendable {
 
     public func record(contentKey: String, sourceKey: String, positionSeconds: Double,
                        durationSeconds: Double, finished: Bool, profileID: String) async throws {
-        // Duration 0 means a manual mark, which carries no position — computing a fraction there
-        // would divide by zero. Only real playback can cross the threshold.
-        let reachedEnd = durationSeconds > 0
-            && positionSeconds / durationSeconds >= Self.finishedFraction
+        // No subtitle cue here: this is the path for callers with no player. The player knows
+        // where the dialogue ends and passes `finished` itself, so its answer is the one that
+        // lands earlier and wins. Duration 0 (a manual mark) yields no threshold at all, which is
+        // what stops every manual mark dividing by zero.
+        let reachedEnd = WatchThreshold.hasReachedEnd(position: positionSeconds,
+                                                      duration: durationSeconds,
+                                                      lastSubtitleCue: nil)
         let crossedIntoFinished = try await store.write(
             contentKey: contentKey, sourceKey: sourceKey,
             positionSeconds: positionSeconds, durationSeconds: durationSeconds,

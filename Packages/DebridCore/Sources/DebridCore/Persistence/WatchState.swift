@@ -47,13 +47,18 @@ public struct WatchState: Sendable, Equatable {
         // sets it, and carries the position forward so un-marking restores the viewer's place —
         // and that position can be anywhere. Offering it back would make "mark watched" quietly
         // mean "resume from the middle".
-        if finished, positionSeconds / durationSeconds < Self.finishedFraction { return nil }
+        if finished, positionSeconds / durationSeconds < Self.playedFraction { return nil }
         return durationSeconds - positionSeconds > Self.resumeTailSeconds ? positionSeconds : nil
     }
 
-    /// Fraction of runtime past which playback counts as finished. Lives here because
-    /// `resumePosition` has to tell a position reached by watching from one written by a mark.
-    public static let finishedFraction = 0.8
+    /// How far in a stored position has to be before it looks like somewhere playback actually
+    /// REACHED, rather than somewhere a manual mark carried it forward from.
+    ///
+    /// Deliberately NOT `WatchThreshold`'s number, and deliberately left where it was. That one
+    /// answers "is the film over" and moved to the credits; this one only has to be past the point
+    /// where a position is worth believing. Raising it in step would quietly drop the resume point
+    /// of anything left between the two — twelve minutes of a two-hour feature.
+    public static let playedFraction = 0.8
 }
 
 /// Derives the stable keys used to look up watch state.

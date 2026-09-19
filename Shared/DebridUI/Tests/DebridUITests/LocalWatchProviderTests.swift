@@ -22,19 +22,31 @@ extension SwiftDataSuite {
             #expect(state?.positionSeconds == 120)
         }
 
-        /// The 80% rule: Trakt owned this cutoff, so going local means owning it again. Matching
-        /// Trakt's number keeps local and the mirror agreeing about what counts as watched.
-        @Test func passingEightyPercentMarksItFinished() async throws {
+        /// The fallback cutoff, for callers with no player to tell them where the dialogue ends —
+        /// a manual mark, the web server. `WatchThreshold` owns the number; this asserts the
+        /// provider actually asks it rather than keeping a fraction of its own.
+        @Test func passingTheWatchedThresholdMarksItFinished() async throws {
             let p = try provider()
             try await p.record(contentKey: "movie:tmdb:7", sourceKey: "T1#1",
-                               positionSeconds: 479, durationSeconds: 600,
+                               positionSeconds: 551, durationSeconds: 600,
                                finished: false, profileID: "p1")
             #expect(try await p.progress(forContentKey: "movie:tmdb:7", profileID: "p1")?.finished == false)
 
             try await p.record(contentKey: "movie:tmdb:7", sourceKey: "T1#1",
-                               positionSeconds: 481, durationSeconds: 600,
+                               positionSeconds: 553, durationSeconds: 600,
                                finished: false, profileID: "p1")
             #expect(try await p.progress(forContentKey: "movie:tmdb:7", profileID: "p1")?.finished == true)
+        }
+
+        /// The regression this whole change exists to prevent: four fifths of the way in is not
+        /// the end of a film, and filing a diary entry there logged Good Will Hunting twenty-five
+        /// minutes before it finished.
+        @Test func fourFifthsOfTheWayInIsNoLongerWatched() async throws {
+            let p = try provider()
+            try await p.record(contentKey: "movie:tmdb:7", sourceKey: "T1#1",
+                               positionSeconds: 0.81 * 7560, durationSeconds: 7560,
+                               finished: false, profileID: "p1")
+            #expect(try await p.progress(forContentKey: "movie:tmdb:7", profileID: "p1")?.finished == false)
         }
 
         /// A manual Mark Watched arrives with position 0 and duration 0 — the fraction is undefined
