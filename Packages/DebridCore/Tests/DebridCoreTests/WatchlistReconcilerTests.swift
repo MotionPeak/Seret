@@ -130,4 +130,84 @@ import Foundation
         #expect(merged[0].isResolved == false)
         #expect(merged[0].tmdbID == nil)
     }
+
+    // MARK: - Films added in Seret
+
+    /// The whole point of the local add: the film is not on Letterboxd yet, so the crawl that is
+    /// otherwise the whole truth has nothing to say about it. Dropping it would delete the film the
+    /// owner just added, on the very next sync.
+    @Test func anUnpushedLocalAddSurvivesACrawlThatCannotKnowAboutIt() {
+        let local = WatchlistEntry.locallyAdded(tmdbID: 1637, title: "Speed", year: 1994,
+                                                posterPath: "/s.jpg", position: -1)
+        let merged = WatchlistReconciler.merge(crawled: crawled(["a"]), into: [stored("a", position: 0, tmdbID: 1), local])
+
+        #expect(merged.contains { $0.tmdbID == 1637 })
+        #expect(merged.count == 2)
+    }
+
+    /// Letterboxd lists newest first, and a film added a moment ago is the newest there is.
+    @Test func aLocalAddSortsAheadOfTheCrawl() {
+        let local = WatchlistEntry.locallyAdded(tmdbID: 1637, title: "Speed", year: 1994,
+                                                posterPath: nil, position: -1)
+        let merged = WatchlistReconciler.merge(crawled: crawled(["a", "b"]), into: [local])
+
+        #expect(merged.sorted { $0.position < $1.position }.first?.tmdbID == 1637)
+    }
+
+    /// Once Letterboxd has been told, the crawl is authoritative again: the film is in it under its
+    /// real slug. Keeping the placeholder as well would show the film twice — and matching the two
+    /// up by TMDB id cannot be relied on, because a crawled row whose title TMDB fails to match
+    /// would leave the duplicate there forever.
+    @Test func aPushedLocalAddIsRetiredByTheNextCrawl() {
+        var pushed = WatchlistEntry.locallyAdded(tmdbID: 1637, title: "Speed", year: 1994,
+                                                 posterPath: nil, position: -1)
+        pushed.addPushedAt = Date(timeIntervalSince1970: 100)
+
+        let merged = WatchlistReconciler.merge(crawled: crawled(["speed"]), into: [pushed],
+                                               crawledAt: Date(timeIntervalSince1970: 200))
+
+        #expect(merged.map(\.slug) == ["speed"])
+    }
+
+    /// A push that landed WHILE the crawl was in flight could not have appeared in it. Retiring on
+    /// `addPushedAt != nil` alone would delete the film for one sync cycle every time the owner
+    /// added something and the screen refreshed at the same moment.
+    @Test func aPushThatLandedAfterTheCrawlStartedIsKept() {
+        var pushed = WatchlistEntry.locallyAdded(tmdbID: 1637, title: "Speed", year: 1994,
+                                                 posterPath: nil, position: -1)
+        pushed.addPushedAt = Date(timeIntervalSince1970: 300)
+
+        let merged = WatchlistReconciler.merge(crawled: crawled(["a"]), into: [pushed],
+                                               crawledAt: Date(timeIntervalSince1970: 200))
+
+        #expect(merged.contains { $0.tmdbID == 1637 })
+    }
+
+    /// Added here, pushed, then taken off again here. Letterboxd still lists it, so the row has to
+    /// stay until the removal is pushed too — exactly as a crawled row would.
+    @Test func aPushedLocalAddRemovedHereStaysUntilTheRemovalIsPushed() {
+        var entry = WatchlistEntry.locallyAdded(tmdbID: 1637, title: "Speed", year: 1994,
+                                                posterPath: nil, position: -1)
+        entry.addPushedAt = Date(timeIntervalSince1970: 100)
+        entry.removedAt = Date(timeIntervalSince1970: 150)
+
+        let merged = WatchlistReconciler.merge(crawled: crawled([]), into: [entry],
+                                               crawledAt: Date(timeIntervalSince1970: 200))
+
+        #expect(merged.count == 1)
+        #expect(merged[0].needsRemovalPush)
+    }
+
+    /// Added by mistake and taken back before anything left the device. Letterboxd was never told,
+    /// so there is nothing to push and nothing to keep.
+    @Test func aLocalAddTakenBackBeforeItWasPushedIsDropped() {
+        var entry = WatchlistEntry.locallyAdded(tmdbID: 1637, title: "Speed", year: 1994,
+                                                posterPath: nil, position: -1)
+        entry.removedAt = Date(timeIntervalSince1970: 150)
+
+        let merged = WatchlistReconciler.merge(crawled: crawled([]), into: [entry],
+                                               crawledAt: Date(timeIntervalSince1970: 200))
+
+        #expect(merged.isEmpty)
+    }
 }

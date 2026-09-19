@@ -10,11 +10,20 @@ import Foundation
 /// that a resolution was attempted at all.
 public enum WatchlistReconciler {
     /// `crawled` is in page order — index 0 is the most recently added.
+    ///
+    /// `crawledAt` is when the crawl was STARTED, and it only matters to films added in Seret: a
+    /// push that landed after that instant cannot be in what came back, so the row has to survive
+    /// this merge to be judged by the next one.
     public static func merge(crawled: [LetterboxdEntry],
-                             into existing: [WatchlistEntry]) -> [WatchlistEntry] {
+                             into existing: [WatchlistEntry],
+                             crawledAt: Date = Date()) -> [WatchlistEntry] {
         let known = Dictionary(existing.map { ($0.slug, $0) }, uniquingKeysWith: { first, _ in first })
 
-        return crawled.enumerated().map { index, entry in
+        // Films added here that the crawl could not have known about, kept in front of it: they are
+        // the newest thing on the list, and Letterboxd orders newest first.
+        let carried = existing.filter { $0.isLocalAdd && isStillLive($0, crawledAt: crawledAt) }
+
+        return carried + crawled.enumerated().map { index, entry in
             let previous = known[entry.slug]
             return WatchlistEntry(slug: entry.slug,
                                   name: entry.name,
@@ -29,6 +38,22 @@ public enum WatchlistReconciler {
                                   // not make an already-pushed removal look pending again.
                                   removalPushedAt: previous?.removalPushedAt)
         }
+    }
+
+    /// Whether a film added in Seret still has something to say that the crawl does not.
+    ///
+    /// Only local adds reach here. A crawled row needs no such judgement — being in the crawl is
+    /// what makes it live.
+    private static func isStillLive(_ entry: WatchlistEntry, crawledAt: Date) -> Bool {
+        // Pushed while the crawl was in flight. This crawl could not have seen it, and retiring on
+        // "pushed at all" would make the film blink out for a cycle every time the two coincided.
+        if let pushed = entry.addPushedAt, pushed > crawledAt { return true }
+        // Letterboxd has it, so the crawl now speaks for it. The only thing left that is true here
+        // and nowhere else is a removal that has not been pushed.
+        if entry.addPushedAt != nil { return entry.needsRemovalPush }
+        // Never sent. Live until the owner takes it back — at which point there is nothing to push
+        // and nothing to keep, because Letterboxd was never told in the first place.
+        return !entry.isRemoved
     }
 
     /// When a previous attempt may still be trusted.
