@@ -17,10 +17,12 @@ private actor SucceedingRelay: LetterboxdRelaying {
 @Suite struct LetterboxdPushSignalTests {
     private func push(relay: any LetterboxdRelaying,
                       signal: LetterboxdPushSignal) -> LetterboxdPushCoordinator {
+        // No hold: these are about the signal a LANDED entry raises. The couple of minutes a new
+        // entry waits for a rating is `LetterboxdRatingHoldTests`' subject, not this suite's.
         LetterboxdPushCoordinator(outbox: InMemoryLetterboxdOutbox(), relay: relay,
                                   loggedElsewhere: { _ in false },
                                   isEnabled: { true },
-                                  signal: signal)
+                                  signal: signal, ratingHold: 0)
     }
 
     @Test func aLandedEntryNamesTheFilmItLogged() async throws {

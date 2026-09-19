@@ -12,9 +12,19 @@ import Observation
 @MainActor
 @Observable
 public final class LetterboxdPushSignal {
+    /// A diary entry waiting on the viewer before it is sent.
+    public struct RatingPrompt: Equatable, Sendable {
+        public let tmdbID: Int
+        /// What the film is already rated, so a rewatch starts from that rather than blank.
+        public let current: Int?
+    }
+
     public private(set) var lastLogged: Int?
     /// Changes on every landed entry, including a repeat of the same film.
     public private(set) var event: UUID?
+    /// Set while a diary entry is held back for a rating, and cleared the moment it is answered,
+    /// dismissed, or the hold runs out. A view shows the stars for exactly as long as this is set.
+    public private(set) var ratingPrompt: RatingPrompt?
 
     public init() {}
 
@@ -22,4 +32,10 @@ public final class LetterboxdPushSignal {
         lastLogged = tmdbID
         event = UUID()
     }
+
+    public func askForRating(tmdbID: Int, current: Int?) {
+        ratingPrompt = RatingPrompt(tmdbID: tmdbID, current: current)
+    }
+
+    public func stopAskingForRating() { ratingPrompt = nil }
 }
