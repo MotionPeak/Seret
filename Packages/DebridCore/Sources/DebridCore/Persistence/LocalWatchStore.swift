@@ -136,9 +136,14 @@ public actor LocalWatchStore {
     }
 
     /// Record playback position (or a manual mark). Collapses any duplicate rows CloudKit produced.
+    ///
+    /// Returns true when this call crossed the unfinished→finished edge. That edge is the one thing
+    /// the Letterboxd push queues on, and it is knowable only here: the caller cannot see the row's
+    /// previous state.
+    @discardableResult
     public func write(contentKey: String, sourceKey: String, positionSeconds: Double,
                       durationSeconds: Double, finished: Bool, profileID: String,
-                      at: Date = Date()) throws {
+                      at: Date = Date()) throws -> Bool {
         let row = try collapsed(contentKey, profileID) ?? {
             let r = WatchProgress(); modelContext.insert(r); return r
         }()
@@ -156,7 +161,9 @@ public actor LocalWatchStore {
             if !wasFinished { row.plays += 1 }
             row.lastWatchedAt = at
         }
+        let crossed = finished && !wasFinished
         try modelContext.save()
+        return crossed
     }
 
     public func rating(forContentKey key: String, profileID: String) throws -> Int? {
