@@ -16,8 +16,11 @@ public struct LetterboxdWrite: Sendable, Codable, Equatable, Identifiable {
     public let operation: Operation
     /// The watchlist state being asked for. Nil on a diary write.
     public let inWatchlist: Bool?
-    /// The Seret 1–10 rating. Nil clears it.
-    public let rating: Int?
+    /// The Seret 1–10 rating. Nil leaves the entry unrated.
+    ///
+    /// Mutable because a diary write is held briefly after the credits so the viewer can put a
+    /// rating on it — see `LetterboxdOutbox.amend`.
+    public var rating: Int?
     public let watchedAt: Date?
     /// Letterboxd's "I've watched this before". A film seen years ago and logged there is a
     /// rewatch that a local play count alone cannot know about, so the caller decides this.

@@ -56,5 +56,12 @@ public actor FileLetterboxdOutbox: LetterboxdOutbox {
         persist()
     }
 
+    public func amend(_ id: UUID, rating: Int?, notBefore: Date) async throws {
+        guard let index = writes.firstIndex(where: { $0.id == id }) else { return }
+        writes[index].rating = rating
+        writes[index].notBefore = notBefore
+        persist()
+    }
+
     public func all() async throws -> [LetterboxdWrite] { writes }
 }

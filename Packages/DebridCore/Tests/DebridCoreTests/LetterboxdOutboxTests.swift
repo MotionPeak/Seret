@@ -80,3 +80,72 @@ import Foundation
         #expect(queued[0].rating == nil)
     }
 }
+
+/// A diary write is held back for a couple of minutes so the viewer can put a rating on it while
+/// the credits roll. Held on disk rather than in memory, because the whole point of the outbox is
+/// that being killed at the wrong moment cannot lose a diary entry.
+@Suite struct LetterboxdOutboxAmendTests {
+    @Test func aHeldWriteIsNotDueUntilItsHoldExpires() async throws {
+        let outbox = InMemoryLetterboxdOutbox()
+        let now = Date()
+        try await outbox.enqueue(LetterboxdWrite(tmdbID: 550, watchedAt: now,
+                                                 notBefore: now.addingTimeInterval(120)))
+        #expect(try await outbox.due(at: now).isEmpty)
+        #expect(try await outbox.due(at: now.addingTimeInterval(121)).count == 1)
+    }
+
+    @Test func amendingPutsARatingOnAHeldWriteAndReleasesIt() async throws {
+        let outbox = InMemoryLetterboxdOutbox()
+        let now = Date()
+        let write = LetterboxdWrite(tmdbID: 550, watchedAt: now,
+                                    notBefore: now.addingTimeInterval(120))
+        try await outbox.enqueue(write)
+
+        try await outbox.amend(write.id, rating: 8, notBefore: now)
+
+        let due = try await outbox.due(at: now)
+        #expect(due.count == 1)
+        #expect(due.first?.rating == 8)
+        // Everything else about the write survives — the diary date above all, or the entry lands
+        // on the day it was sent rather than the day it was watched.
+        #expect(due.first?.watchedAt == now)
+        #expect(due.first?.tmdbID == 550)
+    }
+
+    /// Dismissing the prompt releases the write as it stands. Clearing a rating the viewer had
+    /// already given the film on the title page would be a silent edit of their own data.
+    @Test func amendingWithNoRatingLeavesTheWriteUnrated() async throws {
+        let outbox = InMemoryLetterboxdOutbox()
+        let now = Date()
+        let write = LetterboxdWrite(tmdbID: 550, rating: 7, watchedAt: now,
+                                    notBefore: now.addingTimeInterval(120))
+        try await outbox.enqueue(write)
+
+        try await outbox.amend(write.id, rating: nil, notBefore: now)
+
+        #expect(try await outbox.due(at: now).first?.rating == nil)
+    }
+
+    @Test func amendingAWriteThatIsNoLongerQueuedDoesNothing() async throws {
+        let outbox = InMemoryLetterboxdOutbox()
+        try await outbox.amend(UUID(), rating: 8, notBefore: Date())
+        #expect(try await outbox.all().isEmpty)
+    }
+
+    @Test func theFileBackedQueueAmendsTheSameWay() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("outbox-amend-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let now = Date()
+        let write = LetterboxdWrite(tmdbID: 550, watchedAt: now,
+                                    notBefore: now.addingTimeInterval(120))
+        try await FileLetterboxdOutbox(fileURL: url).enqueue(write)
+
+        try await FileLetterboxdOutbox(fileURL: url).amend(write.id, rating: 9, notBefore: now)
+
+        // A THIRD instance, so this proves the amendment reached the file and not just memory.
+        let due = try await FileLetterboxdOutbox(fileURL: url).due(at: now)
+        #expect(due.count == 1)
+        #expect(due.first?.rating == 9)
+    }
+}
