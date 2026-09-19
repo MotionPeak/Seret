@@ -15,6 +15,8 @@ import SwiftUI
 ///   - `playbacksheet`   — the playback sheet after Hebrew has been asked for and attached
 ///   - `subtitlebrowser` — the ranked search browser
 ///   - `autosync` / `autosyncdone` / `autosyncfailed` — the subtitle-sync bar over the picture
+///   - `letterboxdrating` / `letterboxdrerating` — the post-credits rating prompt, unrated and
+///     already rated 7. Prints what the tap produced, so a screenshot answers it
 ///
 ///     xcrun simctl launch <udid> com.solomons.seret.mobile -uiPreview playbacksheet
 ///
@@ -26,6 +28,8 @@ struct PlayerUIPreview: View {
     var body: some View {
         Group {
             switch target {
+            case "letterboxdrating":   MobileRatingBarPreview(existing: nil)
+            case "letterboxdrerating": MobileRatingBarPreview(existing: 7)
             case "autosync":        MobileAutoSyncPreview(mood: .measuring)
             case "autosyncdone":    MobileAutoSyncPreview(mood: .synced)
             case "autosyncfailed":  MobileAutoSyncPreview(mood: .failed)
@@ -192,4 +196,43 @@ private struct MobileAutoSyncPreview: View {
         }
     }
 }
+
+
+/// The post-credits rating prompt over a stand-in for the picture.
+///
+/// Ten tap targets in a phone-width bar is the thing worth looking at: the glyphs are 15pt and
+/// sit two points apart, so whether a thumb can actually land on the one it is aiming at is a
+/// question only a screenshot at real size answers.
+private struct MobileRatingBarPreview: View {
+    let existing: Int?
+    @State private var signal = LetterboxdPushSignal()
+    @State private var picked = "nothing tapped yet"
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            VStack(spacing: 10) {
+                Text("the film, playing")
+                    .font(.system(size: 15)).foregroundStyle(.white.opacity(0.28))
+                Text(picked)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(SeretPalette.gold)
+            }
+        }
+        .letterboxdDiaryBar(signal: signal, contentKey: "movie:tmdb:73") { state in
+            switch state {
+            case .logged: LetterboxdLoggedBar().padding(.top, 14)
+            case .askingRating(_, let current):
+                LetterboxdRatingBar(current: current) { value in
+                    picked = value.map { "rated \($0)/10" } ?? "rating cleared"
+                } onDismiss: {
+                    picked = "dismissed — logged unrated"
+                }
+                .padding(.top, 14)
+            }
+        }
+        .task { signal.askForRating(tmdbID: 73, current: existing) }
+    }
+}
+
 #endif

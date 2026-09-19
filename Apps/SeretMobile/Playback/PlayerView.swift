@@ -323,11 +323,12 @@ struct LetterboxdRatingBar: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            HStack(spacing: 8) {
+            // No Spacer: one would make the row — and so the whole bar — fill the width, which
+            // over a film in landscape is a band across the picture rather than a prompt.
+            HStack(spacing: 10) {
                 Text(shown > 0 ? "RATE IT · \(shown)/10" : "RATE IT?")
                     .font(.system(size: 11, weight: .bold)).kerning(1.2)
                     .foregroundStyle(SeretPalette.gold)
-                Spacer(minLength: 12)
                 Button(action: onDismiss) {
                     Image(systemName: "xmark")
                         .font(.system(size: 11, weight: .bold))
