@@ -160,7 +160,7 @@ struct LibraryShell: View {
             keptAlive(tab == .home) { HomeScreen() }
             keptAlive(tab == .movies) { BrowseScreen(kind: .movie) }
             keptAlive(tab == .shows) { BrowseScreen(kind: .show) }
-            keptAlive(tab == .watchlist) { WatchlistScreen() }
+            keptAlive(tab == .watchlist) { WatchlistScreen(onOpen: { path.append($0) }) }
             keptAlive(tab == .library) { MyLibraryScreen() }
             if tab == .settings { SettingsView() }
         }

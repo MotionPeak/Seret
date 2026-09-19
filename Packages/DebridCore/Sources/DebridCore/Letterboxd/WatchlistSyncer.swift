@@ -25,6 +25,23 @@ public actor WatchlistSyncer {
     /// What is on disk. No network.
     public func cached() -> [WatchlistEntry] { store.load() }
 
+    /// Marks a film as removed by the owner and persists it. No network — the mirror is edited in
+    /// place and the mark is carried through every later crawl by `WatchlistReconciler`.
+    ///
+    /// The entry is kept rather than deleted on purpose: deleting it here would achieve nothing,
+    /// because the next crawl finds the film still on Letterboxd and puts it straight back. Until
+    /// there is a real removal to push, "removed" is a fact about this mirror, not about the site.
+    ///
+    /// An existing mark is left alone, so the instant recorded is when the owner first asked.
+    @discardableResult
+    public func remove(slug: String) -> [WatchlistEntry] {
+        var entries = store.load()
+        guard let index = entries.firstIndex(where: { $0.slug == slug }) else { return entries }
+        if entries[index].removedAt == nil { entries[index].removedAt = Date() }
+        store.save(entries)
+        return entries
+    }
+
     /// Crawls, merges, resolves anything unresolved, persists, and returns the result in order.
     public func sync(onProgress: (@Sendable (Int, Int) -> Void)? = nil) async throws -> [WatchlistEntry] {
         // Throws before anything is written: a failed crawl must leave the mirror alone, because an

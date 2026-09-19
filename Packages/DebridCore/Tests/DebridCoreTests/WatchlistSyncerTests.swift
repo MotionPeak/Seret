@@ -116,6 +116,47 @@ private struct FakeTitleResolver: WatchlistTitleResolving {
         #expect(second[0].tmdbID == 1637)
     }
 
+    /// Remove marks and persists, and the mark survives the next crawl — the whole point, since a
+    /// crawl otherwise hands the film straight back.
+    @Test func removingMarksTheEntryAndItSurvivesTheNextSync() async throws {
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        _ = try await syncer(["a", "b"], ids: ["a": 1, "b": 2], url: url).sync()
+
+        let after = try await syncer(["a", "b"], ids: ["a": 1, "b": 2], url: url).remove(slug: "a")
+        #expect(after.first(where: { $0.slug == "a" })?.isRemoved == true)
+        #expect(after.first(where: { $0.slug == "b" })?.isRemoved == false)
+        #expect(WatchlistStore(fileURL: url).load().first?.isRemoved == true)
+
+        let resynced = try await syncer(["a", "b"], ids: ["a": 1, "b": 2], url: url).sync()
+        #expect(resynced.first(where: { $0.slug == "a" })?.isRemoved == true)
+    }
+
+    /// Removing something the mirror does not hold changes nothing and does not throw.
+    @Test func removingAnUnknownSlugIsANoOp() async throws {
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        _ = try await syncer(["a"], ids: ["a": 1], url: url).sync()
+        let after = try await syncer(["a"], ids: ["a": 1], url: url).remove(slug: "nope")
+        #expect(after.map(\.slug) == ["a"])
+        #expect(after[0].isRemoved == false)
+    }
+
+    /// Removing twice keeps the FIRST instant — the moment the owner asked, which is what a later
+    /// push to Letterboxd would be honouring.
+    @Test func removingTwiceKeepsTheOriginalInstant() async throws {
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        _ = try await syncer(["a"], ids: ["a": 1], url: url).sync()
+        let first = try await syncer(["a"], ids: ["a": 1], url: url).remove(slug: "a")
+        let when = try #require(first[0].removedAt)
+        let second = try await syncer(["a"], ids: ["a": 1], url: url).remove(slug: "a")
+        #expect(second[0].removedAt == when)
+    }
+
     @Test func aRemovedFilmDisappears() async throws {
         let url = tempURL()
         defer { try? FileManager.default.removeItem(at: url) }

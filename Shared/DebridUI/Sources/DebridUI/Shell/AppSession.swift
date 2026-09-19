@@ -750,7 +750,8 @@ public final class AppSession {
             resolver: TMDBWatchlistTitleResolver(tmdb: TMDBClient(apiKey: Secrets.tmdbAPIKey)),
             store: store)
 
-        let model = WatchlistModel(cached: store.load(), settings: settings) { onProgress in
+        let model = WatchlistModel(cached: store.load(), settings: settings,
+                                   remove: { slug in await syncer.remove(slug: slug) }) { onProgress in
             try await syncer.sync(onProgress: onProgress)
         }
         model.ownedTMDBIDs = Set(library.movies.compactMap(\.tmdbID))

@@ -12,11 +12,21 @@ struct WatchlistScreen: View {
     @Environment(AppSession.self) private var session
     @State private var model: WatchlistModel?
 
+    /// Opens a title page. The shell owns the navigation path, so a spin's result is pushed by
+    /// handing it back up rather than by this screen registering a destination of its own — the
+    /// shell already routes `MediaItem`, and registering it twice on one stack collides.
+    var onOpen: (MediaItem) -> Void = { _ in }
+
 #if DEBUG
     /// The model the `-uiPreview watchlist` harness renders instead of the session's, so the real
     /// screen can be screenshot-verified without a signed-in session or a Letterboxd account.
     var previewModel: WatchlistModel?
 #endif
+
+    /// The spin in progress. Replacing it re-runs the reel, which is how "Spin Again" works.
+    @State private var spin: WatchlistRandomizer.Spin?
+    /// A film awaiting removal confirmation. Removing is the one destructive thing on this screen.
+    @State private var pendingRemoval: WatchlistEntry?
 
     /// `PosterGrid`'s metrics verbatim — six across at 1080p. The grid pads itself rather than
     /// being padded by a parent, so the focus lift has somewhere to go at the row edges instead of
@@ -34,6 +44,36 @@ struct WatchlistScreen: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .fullScreenCover(item: $spin) { current in
+            WatchlistSpinScreen(
+                spin: current,
+                onWatch: { entry in
+                    spin = nil
+                    guard let item = MediaItem.watchlistMovie(entry) else { return }
+                    // Pushed a beat later: navigating while the cover is still on screen races its
+                    // dismissal and the push is silently dropped.
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(350))
+                        onOpen(item)
+                    }
+                },
+                onSpinAgain: { spin = model?.spin() },
+                onClose: { spin = nil })
+        }
+        .confirmationDialog("Remove from watchlist?",
+                            isPresented: .constant(pendingRemoval != nil),
+                            titleVisibility: .visible,
+                            presenting: pendingRemoval) { entry in
+            Button("Remove", role: .destructive) {
+                pendingRemoval = nil
+                Task { await model?.remove(entry) }
+            }
+            Button("Cancel", role: .cancel) { pendingRemoval = nil }
+        } message: { entry in
+            // Says plainly what it does and does not do, so nobody expects Letterboxd to change.
+            Text("\(WatchlistName.stripYear(from: entry.name)) will be hidden in Seret. "
+                 + "It stays on your Letterboxd watchlist.")
+        }
         .task {
 #if DEBUG
             if let previewModel { model = previewModel; return }
@@ -68,7 +108,8 @@ struct WatchlistScreen: View {
         ScrollView {
             LazyVGrid(columns: columns, spacing: 50) {
                 ForEach(model.entries) { entry in
-                    WatchlistTile(entry: entry, owned: model.isOwned(entry))
+                    WatchlistTile(entry: entry, owned: model.isOwned(entry),
+                                  onRemove: { pendingRemoval = $0 })
                 }
             }
             .padding(.horizontal, Theme.Layout.contentMargin)
@@ -86,6 +127,12 @@ struct WatchlistScreen: View {
         HStack(spacing: 16) {
             switch model.phase {
             case .idle:
+                // Offered only when a spin has something to land on, rather than shown disabled —
+                // a disabled control is unreachable on tvOS, so it would be a dead spot.
+                if model.canSpin {
+                    Button("Surprise Me", systemImage: "dice.fill") { spin = model.spin() }
+                        .buttonStyle(SeretActionButtonStyle())
+                }
                 Button("Sync") { Task { await model.syncNow() } }
                     .buttonStyle(SeretPillStyle(selected: false))
                 if !model.entries.isEmpty {
@@ -136,6 +183,9 @@ struct WatchlistScreen: View {
 private struct WatchlistTile: View {
     let entry: WatchlistEntry
     let owned: Bool
+    /// Long-press → remove. Raised rather than handled here so the confirmation belongs to the
+    /// screen: a dialog owned by a tile dies with the tile the moment the grid updates.
+    var onRemove: (WatchlistEntry) -> Void = { _ in }
 
     private let width: CGFloat = 220
     private let height: CGFloat = 330
@@ -143,12 +193,7 @@ private struct WatchlistTile: View {
 
     private var title: String { WatchlistName.stripYear(from: entry.name) }
 
-    private var item: MediaItem? {
-        guard let tmdbID = entry.tmdbID else { return nil }
-        return MediaItem(id: "movie:tmdb:\(tmdbID)", kind: .movie,
-                         title: title, year: entry.year,
-                         sources: [], seasons: [], tmdbID: tmdbID, posterPath: entry.posterPath)
-    }
+    private var item: MediaItem? { MediaItem.watchlistMovie(entry) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -156,6 +201,7 @@ private struct WatchlistTile: View {
                 NavigationLink(value: BrowseDestination.detail(item)) { poster }
                     .buttonStyle(.card)
                     .focused($focused)
+                    .contextMenu { removeButton }
             } else {
                 // Focusable although it goes nowhere. tvOS scrolls by MOVING FOCUS, so a tile with
                 // no focus target cannot be scrolled to: a trailing row of unmatched films — and
@@ -166,6 +212,9 @@ private struct WatchlistTile: View {
                     .focused($focused)
                     .scaleEffect(focused ? Theme.Anim.focusScale : 1)
                     .animation(Theme.Anim.focus, value: focused)
+                    // Removable too — an unmatched film is the one you are most likely to want
+                    // rid of, since it is the one Seret can do nothing with.
+                    .contextMenu { removeButton }
             }
             caption
         }
@@ -205,6 +254,12 @@ private struct WatchlistTile: View {
                     .multilineTextAlignment(.center)
                     .padding(12)
             }
+    }
+
+    private var removeButton: some View {
+        Button("Remove from Watchlist", systemImage: "minus.circle", role: .destructive) {
+            onRemove(entry)
+        }
     }
 
     @ViewBuilder private var caption: some View {

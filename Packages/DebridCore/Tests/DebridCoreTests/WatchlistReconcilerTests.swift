@@ -84,6 +84,33 @@ import Foundation
         #expect(merged[0].isResolved)
     }
 
+    /// A film removed in Seret must STAY removed across crawls.
+    ///
+    /// A crawl is otherwise the whole truth, so without carrying the mark the next sync hands the
+    /// film straight back and Remove looks like it did nothing. Letterboxd still lists it — the
+    /// mark is what makes the removal hold until the real push exists.
+    @Test func aRemovedFilmStaysRemovedAcrossACrawl() {
+        let when = Date(timeIntervalSince1970: 500)
+        let removed = WatchlistEntry(slug: "a", name: "a (1994)", year: 1994, position: 0,
+                                     tmdbID: 1, resolvedAt: Date(), removedAt: when)
+        let merged = WatchlistReconciler.merge(crawled: crawled(["a"]), into: [removed])
+        #expect(merged[0].removedAt == when)
+        #expect(merged[0].isRemoved)
+    }
+
+    /// Gone from Letterboxd means gone, mark or no mark — the crawl already decides membership.
+    @Test func aRemovedFilmAlsoDroppedOnLetterboxdSimplyDisappears() {
+        let removed = WatchlistEntry(slug: "a", name: "a (1994)", year: 1994, position: 0,
+                                     tmdbID: 1, resolvedAt: Date(), removedAt: Date())
+        #expect(WatchlistReconciler.merge(crawled: [], into: [removed]).isEmpty)
+    }
+
+    @Test func anOrdinaryEntryIsNotRemoved() {
+        let merged = WatchlistReconciler.merge(crawled: crawled(["a"]), into: [])
+        #expect(merged[0].removedAt == nil)
+        #expect(merged[0].isRemoved == false)
+    }
+
     @Test func aFilmRemovedOnLetterboxdIsDropped() {
         let merged = WatchlistReconciler.merge(
             crawled: crawled(["a"]),

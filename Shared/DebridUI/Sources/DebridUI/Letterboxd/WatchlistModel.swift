@@ -4,6 +4,9 @@ import DebridCore
 public typealias WatchlistSyncRunning =
     @Sendable (_ onProgress: @Sendable @escaping (Int, Int) -> Void) async throws -> [WatchlistEntry]
 
+/// Marks a film removed and returns the whole mirror as it now stands.
+public typealias WatchlistRemoving = @Sendable (_ slug: String) async -> [WatchlistEntry]
+
 /// Drives the watchlist screen.
 @MainActor
 @Observable
@@ -15,7 +18,13 @@ public final class WatchlistModel {
     }
 
     public private(set) var phase: Phase = .idle
-    public private(set) var entries: [WatchlistEntry]
+
+    /// The mirror as stored, removals included — what gets written back and carried across crawls.
+    public private(set) var allEntries: [WatchlistEntry]
+
+    /// What the owner sees. A removed film stays in the mirror (a crawl would otherwise hand it
+    /// straight back) but must not appear on the screen it was removed from.
+    public var entries: [WatchlistEntry] { allEntries.filter { !$0.isRemoved } }
     /// tmdbIDs the library already holds. Without this the owner is looking at a list of things to
     /// acquire that silently includes things they already have.
     public var ownedTMDBIDs: Set<Int> = []
@@ -24,17 +33,20 @@ public final class WatchlistModel {
     private let minimumInterval: TimeInterval
     private let now: @Sendable () -> Date
     private let run: WatchlistSyncRunning
+    private let removeSlug: WatchlistRemoving
 
     public init(cached: [WatchlistEntry],
                 settings: LetterboxdSettings,
                 minimumInterval: TimeInterval = 600,
                 now: @escaping @Sendable () -> Date = { Date() },
+                remove: @escaping WatchlistRemoving = { _ in [] },
                 run: @escaping WatchlistSyncRunning) {
-        self.entries = cached
+        self.allEntries = cached
         self.settings = settings
         self.minimumInterval = minimumInterval
         self.now = now
         self.run = run
+        self.removeSlug = remove
     }
 
     public func isOwned(_ entry: WatchlistEntry) -> Bool {
@@ -49,6 +61,33 @@ public final class WatchlistModel {
         await syncNow()
     }
 
+    /// Takes a film off the watchlist.
+    ///
+    /// Marked in place, not deleted: a crawl is the whole truth about what Letterboxd holds, so an
+    /// entry merely dropped here comes back on the next sync. Applied locally first so the tile
+    /// goes at once — the store then confirms, and disagreement resolves in the store's favour.
+    ///
+    /// Letterboxd itself still lists the film. Pushing the removal there needs a write contract
+    /// this app does not have yet, and the Apple TV could not post it regardless.
+    public func remove(_ entry: WatchlistEntry) async {
+        if let index = allEntries.firstIndex(where: { $0.slug == entry.slug }),
+           allEntries[index].removedAt == nil {
+            allEntries[index].removedAt = now()
+        }
+        let stored = await removeSlug(entry.slug)
+        if !stored.isEmpty { allEntries = stored }
+    }
+
+    /// A random film off the watchlist, with the reel to animate through to reach it. Nil when
+    /// there is nothing eligible to land on.
+    public func spin() -> WatchlistRandomizer.Spin? {
+        var generator = SystemRandomNumberGenerator()
+        return WatchlistRandomizer.spin(over: entries, using: &generator)
+    }
+
+    /// True when a spin has something to land on — drives whether the control is offered at all.
+    public var canSpin: Bool { !WatchlistRandomizer.eligible(entries).isEmpty }
+
     /// The button. Always syncs.
     public func syncNow() async {
         guard !settings.username.isEmpty else { return }
@@ -62,10 +101,10 @@ public final class WatchlistModel {
                     self.phase = .syncing(done: done, total: total)
                 }
             }
-            entries = result
+            allEntries = result
             phase = .idle
         } catch {
-            // Deliberately keeps `entries`: stale beats empty, and a blank screen after a network
+            // Deliberately keeps `allEntries`: stale beats empty, and a blank screen after a network
             // blip reads as "your watchlist is gone".
             phase = .failed(LetterboxdImportModel.message(for: error))
         }

@@ -22,6 +22,7 @@ import DebridCore
 ///   - `manualsync` / `manualsyncpressed` — sync-to-a-line, before and after the press
 ///   - `home`      — the Home screen whole: hero, Continue Watching rail, Recently Added grid
 ///   - `watchlist` — the Letterboxd watchlist grid: matched, owned, and unmatched tiles together
+///   - `spin` — the watchlist randomiser, mid-reel and landed
 ///   - `letterboxd` — the Settings Letterboxd card with the import blocked, between two cards
 ///     that DO take focus, so "can the remote reach it?" is answerable from a screenshot
 ///
@@ -51,6 +52,7 @@ struct PlayerUIPreview: View {
         case "home":                HomeScreenPreview()
         case "watchlist":           WatchlistScreenPreview()
         case "letterboxd":          LetterboxdCardPreview()
+        case "spin":                WatchlistSpinPreview()
         default:           ScrubBarPreview()
         }
     }
@@ -1026,6 +1028,33 @@ private final class InMemoryLetterboxdSettingsStore: LetterboxdSettingsStoring, 
     init(_ settings: LetterboxdSettings) { self.settings = settings }
     func load() -> LetterboxdSettings { settings }
     func save(_ settings: LetterboxdSettings) { self.settings = settings }
+}
+
+
+// MARK: - Watchlist randomiser
+
+/// The spinner on the same real posters the watchlist preview uses, so the reel, the centre
+/// marker and the landed result can be watched without a Letterboxd account.
+private struct WatchlistSpinPreview: View {
+    @State private var spin: WatchlistRandomizer.Spin? = {
+        var generator = SystemRandomNumberGenerator()
+        return WatchlistRandomizer.spin(over: WatchlistPreviewFixture.entries, using: &generator)
+    }()
+
+    var body: some View {
+        ZStack {
+            CanvasBackground()
+            if let spin {
+                WatchlistSpinScreen(spin: spin, onWatch: { _ in }, onSpinAgain: {
+                    var generator = SystemRandomNumberGenerator()
+                    self.spin = WatchlistRandomizer.spin(over: WatchlistPreviewFixture.entries,
+                                                         using: &generator)
+                }, onClose: {})
+            } else {
+                Text("no eligible films").foregroundStyle(Theme.Palette.textSecondary)
+            }
+        }
+    }
 }
 
 #endif

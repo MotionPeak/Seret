@@ -18,10 +18,23 @@ public struct WatchlistEntry: Sendable, Codable, Equatable, Identifiable {
     /// and found nothing — the two are different, and the UI says so.
     public var resolvedAt: Date?
 
+    /// When the owner removed this film in Seret, if they have.
+    ///
+    /// The film stays in the mirror rather than being deleted from it: a crawl is the whole truth
+    /// about what Letterboxd holds, so an entry simply dropped here would be handed straight back
+    /// by the next sync. The mark is what makes a removal hold. A date rather than a flag because
+    /// the eventual push to Letterboxd will want to know when it was asked for.
+    ///
+    /// Optional, so a mirror written before this field existed still decodes — the synthesised
+    /// `Decodable` reads an optional with `decodeIfPresent`.
+    public var removedAt: Date?
+
     public var isResolved: Bool { resolvedAt != nil }
+    public var isRemoved: Bool { removedAt != nil }
 
     public init(slug: String, name: String, year: Int?, position: Int,
-                tmdbID: Int? = nil, posterPath: String? = nil, resolvedAt: Date? = nil) {
+                tmdbID: Int? = nil, posterPath: String? = nil, resolvedAt: Date? = nil,
+                removedAt: Date? = nil) {
         self.slug = slug
         self.name = name
         self.year = year
@@ -29,5 +42,6 @@ public struct WatchlistEntry: Sendable, Codable, Equatable, Identifiable {
         self.tmdbID = tmdbID
         self.posterPath = posterPath
         self.resolvedAt = resolvedAt
+        self.removedAt = removedAt
     }
 }

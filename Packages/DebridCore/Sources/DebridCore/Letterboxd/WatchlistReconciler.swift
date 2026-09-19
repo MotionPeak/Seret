@@ -22,7 +22,9 @@ public enum WatchlistReconciler {
                                   position: index,
                                   tmdbID: previous?.tmdbID,
                                   posterPath: previous?.posterPath,
-                                  resolvedAt: carriedResolution(previous, crawledName: entry.name))
+                                  resolvedAt: carriedResolution(previous, crawledName: entry.name),
+                                  // Carried, or Remove would be undone by the very next sync.
+                                  removedAt: previous?.removedAt)
         }
     }
 
