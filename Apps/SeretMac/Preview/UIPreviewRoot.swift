@@ -59,6 +59,8 @@ struct UIPreviewRoot: View {
                 PlayerPreviewHost(driver: PlayerPreviewDriver(), action: .primeThenPause)
             case "playertracks":
                 PlayerPreviewHost(driver: PlayerPreviewDriver(), action: .primeWithTracksOpen)
+            case "playerfullscreen":
+                PlayerPreviewHost(driver: PlayerPreviewDriver(), action: .prime, startsFullScreen: true)
             case "playerupnext":
                 let upNextEpisode = Fixture.show.seasons.first { $0.number == 1 }!.episodes.first { $0.number == 1 }!
                 PlayerPreviewHost(driver: PlayerPreviewDriver(item: Fixture.show, episode: upNextEpisode),
@@ -143,12 +145,19 @@ private struct PlayerPreviewHost: View {
     enum Action: Equatable { case none, prime, primeThenPause, primeWithTracksOpen, primeNearEpisodeEnd }
     @State var driver: PlayerPreviewDriver
     let action: Action
+    /// Forces the compact full-screen HUD (spec §7.2) without a real `NSWindow` transition.
+    var startsFullScreen: Bool = false
 
     private var startsWithTracksOpen: Bool { action == .primeWithTracksOpen }
+    private var lockedWindowRef: WindowRef {
+        let ref = WindowRef()
+        if startsFullScreen { ref.lockFullScreen(true) }
+        return ref
+    }
 
     var body: some View {
         PlayerScreen(model: driver.model, onClose: {}, hud: HUDVisibility(delay: nil),
-                    tracksPanelOpen: startsWithTracksOpen) {
+                    tracksPanelOpen: startsWithTracksOpen, windowRef: lockedWindowRef) {
             RemoteImage(url: TMDBClient.imageURL(path: Fixture.films[0].backdropPath, size: "w1280"))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .clipped()

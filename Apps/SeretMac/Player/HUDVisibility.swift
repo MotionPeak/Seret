@@ -16,20 +16,28 @@ final class HUDVisibility {
     var pointerOverControls = false { didSet { showIfNowBlocked() } }
     var panelOpen = false { didSet { showIfNowBlocked() } }
     var isScrubbing = false { didSet { showIfNowBlocked() } }
+    /// Set by `PlayerScreen` from `WindowRef.isFullScreen`. Picks which of
+    /// `PlayerHUDMetrics.autoHideDelay`'s two delays the next `poke()` arms — full screen's compact
+    /// bar hides sooner than the windowed panel.
+    var isFullScreen = false
 
-    /// nil = pinned (the harness): `poke()` shows it and never arms a timer, so it can never hide.
-    private let delay: Duration?
+    /// Whether `poke()` is allowed to arm a timer at all. true only for the harness's
+    /// `HUDVisibility(delay: nil)`, which must never hide on its own.
+    private let pinned: Bool
     private var hideTask: Task<Void, Never>?
 
     init(delay: Duration? = .seconds(2.9)) {
-        self.delay = delay
+        self.pinned = delay == nil
     }
 
-    /// Shows the HUD and re-arms the one auto-hide timer.
+    /// Shows the HUD and re-arms the one auto-hide timer, at whichever delay the current
+    /// presentation (windowed vs full screen) calls for.
     func poke() {
         isVisible = true
         hideTask?.cancel()
-        guard let delay else { hideTask = nil; return }
+        guard !pinned else { hideTask = nil; return }
+        let delay = PlayerHUDMetrics.autoHideDelay(isFullScreen: isFullScreen)
+        armedDelayForTesting = delay
         hideTask = Task { [weak self] in
             try? await Task.sleep(for: delay)
             guard !Task.isCancelled else { return }
@@ -59,4 +67,8 @@ final class HUDVisibility {
     /// never arms a timer" (the rest is that a real sleep-based test would need to prove nothing
     /// ever fires, which this codebase does not do).
     var isTimerArmedForTesting: Bool { hideTask != nil }
+
+    /// Test seam: the delay the most recent `poke()` armed, without a real sleep — proves
+    /// `isFullScreen` picked the right one of `PlayerHUDMetrics.autoHideDelay`'s two delays.
+    private(set) var armedDelayForTesting: Duration?
 }

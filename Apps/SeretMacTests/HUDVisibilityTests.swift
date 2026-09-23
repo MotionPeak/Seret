@@ -63,4 +63,24 @@ import Testing
         hud.poke()
         #expect(!hud.isTimerArmedForTesting)
     }
+
+    @Test func windowedArmsTheLongerDelay() {
+        let hud = HUDVisibility()
+        hud.poke()
+        #expect(hud.armedDelayForTesting == .seconds(2.9))
+    }
+
+    @Test func fullScreenArmsTheShorterDelay() {
+        let hud = HUDVisibility()
+        hud.isFullScreen = true
+        hud.poke()
+        #expect(hud.armedDelayForTesting == .seconds(1.8))
+    }
+
+    @Test func aPinnedHUDNeverArmsATimerEvenInFullScreen() {
+        let hud = HUDVisibility(delay: nil)
+        hud.isFullScreen = true
+        hud.poke()
+        #expect(!hud.isTimerArmedForTesting)
+    }
 }

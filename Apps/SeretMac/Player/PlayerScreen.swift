@@ -12,25 +12,28 @@ struct PlayerScreen<Surface: View>: View {
     let onTornDown: () -> Void
     @ViewBuilder let surface: () -> Surface
 
-    @State private var windowRef = WindowRef()
+    @State private var windowRef: WindowRef
     @State private var sleepGuard = DisplaySleepGuard()
     @State private var muteMemory = MuteMemory()
     @State private var hud: HUDVisibility
     @State private var tracksPanelOpen: Bool
     @FocusState private var isFocused: Bool
 
-    /// `hud` is injectable so the harness can pin auto-hide off (`HUDVisibility(delay: nil)`), and
-    /// `tracksPanelOpen` so it can start the Audio & Subtitles panel already open — the real app
-    /// always takes the defaults (a real-delay `HUDVisibility`, the panel closed).
+    /// `hud` is injectable so the harness can pin auto-hide off (`HUDVisibility(delay: nil)`),
+    /// `tracksPanelOpen` so it can start the Audio & Subtitles panel already open, and `windowRef` so
+    /// it can force the full-screen HUD style without a real `NSWindow` full-screen transition — the
+    /// real app always takes the defaults (a real-delay `HUDVisibility`, the panel closed, windowed).
     init(model: PlayerModel, onClose: @escaping () -> Void, onTornDown: @escaping () -> Void = {},
         hud: HUDVisibility = HUDVisibility(),
-        tracksPanelOpen: Bool = false, @ViewBuilder surface: @escaping () -> Surface) {
+        tracksPanelOpen: Bool = false, windowRef: WindowRef = WindowRef(),
+        @ViewBuilder surface: @escaping () -> Surface) {
         self.model = model
         self.onClose = onClose
         self.onTornDown = onTornDown
         self.surface = surface
         _hud = State(wrappedValue: hud)
         _tracksPanelOpen = State(wrappedValue: tracksPanelOpen)
+        _windowRef = State(wrappedValue: windowRef)
     }
 
     var body: some View {
@@ -103,10 +106,12 @@ struct PlayerScreen<Surface: View>: View {
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { note in
             guard (note.object as? NSWindow) === windowRef.window else { return }
             windowRef.setFullScreen(true)
+            hud.isFullScreen = true
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { note in
             guard (note.object as? NSWindow) === windowRef.window else { return }
             windowRef.setFullScreen(false)
+            hud.isFullScreen = false
         }
     }
 

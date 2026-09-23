@@ -19,12 +19,17 @@ struct PlayerHUD: View {
     @State private var scrubPreviewTime: Double?
     @State private var width: CGFloat = 1200
 
+    private var style: PlayerHUDStyle { .current(isFullScreen: windowRef.isFullScreen) }
+
     var body: some View {
         ZStack {
             if hud.isVisible {
                 scrims
                 topBar
-                panel
+                switch style {
+                case .windowed: panel
+                case .fullScreen: compactBar
+                }
             }
             if tracksPanelOpen {
                 tracksPanelLayer
@@ -44,17 +49,21 @@ struct PlayerHUD: View {
     // MARK: - Scrims
 
     private var scrims: some View {
-        GeometryReader { geo in
+        let topFraction = windowRef.isFullScreen ? PlayerHUDMetrics.FullScreen.scrimTopFraction : 0.26
+        let topOpacity = windowRef.isFullScreen ? PlayerHUDMetrics.FullScreen.scrimTopOpacity : 0.66
+        let bottomFraction = windowRef.isFullScreen ? PlayerHUDMetrics.FullScreen.scrimBottomFraction : 0.42
+        let bottomOpacity = windowRef.isFullScreen ? PlayerHUDMetrics.FullScreen.scrimBottomOpacity : 0.78
+        return GeometryReader { geo in
             ZStack {
                 VStack(spacing: 0) {
-                    LinearGradient(colors: [.black.opacity(0.66), .clear], startPoint: .top, endPoint: .bottom)
-                        .frame(height: geo.size.height * 0.26)
+                    LinearGradient(colors: [.black.opacity(topOpacity), .clear], startPoint: .top, endPoint: .bottom)
+                        .frame(height: geo.size.height * topFraction)
                     Spacer(minLength: 0)
                 }
                 VStack(spacing: 0) {
                     Spacer(minLength: 0)
-                    LinearGradient(colors: [.clear, .black.opacity(0.78)], startPoint: .top, endPoint: .bottom)
-                        .frame(height: geo.size.height * 0.42)
+                    LinearGradient(colors: [.clear, .black.opacity(bottomOpacity)], startPoint: .top, endPoint: .bottom)
+                        .frame(height: geo.size.height * bottomFraction)
                 }
             }
         }
@@ -66,7 +75,7 @@ struct PlayerHUD: View {
 
     private var topBar: some View {
         VStack {
-            HStack(spacing: 14) {
+            HStack(spacing: windowRef.isFullScreen ? PlayerHUDMetrics.FullScreen.topBarGap : 14) {
                 Button(action: onClose) {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 15, weight: .semibold))
@@ -79,7 +88,8 @@ struct PlayerHUD: View {
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(model.label)
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.system(size: windowRef.isFullScreen ? PlayerHUDMetrics.FullScreen.titleFont : 15,
+                                     weight: .semibold))
                         .foregroundStyle(Theme.Palette.textPrimary)
                         .lineLimit(1)
                     if !qualityChips.isEmpty {
@@ -93,7 +103,7 @@ struct PlayerHUD: View {
             .padding(.leading, windowRef.isFullScreen
                      ? PlayerHUDMetrics.topBarLeadingFullScreen : PlayerHUDMetrics.topBarLeadingWindowed)
             .padding(.trailing, PlayerHUDMetrics.sideMargin)
-            .padding(.top, PlayerHUDMetrics.topBarTop)
+            .padding(.top, windowRef.isFullScreen ? PlayerHUDMetrics.FullScreen.topBarTop : PlayerHUDMetrics.topBarTop)
             .onHover { hud.pointerOverControls = $0 }
             Spacer()
         }
@@ -107,10 +117,10 @@ struct PlayerHUD: View {
 
     private func chip(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 10, weight: .semibold))
-            .foregroundStyle(Theme.Palette.textPrimary)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
+            .font(.system(size: windowRef.isFullScreen ? PlayerHUDMetrics.FullScreen.chipFont : 10, weight: .semibold))
+            .foregroundStyle(Theme.Palette.textPrimary.opacity(windowRef.isFullScreen ? 0.8 : 1))
+            .padding(.horizontal, windowRef.isFullScreen ? 6 : 8)
+            .padding(.vertical, windowRef.isFullScreen ? 2 : 3)
             .background(Theme.Palette.chipFill, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
     }
 
@@ -211,12 +221,79 @@ struct PlayerHUD: View {
         .help(help)
     }
 
+    // MARK: - Full-screen compact bar
+
+    /// Spec §7.2's full-screen bar: one translucent single-row pill — ⟲10 ⏯ ⟳10 · elapsed · a thin
+    /// scrubber · remaining │ audio & subtitles · volume · exit full screen — sized from
+    /// `PlayerHUDMetrics.FullScreen`, never the windowed panel's numbers.
+    private var compactBar: some View {
+        VStack {
+            Spacer()
+            HStack(spacing: PlayerHUDMetrics.FullScreen.barGap) {
+                compactIconButton("gobackward.10", help: "Back 10 s (←)") { model.skip(-10) }
+                Button(action: { model.togglePlayPause() }) {
+                    Image(systemName: model.phase == .playing ? "pause.fill" : "play.fill")
+                        .font(.system(size: PlayerHUDMetrics.FullScreen.playIcon))
+                        .foregroundStyle(Theme.Palette.textPrimary)
+                        .frame(width: PlayerHUDMetrics.FullScreen.playButton,
+                              height: PlayerHUDMetrics.FullScreen.playButton)
+                }
+                .buttonStyle(.plain)
+                .help("Play/Pause (Space)")
+                compactIconButton("goforward.10", help: "Forward 10 s (→)") { model.skip(10) }
+
+                Text(Timecode.format(scrubPreviewTime ?? model.position))
+                    .frame(minWidth: PlayerHUDMetrics.FullScreen.timeMinWidth)
+                Scrubber(position: model.position, duration: model.duration,
+                        onCommit: { model.scrub(to: $0) },
+                        isDragging: $isDraggingScrub, previewTime: $scrubPreviewTime)
+                    .frame(height: PlayerHUDMetrics.FullScreen.scrubHeight)
+                Text("-" + Timecode.format(max(0, model.duration - (scrubPreviewTime ?? model.position))))
+                    .frame(minWidth: PlayerHUDMetrics.FullScreen.timeMinWidth)
+
+                Rectangle()
+                    .fill(Color.white.opacity(0.14))
+                    .frame(width: 1, height: PlayerHUDMetrics.FullScreen.separatorHeight)
+
+                compactIconButton("captions.bubble", help: "Audio & Subtitles", tinted: tracksPanelOpen) {
+                    tracksPanelOpen.toggle()
+                }
+                compactIconButton(model.volumePercent == 0 ? "speaker.slash.fill" : "speaker.wave.2.fill",
+                                  help: "Mute (M)", action: onToggleMute)
+                compactIconButton("arrow.down.right.and.arrow.up.left", help: "Exit Full Screen (F)",
+                                  action: onToggleFullScreen)
+            }
+            .font(.system(size: PlayerHUDMetrics.FullScreen.timeFont).monospacedDigit())
+            .foregroundStyle(.white.opacity(0.78))
+            .padding(.vertical, PlayerHUDMetrics.FullScreen.barPaddingV)
+            .padding(.horizontal, PlayerHUDMetrics.FullScreen.barPaddingH)
+            .frame(width: PlayerHUDMetrics.FullScreen.barWidth(windowWidth: width))
+            .glassEffect(.regular, in: Capsule())
+            .onHover { hud.pointerOverControls = $0 }
+            .padding(.bottom, PlayerHUDMetrics.FullScreen.barBottom)
+        }
+        .transition(.opacity)
+    }
+
+    private func compactIconButton(_ symbol: String, help: String, tinted: Bool = false,
+                                    action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: PlayerHUDMetrics.FullScreen.icon))
+                .foregroundStyle(tinted ? Theme.Palette.gold : Theme.Palette.textPrimary)
+                .frame(width: PlayerHUDMetrics.FullScreen.iconButton, height: PlayerHUDMetrics.FullScreen.iconButton)
+        }
+        .buttonStyle(.plain)
+        .help(help)
+    }
+
     // MARK: - Tracks panel
 
     private var tracksPanelLayer: some View {
         TracksPanel(model: model, onClose: { tracksPanelOpen = false })
             .padding(.top, 20)
-            .padding(.bottom, PlayerHUDMetrics.clearOfBottomPanel)
+            .padding(.bottom, windowRef.isFullScreen
+                     ? PlayerHUDMetrics.FullScreen.clearOfBar : PlayerHUDMetrics.clearOfBottomPanel)
             .padding(.trailing, 20)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
             .transition(.opacity)
@@ -236,7 +313,8 @@ struct PlayerHUD: View {
             }
         }
         .padding(.trailing, PlayerHUDMetrics.sideMargin)
-        .padding(.bottom, PlayerHUDMetrics.clearOfBottomPanel)
+        .padding(.bottom, windowRef.isFullScreen
+                 ? PlayerHUDMetrics.FullScreen.clearOfBar : PlayerHUDMetrics.clearOfBottomPanel)
         .transition(.opacity)
     }
 }

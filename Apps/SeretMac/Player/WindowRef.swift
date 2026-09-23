@@ -10,8 +10,22 @@ import SwiftUI
 final class WindowRef {
     @ObservationIgnored weak var window: NSWindow?
     private(set) var isFullScreen = false
+    /// Set only by `lockFullScreen`, the DEBUG harness seam below — once true, a real window's
+    /// full-screen notifications (and `WindowReaderView`'s initial read) can no longer overwrite
+    /// `isFullScreen`, so a forced preview state survives mounting in an ordinary window.
+    private var isLocked = false
 
-    func setFullScreen(_ value: Bool) { isFullScreen = value }
+    func setFullScreen(_ value: Bool) {
+        guard !isLocked else { return }
+        isFullScreen = value
+    }
+
+    /// `-uiPreview` only: force the full-screen HUD style for a screenshot without a real `NSWindow`
+    /// full-screen transition, and pin it so `WindowReaderView` can't reset it back to windowed.
+    func lockFullScreen(_ value: Bool) {
+        isFullScreen = value
+        isLocked = true
+    }
 
     /// Undo the HUD's traffic-light fade. Called when the player screen disappears, so closing the
     /// player never leaves the window's close/minimise/zoom buttons invisible.
