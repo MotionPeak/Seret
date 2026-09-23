@@ -41,7 +41,16 @@ struct TitleRoute: View {
                 if store == nil { store = injected }
                 return
             }
-            if store == nil || store?.item != resolved { store = session?.makeDetailStore(for: resolved) }
+            guard store == nil || store?.item != resolved else { return }
+            // A show's selected season must survive the swap (e.g. a season pack landing on S2):
+            // the new store defaults back to season 1 on its own, so hand it the old one's pick
+            // before it ever renders.
+            let previousSeason = store?.selectedSeason
+            guard let newStore = session?.makeDetailStore(for: resolved) else { store = nil; return }
+            if resolved.kind == .show, let previousSeason, previousSeason != newStore.selectedSeason {
+                await newStore.selectSeason(previousSeason)
+            }
+            store = newStore
         }
     }
 }

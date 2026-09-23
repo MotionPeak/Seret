@@ -159,6 +159,11 @@ public final class DetailStore {
         /// dropped `alternates`, so every other copy you own was discarded on the way to the
         /// player and "Try another version" stayed unavailable even once the library kept them.
         public let ownedEpisode: Episode?
+
+        public init(season: Int, number: Int, meta: TMDBEpisodeDetails?, ownedEpisode: Episode?) {
+            self.season = season; self.number = number; self.meta = meta; self.ownedEpisode = ownedEpisode
+        }
+
         public var id: String { "s\(season)e\(number)" }
         public var isDownloaded: Bool { ownedEpisode != nil }
         /// The copy that plays by default.

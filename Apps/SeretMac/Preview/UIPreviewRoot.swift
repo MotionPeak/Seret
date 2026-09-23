@@ -85,7 +85,11 @@ struct UIPreviewRoot: View {
             case "titleshow":
                 titlePreview(item: Fixture.show)
             case "titleshows2":
-                titlePreview(item: Fixture.show, selectSeason: 2)
+                ShowAcquirePreviewHost(kind: .episodeStates)
+            case "titleseasondownloading":
+                ShowAcquirePreviewHost(kind: .seasonDownloading)
+            case "titleseasonnopack":
+                ShowAcquirePreviewHost(kind: .seasonNoPack)
             case "titlefinding":
                 titleFindingPreview()
             case "titleratingsloading":
@@ -437,6 +441,57 @@ private struct TitleDownloadPreviewHost: View {
                                                              fraction: fraction)
                 }
                 acquirer = makePreviewAcquirer(item: item, mode: .none, downloads: downloads)
+            }
+    }
+}
+
+/// `-uiPreview titleshows2` / `titleseasondownloading` / `titleseasonnopack` — Breaking Bad's
+/// season 2 (3 owned, 5 not) with a fixture `TitleAcquirer` driving the episode/season states Task
+/// 7 adds, none of which the plain `titlePreview` seam can pin on its own.
+private struct ShowAcquirePreviewHost: View {
+    enum Kind: Equatable { case episodeStates, seasonDownloading, seasonNoPack }
+    let kind: Kind
+
+    @State private var model: ShellModel
+    @State private var store: DetailStore
+    @State private var acquirer: TitleAcquirer?
+
+    init(kind: Kind) {
+        self.kind = kind
+        let suite = "seret.preview.showacquire.\(kind).\(UUID().uuidString)"
+        let m = ShellModel(defaults: UserDefaults(suiteName: suite)!)
+        m.select(.library)
+        m.open(.title(Fixture.show))
+        _model = State(initialValue: m)
+        _store = State(initialValue: DetailStore(item: Fixture.show, details: PreviewDetails(),
+                                                 watch: PreviewWatch(Fixture.watch), profileID: ""))
+    }
+
+    var body: some View {
+        MainShell(model: model)
+            .environment(store)
+            .environment(acquirer ?? makePreviewAcquirer(item: Fixture.show, mode: .none))
+            .environment(\.previewScrollToBottom, kind == .episodeStates)
+            .task {
+                await store.selectSeason(2)
+                switch kind {
+                case .episodeStates:
+                    // A hanging source pins E4 in `acquirer.finding` for as long as the shot needs
+                    // it — the same trick `titlefinding` uses for the movie hero's Play button.
+                    let downloads = await PreviewDownloads.store(forEpisodeOf: Fixture.show, season: 2,
+                                                                  number: 5, fraction: 0.42)
+                    let a = makePreviewAcquirer(item: Fixture.show, mode: .hanging, downloads: downloads)
+                    acquirer = a
+                    Task { _ = await a.play(.episode(season: 2, number: 4)) }
+                case .seasonDownloading:
+                    let downloads = await PreviewDownloads.store(forSeasonOf: Fixture.show, season: 2,
+                                                                  fraction: 0.42, secondsRemaining: 360)
+                    acquirer = makePreviewAcquirer(item: Fixture.show, mode: .none, downloads: downloads)
+                case .seasonNoPack:
+                    let a = makePreviewAcquirer(item: Fixture.show, mode: .none)
+                    acquirer = a
+                    await a.downloadSeason(2)
+                }
             }
     }
 }

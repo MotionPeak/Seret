@@ -50,7 +50,7 @@ struct TitlePage: View {
             VStack(alignment: .leading, spacing: 0) {
                 TitleHero(store: store, acquirer: acquirer, scrollOffset: scrollOffset,
                          trailer: trailer, autoplayArmed: trailerAutoplayArmed,
-                         onFindOtherVersions: openVersionsSheet)
+                         onFindOtherVersions: { openVersionsSheet() })
                 content
                 rails
             }
@@ -136,8 +136,8 @@ struct TitlePage: View {
         }
     }
 
-    private func openVersionsSheet() {
-        guard let session, let model = session.makeVersionsModel(for: store.item, target: .movie) else { return }
+    private func openVersionsSheet(target: AcquisitionStore.Target = .movie) {
+        guard let session, let model = session.makeVersionsModel(for: store.item, target: target) else { return }
         versionsSheet = VersionsSheetPresentation(model: model)
     }
 
@@ -189,7 +189,7 @@ struct TitlePage: View {
         VStack(alignment: .leading, spacing: 22) {
             overviewAndRating
             if store.item.kind == .movie, !store.versions.isEmpty {
-                VersionsSection(store: store, onFindOtherVersions: openVersionsSheet,
+                VersionsSection(store: store, onFindOtherVersions: { openVersionsSheet() },
                                onRemoveVersion: { pendingVersionRemoval = $0 })
             }
             if store.item.kind == .movie, showDownloadSection {
@@ -201,8 +201,14 @@ struct TitlePage: View {
                         .font(Theme.Typo.label())
                         .tracking(1.5)
                         .foregroundStyle(Theme.Palette.gold)
-                    SeasonPills(store: store)
-                    EpisodeGrid(store: store)
+                    HStack(alignment: .center) {
+                        SeasonPills(store: store)
+                        Spacer(minLength: 20)
+                        SeasonActions(store: store, acquirer: acquirer, onMagnet: { shell?.requestMagnet() })
+                    }
+                    EpisodeGrid(store: store, acquirer: acquirer, onFindOtherVersions: { season, number in
+                        openVersionsSheet(target: .episode(season: season, number: number))
+                    })
                 }
             }
         }

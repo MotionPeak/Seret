@@ -98,6 +98,43 @@ enum TitlePageText {
         }
         return lines
     }
+
+    /// `SeasonActions`' line, replacing the Download Whole Season button once a `TitleAcquirer`
+    /// attempt is under way. `nil` for `.idle` — the button itself is the only thing shown then.
+    static func seasonLine(_ phase: TitleAcquirer.SeasonPhase, season: Int) -> String? {
+        switch phase {
+        case .idle:
+            return nil
+        case .checking:
+            return "Checking for a full\u{2011}season version\u{2026}"
+        case .adding:
+            return "Adding to Real\u{2011}Debrid\u{2026}"
+        case .downloading(let status):
+            var line = "Downloading season \(season) \u{00B7} \(DownloadProgressText.percent(status.fraction))"
+            if let remaining = DownloadProgressText.remaining(status.secondsRemaining) {
+                line += " \u{00B7} \(remaining)"
+            }
+            return line
+        case .added:
+            return "Whole season added"
+        case .noFullSeason:
+            return "No full\u{2011}season version"
+        case .failed(let message):
+            return message.isEmpty ? "Couldn\u{2019}t download the season." : message
+        }
+    }
+
+    /// An `EpisodeCard`'s badge over the still. `nil` for `.downloaded` — the card simply carries
+    /// no badge, the same as an owned copy always has.
+    static func episodeBadge(_ a: TitleAcquirer.EpisodeAvailability) -> String? {
+        switch a {
+        case .downloaded: return nil
+        case .notDownloaded: return "Not downloaded"
+        case .finding: return "Finding a version\u{2026}"
+        case .downloading(let fraction): return "Downloading \(Int((fraction * 100).rounded())) %"
+        case .failed: return "Couldn\u{2019}t download"
+        }
+    }
 }
 
 /// Pure layout math for the title page: the hero's height and the episode grid's column count, both

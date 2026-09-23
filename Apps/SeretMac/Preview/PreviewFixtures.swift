@@ -902,5 +902,44 @@ enum PreviewDownloads {
         await store.refresh()
         return store
     }
+
+    /// One episode's tracked download — Task 7's `titleshows2` (S2E5 reading "Downloading 42 %").
+    @MainActor
+    static func store(forEpisodeOf show: MediaItem, season: Int, number: Int, fraction: Double) async -> DownloadStore {
+        let contentKey = DownloadKey.episode(showTmdbID: show.tmdbID ?? 0, season: season, number: number)
+        let record = DownloadRequestData(torrentID: "t-preview-episode", contentKey: contentKey,
+                                         tmdbID: show.tmdbID ?? 0, infoHash: "preview-hash", kind: .show,
+                                         title: "\(show.title) S\(season)E\(number)", posterPath: show.posterPath,
+                                         requestedAt: .now)
+        let status = DownloadStatus(torrentID: record.torrentID, contentKey: contentKey, tmdbID: show.tmdbID ?? 0,
+                                    phase: .downloading, fraction: fraction, title: record.title,
+                                    posterPath: show.posterPath)
+        let store = DownloadStore(service: FailingService(), records: FixedRecords(items: [record]),
+                                  poller: FixedPoller(statuses: [status]), deleter: NoOpDeleter(),
+                                  pollInterval: .seconds(3600))
+        await store.loadActive()
+        await store.refresh()
+        return store
+    }
+
+    /// A whole-season pack's tracked download — Task 7's `titleseasondownloading`.
+    @MainActor
+    static func store(forSeasonOf show: MediaItem, season: Int, fraction: Double,
+                      secondsRemaining: TimeInterval?) async -> DownloadStore {
+        let contentKey = DownloadKey.season(showTmdbID: show.tmdbID ?? 0, season: season)
+        let record = DownloadRequestData(torrentID: "t-preview-season", contentKey: contentKey,
+                                         tmdbID: show.tmdbID ?? 0, infoHash: "preview-hash", kind: .show,
+                                         title: "\(show.title) Season \(season)", posterPath: show.posterPath,
+                                         requestedAt: .now)
+        let status = DownloadStatus(torrentID: record.torrentID, contentKey: contentKey, tmdbID: show.tmdbID ?? 0,
+                                    phase: .downloading, fraction: fraction, secondsRemaining: secondsRemaining,
+                                    title: record.title, posterPath: show.posterPath)
+        let store = DownloadStore(service: FailingService(), records: FixedRecords(items: [record]),
+                                  poller: FixedPoller(statuses: [status]), deleter: NoOpDeleter(),
+                                  pollInterval: .seconds(3600))
+        await store.loadActive()
+        await store.refresh()
+        return store
+    }
 }
 #endif
