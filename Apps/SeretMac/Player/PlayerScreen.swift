@@ -62,10 +62,12 @@ struct PlayerScreen<Surface: View>: View {
             if case .active = phase { hud.poke() }
         }
         .onChange(of: hud.isVisible) { _, visible in
-            guard model.phase == .playing else { return }
+            // Showing is unconditional: pausing is itself what re-shows the HUD, and by then the
+            // phase is no longer `.playing` — guarding both branches left the window buttons
+            // invisible for the whole pause.
             if visible {
                 windowRef.restoreChrome()
-            } else {
+            } else if model.phase == .playing {
                 NSCursor.setHiddenUntilMouseMoves(true)
                 windowRef.setTrafficLightsHidden(true)
             }
