@@ -11,6 +11,9 @@ struct PlayerHost: View {
     private let request: PlaybackRequest
     private let onExit: () -> Void
     private let onTornDown: () -> Void
+    /// Taken here, not read from the environment inside the player (see `PlayerScreen`).
+    private let pushSignal: LetterboxdPushSignal
+    private let filmRating: FinishedFilmRating
 
     init(request: PlaybackRequest, app: AppSession, onExit: @escaping () -> Void,
          onTornDown: @escaping () -> Void = {}) {
@@ -18,11 +21,14 @@ struct PlayerHost: View {
         self.request = request
         self.onExit = onExit
         self.onTornDown = onTornDown
+        self.pushSignal = app.letterboxdPushSignal
+        self.filmRating = app.finishedFilmRating
     }
 
     var body: some View {
         if let model = session.model {
-            PlayerScreen(model: model, onClose: onExit, onTornDown: onTornDown) {
+            PlayerScreen(model: model, onClose: onExit, onTornDown: onTornDown,
+                         pushSignal: pushSignal, filmRating: filmRating) {
                 VideoSurface(videoView: session.engine.videoView)
             }
         } else {

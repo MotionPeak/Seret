@@ -26,18 +26,64 @@ import Testing
         #expect(PlayerKeyCommand(key: KeyEquivalent("F"), characters: "F", modifiers: [.shift]) == .toggleFullScreen)
     }
 
-    @Test func anyCommandControlOrOptionPressPassesThrough() {
+    @Test func commandAndControlPressesPassThrough() {
         // ⌘F
         #expect(PlayerKeyCommand(key: KeyEquivalent("f"), characters: "f", modifiers: [.command]) == nil)
         // ⌃⌘F
         #expect(PlayerKeyCommand(key: KeyEquivalent("f"), characters: "f", modifiers: [.control, .command]) == nil)
-        // ⌥←
-        #expect(PlayerKeyCommand(key: .leftArrow, characters: "", modifiers: [.option]) == nil)
+        // ⌘← (Back) belongs to the menu
+        #expect(PlayerKeyCommand(key: .leftArrow, characters: "", modifiers: [.command]) == nil)
+    }
+
+    @Test func optionArrowsNudgeTheSubtitleHalfASecond() {
+        #expect(PlayerKeyCommand(key: .leftArrow, characters: "", modifiers: [.option]) == .subtitleDelay(-0.5))
+        #expect(PlayerKeyCommand(key: .rightArrow, characters: "", modifiers: [.option]) == .subtitleDelay(0.5))
+        // ⌥ on anything else is not ours
+        #expect(PlayerKeyCommand(key: KeyEquivalent("f"), characters: "ƒ", modifiers: [.option]) == nil)
+    }
+
+    @Test func panelsEpisodesAndSpeedKeys() {
+        #expect(PlayerKeyCommand(key: KeyEquivalent("s"), characters: "s", modifiers: []) == .toggleTracks)
+        #expect(PlayerKeyCommand(key: KeyEquivalent("E"), characters: "E", modifiers: [.shift]) == .toggleEpisodes)
+        #expect(PlayerKeyCommand(key: KeyEquivalent("n"), characters: "n", modifiers: []) == .nextEpisode)
+        #expect(PlayerKeyCommand(key: KeyEquivalent("["), characters: "[", modifiers: []) == .speed(-1))
+        #expect(PlayerKeyCommand(key: KeyEquivalent("]"), characters: "]", modifiers: []) == .speed(1))
+    }
+
+    @Test func digitsRateOneToTenWithZeroAsTen() {
+        #expect(PlayerKeyCommand(key: KeyEquivalent("1"), characters: "1", modifiers: []) == .rate(1))
+        #expect(PlayerKeyCommand(key: KeyEquivalent("9"), characters: "9", modifiers: []) == .rate(9))
+        #expect(PlayerKeyCommand(key: KeyEquivalent("0"), characters: "0", modifiers: []) == .rate(10))
     }
 
     @Test func otherKeysAreIgnored() {
         #expect(PlayerKeyCommand(key: KeyEquivalent("q"), characters: "q", modifiers: []) == nil)
-        #expect(PlayerKeyCommand(key: KeyEquivalent("1"), characters: "1", modifiers: []) == nil)
+        #expect(PlayerKeyCommand(key: KeyEquivalent("z"), characters: "z", modifiers: []) == nil)
+    }
+
+    @Test func speedStepsWalkTheListAndStopAtTheEnds() {
+        #expect(PlaybackSpeeds.step(from: 1.0, direction: 1) == 1.25)
+        #expect(PlaybackSpeeds.step(from: 1.0, direction: -1) == 0.75)
+        #expect(PlaybackSpeeds.step(from: 1.5, direction: 1) == 1.5)
+        #expect(PlaybackSpeeds.step(from: 0.5, direction: -1) == 0.5)
+        // an off-list rate snaps to its nearest neighbour first
+        #expect(PlaybackSpeeds.step(from: 1.1, direction: 1) == 1.25)
+        #expect(PlaybackSpeeds.label(1) == "Normal")
+        #expect(PlaybackSpeeds.label(1.25) == "1.25×")
+    }
+
+    @Test func manualSyncKeys() {
+        #expect(ManualSyncKey(key: .upArrow, modifiers: []) == .moveLine(-1))
+        #expect(ManualSyncKey(key: .downArrow, modifiers: []) == .moveLine(1))
+        #expect(ManualSyncKey(key: .return, modifiers: []) == .mark)
+        #expect(ManualSyncKey(key: .leftArrow, modifiers: []) == .nudge(-0.1))
+        #expect(ManualSyncKey(key: .rightArrow, modifiers: []) == .nudge(0.1))
+        #expect(ManualSyncKey(key: .escape, modifiers: []) == .done)
+        #expect(ManualSyncKey(key: .leftArrow, modifiers: [.option]) == nil)
+    }
+
+    @Test func escapeEndsASyncSessionBeforeAnythingElse() {
+        #expect(PlayerEscape.next(syncActive: true, panelOpen: true, isFullScreen: true) == .endSync)
     }
 
     @Test func escapeClosesThePanelFirst() {

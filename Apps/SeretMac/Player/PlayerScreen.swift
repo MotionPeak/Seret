@@ -10,6 +10,10 @@ struct PlayerScreen<Surface: View>: View {
     let onClose: () -> Void
     /// Runs after `teardown()` returns — the engine is stopped and the final position written.
     let onTornDown: () -> Void
+    /// Passed in rather than read from the environment (a non-optional Observable read traps when
+    /// the object doesn't cross a presentation boundary); nil in previews.
+    let pushSignal: LetterboxdPushSignal?
+    let filmRating: FinishedFilmRating?
     @ViewBuilder let surface: () -> Surface
 
     @State private var windowRef: WindowRef
@@ -17,19 +21,28 @@ struct PlayerScreen<Surface: View>: View {
     @State private var muteMemory = MuteMemory()
     @State private var hud: HUDVisibility
     @State private var tracksPanelOpen: Bool
+    @State private var panelMode: TracksPanelMode = .tracks
+    @State private var episodesOpen = false
+    /// The film the credits rating bar is asking about, while it is up — what 1…0 rate.
+    @State private var ratingTarget: RatingTarget?
     @FocusState private var isFocused: Bool
+
+    private struct RatingTarget: Equatable { let tmdbID: Int; let current: Int? }
 
     /// `hud` is injectable so the harness can pin auto-hide off (`HUDVisibility(delay: nil)`),
     /// `tracksPanelOpen` so it can start the Audio & Subtitles panel already open, and `windowRef` so
     /// it can force the full-screen HUD style without a real `NSWindow` full-screen transition — the
     /// real app always takes the defaults (a real-delay `HUDVisibility`, the panel closed, windowed).
     init(model: PlayerModel, onClose: @escaping () -> Void, onTornDown: @escaping () -> Void = {},
+        pushSignal: LetterboxdPushSignal? = nil, filmRating: FinishedFilmRating? = nil,
         hud: HUDVisibility = HUDVisibility(),
         tracksPanelOpen: Bool = false, windowRef: WindowRef = WindowRef(),
         @ViewBuilder surface: @escaping () -> Surface) {
         self.model = model
         self.onClose = onClose
         self.onTornDown = onTornDown
+        self.pushSignal = pushSignal
+        self.filmRating = filmRating
         self.surface = surface
         _hud = State(wrappedValue: hud)
         _tracksPanelOpen = State(wrappedValue: tracksPanelOpen)
@@ -49,21 +62,22 @@ struct PlayerScreen<Surface: View>: View {
             tapLayer
             PlayerStateOverlays(model: model, onClose: onClose)
             PlayerHUD(model: model, hud: hud, windowRef: windowRef, tracksPanelOpen: $tracksPanelOpen,
+                     panelMode: $panelMode, episodesOpen: $episodesOpen,
                      onClose: onClose,
                      onToggleFullScreen: { perform(.toggleFullScreen) },
                      onToggleMute: { perform(.mute) })
         }
+        .overlay(alignment: .top) { banners }
+        .focusedSceneValue(\.playerCommands,
+                           PlayerCommands(isEpisode: model.isEpisode, hasNextEpisode: model.hasNextEpisode,
+                                          perform: { perform($0) }))
         .ignoresSafeArea()
         .background(WindowReader(ref: windowRef))
         .focusable()
         .focusEffectDisabled()
         .focused($isFocused)
-        .onKeyPress(phases: .down) { press in
-            // `.down` only: key-repeat must never machine-gun skips.
-            guard let command = PlayerKeyCommand(key: press.key, characters: press.characters,
-                                                 modifiers: press.modifiers) else { return .ignored }
-            perform(command)
-            return .handled
+        .onKeyPress(phases: [.down, .repeat, .up]) { press in
+            handleKey(press)
         }
         .onContinuousHover { phase in
             if case .active = phase { hud.poke() }
@@ -80,8 +94,19 @@ struct PlayerScreen<Surface: View>: View {
             }
         }
         .onChange(of: tracksPanelOpen) { _, open in
-            hud.panelOpen = open
-            if !open { isFocused = true }   // a panel closing must hand the keyboard back
+            hud.panelOpen = open || episodesOpen
+            if !open {
+                if panelMode == .sync { model.endManualSync() }
+                panelMode = .tracks
+                isFocused = true   // a panel closing must hand the keyboard back
+            }
+        }
+        .onChange(of: episodesOpen) { _, open in
+            hud.panelOpen = open || tracksPanelOpen
+            if !open { isFocused = true }
+        }
+        .task(id: model.currentEpisode?.season) {
+            if model.isEpisode { await model.loadSeasonEpisodes() }
         }
         .onAppear {
             model.start()
@@ -129,6 +154,79 @@ struct PlayerScreen<Surface: View>: View {
             }
     }
 
+    // MARK: - Banners (top centre, below the top bar while the HUD is up)
+
+    private var banners: some View {
+        VStack(spacing: 8) {
+            if let banner = model.autoSyncBanner {
+                AutoSyncBar(banner: banner)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+            Color.clear.frame(height: 0)
+                .letterboxdDiaryBar(signal: pushSignal, contentKey: model.contentKey) { state in
+                    switch state {
+                    case .logged:
+                        LetterboxdLoggedBar()
+                    case .askingRating(let tmdbID, let current):
+                        LetterboxdRatingBar(current: current) { value in
+                            Task { await filmRating?.rate(value, contentKey: model.contentKey, tmdbID: tmdbID) }
+                        } onDismiss: {
+                            Task { await filmRating?.dismiss(tmdbID: tmdbID) }
+                        }
+                        .onAppear { ratingTarget = RatingTarget(tmdbID: tmdbID, current: current) }
+                        .onChange(of: current) { _, now in ratingTarget = RatingTarget(tmdbID: tmdbID, current: now) }
+                        .onDisappear { ratingTarget = nil }
+                    }
+                }
+        }
+        .padding(.top, hud.isVisible ? (windowRef.isFullScreen ? 64 : 84) : 18)
+        .animation(Theme.Motion.fade, value: model.autoSyncBanner)
+        .animation(Theme.Motion.fade, value: hud.isVisible)
+    }
+
+    // MARK: - Keys
+
+    private func handleKey(_ press: KeyPress) -> KeyPress.Result {
+        // A "Sync to a line" session owns ↑↓←→ Return Esc while it is open.
+        if model.manualSyncReadout != nil, tracksPanelOpen, panelMode == .sync {
+            guard press.phase != .up, let key = ManualSyncKey(key: press.key, modifiers: press.modifiers)
+            else { return .ignored }
+            switch key {
+            case .moveLine(let delta): model.moveSyncLine(by: delta)
+            case .mark: if press.phase == .down { model.markSyncMoment() }
+            case .nudge(let delta): model.nudgeSyncOffset(by: delta)
+            case .done:
+                model.endManualSync()
+                panelMode = .tracks
+            }
+            return .handled
+        }
+
+        // Hold ←/→ to scan: the first auto-repeat starts it, key-up ends it. A plain press skips on
+        // `.down` as before; key-repeat never machine-guns skips.
+        let isPlainArrow = press.modifiers.isDisjoint(with: [.command, .control, .option])
+            && (press.key == .leftArrow || press.key == .rightArrow)
+        if isPlainArrow {
+            switch press.phase {
+            case .repeat:
+                if !model.isScanning { model.beginScan(direction: press.key == .leftArrow ? -1 : 1) }
+                hud.poke()
+                return .handled
+            case .up:
+                if model.isScanning { model.endScan() }
+                return .handled
+            default:
+                break
+            }
+        }
+        guard press.phase == .down,
+              let command = PlayerKeyCommand(key: press.key, characters: press.characters,
+                                             modifiers: press.modifiers) else { return .ignored }
+        if case .rate = command, ratingTarget == nil { return .ignored }
+        perform(command)
+        return .handled
+    }
+
     private func perform(_ command: PlayerKeyCommand) {
         switch command {
         case .playPause:
@@ -142,10 +240,32 @@ struct PlayerScreen<Surface: View>: View {
             model.setVolume(muteMemory.toggle(current: model.volumePercent))
         case .toggleFullScreen:
             windowRef.window?.toggleFullScreen(nil)
+        case .subtitleDelay(let delta):
+            model.adjustSubtitleDelay(by: delta)
+        case .toggleTracks:
+            tracksPanelOpen.toggle()
+        case .toggleEpisodes:
+            if model.isEpisode { episodesOpen.toggle() }
+        case .nextEpisode:
+            if model.hasNextEpisode { model.playNext() }
+        case .speed(let direction):
+            model.setPlaybackSpeed(PlaybackSpeeds.step(from: model.playbackSpeed, direction: direction))
+        case .rate(let value):
+            if let target = ratingTarget {
+                Task {
+                    await filmRating?.rate(target.current == value ? nil : value,
+                                           contentKey: model.contentKey, tmdbID: target.tmdbID)
+                }
+            }
         case .escape:
-            switch PlayerEscape.next(panelOpen: tracksPanelOpen, isFullScreen: windowRef.isFullScreen) {
+            switch PlayerEscape.next(syncActive: model.manualSyncReadout != nil && panelMode == .sync,
+                                     panelOpen: tracksPanelOpen || episodesOpen,
+                                     isFullScreen: windowRef.isFullScreen) {
+            case .endSync:
+                model.endManualSync()
+                panelMode = .tracks
             case .closePanel:
-                tracksPanelOpen = false
+                if episodesOpen { episodesOpen = false } else { tracksPanelOpen = false }
             case .exitFullScreen:
                 windowRef.window?.toggleFullScreen(nil)
             case .closePlayer:

@@ -11,6 +11,8 @@ struct PlayerHUD: View {
     let hud: HUDVisibility
     let windowRef: WindowRef
     @Binding var tracksPanelOpen: Bool
+    @Binding var panelMode: TracksPanelMode
+    @Binding var episodesOpen: Bool
     let onClose: () -> Void
     let onToggleFullScreen: () -> Void
     let onToggleMute: () -> Void
@@ -34,8 +36,19 @@ struct PlayerHUD: View {
             if tracksPanelOpen {
                 tracksPanelLayer
             }
+            if episodesOpen, model.isEpisode, !model.seasonEpisodes.isEmpty {
+                episodesLayer
+            }
             if model.upNextVisible, let next = model.nextEpisode {
                 upNextLayer(next)
+            }
+            if let feedback = model.skipFeedback {
+                SkipBadge(feedback: feedback)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity,
+                           alignment: feedback.seconds < 0 ? .leading : .trailing)
+                    .padding(.horizontal, 80)
+                    .transition(.opacity)
+                    .id(feedback.id)
             }
         }
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
@@ -44,6 +57,8 @@ struct PlayerHUD: View {
         .animation(Theme.Motion.fade, value: hud.isVisible)
         .animation(Theme.Motion.fade, value: tracksPanelOpen)
         .animation(Theme.Motion.fade, value: model.upNextVisible)
+        .animation(Theme.Motion.fade, value: episodesOpen)
+        .animation(Theme.Motion.fade, value: model.skipFeedback?.id)
     }
 
     // MARK: - Scrims
@@ -189,6 +204,12 @@ struct PlayerHUD: View {
             }
             Spacer()
             HStack(spacing: 10) {
+                if model.isEpisode {
+                    iconButton("rectangle.stack", help: "Episodes (E)", tinted: episodesOpen) { episodesOpen.toggle() }
+                }
+                if model.hasNextEpisode {
+                    iconButton("forward.end.fill", help: "Next Episode (N)") { model.playNext() }
+                }
                 Button(action: { tracksPanelOpen.toggle() }) {
                     Image(systemName: "captions.bubble")
                         .font(.system(size: PlayerHUDMetrics.icon))
@@ -210,11 +231,12 @@ struct PlayerHUD: View {
         }
     }
 
-    private func iconButton(_ symbol: String, help: String, action: @escaping () -> Void) -> some View {
+    private func iconButton(_ symbol: String, help: String, tinted: Bool = false,
+                            action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: PlayerHUDMetrics.icon))
-                .foregroundStyle(Theme.Palette.textPrimary)
+                .foregroundStyle(tinted ? Theme.Palette.gold : Theme.Palette.textPrimary)
                 .frame(width: PlayerHUDMetrics.iconButton, height: PlayerHUDMetrics.iconButton)
         }
         .buttonStyle(.plain)
@@ -255,6 +277,11 @@ struct PlayerHUD: View {
                     .fill(Color.white.opacity(0.14))
                     .frame(width: 1, height: PlayerHUDMetrics.FullScreen.separatorHeight)
 
+                if model.isEpisode {
+                    compactIconButton("rectangle.stack", help: "Episodes (E)", tinted: episodesOpen) {
+                        episodesOpen.toggle()
+                    }
+                }
                 compactIconButton("captions.bubble", help: "Audio & Subtitles", tinted: tracksPanelOpen) {
                     tracksPanelOpen.toggle()
                 }
@@ -290,13 +317,27 @@ struct PlayerHUD: View {
     // MARK: - Tracks panel
 
     private var tracksPanelLayer: some View {
-        TracksPanel(model: model, onClose: { tracksPanelOpen = false })
+        TracksPanel(model: model, mode: $panelMode, onClose: { tracksPanelOpen = false })
             .padding(.top, 20)
             .padding(.bottom, windowRef.isFullScreen
                      ? PlayerHUDMetrics.FullScreen.clearOfBar : PlayerHUDMetrics.clearOfBottomPanel)
             .padding(.trailing, 20)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
             .transition(.opacity)
+    }
+
+    // MARK: - Episodes
+
+    private var episodesLayer: some View {
+        VStack {
+            Spacer()
+            EpisodeStrip(model: model, onClose: { episodesOpen = false })
+                .frame(maxWidth: 980)
+        }
+        .padding(.horizontal, PlayerHUDMetrics.sideMargin)
+        .padding(.bottom, windowRef.isFullScreen
+                 ? PlayerHUDMetrics.FullScreen.clearOfBar : PlayerHUDMetrics.clearOfBottomPanel)
+        .transition(.opacity)
     }
 
     // MARK: - Up Next
