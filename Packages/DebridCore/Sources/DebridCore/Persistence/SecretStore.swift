@@ -24,18 +24,15 @@ public struct KeychainSecretStore: SecretStore {
         self.account = account
     }
 
-    private var baseQuery: [String: Any] {
-        [kSecClass as String: kSecClassGenericPassword,
-         kSecAttrService as String: service,
-         kSecAttrAccount as String: account]
-    }
-
     public func read() throws -> Data? {
-        var q = baseQuery
-        q[kSecReturnData as String] = true
-        q[kSecMatchLimit as String] = kSecMatchLimitOne
         var out: CFTypeRef?
-        let status = SecItemCopyMatching(q as CFDictionary, &out)
+        let status = KeychainQuery.perform(service: service, account: account) { base in
+            var query = base
+            query[kSecReturnData as String] = true
+            query[kSecMatchLimit as String] = kSecMatchLimitOne
+            out = nil
+            return SecItemCopyMatching(query as CFDictionary, &out)
+        }
         if status == errSecItemNotFound { return nil }
         guard status == errSecSuccess else { throw KeychainError.unexpectedStatus(status) }
         return out as? Data
@@ -43,15 +40,19 @@ public struct KeychainSecretStore: SecretStore {
 
     public func write(_ data: Data) throws {
         try clear()
-        var q = baseQuery
-        q[kSecValueData as String] = data
-        q[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        let status = SecItemAdd(q as CFDictionary, nil)
+        let status = KeychainQuery.perform(service: service, account: account) { base in
+            var query = base
+            query[kSecValueData as String] = data
+            query[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+            return SecItemAdd(query as CFDictionary, nil)
+        }
         guard status == errSecSuccess else { throw KeychainError.unexpectedStatus(status) }
     }
 
     public func clear() throws {
-        let status = SecItemDelete(baseQuery as CFDictionary)
+        let status = KeychainQuery.perform(service: service, account: account) {
+            SecItemDelete($0 as CFDictionary)
+        }
         guard status == errSecSuccess || status == errSecItemNotFound else {
             throw KeychainError.unexpectedStatus(status)
         }
