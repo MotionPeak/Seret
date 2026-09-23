@@ -20,18 +20,8 @@ struct VersionsScreen: View {
     var episode: (season: Int, number: Int)?
 
     @Environment(AppSession.self) private var session
-    @State private var flow: AddFlowStore?
-    @State private var versions: [CachedStream] = []
-    /// The list split for display: oversized releases first, in a section of their own. Nothing is
-    /// dropped — the split is only about where a row is drawn. Computed once when the list loads
-    /// rather than in `body`, which SwiftUI re-runs freely.
-    @State private var larger: [CachedStream] = []
-    @State private var rest: [CachedStream] = []
-    @State private var phase: Phase = .loading
-    @State private var picking: String?
+    @State private var model: VersionsModel?
     @State private var player: PlayerPresentation?
-
-    private enum Phase { case loading, ready, empty, failed }
 
     var body: some View {
         ScrollView {
@@ -45,40 +35,25 @@ struct VersionsScreen: View {
         }
         .background(CanvasBackground())
         .task {
-            guard flow == nil else { return }
-            let f = session.makeAddFlow(for: hit)
-            flow = f
-            await f?.resolve()
-            // An episode needs its own target: Comet/Torrentio queries are per `series(s,e)`, so
-            // without this the list would be the show's, not this episode's.
-            if let episode {
-                await f?.selectSeason(episode.season)
-                await f?.selectEpisode(episode.number)
-            }
-            guard let add = f?.add else { phase = .failed; return }
-            await add.loadAllVersions()
-            versions = add.allVersions
-            (larger, rest) = versions.splitOversized(episodesInSeason: nil)
-            phase = versions.isEmpty ? .empty : .ready
+            guard model == nil else { return }
+            let target: AcquisitionStore.Target = episode.map { .episode(season: $0.season, number: $0.number) } ?? .movie
+            // `MediaItem.placeholder(for:)` always carries the hit's TMDB id, so this only returns
+            // nil the same way the rest of `AppSession`'s `make…` seams do: no session at all.
+            guard let m = session.makeVersionsModel(for: placeholderItem, target: target) else { return }
+            model = m
+            await m.load()
         }
         .fullScreenCover(item: $player) { presented in
             PlayerHost(request: presented.request, app: session, backdropSize: "original")
         }
     }
 
-    private var title: String {
-        let base = flow?.title ?? hit.result.title ?? hit.result.name ?? ""
-        guard let episode else { return base }
-        return "\(base) — S\(episode.season)·E\(episode.number)"
-    }
+    /// `makeVersionsModel` wants a `MediaItem` (it is the title page's seam); this screen only has
+    /// a `SearchHit`, so it builds the placeholder item the same way `MediaItem.placeholder(for:)`
+    /// does — this screen is reached whether or not the title is owned.
+    private var placeholderItem: MediaItem { MediaItem.placeholder(for: hit) }
 
-    /// What a download started here is filed under. Was hardcoded to the movie key, which would
-    /// have reported an episode's progress against the whole show.
-    private func downloadKey(_ flow: AddFlowStore) -> String {
-        guard let episode else { return DownloadKey.movie(tmdbID: flow.tmdbID) }
-        return DownloadKey.episode(showTmdbID: flow.tmdbID,
-                                   season: episode.season, number: episode.number)
-    }
+    private var title: String { model?.title ?? hit.result.title ?? hit.result.name ?? "" }
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -89,7 +64,7 @@ struct VersionsScreen: View {
     }
 
     @ViewBuilder private var content: some View {
-        switch phase {
+        switch model?.phase ?? .loading {
         case .loading:
             HStack(spacing: 16) {
                 ProgressView().controlSize(.large).tint(Theme.Palette.gold)
@@ -106,15 +81,15 @@ struct VersionsScreen: View {
         case .ready:
             // Lazy so the (often 30+) rows realise as they scroll in — building every chip and
             // badge up front made the list stutter on the Add screen.
-            VersionList(larger: larger, rest: rest, picking: picking, onPick: pick)
+            VersionList(larger: model?.larger ?? [], rest: model?.rest ?? [],
+                       picking: model?.picking, onPick: pick)
                 .frame(maxWidth: 1400, alignment: .leading)
         }
     }
 
     /// Live progress for a version picked here that had to be downloaded.
     @ViewBuilder private var downloadStatus: some View {
-        if let flow, let status = session.downloadStore?
-            .status(forContentKey: downloadKey(flow)) {
+        if let status = model?.downloadStatus {
             switch status.phase {
             case .queued:
                 ProgressView("Starting download…").font(.seretTitle3)
@@ -137,21 +112,16 @@ struct VersionsScreen: View {
     }
 
     /// Cached → add and play now; otherwise start that version's download. The cache flag lags, so
-    /// try the instant add first rather than trusting the badge.
+    /// `VersionsModel.pick` tries the instant add first rather than trusting the badge.
     private func pick(_ stream: CachedStream) {
-        guard picking == nil, let flow else { return }
+        guard let model else { return }
         Task {
-            picking = stream.infoHash
-            if let request = await flow.instantPlay(stream) {
-                session.libraryStore?.retry()      // a new torrent landed in RD
+            switch await model.pick(stream) {
+            case let .play(request):
                 player = PlayerPresentation(request: request)
-            } else {
-                await session.downloadStore?.request(contentKey: downloadKey(flow),
-                                                     tmdbID: flow.tmdbID, title: flow.title,
-                                                     kind: flow.mediaKind, candidates: [stream],
-                                                     posterPath: flow.posterPath)
+            default:
+                break   // downloadStarted / failed / busy — the status line above already reflects it
             }
-            picking = nil
         }
     }
 

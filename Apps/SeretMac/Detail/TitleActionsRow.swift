@@ -9,6 +9,9 @@ struct TitleActionsRow: View {
     let store: DetailStore
     let acquirer: TitleAcquirer?
     var trailer: TrailerModel?
+    /// Opens the page's Versions sheet — owned by `TitlePage` (Decision 7: a sheet's dependencies
+    /// are passed explicitly), so the ⋯ menu reaches it through this rather than presenting its own.
+    var onFindOtherVersions: () -> Void = {}
 
     @Environment(ShellModel.self) private var shell: ShellModel?
     @Environment(AppSession.self) private var session: AppSession?
@@ -165,7 +168,7 @@ struct TitleActionsRow: View {
     private var menuGroups: [[TitleMenuItem]] {
         TitleMenu.make(kind: store.item.kind, owned: isOwned, watched: isWatched,
                        inMyList: store.inMyList, canMyList: session?.myListStore != nil,
-                       hasTrailer: trailer?.streamURL != nil, canMagnet: false, canFindVersions: false)
+                       hasTrailer: trailer?.streamURL != nil, canMagnet: true, canFindVersions: true)
     }
 
     private var isWatched: Bool { library?.watchState(for: store.item)?.finished ?? false }
@@ -196,8 +199,12 @@ struct TitleActionsRow: View {
         case .watchTrailer:
             guard let url = trailer?.streamURL else { return }
             shell?.presentTrailer(url, title: store.item.title)
-        case .addByMagnet, .findOtherVersions:
-            break   // wired in Task 5
+        case .addByMagnet:
+            // One mechanism for every "Add by Magnet…" control (⋯, the download section, File ▸ …):
+            // bump the shell's counter; the page that's actually showing opens its own sheet.
+            shell?.requestMagnet()
+        case .findOtherVersions:
+            onFindOtherVersions()
         }
     }
 }

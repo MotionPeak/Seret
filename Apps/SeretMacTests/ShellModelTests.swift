@@ -242,4 +242,26 @@ import Testing
         model.presentTrailer(URL(string: "https://example.invalid/t")!, title: "Dune")
         #expect(model.trailer == nil)
     }
+
+    // MARK: - Add by Magnet
+
+    @Test func magnetRequestsCount() {
+        let model = ShellModel(defaults: freshDefaults())
+        #expect(model.magnetRequest == 0)
+        model.requestMagnet()
+        model.requestMagnet()
+        #expect(model.magnetRequest == 2)
+    }
+
+    @Test func titleOnTopReadsTheSelectedSection() {
+        let model = ShellModel(defaults: freshDefaults())
+        #expect(model.titleOnTop == nil)                // Home's root: no title showing
+
+        model.select(.library)
+        model.open(route("a"))
+        #expect(model.titleOnTop?.id == "a")
+
+        model.setSearchQuery("dune")                    // pushes .search on top of "a"
+        #expect(model.titleOnTop == nil)                 // top of stack is .search, not a title
+    }
 }

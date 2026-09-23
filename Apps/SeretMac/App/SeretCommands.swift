@@ -12,6 +12,11 @@ struct SeretCommands: Commands {
     @FocusedValue(\.shellModel) private var shell
 
     var body: some Commands {
+        CommandGroup(after: .newItem) {
+            Button("Add by Magnet\u{2026}") { shell?.requestMagnet() }
+                .keyboardShortcut("m", modifiers: [.command, .shift])
+                .disabled(shell?.titleOnTop == nil || shell?.playback != nil)
+        }
         CommandGroup(before: .sidebar) {
             Button(shell?.isSidebarCollapsed == true ? "Expand Sidebar" : "Collapse Sidebar") {
                 withAnimation(Theme.Motion.standard) { shell?.toggleSidebar() }

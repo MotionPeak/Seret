@@ -31,6 +31,11 @@ struct TitlePage: View {
     @Environment(\.previewTrailerDelay) private var previewTrailerDelay: Duration?
     @FocusState private var ratingKeysFocused: Bool
 
+    /// The version awaiting a delete confirmation (nil = no alert).
+    @State private var pendingVersionRemoval: MediaSource?
+    @State private var versionsSheet: VersionsSheetPresentation?
+    @State private var magnetSheet: MagnetSheetPresentation?
+
     private var acquirer: TitleAcquirer? { injectedAcquirer ?? ownAcquirer }
     private var trailer: TrailerModel? { injectedTrailer ?? ownTrailer }
 
@@ -38,7 +43,8 @@ struct TitlePage: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 TitleHero(store: store, acquirer: acquirer, scrollOffset: scrollOffset,
-                         trailer: trailer, autoplayArmed: trailerAutoplayArmed)
+                         trailer: trailer, autoplayArmed: trailerAutoplayArmed,
+                         onFindOtherVersions: openVersionsSheet)
                 content
             }
         }
@@ -74,6 +80,72 @@ struct TitlePage: View {
         }
         .task(id: store.item.tmdbID) { await prepareTrailer() }
         .onChange(of: shell?.playbackEndedCount) { _, _ in Task { await store.reloadWatch() } }
+        // Decision 8 / the Wiring bullet: every "Add by Magnet…" control (⋯, the download section,
+        // File ▸ …) bumps the same counter; only the page actually on top opens its sheet.
+        .onChange(of: shell?.magnetRequest) { _, _ in
+            guard shell?.titleOnTop?.id == store.item.id, magnetSheet == nil,
+                  let session, let downloads = session.downloadStore, let target = magnetTarget
+            else { return }
+            magnetSheet = MagnetSheetPresentation(model: MagnetAddModel(target: target, downloads: downloads))
+        }
+        .sheet(item: $versionsSheet) { presented in
+            VersionsSheet(model: presented.model, onPlay: { request in
+                versionsSheet = nil
+                shell?.present(request)
+                shell?.showToast("Added to Real\u{2011}Debrid")
+            }, onClose: { versionsSheet = nil })
+            .frame(minWidth: 680, minHeight: 560)
+        }
+        .sheet(item: $magnetSheet) { presented in
+            MagnetSheet(model: presented.model, title: store.item.title, onDone: {
+                magnetSheet = nil
+                shell?.showToast("Sent to Real\u{2011}Debrid \u{2014} progress shows on this page")
+            })
+            .frame(minWidth: 560, minHeight: 320)
+        }
+        .alert("Delete this version?", isPresented: Binding(
+            get: { pendingVersionRemoval != nil },
+            set: { if !$0 { pendingVersionRemoval = nil } }), presenting: pendingVersionRemoval) { source in
+            Button("Delete", role: .destructive) { performVersionRemove(source) }
+            Button("Cancel", role: .cancel) { pendingVersionRemoval = nil }
+        } message: { source in
+            Text(store.versions.count > 1
+                 ? "\(source.versionSummary) is deleted from your Real\u{2011}Debrid account. Your other versions of \u{201C}\(store.item.title)\u{201D} stay."
+                 : "\(source.versionSummary) is the only version you have, so \u{201C}\(store.item.title)\u{201D} leaves your library.")
+        }
+    }
+
+    /// What Add by Magnet files under here: the film, or the selected season for a show.
+    private var magnetTarget: MagnetAddModel.Target? {
+        switch store.item.kind {
+        case .movie: return DownloadTarget.movie(store.item)?.magnet
+        case .show: return DownloadTarget.season(of: store.item, store.selectedSeason)?.magnet
+        }
+    }
+
+    private func openVersionsSheet() {
+        guard let session, let model = session.makeVersionsModel(for: store.item, target: .movie) else { return }
+        versionsSheet = VersionsSheetPresentation(model: model)
+    }
+
+    /// Delete ONE version from Real-Debrid. The last one takes the whole title with it, so the
+    /// page pops back if it is still the one showing; otherwise it stays open with that row gone —
+    /// tvOS `DetailView.performVersionRemove`, moved here.
+    private func performVersionRemove(_ source: MediaSource) {
+        guard let library = session?.libraryStore else { return }
+        pendingVersionRemoval = nil
+        Task {
+            switch await library.removeVersionReportingFailure(store.item, source: source) {
+            case let .removed(wasLast):
+                if wasLast {
+                    shell?.popTitleIfShowing(store.item.id)
+                } else {
+                    await store.forgetVersion(source)
+                }
+            case let .failed(message):
+                shell?.removalError = message
+            }
+        }
     }
 
     /// The iPhone's `TrailerHero.prepare()` sequence: resolve, then wait out the rest of a flat
@@ -103,6 +175,10 @@ struct TitlePage: View {
     private var content: some View {
         VStack(alignment: .leading, spacing: 22) {
             overviewAndRating
+            if store.item.kind == .movie, !store.versions.isEmpty {
+                VersionsSection(store: store, onFindOtherVersions: openVersionsSheet,
+                               onRemoveVersion: { pendingVersionRemoval = $0 })
+            }
             if store.item.kind == .movie, showDownloadSection {
                 MovieDownloadSection(store: store, acquirer: acquirer)
             }
@@ -153,4 +229,17 @@ struct TitlePage: View {
             }
         }
     }
+}
+
+/// Wraps a `VersionsModel` so `.sheet(item:)` can present it — a fresh `id` each time the sheet
+/// opens, so re-opening after a close always builds a fresh model rather than reusing a stale one.
+private struct VersionsSheetPresentation: Identifiable {
+    let id = UUID()
+    let model: VersionsModel
+}
+
+/// Wraps a `MagnetAddModel` so `.sheet(item:)` can present it.
+private struct MagnetSheetPresentation: Identifiable {
+    let id = UUID()
+    let model: MagnetAddModel
 }

@@ -102,6 +102,18 @@ struct UIPreviewRoot: View {
                 TitleDownloadPreviewHost(phase: .downloading, fraction: 0.42)
             case "titledownloadfailed":
                 TitleDownloadPreviewHost(phase: .failed("No seeders available right now."))
+            case "titleversions":
+                titleVersionsPreview()
+            case "versionssheet":
+                VersionsSheetPreviewHost(mode: .list)
+            case "versionsloading":
+                VersionsSheetPreviewHost(mode: .hangingStreams)
+            case "versionspicking":
+                VersionsSheetPreviewHost(mode: .hangingAdd, autoPickFirst: true)
+            case "magnetvalid":
+                MagnetSheetPreviewHost(prefill: "magnet:?xt=urn:btih:c9e15763f722f23e98a29decdfae341b98d53056&dn=The.Godfather.1972.2160p.BluRay.x265")
+            case "magnetinvalid":
+                MagnetSheetPreviewHost(prefill: "not a magnet link")
             case "playerloading":
                 // `PlayerScreen`'s own `.onAppear` calls `model.start()`; a hanging unrestrict keeps
                 // it stuck in `.preparing` so the cold-open overlay stays on screen.
@@ -297,6 +309,21 @@ struct UIPreviewRoot: View {
                                 ratings: PreviewRatings(), letterboxd: PreviewLetterboxd())
         return MainShell(model: model).environment(store)
     }
+
+    /// `-uiPreview titleversions` — the owned, three-version Godfather page with the BluRay row
+    /// (index 1) marked preferred via a fixed `PreviewVersionPrefs`, so ✓ lands there rather than
+    /// wherever the ranker would put it.
+    private func titleVersionsPreview() -> some View {
+        let item = Fixture.filmWithVersions
+        let suite = "seret.preview.titleversions.\(UUID().uuidString)"
+        let model = ShellModel(defaults: UserDefaults(suiteName: suite)!)
+        model.select(.library)
+        model.open(.title(item))
+        let preferredKey = WatchKey.source(item.sources[1])
+        let store = DetailStore(item: item, details: PreviewDetails(), watch: PreviewWatch(Fixture.watch),
+                                profileID: "", versionPrefs: PreviewVersionPrefs(sourceKey: preferredKey))
+        return MainShell(model: model).environment(store)
+    }
 }
 
 /// `-uiPreview titledownload` / `titledownloading` / `titledownloadfailed` — the not-owned Dune
@@ -342,6 +369,89 @@ private struct TitleDownloadPreviewHost: View {
                 acquirer = makePreviewAcquirer(item: item, mode: .none, downloads: downloads)
             }
     }
+}
+
+/// `-uiPreview versionssheet` / `versionsloading` / `versionspicking` — the Versions sheet's
+/// content rendered inline (Decision 7: a real `.sheet` is a separate window the capture script
+/// cannot see) over `MainShell`'s own title page, so the shot still shows the app's chrome around
+/// it. `mode` drives `PreviewVersionsSource`; `autoPickFirst` fires an unawaited pick at the first
+/// (hanging) release right after load, pinning "Starting…" for `versionspicking`.
+private struct VersionsSheetPreviewHost: View {
+    let mode: PreviewVersionsSourceMode
+    var autoPickFirst = false
+
+    @State private var model: VersionsModel?
+
+    private static let hit = SearchHit(result: TMDBSearchResult(
+        id: 693134, title: "Dune: Part Two", name: nil, releaseDate: "2024-01-01", firstAirDate: nil,
+        posterPath: "/6izwz7rsy95ARzTR3poZ8H6c5pp.jpg", overview: nil, voteAverage: 8.2), kind: .movie)
+
+    var body: some View {
+        let suite = "seret.preview.versionssheet.\(UUID().uuidString)"
+        let shellModel = ShellModel(defaults: UserDefaults(suiteName: suite)!)
+        shellModel.select(.movies)
+        let item = MediaItem.placeholder(for: Self.hit)
+        shellModel.open(.title(item))
+        let store = DetailStore(item: item, details: PreviewDetails(), watch: PreviewWatch(Fixture.watch), profileID: "")
+        return MainShell(model: shellModel)
+            .environment(store)
+            .overlay {
+                if let model {
+                    Color.black.opacity(0.45).ignoresSafeArea()
+                    VersionsSheet(model: model, onPlay: { _ in }, onClose: {})
+                }
+            }
+            .task {
+                let source = PreviewVersionsSource(mode: mode)
+                let flow = AddFlowStore(hit: Self.hit, details: PreviewDetails(),
+                                        streamSource: source, add: source)
+                let m = VersionsModel(hit: Self.hit, target: .movie, flow: flow, downloads: nil, onAdded: {})
+                model = m
+                await m.load()
+                if autoPickFirst, let first = PreviewVersionsSource.releases().first {
+                    Task { _ = await m.pick(first) }
+                }
+            }
+    }
+}
+
+/// `-uiPreview magnetvalid` / `magnetinvalid` — the Magnet sheet's content rendered inline over
+/// `MainShell`'s own title page, `text` prefilled so the validation line is already showing.
+private struct MagnetSheetPreviewHost: View {
+    let prefill: String
+
+    var body: some View {
+        let suite = "seret.preview.magnetsheet.\(UUID().uuidString)"
+        let shellModel = ShellModel(defaults: UserDefaults(suiteName: suite)!)
+        shellModel.select(.library)
+        let item = Fixture.filmWithVersions
+        shellModel.open(.title(item))
+        let store = DetailStore(item: item, details: PreviewDetails(), watch: PreviewWatch(Fixture.watch), profileID: "")
+        let downloads = DownloadStore(service: PreviewNeverDownloads(), records: PreviewNoRecords(),
+                                      poller: PreviewNoPoll(), deleter: PreviewNoDelete())
+        let model = MagnetAddModel(target: DownloadTarget.movie(item)!.magnet, downloads: downloads)
+        return MainShell(model: shellModel)
+            .environment(store)
+            .overlay {
+                Color.black.opacity(0.45).ignoresSafeArea()
+                MagnetSheet(model: model, title: item.title, onDone: {}, initialText: prefill)
+            }
+    }
+}
+
+private struct PreviewNeverDownloads: DownloadRequesting {
+    func startDownload(infoHash: String) async throws -> TorrentInfo { throw URLError(.badServerResponse) }
+}
+private struct PreviewNoRecords: DownloadRecording {
+    func upsert(_ data: DownloadRequestData) async throws {}
+    func all() async throws -> [DownloadRequestData] { [] }
+    func delete(torrentID: String) async throws {}
+}
+private struct PreviewNoPoll: DownloadPolling {
+    func poll() async throws -> [DownloadStatus] { [] }
+}
+private struct PreviewNoDelete: DownloadDeleting {
+    func deleteTorrent(id: String) async throws {}
 }
 
 /// Mounts `PlayerScreen` directly (not through `MainShell`/`ShellModel`) over a `PlayerPreviewDriver`

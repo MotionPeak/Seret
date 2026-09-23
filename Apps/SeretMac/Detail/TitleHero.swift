@@ -121,6 +121,8 @@ struct TitleHero: View {
     var trailer: TrailerModel?
     /// Set by the page once its 4 s / autoplay-setting gate lets the inline trailer start.
     var autoplayArmed = false
+    /// Opens the page's Versions sheet — threaded down to `TitleActionsRow`'s ⋯ menu.
+    var onFindOtherVersions: () -> Void = {}
 
     @Environment(\.pageLeadingInset) private var pageLeadingInset
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -219,7 +221,8 @@ struct TitleHero: View {
                     .foregroundStyle(Theme.Palette.gold)
             }
             if !qualityChips.isEmpty || hasAnyRatingChip { chipRow }
-            TitleActionsRow(store: store, acquirer: acquirer, trailer: trailer)
+            TitleActionsRow(store: store, acquirer: acquirer, trailer: trailer,
+                           onFindOtherVersions: onFindOtherVersions)
         }
         .padding(.leading, pageLeadingInset + 8)
         .padding(.bottom, 28)

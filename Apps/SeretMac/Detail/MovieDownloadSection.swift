@@ -33,6 +33,7 @@ struct MovieDownloadSection: View {
     let acquirer: TitleAcquirer?
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(ShellModel.self) private var shell: ShellModel?
     @State private var requesting = false
 
     private var phase: DownloadSectionPhase {
@@ -60,8 +61,12 @@ struct MovieDownloadSection: View {
                     .font(.system(size: 13))
                     .foregroundStyle(Color.white.opacity(0.7))
                     .frame(maxWidth: 520, alignment: .leading)
-                Button("Request Download") { Task { await request() } }
-                    .buttonStyle(GoldButtonStyle())
+                HStack(spacing: 10) {
+                    Button("Request Download") { Task { await request() } }
+                        .buttonStyle(GoldButtonStyle())
+                    addByMagnetButton
+                }
+                .fixedSize(horizontal: true, vertical: false)
             }
         case .starting:
             Label {
@@ -93,10 +98,23 @@ struct MovieDownloadSection: View {
                 } icon: {
                     Image(systemName: "exclamationmark.triangle").foregroundStyle(.orange)
                 }
-                Button("Try Another Version") { Task { await request() } }
-                    .buttonStyle(GoldButtonStyle())
+                HStack(spacing: 10) {
+                    Button("Try Another Version") { Task { await request() } }
+                        .buttonStyle(GoldButtonStyle())
+                    addByMagnetButton
+                }
+                .fixedSize(horizontal: true, vertical: false)
             }
         }
+    }
+
+    private var addByMagnetButton: some View {
+        Button {
+            shell?.requestMagnet()
+        } label: {
+            Label("Add by Magnet\u{2026}", systemImage: "link")
+        }
+        .buttonStyle(GlassButtonStyle())
     }
 
     private func request() async {

@@ -152,6 +152,22 @@ final class ShellModel {
     /// "Couldn't Play" alert target, set when a poster's Play finds nothing playable.
     var couldNotPlay: MediaItem?
 
+    // MARK: - Add by Magnet (Task 5)
+
+    /// Bumped by File ▸ Add by Magnet… (⇧⌘M) and by every in-page "Add by Magnet…" control alike —
+    /// one mechanism, the same pattern as `searchFocusRequest`. The visible title page opens its
+    /// sheet on change; it is the one that decides whether it is the page this counter is for.
+    private(set) var magnetRequest = 0
+
+    func requestMagnet() { magnetRequest += 1 }
+
+    /// The selected section's top route, when it is a title page — what `magnetRequest` and a
+    /// poster's removal both need to know "is the page I'd affect actually the one showing".
+    var titleOnTop: MediaItem? {
+        guard case .title(let top)? = history(for: selection).path.last else { return nil }
+        return top
+    }
+
     // MARK: - Browse (Task 6 on)
 
     /// The genre each kind is currently showing — nil means **All**. A genre is an in-place filter

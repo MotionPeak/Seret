@@ -59,6 +59,29 @@ enum Fixture {
              "/8Gxv8gSFCU0XGDykEGv7zR1n2ua.jpg", "/neeNHeXjMF5fXoCJRsOmkNGC7q.jpg", addedAt: daysAgo(11)),
     ]
 
+    /// The Godfather, re-shaped with THREE owned versions — an oversized REMUX, a mid BluRay and a
+    /// smaller WEB-DL — for Task 5's `titleversions` shot. `films[2]` keeps its own single source.
+    static let filmWithVersions: MediaItem = {
+        let godfather = films[2]
+        func versionSource(_ id: String, _ resolution: String, _ tier: String, _ videoCodec: String,
+                          _ audioCodec: String, _ sizeBytes: Int) -> MediaSource {
+            MediaSource(torrentID: id, fileID: nil, restrictedLink: "https://real-debrid.invalid/\(id)",
+                       parsed: ParsedRelease(title: godfather.title, resolution: resolution,
+                                             source: tier, videoCodec: videoCodec,
+                                             audioCodec: audioCodec, releaseGroup: "FGT"),
+                       sizeBytes: sizeBytes)
+        }
+        let sources = [
+            versionSource("gf-remux", "2160p", "REMUX", "HEVC", "TrueHD", 68_400_000_000),
+            versionSource("gf-bluray", "1080p", "BluRay", "x264", "DTS", 14_700_000_000),
+            versionSource("gf-webdl", "1080p", "WEB-DL", "H264", "AAC", 6_200_000_000),
+        ]
+        return MediaItem(id: godfather.id, kind: .movie, title: godfather.title, year: godfather.year,
+                         sources: sources, seasons: [], tmdbID: godfather.tmdbID,
+                         posterPath: godfather.posterPath, backdropPath: godfather.backdropPath,
+                         overview: godfather.overview, addedAt: godfather.addedAt)
+    }()
+
     private static func episode(_ season: Int, _ number: Int, _ torrentID: String) -> Episode {
         Episode(season: season, number: number, source: source(id: torrentID))
     }
@@ -404,6 +427,59 @@ func makePreviewAcquirer(item: MediaItem, mode: PreviewAcquireMode,
         },
         downloads: downloads,
         onAdded: {})
+}
+
+/// A fixed "chosen version" — `titleversions` uses it so the ✓ lands on the BluRay row rather than
+/// whichever the ranker would pick.
+struct PreviewVersionPrefs: VersionPreferring {
+    let sourceKey: String
+    func preferred(forContentKey key: String) async -> String? { sourceKey }
+    func choose(contentKey: String, sourceKey: String) async {}
+    func clear(contentKey: String) async {}
+}
+
+/// A `StreamSource` + `AddProviding` pair for the Versions SHEET harness: a fixed cached/uncached
+/// list (mirrors the mockup's Godfather releases — one oversized REMUX, three "Recommended"), or a
+/// hang for `versionsloading`, or an `add(infoHash:)` that never returns for `versionspicking`.
+enum PreviewVersionsSourceMode { case list, hangingStreams, hangingAdd }
+
+struct PreviewVersionsSource: StreamSource, AddProviding {
+    let mode: PreviewVersionsSourceMode
+
+    static func releases() -> [CachedStream] {
+        func stream(_ hash: String, _ raw: String, _ resolution: String, _ tier: String,
+                   _ videoCodec: String, _ audioCodec: String, _ size: Int, cached: Bool) -> CachedStream {
+            CachedStream(infoHash: String(repeating: hash, count: 40), fileIdx: nil, rawTitle: raw,
+                        parsed: ParsedRelease(title: "The Godfather", resolution: resolution,
+                                              source: tier, videoCodec: videoCodec, audioCodec: audioCodec),
+                        languages: ["en"], sizeBytes: size, sourceName: "Preview", isCached: cached)
+        }
+        return [
+            stream("1", "The.Godfather.1972.2160p.UHD.BluRay.REMUX.HDR.TrueHD.5.1-FGT",
+                  "2160p", "REMUX", "HEVC", "TrueHD", 68_400_000_000, cached: true),
+            stream("2", "The.Godfather.1972.2160p.BluRay.x265.DDP5.1-hallowed",
+                  "2160p", "BluRay", "x265", "DDP", 25_000_000_000, cached: true),
+            stream("3", "The.Godfather.1972.1080p.BluRay.x264.DTS-HDC",
+                  "1080p", "BluRay", "x264", "DTS", 14_700_000_000, cached: true),
+            stream("4", "The.Godfather.1972.1080p.WEB-DL.AAC2.0.H264-EVO",
+                  "1080p", "WEB-DL", "H264", "AAC", 6_200_000_000, cached: false),
+        ]
+    }
+
+    func streams(for query: StreamQuery) async throws -> [CachedStream] {
+        switch mode {
+        case .hangingStreams:
+            try await Task.sleep(for: .seconds(3600))
+            return []
+        case .list, .hangingAdd:
+            return Self.releases()
+        }
+    }
+
+    func add(infoHash: String) async throws -> TorrentInfo {
+        if mode == .hangingAdd { try await Task.sleep(for: .seconds(3600)) }
+        throw URLError(.badServerResponse)
+    }
 }
 
 /// A canned `TrailerProviding` + `TrailerStreamResolving` pair — always resolves to a real public
