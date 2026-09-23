@@ -38,8 +38,14 @@ struct MyLibraryScreen: View {
 
     @Environment(AppSession.self) private var session: AppSession?
     @Environment(ShellModel.self) private var shell: ShellModel?
+    @Environment(TileWatchMarks.self) private var marks: TileWatchMarks?
+    @Environment(WatchlistMarks.self) private var watchlist: WatchlistMarks?
     @Environment(\.pageLeadingInset) private var pageLeadingInset
     @Environment(\.previewForcedLibraryKind) private var previewForcedKind: MediaKind?
+
+    private var performer: PosterActionPerformer {
+        PosterActionPerformer(session: session, shell: shell, library: store, marks: marks, watchlist: watchlist)
+    }
 
     @SceneStorage("seret.library.kind") private var storedKindRaw = MediaKind.movie.rawValue
     @State private var kindOverride: MediaKind?
@@ -115,39 +121,17 @@ struct MyLibraryScreen: View {
 
     private func grid(isLoading: Bool) -> some View {
         PosterGrid(items: items, isLoading: isLoading) { item in
-            Button { shell?.open(.title(item)) } label: {
-                PosterCard(title: item.title, caption: item.year.map(String.init) ?? "",
-                          posterURL: TMDBClient.imageURL(path: item.posterPath, size: "w342"),
-                          badge: WatchBadge(store.watchState(for: item)))
-            }
-            .buttonStyle(.plain)
-            .contextMenu { contextMenuItems(for: item) }
+            let model = PosterTileModel.library(item)
+            let watched = store.watchState(for: item)?.finished ?? false
+            let onWatchlist = model.watchlistFilm.map { watchlist?.contains(tmdbID: $0.tmdbID) ?? false } ?? false
+            PosterTile(model: model,
+                      state: PosterTileState(badge: WatchBadge(store.watchState(for: item))),
+                      actions: .make(kind: item.kind, owned: true, watched: watched, onWatchlist: onWatchlist),
+                      perform: performer.perform)
         }
         .padding(.leading, pageLeadingInset)
         .padding(.trailing, 28)
         .padding(.bottom, 40)
-    }
-
-    @ViewBuilder private func contextMenuItems(for item: MediaItem) -> some View {
-        Button("Play") {
-            Task {
-                guard let session else { return }
-                if let request = await QuickPlay.request(for: item, session: session) {
-                    shell?.present(request)
-                } else {
-                    shell?.couldNotPlay = item
-                }
-            }
-        }
-        .disabled(session == nil)
-        Button("Open") { shell?.open(.title(item)) }
-        if item.kind == .movie {
-            Divider()
-            let watched = store.watchState(for: item)?.finished ?? false
-            Button(watched ? "Mark as Unwatched" : "Mark as Watched") {
-                Task { await store.setWatched(!watched, for: item) }
-            }
-        }
     }
 
     private func emptyState(icon: String, title: String, detail: String?, showRetry: Bool = false) -> some View {
