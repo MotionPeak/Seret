@@ -25,6 +25,10 @@ struct UIPreviewRoot: View {
                     defaults.set(true, forKey: "seret.mac.sidebarCollapsed")
                     return ShellModel(defaults: defaults)
                 }())
+            case "posters":
+                PosterGalleryPreview()
+            case "postersloading":
+                PosterGalleryPreview(isLoading: true)
             case "shellnav":
                 MainShell(model: {
                     let model = ShellModel(defaults: UserDefaults(suiteName: "seret.preview.shellnav")!)
