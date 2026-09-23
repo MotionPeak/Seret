@@ -10,6 +10,8 @@ struct UIPreviewRoot: View {
     var body: some View {
         Group {
             switch target {
+            case "vlcsmoke":
+                VLCSmokePreview(url: VLCSmokePreview.url(from: ProcessInfo.processInfo.arguments))
             default:
                 Text("Unknown -uiPreview case: \(target)")
                     .font(.system(size: 15, weight: .semibold))
