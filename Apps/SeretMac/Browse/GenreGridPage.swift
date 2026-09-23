@@ -65,7 +65,7 @@ struct GenreGridPage: View {
                             .padding(.trailing, 28)
                     }
                 }
-                .task(id: store.hits.count) { await marks?.load(store.hits) }
+                .task(id: store.hits.map(\.id)) { await marks?.load(store.hits) }
             }
         } else {
             loadingGrid

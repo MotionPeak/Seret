@@ -69,7 +69,7 @@ struct SearchPage: View {
                 PosterGrid(items: store.results) { hit in tile(hit) }
                     .padding(.leading, pageLeadingInset)
                     .padding(.trailing, 28)
-                    .task(id: store.results.count) { await marks?.load(store.results) }
+                    .task(id: store.results.map(\.id)) { await marks?.load(store.results) }
             case .empty:
                 emptyState
             case .failed(let message):

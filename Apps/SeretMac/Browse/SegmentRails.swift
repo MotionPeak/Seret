@@ -49,7 +49,7 @@ struct SegmentRails: View {
             LazyVStack(alignment: .leading, spacing: 26) {
                 ForEach(store.rows) { row in
                     PosterRail(title: row.title, items: row.hits) { hit in tile(hit) }
-                        .task(id: row.id + "\(row.hits.count)") { await marks?.load(row.hits) }
+                        .task(id: row.hits.map(\.id)) { await marks?.load(row.hits) }
                 }
             }
         }
