@@ -107,6 +107,18 @@ final class ShellModel {
     var canGoBack: Bool { history(for: selection).canGoBack }
     var canGoForward: Bool { history(for: selection).canGoForward }
 
+    // MARK: - Surprise Me
+
+    /// The Surprise Me reel, shown by the shell ABOVE everything — the sidebar included — so the
+    /// reel is centred on the window and nothing shows through beside it.
+    struct SurprisePresentation: Identifiable {
+        var spin: WatchlistRandomizer.Spin
+        /// Another spin of the same watchlist (Spin Again).
+        let respin: () -> WatchlistRandomizer.Spin?
+        var id: UUID { spin.id }
+    }
+    var surprise: SurprisePresentation?
+
     // MARK: - Hero flight (Task 8)
 
     /// Set only by `open`/`back`/the flight driver (and the DEBUG harness's `previewPinFlight`).

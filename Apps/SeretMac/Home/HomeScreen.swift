@@ -38,6 +38,9 @@ struct HomeScreen: View {
     @Environment(ShellModel.self) private var shell: ShellModel?
     @Environment(TileWatchMarks.self) private var marks: TileWatchMarks?
     @Environment(WatchlistMarks.self) private var watchlist: WatchlistMarks?
+    /// Cards mid-mark (id → marked watched?): they show the ✓ / ↺ flourish for a beat before the
+    /// store takes them off the rail, so a mark reads as done rather than as a card vanishing.
+    @State private var marking: [HomeItem.ID: Bool] = [:]
     @Environment(\.pageLeadingInset) private var pageLeadingInset
 
     private var performer: PosterActionPerformer {
@@ -119,6 +122,15 @@ struct HomeScreen: View {
                                                               resumeAt: entry.resumeAt, fraction: entry.fraction),
                              imageURL: TMDBClient.imageURL(path: entry.item.backdropPath ?? entry.item.posterPath, size: "w780"),
                              fraction: entry.fraction)
+                    .overlay(alignment: .top) {
+                        if let watched = marking[entry.id] {
+                            MarkFlourish(watched: watched)
+                                .frame(width: LandscapeCard.artSize.width, height: LandscapeCard.artSize.height)
+                                .transition(.opacity)
+                        }
+                    }
+                    .transition(.asymmetric(insertion: .opacity,
+                                            removal: .scale(scale: 0.7).combined(with: .opacity)))
                     .contentShape(Rectangle())
                     .onTapGesture { resume(entry) }
                     .contextMenu {
@@ -128,6 +140,8 @@ struct HomeScreen: View {
                         continueWatchingMarks(entry)
                     }
             }
+            // The rail closes the gap a marked card leaves instead of snapping shut.
+            .animation(Theme.Motion.standard, value: home.continueWatching.map(\.id))
         }
     }
 
@@ -146,10 +160,18 @@ struct HomeScreen: View {
         }
     }
 
+    /// The flourish, then the write: long enough to read the ✓, short enough not to feel slow.
+    private func flourish(_ watched: Bool, _ entry: HomeItem) async {
+        withAnimation(Theme.Motion.pop) { marking[entry.id] = watched }
+        try? await Task.sleep(for: .milliseconds(650))
+    }
+
     private func markEntry(_ watched: Bool, _ entry: HomeItem) {
         let home = home, library = library
         Task {
+            await flourish(watched, entry)
             await home.setWatched(watched, entry: entry)
+            marking[entry.id] = nil
             await Self.refresh(home: home, library: library)
         }
     }
@@ -160,7 +182,9 @@ struct HomeScreen: View {
               let marker = session.makeShowWatchMarker() else { return }
         let home = home, library = library, show = entry.item
         Task {
+            await flourish(watched, entry)
             await marker.mark(watched, show: show, profileID: profileID)
+            marking[entry.id] = nil
             await Self.refresh(home: home, library: library)
         }
     }
@@ -262,5 +286,34 @@ struct HomeSkeleton: View {
                 .padding(.trailing, 28)
         }
         .padding(.bottom, 40)
+    }
+}
+
+/// The beat a Continue Watching card holds when it's marked: a gold ✓ (watched) or ↺ (unwatched)
+/// popping onto a dimmed card, before the card shrinks off the rail.
+private struct MarkFlourish: View {
+    let watched: Bool
+    @State private var shown = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
+                .fill(.black.opacity(0.6))
+            VStack(spacing: 6) {
+                Image(systemName: watched ? "checkmark.circle.fill" : "arrow.counterclockwise.circle.fill")
+                    .font(.system(size: 40, weight: .semibold))
+                    .foregroundStyle(Theme.Palette.goldGradient)
+                    .shadow(color: Theme.Palette.gold.opacity(0.6), radius: 12)
+                    .scaleEffect(shown || reduceMotion ? 1 : 0.4)
+                    .symbolEffect(.bounce, value: shown)
+                Text(watched ? "Watched" : "Unwatched")
+                    .font(Theme.Typo.label()).tracking(1.2)
+                    .foregroundStyle(Theme.Palette.textPrimary)
+                    .opacity(shown ? 1 : 0)
+            }
+        }
+        .onAppear { withAnimation(Theme.Motion.pop) { shown = true } }
+        .allowsHitTesting(false)
     }
 }

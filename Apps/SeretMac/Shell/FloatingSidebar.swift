@@ -33,7 +33,15 @@ struct FloatingSidebar: View {
         .padding(.bottom, 12)
         .frame(width: SidebarMetrics.width(collapsed: collapsed), alignment: .leading)
         .frame(maxHeight: .infinity)
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: Theme.Radius.sidebar, style: .continuous))
+        // A dark tint and a steady hairline: untinted glass picked up the desktop's colour through
+        // the window edge and drew an uneven, bluish rim (owner's report).
+        .glassEffect(.regular.tint(Theme.Palette.canvas.opacity(0.55)),
+                     in: RoundedRectangle(cornerRadius: Theme.Radius.sidebar, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.Radius.sidebar, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.09), lineWidth: 1)
+                .allowsHitTesting(false)
+        )
         .shadow(color: .black.opacity(0.45), radius: 24, y: 10)
         .padding(SidebarMetrics.inset)
         .animation(Theme.Motion.standard, value: collapsed)

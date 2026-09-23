@@ -11,6 +11,8 @@ import SwiftUI
 /// stays mounted (opacity 0, no hit testing, hidden from accessibility) so the title page keeps its
 /// scroll position, and `.id(presentation.id)` guarantees one `PlayerHost` per presentation.
 struct MainShell: View {
+    /// Sections opened at least once — kept alive so returning to one is instant.
+    @State private var visitedSections: Set<SidebarSection> = []
     @Bindable var model: ShellModel
     @Environment(AppSession.self) private var session: AppSession?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -109,9 +111,18 @@ struct MainShell: View {
     private var shellContent: some View {
         ZStack(alignment: .topLeading) {
             CanvasBackground()
-            SectionStack(section: model.selection, model: model)
-                .id(model.selection)
-                .transition(.opacity)
+            // Every section visited so far stays alive underneath; switching only reveals one.
+            // Rebuilding the stack per switch (`.id(selection)`) threw away each page's loaded
+            // state — every visit re-fetched and re-laid-out from scratch, and lost its scroll.
+            ForEach(SidebarSection.allCases.filter { visitedSections.contains($0) || $0 == model.selection }) { section in
+                let isShown = section == model.selection
+                SectionStack(section: section, model: model)
+                    .opacity(isShown ? 1 : 0)
+                    .allowsHitTesting(isShown)
+                    .accessibilityHidden(!isShown)
+            }
+            .animation(Theme.Motion.fade, value: model.selection)
+            .onChange(of: model.selection, initial: true) { _, section in visitedSections.insert(section) }
             if let flight = model.flight {
                 HeroFlightDriver(flight: flight, progressOverride: previewFlightProgressOverride,
                                  onLand: { model.landFlight($0) })
@@ -123,7 +134,21 @@ struct MainShell: View {
                 .frame(maxWidth: .infinity, alignment: .trailing)
                 .padding(.trailing, 24)
                 .padding(.top, 14)
+            if let surprise = model.surprise {
+                SurpriseReel(spin: surprise.spin,
+                             onWatch: { entry in
+                                 model.surprise = nil
+                                 if let item = MediaItem.watchlistMovie(entry) { model.open(.title(item)) }
+                             },
+                             onSpinAgain: {
+                                 if let next = surprise.respin() { model.surprise?.spin = next }
+                             },
+                             onClose: { model.surprise = nil })
+                    .transition(.opacity)
+                    .zIndex(10)
+            }
         }
+        .animation(Theme.Motion.fade, value: model.surprise?.id)
     }
 
     private func confirmRemoval(_ item: MediaItem) {

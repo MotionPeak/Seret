@@ -49,7 +49,6 @@ struct WatchlistScreen: View {
     let model: WatchlistModel
     @Environment(ShellModel.self) private var shell: ShellModel?
     @Environment(\.pageLeadingInset) private var pageLeadingInset
-    @State private var spin: WatchlistRandomizer.Spin?
     @State private var pendingRemoval: WatchlistEntry?
 
     var body: some View {
@@ -67,19 +66,6 @@ struct WatchlistScreen: View {
             .padding(.bottom, 40)
         }
         .scrollIndicators(.hidden)
-        .overlay {
-            if let spin {
-                SurpriseReel(spin: spin,
-                             onWatch: { entry in
-                                 self.spin = nil
-                                 if let item = MediaItem.watchlistMovie(entry) { shell?.open(.title(item)) }
-                             },
-                             onSpinAgain: { self.spin = model.spin() },
-                             onClose: { self.spin = nil })
-                    .transition(.opacity)
-            }
-        }
-        .animation(Theme.Motion.fade, value: spin?.id)
         .confirmationDialog(removalTitle, isPresented: Binding(
             get: { pendingRemoval != nil }, set: { if !$0 { pendingRemoval = nil } })) {
             Button("Remove", role: .destructive) {
@@ -100,7 +86,12 @@ struct WatchlistScreen: View {
             switch model.phase {
             case .idle:
                 if model.canSpin {
-                    Button { spin = model.spin() } label: {
+                    Button {
+                        if let spin = model.spin() {
+                            let model = model
+                            shell?.surprise = .init(spin: spin, respin: { model.spin() })
+                        }
+                    } label: {
                         Label("Surprise Me", systemImage: "dice.fill")
                     }
                     .buttonStyle(GoldButtonStyle())
@@ -163,7 +154,10 @@ private struct WatchlistTile: View {
     let owned: Bool
     let onOpen: (MediaItem) -> Void
     let onRemove: () -> Void
-    @State private var hovering = false
+    /// Where the pointer is over the poster (0…1 each way) — drives the same tilt, glare and gold
+    /// rim as every other poster; nil when it isn't over it.
+    @State private var pointer: UnitPoint?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var item: MediaItem? { MediaItem.watchlistMovie(entry) }
     private var title: String { WatchlistName.stripYear(from: entry.name) }
@@ -174,11 +168,18 @@ private struct WatchlistTile: View {
                 Button { onOpen(item) } label: {
                     PosterCard(title: title, caption: entry.year.map(String.init) ?? "",
                                posterURL: TMDBClient.imageURL(path: entry.posterPath, size: "w342"),
-                               badge: owned ? .watched : .none, highlighted: hovering)
+                               badge: owned ? .watched : .none, highlighted: pointer != nil,
+                               pointer: reduceMotion ? nil : pointer)
                 }
                 .buttonStyle(.plain)
-                .onHover { hovering = $0 }
-                .animation(Theme.Motion.quick, value: hovering)
+                .onContinuousHover(coordinateSpace: .local) { phase in
+                    if case .active(let p) = phase {
+                        pointer = UnitPoint(x: p.x / PosterCard.posterSize.width,
+                                            y: p.y / PosterCard.posterSize.height)
+                    } else {
+                        pointer = nil
+                    }
+                }
             } else {
                 unmatched
             }
@@ -222,6 +223,9 @@ struct SurpriseReel: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var offset: CGFloat = 0
     @State private var landed = false
+    /// False while the reel's posters are still loading — a reel that starts before its art has
+    /// arrived runs blank cards through the gold frame.
+    @State private var ready = false
 
     private let cardWidth: CGFloat = 180
     private let gap: CGFloat = 24
@@ -260,6 +264,8 @@ struct SurpriseReel: View {
                 }
                 .frame(height: cardHeight + 20)
                 .clipped()
+                .opacity(ready ? 1 : 0.4)
+                .animation(Theme.Motion.fade, value: ready)
                 .mask(LinearGradient(colors: [.clear, .black, .black, .clear],
                                      startPoint: .leading, endPoint: .trailing))
 
@@ -281,12 +287,16 @@ struct SurpriseReel: View {
             }
             .padding(40)
         }
-        .task(id: spin.id) { run() }
+        .task(id: spin.id) { await run() }
     }
 
-    private func run() {
+    private func run() async {
         landed = false
+        ready = false
         offset = 0
+        await preloadPosters()
+        guard !Task.isCancelled else { return }
+        ready = true
         let target = CGFloat(spin.winnerIndex) * step
         if reduceMotion {
             offset = target
@@ -294,9 +304,25 @@ struct SurpriseReel: View {
             return
         }
         withAnimation(.timingCurve(0.12, 0.8, 0.2, 1, duration: 3.1)) { offset = target }
-        Task {
-            try? await Task.sleep(for: .seconds(3.1))
-            withAnimation(Theme.Motion.pop) { landed = true }
+        try? await Task.sleep(for: .seconds(3.1))
+        guard !Task.isCancelled else { return }
+        withAnimation(Theme.Motion.pop) { landed = true }
+    }
+
+    /// Every poster the reel will show, fetched into the image cache first — at most 2.5 s, after
+    /// which it spins with whatever has arrived rather than keep the viewer waiting.
+    private func preloadPosters() async {
+        let urls = Set(spin.reel.compactMap { TMDBClient.imageURL(path: $0.posterPath, size: "w342") })
+        let loader = Task {
+            await withTaskGroup(of: Void.self) { group in
+                for url in urls { group.addTask { _ = await ImageMemoryCache.load(url) } }
+            }
         }
+        let deadline = Task {
+            try? await Task.sleep(for: .seconds(2.5))
+            loader.cancel()
+        }
+        await loader.value
+        deadline.cancel()
     }
 }
