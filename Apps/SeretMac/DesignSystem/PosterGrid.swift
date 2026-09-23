@@ -71,10 +71,5 @@ struct PosterGrid<Item: Identifiable, Card: View>: View {
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
     }
 
-    private var skeletonCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            ShimmerView().frame(width: PosterCard.posterSize.width, height: PosterCard.posterSize.height)
-            ShimmerView(cornerRadius: 4).frame(width: 110, height: 12)
-        }
-    }
+    private var skeletonCard: some View { CardSkeleton() }
 }

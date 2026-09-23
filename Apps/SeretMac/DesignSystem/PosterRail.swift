@@ -153,7 +153,7 @@ struct RailSkeleton: View {
                 .padding(.leading, pageLeadingInset)
             ScrollView(.horizontal) {
                 HStack(alignment: .top, spacing: PosterGridLayout.spacing) {
-                    ForEach(0..<count, id: \.self) { _ in skeletonCard }
+                    ForEach(0..<count, id: \.self) { _ in CardSkeleton(artSize: cardSize) }
                 }
                 .padding(.vertical, 20)
             }
@@ -162,13 +162,6 @@ struct RailSkeleton: View {
             .scrollClipDisabled()
             .scrollIndicators(.hidden)
             .scrollDisabled(true)
-        }
-    }
-
-    private var skeletonCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            ShimmerView().frame(width: cardSize.width, height: cardSize.height)
-            ShimmerView(cornerRadius: 4).frame(width: 110, height: 12)
         }
     }
 }

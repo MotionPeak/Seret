@@ -204,12 +204,16 @@ struct HomeScreen: View {
 /// Also what `HomeRoot` shows before a `HomeStore` exists at all.
 struct HomeSkeleton: View {
     @Environment(\.pageLeadingInset) private var pageLeadingInset
+    /// Measured like `HomeHero` measures its own — a fixed 1200 pt made the shimmer 89 pt shorter
+    /// than the hero in a 1440 pt window, so everything below jumped when Home landed.
+    @State private var width: CGFloat = 1200
 
     var body: some View {
         VStack(alignment: .leading, spacing: 30) {
             ShimmerView(cornerRadius: 0)
                 .frame(maxWidth: .infinity)
-                .frame(height: TitlePageLayout.heroHeight(width: 1200))
+                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+                .frame(height: TitlePageLayout.heroHeight(width: width))
             RailSkeleton(cardSize: LandscapeCard.artSize, count: 5)
             PosterGrid(items: [MediaItem](), isLoading: true) { (_: MediaItem) in EmptyView() }
                 .padding(.leading, pageLeadingInset)

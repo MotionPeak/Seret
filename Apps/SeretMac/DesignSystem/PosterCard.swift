@@ -155,6 +155,29 @@ struct PosterCard: View {
     }
 }
 
+/// The loading stand-in for a `PosterCard` / `LandscapeCard`: the art as a shimmer, then a title
+/// and a caption line laid out with the cards' own fonts (hidden text under the shimmer bars), so
+/// a skeleton is exactly as tall as what replaces it and nothing below jumps when it lands. A
+/// single 12 pt bar was ~30 pt shorter than a titled, captioned card.
+struct CardSkeleton: View {
+    var artSize: CGSize = PosterCard.posterSize
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ShimmerView().frame(width: artSize.width, height: artSize.height)
+            Text(verbatim: "Title")
+                .font(.system(size: 13, weight: .semibold))
+                .hidden()
+                .overlay(alignment: .leading) { ShimmerView(cornerRadius: 4).frame(width: 110, height: 12) }
+            Text(verbatim: "2024")
+                .font(.system(size: 11))
+                .hidden()
+                .overlay(alignment: .leading) { ShimmerView(cornerRadius: 4).frame(width: 36, height: 9) }
+        }
+        .accessibilityHidden(true)
+    }
+}
+
 /// A hook for the pointer tilt + glare style.
 enum PosterHoverStyle { case lift }
 

@@ -116,12 +116,7 @@ private struct GridFooterSkeleton: View {
     var body: some View {
         let count = PosterGridLayout(availableWidth: width).columns
         LazyVGrid(columns: columns, alignment: .leading, spacing: PosterGridLayout.rowSpacing) {
-            ForEach(0..<count, id: \.self) { _ in
-                VStack(alignment: .leading, spacing: 8) {
-                    ShimmerView().frame(width: PosterCard.posterSize.width, height: PosterCard.posterSize.height)
-                    ShimmerView(cornerRadius: 4).frame(width: 110, height: 12)
-                }
-            }
+            ForEach(0..<count, id: \.self) { _ in CardSkeleton() }
         }
         .padding(.top, 12)
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
