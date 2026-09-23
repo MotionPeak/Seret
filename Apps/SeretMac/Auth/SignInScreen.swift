@@ -15,7 +15,7 @@ struct SignInScreen: View {
     @Environment(\.openURL) private var openURL
     @Namespace private var modeSpace
     @State private var copied = false
-    @State private var codeShownAt = Date()
+    @State private var clock = SignInScreenState.CodeClock()
 
     var body: some View {
         ZStack {
@@ -89,6 +89,8 @@ struct SignInScreen: View {
         }
     }
 
+    private static let codeActionFont = Font.system(size: 13, weight: .bold)
+
     private func codePanel(userCode: String, url: URL?, expiresIn: Int) -> some View {
         VStack(spacing: 0) {
             // Interpolated, not `Text + Text`: that operator is deprecated in the macOS 26 SDK.
@@ -100,8 +102,11 @@ struct SignInScreen: View {
                 .textSelection(.enabled)
                 .padding(.top, 6).padding(.bottom, 20)
             HStack(spacing: 10) {
+                // One line each, at the mockup's smaller size: at the style's headline size the pair
+                // is wider than the card and the gold button wrapped onto two lines.
                 Button { if let url { openURL(url) } } label: {
                     Label("Open real-debrid.com/device", systemImage: "arrow.up.right.square")
+                        .font(Self.codeActionFont).lineLimit(1).fixedSize()
                 }
                 .buttonStyle(GoldButtonStyle())
                 Button {
@@ -111,13 +116,14 @@ struct SignInScreen: View {
                     Task { try? await Task.sleep(for: .seconds(1.4)); copied = false }
                 } label: {
                     Label(copied ? "Copied" : "Copy Code", systemImage: copied ? "checkmark" : "doc.on.doc")
+                        .font(Self.codeActionFont).lineLimit(1).fixedSize()
                         .contentTransition(.symbolEffect(.replace))
                 }
                 .buttonStyle(GlassButtonStyle())
             }
             .padding(.bottom, 20)
-            TimelineView(.periodic(from: codeShownAt, by: 1)) { context in
-                let left = expiresIn - Int(context.date.timeIntervalSince(codeShownAt))
+            TimelineView(.periodic(from: clock.shownAt, by: 1)) { context in
+                let left = clock.secondsLeft(expiresIn: expiresIn, at: context.date)
                 HStack(spacing: 8) {
                     // `symbolEffect` only animates SF Symbols; a plain dot breathes via phaseAnimator.
                     Circle().fill(Theme.Palette.gold).frame(width: 7, height: 7)
@@ -131,7 +137,7 @@ struct SignInScreen: View {
                 }
             }
         }
-        .onChange(of: userCode, initial: true) { codeShownAt = Date() }
+        .onChange(of: userCode, initial: true) { clock.show(userCode, at: Date()) }
     }
 
     private func tokenPanel(checking: Bool, error: String?) -> some View {

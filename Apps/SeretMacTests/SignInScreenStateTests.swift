@@ -31,7 +31,27 @@ import Testing
     @Test func tokenModeKeepsTheFieldAndShowsProgressOrTheErrorInline() {
         #expect(SignInScreenState.make(phase: .awaitingAuthorization(code), mode: .token).panel == .token(checking: false, error: nil))
         #expect(SignInScreenState.make(phase: .validatingToken, mode: .token).panel == .token(checking: true, error: nil))
-        #expect(SignInScreenState.make(phase: .failed("Not accepted."), mode: .token).panel == .token(checking: false, error: "Not accepted."))
+        #expect(SignInScreenState.make(phase: .failed("Not accepted."), mode: .token, tokenSubmitted: true).panel
+                == .token(checking: false, error: "Not accepted."))
+    }
+
+    /// "Busy" is the error that offers *Use a Token*; it must not greet the viewer there as a token error.
+    @Test func aCodeRouteFailureIsNotShownAsATokenError() {
+        #expect(SignInScreenState.make(phase: .failed("Real-Debrid is busy."), mode: .token).panel
+                == .token(checking: false, error: nil))
+        #expect(SignInScreenState.make(phase: .failed("Real-Debrid is busy."), mode: .code, tokenSubmitted: true).panel
+                == .failed("Real-Debrid is busy."))
+    }
+
+    @Test func theCodeClockRestartsOnlyForANewCode() {
+        let start = Date(timeIntervalSinceReferenceDate: 1_000)
+        var clock = SignInScreenState.CodeClock()
+        clock.show("W6XD2P7N", at: start)
+        #expect(clock.secondsLeft(expiresIn: 600, at: start.addingTimeInterval(90)) == 510)
+        clock.show("W6XD2P7N", at: start.addingTimeInterval(90))   // Try Again reused it / panel reappeared
+        #expect(clock.secondsLeft(expiresIn: 600, at: start.addingTimeInterval(90)) == 510)
+        clock.show("NEWCODE1", at: start.addingTimeInterval(700))
+        #expect(clock.secondsLeft(expiresIn: 600, at: start.addingTimeInterval(700)) == 600)
     }
 
     @Test func signedInShowsSigningInInEitherMode() {

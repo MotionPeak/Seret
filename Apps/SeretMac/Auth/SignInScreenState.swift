@@ -16,13 +16,17 @@ struct SignInScreenState: Equatable {
 
     var panel: Panel
 
-    static func make(phase: SignInModel.Phase, mode: SignInMode) -> SignInScreenState {
+    /// `tokenSubmitted`: whether the viewer has pressed Sign In on the token panel since opening it.
+    /// The model has ONE `failed` phase for both routes, and the code route keeps running behind the
+    /// token panel — so without this, "Real-Debrid is busy" (the very error that offers *Use a Token*)
+    /// or an expired code would greet the viewer under the token field as if their token were wrong.
+    static func make(phase: SignInModel.Phase, mode: SignInMode, tokenSubmitted: Bool = false) -> SignInScreenState {
         if phase == .signedIn { return .init(panel: .preparing("Signing in…")) }
         switch mode {
         case .token:
             switch phase {
             case .validatingToken: return .init(panel: .token(checking: true, error: nil))
-            case .failed(let message): return .init(panel: .token(checking: false, error: message))
+            case .failed(let message): return .init(panel: .token(checking: false, error: tokenSubmitted ? message : nil))
             default: return .init(panel: .token(checking: false, error: nil))
             }
         case .code:
@@ -45,6 +49,24 @@ struct SignInScreenState: Equatable {
         return stride(from: 0, to: characters.count, by: 4)
             .map { String(characters[$0..<min($0 + 4, characters.count)]) }
             .joined(separator: " ")
+    }
+
+    /// When the code on screen was first shown. The model reuses an unexpired code on Try Again, and
+    /// the code outlives a visit to the token panel, so the clock restarts only for a NEW code —
+    /// restarting it whenever the panel reappeared showed a fresh ten minutes for an old code.
+    struct CodeClock: Equatable {
+        private(set) var code: String?
+        private(set) var shownAt: Date = .distantPast
+
+        mutating func show(_ code: String, at now: Date) {
+            guard code != self.code else { return }
+            self.code = code
+            shownAt = now
+        }
+
+        func secondsLeft(expiresIn: Int, at now: Date) -> Int {
+            expiresIn - Int(now.timeIntervalSince(shownAt))
+        }
     }
 
     static func countdown(secondsLeft: Int) -> String {
