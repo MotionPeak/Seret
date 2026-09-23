@@ -222,4 +222,24 @@ import Testing
         model.popTitleIfShowing("b")               // some other title's removal
         #expect(model.history(for: .library).path == [route("a")])
     }
+
+    // MARK: - Trailer overlay
+
+    @Test func presentingATrailerThenPlaybackClosesTheTrailer() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.presentTrailer(URL(string: "https://example.invalid/t")!, title: "Dune")
+        #expect(model.trailer != nil)
+
+        model.present(request("a"))
+
+        #expect(model.trailer == nil)
+        #expect(model.playback != nil)
+    }
+
+    @Test func noTrailerWhilePlaying() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.present(request("a"))
+        model.presentTrailer(URL(string: "https://example.invalid/t")!, title: "Dune")
+        #expect(model.trailer == nil)
+    }
 }

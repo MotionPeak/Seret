@@ -165,10 +165,24 @@ struct PreviewLibrary: LibraryProviding {
 
 /// A fake `WatchProgressProviding` over an in-memory map. Records into it, so marking watched in
 /// the harness actually changes what the next read sees.
-actor PreviewWatch: WatchProgressProviding {
+actor PreviewWatch: WatchProgressProviding, WatchRatingProviding, WatchSummaryProviding {
     private var states: [String: WatchState]
+    private var ratings: [String: Int]
+    private var summaries: [String: WatchSummary]
+    private var since: [String: Date]
 
-    init(_ seed: [String: WatchState] = [:]) { states = seed }
+    init(_ seed: [String: WatchState] = [:], ratings: [String: Int] = [:],
+        summaries: [String: WatchSummary] = [:], since: [String: Date] = [:]) {
+        states = seed
+        self.ratings = ratings
+        self.summaries = summaries
+        self.since = since
+    }
+
+    func rating(forContentKey key: String) async -> Int? { ratings[key] }
+    func setRating(_ value: Int?, forContentKey key: String) async { ratings[key] = value }
+    func watchSummary(forContentKey key: String) async -> WatchSummary? { summaries[key] }
+    func historySince(forContentKey key: String) async -> Date? { since[key] }
 
     func progress(forContentKey key: String, profileID: String) async throws -> WatchState? { states[key] }
 
@@ -373,7 +387,8 @@ struct PreviewAcquireSource: StreamSource, AddProviding {
 /// Builds a `TitleAcquirer` over `PreviewAcquireSource`, for injection via `.environment(_:)` —
 /// the same seam `TitlePage` reads before falling back to `session?.makeTitleAcquirer(for:)`.
 @MainActor
-func makePreviewAcquirer(item: MediaItem, mode: PreviewAcquireMode) -> TitleAcquirer {
+func makePreviewAcquirer(item: MediaItem, mode: PreviewAcquireMode,
+                         downloads: DownloadStore? = nil) -> TitleAcquirer {
     let source = PreviewAcquireSource(mode: mode)
     return TitleAcquirer(
         item: item,
@@ -387,8 +402,24 @@ func makePreviewAcquirer(item: MediaItem, mode: PreviewAcquireMode) -> TitleAcqu
             AddStore(imdbID: "tt0000000", kind: .series(season: season, episode: 1),
                     originalLanguage: "en", streamSource: source, add: source, seasonPack: season)
         },
-        downloads: nil,
+        downloads: downloads,
         onAdded: {})
+}
+
+/// A canned `TrailerProviding` + `TrailerStreamResolving` pair — always resolves to a real public
+/// HLS stream (the same one `VLCSmokePreview` uses), so the capsules and the inline loop can be
+/// screenshot-verified with no YouTube extraction.
+struct PreviewTrailerSource: TrailerProviding, TrailerStreamResolving {
+    static let url = URL(string: "https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_fmp4/master.m3u8")!
+
+    func trailerKey(tmdbID: Int, kind: MediaKind) async -> String? { "preview" }
+    func streamURL(youTubeKey: String) async -> URL? { Self.url }
+}
+
+@MainActor
+func makePreviewTrailerModel(autoplay: Bool = true) -> TrailerModel {
+    let source = PreviewTrailerSource()
+    return TrailerModel(trailers: source, resolver: source, autoplayEnabled: { autoplay })
 }
 
 /// A no-op engine that relays emitted events — enough to drive `PlayerModel` end to end with no
@@ -697,6 +728,25 @@ enum PreviewDownloads {
         ]
         let store = DownloadStore(service: FailingService(), records: FixedRecords(items: [bugonia, nope]),
                                   poller: FixedPoller(statuses: statuses), deleter: NoOpDeleter(),
+                                  pollInterval: .seconds(3600))
+        await store.loadActive()
+        await store.refresh()
+        return store
+    }
+
+    /// One movie's tracked download at a chosen phase — the title page's download section harness
+    /// (`titledownloading` / `titledownloadfailed`).
+    @MainActor
+    static func store(forMovieTmdbID tmdbID: Int, title: String, posterPath: String?,
+                      phase: DownloadStatus.Phase, fraction: Double) async -> DownloadStore {
+        let contentKey = DownloadKey.movie(tmdbID: tmdbID)
+        let record = DownloadRequestData(torrentID: "t-preview-\(tmdbID)", contentKey: contentKey,
+                                         tmdbID: tmdbID, infoHash: "preview-hash", kind: .movie,
+                                         title: title, posterPath: posterPath, requestedAt: .now)
+        let status = DownloadStatus(torrentID: record.torrentID, contentKey: contentKey, tmdbID: tmdbID,
+                                    phase: phase, fraction: fraction, title: title, posterPath: posterPath)
+        let store = DownloadStore(service: FailingService(), records: FixedRecords(items: [record]),
+                                  poller: FixedPoller(statuses: [status]), deleter: NoOpDeleter(),
                                   pollInterval: .seconds(3600))
         await store.loadActive()
         await store.refresh()

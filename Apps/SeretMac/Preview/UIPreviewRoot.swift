@@ -90,6 +90,18 @@ struct UIPreviewRoot: View {
                 titleFindingPreview()
             case "titleratingsloading":
                 titlePreview(item: Fixture.films[0], ratings: PreviewHangingRatings())
+            case "titletrailer":
+                titleTrailerPreview()
+            case "trailerfull":
+                trailerFullPreview()
+            case "titlerated":
+                titleRatedPreview()
+            case "titledownload":
+                TitleDownloadPreviewHost(phase: nil)
+            case "titledownloading":
+                TitleDownloadPreviewHost(phase: .downloading, fraction: 0.42)
+            case "titledownloadfailed":
+                TitleDownloadPreviewHost(phase: .failed("No seeders available right now."))
             case "playerloading":
                 // `PlayerScreen`'s own `.onAppear` calls `model.start()`; a hanging unrestrict keeps
                 // it stuck in `.preparing` so the cold-open overlay stays on screen.
@@ -248,6 +260,86 @@ struct UIPreviewRoot: View {
             .task {
                 await store.load()
                 Task { _ = await acquirer.play(.movie) }
+            }
+    }
+
+    /// `-uiPreview titletrailer` — the owned Dune page with a fixture `TrailerModel` that resolves
+    /// immediately and a near-zero autoplay delay, so the inline loop starts and both capsules
+    /// show without a screenshot waiting out the real 4 s.
+    private func titleTrailerPreview() -> some View {
+        titlePreview(item: Fixture.films[0])
+            .environment(makePreviewTrailerModel())
+            .environment(\.previewTrailerDelay, .milliseconds(1))
+    }
+
+    /// `-uiPreview trailerfull` — `MainShell` with the full-window trailer already pinned, the same
+    /// way a title page's own `presentTrailer` would leave it.
+    private func trailerFullPreview() -> some View {
+        let suite = "seret.preview.trailerfull.\(UUID().uuidString)"
+        let model = ShellModel(defaults: UserDefaults(suiteName: suite)!)
+        model.select(.library)
+        model.presentTrailer(PreviewTrailerSource.url, title: "Dune: Part Two")
+        return MainShell(model: model)
+    }
+
+    /// `-uiPreview titlerated` — the owned Dune page with a personal rating and history already on
+    /// record, so "YOUR RATING" shows 8 gold stars, "8/10" and both history lines.
+    private func titleRatedPreview() -> some View {
+        let item = Fixture.films[0]
+        let watch = PreviewWatch(Fixture.watch, ratings: [item.id: 8],
+                                 summaries: [item.id: WatchSummary(plays: 2, lastWatchedAt: Date(timeIntervalSince1970: 1_722_600_000))],
+                                 since: [item.id: Date(timeIntervalSince1970: 1_705_000_000)])
+        let suite = "seret.preview.titlerated.\(UUID().uuidString)"
+        let model = ShellModel(defaults: UserDefaults(suiteName: suite)!)
+        model.select(.library)
+        model.open(.title(item))
+        let store = DetailStore(item: item, details: PreviewDetails(), watch: watch, profileID: "",
+                                ratings: PreviewRatings(), letterboxd: PreviewLetterboxd())
+        return MainShell(model: model).environment(store)
+    }
+}
+
+/// `-uiPreview titledownload` / `titledownloading` / `titledownloadfailed` — the not-owned Dune
+/// page with the film download section in each of its states, all at the same section height.
+/// A dedicated host (not a plain function) because the tracked `DownloadStatus` fixture and the
+/// `TitleAcquirer` it feeds both need an async build before the page can show the right state.
+private struct TitleDownloadPreviewHost: View {
+    let phase: DownloadStatus.Phase?
+    var fraction: Double = 0
+
+    private let item: MediaItem
+    @State private var model: ShellModel
+    @State private var store: DetailStore
+    @State private var acquirer: TitleAcquirer?
+
+    init(phase: DownloadStatus.Phase?, fraction: Double = 0) {
+        self.phase = phase
+        self.fraction = fraction
+        let hit = SearchHit(result: TMDBSearchResult(id: 693134, title: "Dune: Part Two", name: nil,
+                                                     releaseDate: "2024-01-01", firstAirDate: nil,
+                                                     posterPath: "/6izwz7rsy95ARzTR3poZ8H6c5pp.jpg",
+                                                     overview: nil, voteAverage: 8.2), kind: .movie)
+        let item = MediaItem.placeholder(for: hit)
+        self.item = item
+        _model = State(initialValue: ShellModel(defaults: UserDefaults(suiteName: "seret.preview.titledownload.\(UUID().uuidString)")!))
+        _store = State(initialValue: DetailStore(item: item, details: PreviewDetails(),
+                                                 watch: PreviewWatch(Fixture.watch), profileID: ""))
+    }
+
+    var body: some View {
+        MainShell(model: model)
+            .environment(store)
+            .environment(acquirer ?? makePreviewAcquirer(item: item, mode: .none))
+            .task {
+                model.select(.movies)
+                model.open(.title(item))
+                var downloads: DownloadStore?
+                if let phase {
+                    downloads = await PreviewDownloads.store(forMovieTmdbID: 693134, title: item.title,
+                                                             posterPath: item.posterPath, phase: phase,
+                                                             fraction: fraction)
+                }
+                acquirer = makePreviewAcquirer(item: item, mode: .none, downloads: downloads)
             }
     }
 }

@@ -73,9 +73,11 @@ final class ShellModel {
     /// raced that last write and could show the previous Resume time). Pages re-read on change.
     private(set) var playbackEndedCount = 0
 
-    /// Replaces any current presentation with a new one (a fresh id even for the same request).
+    /// Replaces any current presentation with a new one (a fresh id even for the same request),
+    /// and closes any full-window trailer that happens to be up — the two overlays never coexist.
     func present(_ request: PlaybackRequest) {
         playback = PlaybackPresentation(request: request)
+        trailer = nil
     }
 
     /// Takes the player off screen. Watch state is re-read later, by `playerDidTearDown()`.
@@ -87,6 +89,27 @@ final class ShellModel {
     /// progress recorded) — once per presentation.
     func playerDidTearDown() {
         playbackEndedCount += 1
+    }
+
+    // MARK: - Trailer overlay (Task 4)
+
+    struct TrailerPresentation: Identifiable, Equatable {
+        let id = UUID()
+        let url: URL
+        let title: String
+    }
+
+    private(set) var trailer: TrailerPresentation?
+
+    /// No-op while playback is up — a "Watch Trailer" tap racing a Play the viewer already
+    /// started must not throw a second overlay on top of the player.
+    func presentTrailer(_ url: URL, title: String) {
+        guard playback == nil else { return }
+        trailer = TrailerPresentation(url: url, title: title)
+    }
+
+    func closeTrailer() {
+        trailer = nil
     }
 
     // MARK: - Shared confirmations, alerts and toast (Task 2 on)

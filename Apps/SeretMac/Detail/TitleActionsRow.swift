@@ -8,6 +8,7 @@ import SwiftUI
 struct TitleActionsRow: View {
     let store: DetailStore
     let acquirer: TitleAcquirer?
+    var trailer: TrailerModel?
 
     @Environment(ShellModel.self) private var shell: ShellModel?
     @Environment(AppSession.self) private var session: AppSession?
@@ -164,7 +165,7 @@ struct TitleActionsRow: View {
     private var menuGroups: [[TitleMenuItem]] {
         TitleMenu.make(kind: store.item.kind, owned: isOwned, watched: isWatched,
                        inMyList: store.inMyList, canMyList: session?.myListStore != nil,
-                       hasTrailer: false, canMagnet: false, canFindVersions: false)
+                       hasTrailer: trailer?.streamURL != nil, canMagnet: false, canFindVersions: false)
     }
 
     private var isWatched: Bool { library?.watchState(for: store.item)?.finished ?? false }
@@ -192,8 +193,11 @@ struct TitleActionsRow: View {
             }
         case .removeFromLibrary:
             shell?.pendingRemoval = store.item
-        case .watchTrailer, .addByMagnet, .findOtherVersions:
-            break   // wired in Tasks 4–5
+        case .watchTrailer:
+            guard let url = trailer?.streamURL else { return }
+            shell?.presentTrailer(url, title: store.item.title)
+        case .addByMagnet, .findOtherVersions:
+            break   // wired in Task 5
         }
     }
 }

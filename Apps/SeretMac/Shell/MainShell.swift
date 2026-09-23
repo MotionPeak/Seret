@@ -36,16 +36,26 @@ struct MainShell: View {
 
     // Split out of `body`: one big expression mixing the ZStack, a dozen modifiers and three
     // `.alert`s was too much for the type checker to solve in reasonable time.
+    /// Playback or the trailer overlay hides the section content underneath — the same reason
+    /// playback does (the title page keeps its scroll position mounted at opacity 0).
+    private var anOverlayIsUp: Bool { model.playback != nil || model.trailer != nil }
+
     private var core: some View {
         ZStack {
             shellContent
-                .opacity(model.playback == nil ? 1 : 0)
-                .allowsHitTesting(model.playback == nil)
-                .accessibilityHidden(model.playback != nil)
-            if model.playback == nil {
+                .opacity(anOverlayIsUp ? 0 : 1)
+                .allowsHitTesting(!anOverlayIsUp)
+                .accessibilityHidden(anOverlayIsUp)
+            if !anOverlayIsUp {
                 ShellToastView(model: model)
                     .transition(.opacity)
                     .zIndex(1)
+            }
+            if let trailer = model.trailer {
+                TrailerOverlay(presentation: trailer, onClose: { model.closeTrailer() })
+                    .id(trailer.id)
+                    .transition(.opacity)
+                    .zIndex(2)
             }
             if let playback = model.playback, let session {
                 PlayerHost(request: playback.request, app: session, onExit: { model.endPlayback() },
@@ -56,6 +66,7 @@ struct MainShell: View {
             }
         }
         .animation(Theme.Motion.fade, value: model.playback?.id)
+        .animation(Theme.Motion.fade, value: model.trailer?.id)
         .environment(\.pageLeadingInset, SidebarMetrics.contentLeading(collapsed: model.isSidebarCollapsed))
         .environment(model)
         .environment(injectedMarks ?? ownMarks ?? .placeholder)

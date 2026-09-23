@@ -116,10 +116,19 @@ struct TitleHero: View {
     /// The page's `ScrollView` offset, for the backdrop parallax (Decision 12). 0 when the page
     /// itself does not track it (e.g. the placeholder never scrolls under this view alone).
     var scrollOffset: CGFloat = 0
+    /// nil until the page's own trailer resolution starts (Task 4). The muted inline loop and the
+    /// two bottom-trailing capsules only ever appear once it has a stream to show.
+    var trailer: TrailerModel?
+    /// Set by the page once its 4 s / autoplay-setting gate lets the inline trailer start.
+    var autoplayArmed = false
 
     @Environment(\.pageLeadingInset) private var pageLeadingInset
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(ShellModel.self) private var shell: ShellModel?
     @State private var width: CGFloat = 1200
+    @State private var showVideo = false
+    @State private var muted = true
+    @State private var heroVisible = true
 
     private var height: CGFloat { TitlePageLayout.heroHeight(width: width) }
 
@@ -134,6 +143,12 @@ struct TitleHero: View {
         return 1 - min(1, max(0, scrollOffset) / height)
     }
 
+    /// The inline loop only actually renders while every one of these holds — armed, the hero is
+    /// on screen, Reduce Motion is off, and neither the player nor the full trailer is up.
+    private var trailerActive: Bool {
+        showVideo && heroVisible && !reduceMotion && shell?.playback == nil && shell?.trailer == nil
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Spacer(minLength: 0)
@@ -142,12 +157,56 @@ struct TitleHero: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(height: height)
         .background {
-            HeroBackdrop(url: TMDBClient.imageURL(path: store.backdropPath ?? store.item.posterPath, size: "w1280"))
-                .offset(y: parallaxOffset)
-                .opacity(backdropOpacity)
+            ZStack {
+                HeroBackdrop(url: TMDBClient.imageURL(path: store.backdropPath ?? store.item.posterPath, size: "w1280"))
+                if trailerActive, let url = trailer?.streamURL {
+                    InlineTrailer(url: url, muted: $muted)
+                        .transition(.opacity)
+                }
+            }
+            .offset(y: parallaxOffset)
+            .opacity(backdropOpacity)
+        }
+        .overlay(alignment: .bottomTrailing) {
+            if trailer?.streamURL != nil { trailerCapsules.padding(24) }
         }
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+        .onScrollVisibilityChange(threshold: 0.2) { visible in heroVisible = visible }
+        .onChange(of: autoplayArmed, initial: true) { _, armed in
+            guard armed, !reduceMotion else { return }
+            withAnimation(.easeInOut(duration: 0.6)) { showVideo = true }
+        }
         .clipped()
+    }
+
+    /// *Trailer muted* ⇄ *Sound on* (only once the inline loop is actually showing) and
+    /// *Watch Trailer* (whenever a stream exists at all).
+    private var trailerCapsules: some View {
+        HStack(spacing: 10) {
+            if showVideo {
+                Button {
+                    muted.toggle()
+                } label: {
+                    Label(muted ? "Trailer muted" : "Sound on",
+                         systemImage: muted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 12).padding(.vertical, 8)
+                .glassEffect(.regular.interactive(), in: Capsule())
+            }
+            if let url = trailer?.streamURL {
+                Button {
+                    shell?.presentTrailer(url, title: store.item.title)
+                } label: {
+                    Label("Watch Trailer", systemImage: "arrow.up.left.and.arrow.down.right")
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 12).padding(.vertical, 8)
+                .glassEffect(.regular.interactive(), in: Capsule())
+            }
+        }
+        .font(.system(size: 12, weight: .semibold))
+        .foregroundStyle(Theme.Palette.textPrimary)
     }
 
     private var copy: some View {
@@ -160,7 +219,7 @@ struct TitleHero: View {
                     .foregroundStyle(Theme.Palette.gold)
             }
             if !qualityChips.isEmpty || hasAnyRatingChip { chipRow }
-            TitleActionsRow(store: store, acquirer: acquirer)
+            TitleActionsRow(store: store, acquirer: acquirer, trailer: trailer)
         }
         .padding(.leading, pageLeadingInset + 8)
         .padding(.bottom, 28)

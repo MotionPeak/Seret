@@ -79,6 +79,25 @@ enum TitlePageText {
         if let episode { return "Play S\(episode.season)\u{00B7}E\(episode.number)" }
         return "Play"
     }
+
+    /// The viewer's own history with a title: how many times, when last, and how far back it goes
+    /// (tvOS `WatchDatesLine` wording, but "watched N times" and "last on DATE" share one line —
+    /// mockup 5's layout). Either line is dropped independently when it has nothing to say; an
+    /// empty history returns no lines at all.
+    static func historyLines(summary: WatchSummary?, since: Date?) -> [String] {
+        var lines: [String] = []
+        if let summary, summary.plays > 0 {
+            var line = "Watched \(summary.plays) time\(summary.plays == 1 ? "" : "s")"
+            if let last = summary.lastWatchedAt {
+                line += " \u{00B7} last on \(last.formatted(date: .abbreviated, time: .omitted))"
+            }
+            lines.append(line)
+        }
+        if let since {
+            lines.append("In your history since \(since.formatted(date: .abbreviated, time: .omitted))")
+        }
+        return lines
+    }
 }
 
 /// Pure layout math for the title page: the hero's height and the episode grid's column count, both

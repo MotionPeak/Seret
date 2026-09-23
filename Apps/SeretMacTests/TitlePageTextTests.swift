@@ -118,4 +118,26 @@ import Testing
         #expect(TitlePageText.acquireTitle(episode: nil, finding: true) == "Finding a version\u{2026}")
         #expect(TitlePageText.acquireTitle(episode: (season: 1, number: 1), finding: true) == "Finding a version\u{2026}")
     }
+
+    // MARK: - History lines
+
+    @Test func historyReadsPlaysAndLastDate() {
+        let last = Date(timeIntervalSince1970: 1_722_600_000)
+        let since = Date(timeIntervalSince1970: 1_705_000_000)
+        let lines = TitlePageText.historyLines(summary: WatchSummary(plays: 2, lastWatchedAt: last), since: since)
+        #expect(lines == [
+            "Watched 2 times \u{00B7} last on \(last.formatted(date: .abbreviated, time: .omitted))",
+            "In your history since \(since.formatted(date: .abbreviated, time: .omitted))",
+        ])
+    }
+
+    @Test func oneTimeIsSingular() {
+        let lines = TitlePageText.historyLines(summary: WatchSummary(plays: 1, lastWatchedAt: nil), since: nil)
+        #expect(lines == ["Watched 1 time"])
+    }
+
+    @Test func noHistoryNoLines() {
+        #expect(TitlePageText.historyLines(summary: nil, since: nil) == [])
+        #expect(TitlePageText.historyLines(summary: WatchSummary(plays: 0, lastWatchedAt: nil), since: nil) == [])
+    }
 }
