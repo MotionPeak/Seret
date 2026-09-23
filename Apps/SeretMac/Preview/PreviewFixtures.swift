@@ -281,11 +281,16 @@ final class PlayerPreviewDriver {
     /// begins loading but never gets past it — `phase` stays `.preparing` and the cold-open overlay
     /// (title + "Preparing…" + shimmer) stays on screen, which is what "not primed" (`playerloading`)
     /// needs to show. `failing` throws instead, so the failure text shown is the shared model's own.
-    init(failing: Bool = false, hangs: Bool = false) {
-        let item = Fixture.films[0]
-        let source = item.sources[0]
+    /// `episode` plays the fixture show instead of the fixture film — what `playerupnext` needs, so
+    /// `hasNextEpisode` is real and `maybeShowUpNext()` (internal to `PlayerModel`) sets
+    /// `upNextVisible` for real rather than the harness faking a setter that does not exist.
+    init(item: MediaItem = Fixture.films[0], episode: Episode? = nil, failing: Bool = false, hangs: Bool = false) {
+        let source = episode?.source ?? item.sources[0]
+        let label = episode.map { DetailStore.episodeLabel(showTitle: item.title, season: $0.season, number: $0.number) }
+            ?? item.title
+        let contentKey = episode.map { WatchKey.content(forShow: item, episode: $0) } ?? WatchKey.content(forMovie: item)
         let request = PlaybackRequest(item: item, source: source, resumeAt: nil,
-                                      label: item.title, contentKey: item.id)
+                                      label: label, contentKey: contentKey, episode: episode)
         let unrestrict: (String) async throws -> URL
         if hangs {
             unrestrict = { _ in try await Task.sleep(for: .seconds(3600)); return URL(string: "https://example.invalid/film.mkv")! }
@@ -300,8 +305,10 @@ final class PlayerPreviewDriver {
 
     /// `start()`, then the sequence a real play makes: tracks discovered, `.playing`, and a moving
     /// playhead (two ticks — the second is what marks the first rendered frame) — so the HUD is
-    /// screenshot-verified against real model state, not hand-placed fields.
-    func prime() async {
+    /// screenshot-verified against real model state, not hand-placed fields. `selectAudioTrackID`,
+    /// when given, is applied the way an explicit viewer pick would be (`model.selectAudio(id:)`) —
+    /// with no `trackPreferences` wired, nothing selects a track on its own.
+    func prime(selectAudioTrackID: String? = nil) async {
         model.start()
         try? await Task.sleep(for: .milliseconds(50))
         engine.audioTracks = [
@@ -317,8 +324,21 @@ final class PlayerPreviewDriver {
         engine.emit(.state(.playing))
         engine.emit(.time(.init(position: 3752, duration: 8160)))
         try? await Task.sleep(for: .milliseconds(30))
+        if let selectAudioTrackID { model.selectAudio(id: selectAudioTrackID) }
         engine.emit(.time(.init(position: 3753, duration: 8160)))
         try? await Task.sleep(for: .milliseconds(30))
+    }
+
+    /// For `playerupnext`: play right up to the model's own Up Next threshold, so
+    /// `maybeShowUpNext()` — internal to `PlayerModel`, not something this harness can fake — sets
+    /// `upNextVisible` and starts the real countdown. Needs a driver built with an `episode` (the
+    /// fixture show's S1E1) so `hasNextEpisode` is true.
+    func primeNearEpisodeEnd() async {
+        model.start()
+        try? await Task.sleep(for: .milliseconds(50))
+        engine.emit(.state(.playing))
+        engine.emit(.time(.init(position: 2555, duration: 2580)))   // past the ~30s-from-end threshold
+        try? await Task.sleep(for: .milliseconds(80))
     }
 }
 #endif

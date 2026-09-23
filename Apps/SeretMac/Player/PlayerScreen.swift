@@ -3,8 +3,8 @@ import DebridUI
 import SwiftUI
 
 /// The player, in the window: black background, the real video surface, loading/buffering/failure
-/// overlays, and the keyboard map. Full screen and the HUD proper (scrubber, transport, volume,
-/// tracks panel) arrive in Task 7 — this is the engine lifecycle + keys + display-awake slice.
+/// overlays, the windowed HUD (top bar, transport panel, tracks panel, Up Next), and the keyboard
+/// map. Full screen toggles the real window; the HUD is sized in points and never scales with it.
 struct PlayerScreen<Surface: View>: View {
     let model: PlayerModel
     let onClose: () -> Void
@@ -13,13 +13,32 @@ struct PlayerScreen<Surface: View>: View {
     @State private var windowRef = WindowRef()
     @State private var sleepGuard = DisplaySleepGuard()
     @State private var muteMemory = MuteMemory()
+    @State private var hud: HUDVisibility
+    @State private var tracksPanelOpen: Bool
     @FocusState private var isFocused: Bool
+
+    /// `hud` is injectable so the harness can pin auto-hide off (`HUDVisibility(delay: nil)`), and
+    /// `tracksPanelOpen` so it can start the Audio & Subtitles panel already open — the real app
+    /// always takes the defaults (a real-delay `HUDVisibility`, the panel closed).
+    init(model: PlayerModel, onClose: @escaping () -> Void, hud: HUDVisibility = HUDVisibility(),
+        tracksPanelOpen: Bool = false, @ViewBuilder surface: @escaping () -> Surface) {
+        self.model = model
+        self.onClose = onClose
+        self.surface = surface
+        _hud = State(wrappedValue: hud)
+        _tracksPanelOpen = State(wrappedValue: tracksPanelOpen)
+    }
 
     var body: some View {
         ZStack {
             Color.black
             surface()
+            tapLayer
             PlayerStateOverlays(model: model, onClose: onClose)
+            PlayerHUD(model: model, hud: hud, windowRef: windowRef, tracksPanelOpen: $tracksPanelOpen,
+                     onClose: onClose,
+                     onToggleFullScreen: { perform(.toggleFullScreen) },
+                     onToggleMute: { perform(.mute) })
         }
         .ignoresSafeArea()
         .background(WindowReader(ref: windowRef))
@@ -33,6 +52,22 @@ struct PlayerScreen<Surface: View>: View {
             perform(command)
             return .handled
         }
+        .onContinuousHover { phase in
+            if case .active = phase { hud.poke() }
+        }
+        .onChange(of: hud.isVisible) { _, visible in
+            guard model.phase == .playing else { return }
+            if visible {
+                windowRef.restoreChrome()
+            } else {
+                NSCursor.setHiddenUntilMouseMoves(true)
+                windowRef.setTrafficLightsHidden(true)
+            }
+        }
+        .onChange(of: tracksPanelOpen) { _, open in
+            hud.panelOpen = open
+            if !open { isFocused = true }   // a panel closing must hand the keyboard back
+        }
         .onAppear {
             model.start()
             isFocused = true
@@ -42,6 +77,7 @@ struct PlayerScreen<Surface: View>: View {
         }
         .onChange(of: model.phase, initial: true) { _, phase in
             sleepGuard.update(isPlaying: phase == .playing)
+            hud.isPlaying = phase == .playing
         }
         .onDisappear {
             sleepGuard.release()
@@ -59,6 +95,20 @@ struct PlayerScreen<Surface: View>: View {
         }
     }
 
+    /// A clear full-area layer under the HUD: double-click toggles full screen, a single click
+    /// toggles play/pause (SwiftUI delays the single click until the double-click window passes —
+    /// the same behaviour QuickTime has).
+    private var tapLayer: some View {
+        Color.clear
+            .contentShape(Rectangle())
+            .onTapGesture(count: 2) { perform(.toggleFullScreen) }
+            .onTapGesture {
+                model.togglePlayPause()
+                hud.poke()
+                isFocused = true
+            }
+    }
+
     private func perform(_ command: PlayerKeyCommand) {
         switch command {
         case .playPause:
@@ -73,17 +123,18 @@ struct PlayerScreen<Surface: View>: View {
         case .toggleFullScreen:
             windowRef.window?.toggleFullScreen(nil)
         case .escape:
-            switch PlayerEscape.next(panelOpen: false, isFullScreen: windowRef.isFullScreen) {
+            switch PlayerEscape.next(panelOpen: tracksPanelOpen, isFullScreen: windowRef.isFullScreen) {
             case .closePanel:
-                break   // no panel until Task 7
+                tracksPanelOpen = false
             case .exitFullScreen:
                 windowRef.window?.toggleFullScreen(nil)
             case .closePlayer:
                 onClose()
             }
         }
-        // Re-assert focus after every command: a click on the picture or (Task 7) a panel closing
-        // can steal it, and arrows must keep reaching this view, never the VLC NSView underneath.
+        hud.poke()
+        // Re-assert focus after every command: a click on the picture or a panel closing can steal
+        // it, and arrows must keep reaching this view, never the VLC NSView underneath.
         isFocused = true
     }
 }

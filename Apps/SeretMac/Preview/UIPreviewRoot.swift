@@ -53,6 +53,16 @@ struct UIPreviewRoot: View {
             case "playerfailed":
                 // Likewise: `.onAppear` alone drives the (failing) load to `.failed`.
                 PlayerPreviewHost(driver: PlayerPreviewDriver(failing: true), action: .none)
+            case "player":
+                PlayerPreviewHost(driver: PlayerPreviewDriver(), action: .prime)
+            case "playerpaused":
+                PlayerPreviewHost(driver: PlayerPreviewDriver(), action: .primeThenPause)
+            case "playertracks":
+                PlayerPreviewHost(driver: PlayerPreviewDriver(), action: .primeWithTracksOpen)
+            case "playerupnext":
+                let upNextEpisode = Fixture.show.seasons.first { $0.number == 1 }!.episodes.first { $0.number == 1 }!
+                PlayerPreviewHost(driver: PlayerPreviewDriver(item: Fixture.show, episode: upNextEpisode),
+                                 action: .primeNearEpisodeEnd)
             case "shellnav":
                 MainShell(model: {
                     let model = ShellModel(defaults: UserDefaults(suiteName: "seret.preview.shellnav")!)
@@ -80,7 +90,12 @@ struct UIPreviewRoot: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .frame(minWidth: 1100, minHeight: 700)
+        // Matches the app's own `.defaultSize` (1440×900): the player's tracks panel and Up Next
+        // card sit close to the trailing edge, and a narrower preview window (the 1100×700 minimum
+        // alone) clipped their content against the window's own right edge — invisible in a
+        // screenshot despite rendering correctly, since `screencapture -l<windowID>` can only ever
+        // capture what is actually inside the window's bounds.
+        .frame(minWidth: 1440, minHeight: 900)
         .preferredColorScheme(.dark)
     }
 
@@ -121,21 +136,37 @@ struct UIPreviewRoot: View {
 /// Mounts `PlayerScreen` directly (not through `MainShell`/`ShellModel`) over a `PlayerPreviewDriver`
 /// — the fixture film's backdrop stands in for the video surface, a still frame to judge the HUD
 /// against. `PlayerScreen`'s own `.onAppear` already calls `model.start()`, so `.none` is enough for
-/// `playerloading`/`playerfailed` (the driver's `hangs`/`failing` decide what that load does);
-/// `.prime` runs the full tracks + playhead sequence (Task 7's playing/paused/tracks/upnext cases).
+/// `playerloading`/`playerfailed` (the driver's `hangs`/`failing` decide what that load does). Every
+/// other action runs the driver's priming sequence over a PINNED `HUDVisibility(delay: nil)`, so the
+/// HUD can never auto-hide out from under a screenshot taken a few seconds after launch.
 private struct PlayerPreviewHost: View {
-    enum Action: Equatable { case none, prime }
+    enum Action: Equatable { case none, prime, primeThenPause, primeWithTracksOpen, primeNearEpisodeEnd }
     @State var driver: PlayerPreviewDriver
     let action: Action
 
+    private var startsWithTracksOpen: Bool { action == .primeWithTracksOpen }
+
     var body: some View {
-        PlayerScreen(model: driver.model, onClose: {}) {
+        PlayerScreen(model: driver.model, onClose: {}, hud: HUDVisibility(delay: nil),
+                    tracksPanelOpen: startsWithTracksOpen) {
             RemoteImage(url: TMDBClient.imageURL(path: Fixture.films[0].backdropPath, size: "w1280"))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .clipped()
         }
         .task {
-            if action == .prime { await driver.prime() }
+            switch action {
+            case .none:
+                break
+            case .prime:
+                await driver.prime()
+            case .primeThenPause:
+                await driver.prime()
+                driver.model.pause()
+            case .primeWithTracksOpen:
+                await driver.prime(selectAudioTrackID: "audio/0")
+            case .primeNearEpisodeEnd:
+                await driver.primeNearEpisodeEnd()
+            }
         }
     }
 }

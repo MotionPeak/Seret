@@ -1,18 +1,16 @@
 import DebridUI
 import SwiftUI
 
-/// Loading / buffering / failure state over the picture, plus the player's (temporary — Task 7
-/// replaces it with the real top bar) back button. No spinner anywhere: loading is shimmer,
-/// buffering is a small glass capsule.
+/// Loading / buffering / failure state over the picture. No spinner anywhere: loading is shimmer,
+/// buffering is a small glass capsule. The back button lives in `PlayerHUD`'s top bar (it is
+/// visible during every one of these states, since the HUD starts visible and only auto-hides
+/// once actually playing) — the failed panel additionally offers its own, alongside Retry.
 struct PlayerStateOverlays: View {
     let model: PlayerModel
     let onClose: () -> Void
 
     var body: some View {
-        ZStack {
-            stateLayer
-            backButtonLayer
-        }
+        stateLayer
     }
 
     @ViewBuilder private var stateLayer: some View {
@@ -75,25 +73,5 @@ struct PlayerStateOverlays: View {
         .padding(28)
         .frame(width: 420)
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-    }
-
-    private var backButtonLayer: some View {
-        VStack {
-            HStack {
-                Button(action: onClose) {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(Theme.Palette.textPrimary)
-                        .frame(width: 35, height: 35)
-                        .glassEffect(.regular.interactive(), in: Circle())
-                }
-                .buttonStyle(.plain)
-                .help("Back (Esc)")
-                .padding(.leading, 92)
-                .padding(.top, 24)
-                Spacer()
-            }
-            Spacer()
-        }
     }
 }
