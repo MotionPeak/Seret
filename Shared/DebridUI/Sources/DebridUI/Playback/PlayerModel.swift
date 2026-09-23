@@ -429,9 +429,9 @@ public final class PlayerModel {
     var loadWatchdog: Task<Void, Never>?
 
     /// Engine-seek coalescing for skip bursts: the first skip seeks immediately (instant
-    /// response); further skips inside the window only move the target and ONE trailing seek
-    /// fires at the final target — four fast double-taps become two engine seeks, not four
-    /// full seek+rebuffer cycles.
+    /// response); further skips only move the target, each one pushing the window out, and ONE
+    /// trailing seek fires at the final target once the taps stop — a burst of any length costs
+    /// two engine seeks, not one full seek+rebuffer cycle per tap.
     let seekCoalesceWindow: Double
     var seekDispatchTask: Task<Void, Never>?
     var coalescedSeekTarget: Double?
