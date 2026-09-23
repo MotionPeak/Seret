@@ -90,7 +90,9 @@ struct MyLibraryScreen: View {
         HStack(alignment: .firstTextBaseline, spacing: 16) {
             VStack(alignment: .leading, spacing: 4) {
                 Text("My Library").font(Theme.Typo.titleXL())
-                Text(countCaption).font(Theme.Typo.caption()).foregroundStyle(Theme.Palette.textSecondary)
+                // Only a real grid has a count: "0 films" under the skeleton or a failure reads as an
+                // answer before there is one. A blank keeps the header's height steady.
+                Text(content == .grid ? countCaption : " ").font(Theme.Typo.caption()).foregroundStyle(Theme.Palette.textSecondary)
             }
             Spacer()
             Picker("", selection: kindBinding) {
