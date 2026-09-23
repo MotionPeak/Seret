@@ -121,9 +121,19 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
     /// must be passed at player creation (`VLCMediaPlayer(options:)`); size is the dynamic
     /// `currentSubTitleFontScale`, applied per load. The engine is built fresh per playback, so a
     /// changed preference takes effect on the next play.
-    init(preferences: SubtitlePreferences = .default) {
+    init(preferences: SubtitlePreferences = .default, extraOptions: [String] = []) {
         var options = ["--freetype-color=\(preferences.color.rgb)"]
         if let font = preferences.font.freetypeName { options.append("--freetype-font=\(font)") }
+        #if os(macOS)
+        // HDR (PQ / Dolby Vision) films played at under half brightness on the Mac. libvlc's
+        // OpenGL output tone-maps them to an SDR surface with its default spline curve against a
+        // 203-nit reference white, so a scene mastered at 100 nits lands at ~49 % — measured on an
+        // HDR10 test clip at mean 57.6 vs 128.7 for the same picture in SDR. `linear` (function 7)
+        // with a 2× gain brings it to 127.9 and leaves SDR untouched (128.7). The values are
+        // integers: libvlc silently ignores the names ("clip", "linear").
+        options += ["--gl-tone-mapping-function=7", "--gl-tone-mapping-param=2.0"]
+        #endif
+        options += extraOptions
         player = VLCMediaPlayer(options: options)
         let handle = Self.openDiagnosticsLog()
         diagnosticsHandle = handle

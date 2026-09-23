@@ -25,7 +25,11 @@ struct VLCSmokePreview: View {
                 .padding(16)
         }
         .task {
-            let engine = VLCKitVideoPlayerEngine()
+            // `-vlcOptions "--a=1 --b=2"`: extra libvlc options, for measuring render settings.
+            let args = ProcessInfo.processInfo.arguments
+            let extra = args.firstIndex(of: "-vlcOptions").flatMap { i in
+                i + 1 < args.count ? args[i + 1].split(separator: " ").map(String.init) : nil } ?? []
+            let engine = VLCKitVideoPlayerEngine(extraOptions: extra)
             self.engine = engine
             engine.load(url: url, headers: [:], audioLanguage: nil, audioTrackID: nil)
             engine.play()
