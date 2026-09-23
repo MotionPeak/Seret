@@ -124,9 +124,51 @@ struct HomeScreen: View {
                     .contextMenu {
                         Button("Resume") { resume(entry) }
                         Button("Open \u{201C}\(entry.item.title)\u{201D}") { shell?.open(.title(entry.item)) }
+                        Divider()
+                        continueWatchingMarks(entry)
                     }
             }
         }
+    }
+
+    /// Both marks take the card off the rail (the rail is exactly the unfinished rows that carry a
+    /// position): watched keeps the position and leaves a ✓, unwatched throws the resume point
+    /// away. A show's card stands for one episode, so its first pair says so.
+    /// Same calls as `feat/mobile-parity`'s shared `ContinueWatchingActions`; switch to that view
+    /// once it reaches main.
+    @ViewBuilder private func continueWatchingMarks(_ entry: HomeItem) -> some View {
+        let scope = entry.item.kind == .show ? "Episode " : ""
+        Button("Mark \(scope)Watched") { markEntry(true, entry) }
+        Button("Mark \(scope)Unwatched") { markEntry(false, entry) }
+        if entry.item.kind == .show {
+            Button("Mark Show Watched") { markShow(true, entry) }
+            Button("Mark Show Unwatched") { markShow(false, entry) }
+        }
+    }
+
+    private func markEntry(_ watched: Bool, _ entry: HomeItem) {
+        let home = home, library = library
+        Task {
+            await home.setWatched(watched, entry: entry)
+            await Self.refresh(home: home, library: library)
+        }
+    }
+
+    private func markShow(_ watched: Bool, _ entry: HomeItem) {
+        // An unresolved profile would write rows keyed to "" that nothing ever adopts.
+        guard let session, let profileID = session.activeProfileID,
+              let marker = session.makeShowWatchMarker() else { return }
+        let home = home, library = library, show = entry.item
+        Task {
+            await marker.mark(watched, show: show, profileID: profileID)
+            await Self.refresh(home: home, library: library)
+        }
+    }
+
+    private static func refresh(home: HomeStore, library: LibraryStore?) async {
+        guard let library else { return }
+        await library.reloadWatchStates()
+        await home.rebuild(movies: library.movies, shows: library.shows)
     }
 
     private func resume(_ entry: HomeItem) {
