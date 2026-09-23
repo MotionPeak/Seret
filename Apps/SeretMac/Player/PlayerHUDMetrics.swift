@@ -17,6 +17,11 @@ enum PlayerHUDMetrics {
     static let topBarLeadingWindowed: CGFloat = 92
     static let topBarLeadingFullScreen: CGFloat = 26
     static let tracksPanelWidth: CGFloat = 340
+    /// Bottom inset for anything stacked on the right above the transport panel (the tracks panel,
+    /// Up Next): the panel is up to 912 pt wide and centred, so in a 1440 pt window its trailing
+    /// end runs under a 340 pt right-hand column unless that column stops above it. Panel: 26 pt
+    /// off the bottom + ~128 pt tall (measured) + a 16 pt gap.
+    static let clearOfBottomPanel: CGFloat = 170
 
     static func panelWidth(windowWidth: CGFloat) -> CGFloat {
         max(0, min(panelMaxWidth, windowWidth - 2 * sideMargin))

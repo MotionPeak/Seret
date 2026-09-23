@@ -216,7 +216,7 @@ struct PlayerHUD: View {
     private var tracksPanelLayer: some View {
         TracksPanel(model: model, onClose: { tracksPanelOpen = false })
             .padding(.top, 20)
-            .padding(.bottom, 20)
+            .padding(.bottom, PlayerHUDMetrics.clearOfBottomPanel)
             .padding(.trailing, 20)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
             .transition(.opacity)
@@ -236,7 +236,7 @@ struct PlayerHUD: View {
             }
         }
         .padding(.trailing, PlayerHUDMetrics.sideMargin)
-        .padding(.bottom, 150)   // clears the panel
+        .padding(.bottom, PlayerHUDMetrics.clearOfBottomPanel)
         .transition(.opacity)
     }
 }
