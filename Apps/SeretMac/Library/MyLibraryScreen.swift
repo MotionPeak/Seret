@@ -43,7 +43,6 @@ struct MyLibraryScreen: View {
 
     @SceneStorage("seret.library.kind") private var storedKindRaw = MediaKind.movie.rawValue
     @State private var kindOverride: MediaKind?
-    @State private var couldNotPlay: MediaItem?
 
     private var kind: MediaKind { kindOverride ?? MediaKind(rawValue: storedKindRaw) ?? .movie }
 
@@ -78,11 +77,6 @@ struct MyLibraryScreen: View {
         .onChange(of: shell?.playbackEndedCount) { _, _ in Task { await store.reloadWatchStates() } }
         .task(id: "\(kind.rawValue)-\(items.count)") {
             ImageMemoryCache.prefetch(items.prefix(18).compactMap { TMDBClient.imageURL(path: $0.posterPath, size: "w342") })
-        }
-        .alert("Couldn\u{2019}t Play", isPresented: Binding(get: { couldNotPlay != nil }, set: { if !$0 { couldNotPlay = nil } })) {
-            Button("OK") { couldNotPlay = nil }
-        } message: {
-            Text("Nothing playable is in your library for \u{201C}\(couldNotPlay?.title ?? "")\u{201D}.")
         }
     }
 
@@ -141,7 +135,7 @@ struct MyLibraryScreen: View {
                 if let request = await QuickPlay.request(for: item, session: session) {
                     shell?.present(request)
                 } else {
-                    couldNotPlay = item
+                    shell?.couldNotPlay = item
                 }
             }
         }

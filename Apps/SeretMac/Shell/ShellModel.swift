@@ -88,4 +88,36 @@ final class ShellModel {
     func playerDidTearDown() {
         playbackEndedCount += 1
     }
+
+    // MARK: - Shared confirmations, alerts and toast (Task 2 on)
+
+    struct ShellToast: Identifiable, Equatable {
+        let id = UUID()
+        let message: String
+        let isFailure: Bool
+    }
+
+    private(set) var toast: ShellToast?
+    /// How long the current toast should linger before `ShellToastView`'s own timer dismisses it.
+    /// `nil` pins the toast on screen — the harness only, so a screenshot never races the fade.
+    private(set) var toastLingers: Duration?
+
+    func showToast(_ message: String, isFailure: Bool = false, lingers: Duration? = .seconds(2.6)) {
+        toast = ShellToast(message: message, isFailure: isFailure)
+        toastLingers = lingers
+    }
+
+    /// No-op unless `id` is still the current toast — a stale timer firing after a newer toast
+    /// replaced it must not dismiss the new one.
+    func dismissToast(_ id: UUID) {
+        guard toast?.id == id else { return }
+        toast = nil
+    }
+
+    /// Set by any poster's "Remove from Library…" — drives the shared confirmation alert.
+    var pendingRemoval: MediaItem?
+    /// "Couldn't Remove" alert message, set when a confirmed removal fails.
+    var removalError: String?
+    /// "Couldn't Play" alert target, set when a poster's Play finds nothing playable.
+    var couldNotPlay: MediaItem?
 }

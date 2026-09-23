@@ -40,6 +40,10 @@ struct UIPreviewRoot: View {
                 libraryPreview(.empty)
             case "libraryfailed":
                 libraryPreview(.failing)
+            case "toast":
+                toastPreview(isFailure: false)
+            case "toastfailure":
+                toastPreview(isFailure: true)
             case "titlemovie":
                 titlePreview(item: Fixture.films[0])
             case "titleshow":
@@ -116,6 +120,22 @@ struct UIPreviewRoot: View {
         return MainShell(model: model)
             .environment(store)
             .environment(\.previewForcedLibraryKind, forcedKind)
+    }
+
+    /// Mounts `MainShell` on `.library` with a fixture library and the toast already pinned
+    /// (`lingers: nil`) so the screenshot never races the fade.
+    private func toastPreview(isFailure: Bool) -> some View {
+        let suite = "seret.preview.toast.\(UUID().uuidString)"
+        let model = ShellModel(defaults: UserDefaults(suiteName: suite)!)
+        model.select(.library)
+        let store = LibraryStore(library: PreviewLibrary(mode: .items(Fixture.films + Fixture.shows)),
+                                 watch: PreviewWatch(Fixture.watch), profileID: { "" })
+        model.showToast(isFailure
+            ? "Couldn\u{2019}t remove \u{201C}The Lord of the Rings: The Fellowship of the Ring\u{201D}. Please try again."
+            : "Added to your Letterboxd watchlist",
+            isFailure: isFailure, lingers: nil)
+        return MainShell(model: model)
+            .environment(store)
     }
 
     /// Mounts `MainShell` on `.library` with the title already pushed (the real navigation path a

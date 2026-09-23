@@ -113,4 +113,28 @@ import Testing
         model.present(request("a"))
         #expect(model.playback?.id != firstID)
     }
+
+    // MARK: - Toast
+
+    @Test func aNewToastReplacesTheOld() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.showToast("First")
+        let firstID = model.toast?.id
+        model.showToast("Second", isFailure: true)
+
+        #expect(model.toast?.id != firstID)
+        #expect(model.toast?.message == "Second")
+        #expect(model.toast?.isFailure == true)
+    }
+
+    @Test func dismissingAStaleToastKeepsTheNewOne() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.showToast("First")
+        let staleID = model.toast!.id
+        model.showToast("Second")
+
+        model.dismissToast(staleID)
+
+        #expect(model.toast?.message == "Second")
+    }
 }

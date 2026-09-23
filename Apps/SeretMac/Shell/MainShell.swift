@@ -1,3 +1,4 @@
+import DebridCore
 import DebridUI
 import SwiftUI
 
@@ -13,12 +14,34 @@ struct MainShell: View {
     @Bindable var model: ShellModel
     @Environment(AppSession.self) private var session: AppSession?
 
+    // A harness-injected instance wins; otherwise this shell builds one once and re-injects it, so
+    // every page underneath reads the same object instead of each rebuilding its own (Decision 6).
+    @Environment(LibraryStore.self) private var injectedLibrary: LibraryStore?
+    @Environment(TileWatchMarks.self) private var injectedMarks: TileWatchMarks?
+    @Environment(WatchlistMarks.self) private var injectedWatchlist: WatchlistMarks?
+    @State private var ownMarks: TileWatchMarks?
+    @State private var ownWatchlist: WatchlistMarks?
+
+    private var library: LibraryStore? { injectedLibrary ?? session?.libraryStore }
+    private var watchlist: WatchlistMarks? { injectedWatchlist ?? ownWatchlist }
+
     var body: some View {
+        core.shellConfirmationsAndAlerts(model: model, confirmRemoval: confirmRemoval)
+    }
+
+    // Split out of `body`: one big expression mixing the ZStack, a dozen modifiers and three
+    // `.alert`s was too much for the type checker to solve in reasonable time.
+    private var core: some View {
         ZStack {
             shellContent
                 .opacity(model.playback == nil ? 1 : 0)
                 .allowsHitTesting(model.playback == nil)
                 .accessibilityHidden(model.playback != nil)
+            if model.playback == nil {
+                ShellToastView(model: model)
+                    .transition(.opacity)
+                    .zIndex(1)
+            }
             if let playback = model.playback, let session {
                 PlayerHost(request: playback.request, app: session, onExit: { model.endPlayback() },
                            onTornDown: { model.playerDidTearDown() })
@@ -30,12 +53,28 @@ struct MainShell: View {
         .animation(Theme.Motion.fade, value: model.playback?.id)
         .environment(\.pageLeadingInset, SidebarMetrics.contentLeading(collapsed: model.isSidebarCollapsed))
         .environment(model)
+        .environment(injectedMarks ?? ownMarks ?? .placeholder)
+        .environment(watchlist ?? .placeholder)
         .background(TrafficLightsPlacement(origin: SidebarMetrics.trafficLightsOrigin))
         .animation(Theme.Motion.standard, value: model.isSidebarCollapsed)
         .animation(Theme.Motion.fade, value: model.selection)
         .ignoresSafeArea()
         .frame(minWidth: 1000, minHeight: 650)
         .focusedSceneValue(\.shellModel, model)
+        // The library loads here, not only on My Library — Home and Browse need ownership and
+        // watch state without a visit there, and the splash covers this first load (Decision 7).
+        .task(id: library?.attempt ?? -1) { await library?.load() }
+        .task {
+            guard let session else { return }
+            if injectedMarks == nil, ownMarks == nil { ownMarks = session.makeTileWatchMarks() }
+            if injectedWatchlist == nil, ownWatchlist == nil { ownWatchlist = session.makeWatchlistMarks() }
+            await watchlist?.load()
+        }
+        .onChange(of: watchlist?.lastOutcome?.event) { _, _ in
+            if let outcome = watchlist?.lastOutcome {
+                model.showToast(outcome.message, isFailure: outcome.isFailure)
+            }
+        }
     }
 
     private var shellContent: some View {
@@ -47,5 +86,45 @@ struct MainShell: View {
             FloatingSidebar(model: model)
             BackForwardCapsule(model: model)
         }
+    }
+
+    private func confirmRemoval(_ item: MediaItem) {
+        model.pendingRemoval = nil
+        Task {
+            if let message = await library?.removeReportingFailure(item) {
+                model.removalError = message
+            }
+        }
+    }
+}
+
+/// The removal confirm + "Couldn't Remove" + "Couldn't Play" alerts, hosted once here so any
+/// poster's menu (Task 3) and `MyLibraryScreen`'s Play both just set state on `ShellModel`.
+private extension View {
+    func shellConfirmationsAndAlerts(model: ShellModel, confirmRemoval: @escaping (MediaItem) -> Void) -> some View {
+        self
+            .alert("Remove \u{201C}\(model.pendingRemoval?.title ?? "")\u{201D}?",
+                   isPresented: Binding(get: { model.pendingRemoval != nil },
+                                        set: { if !$0 { model.pendingRemoval = nil } }),
+                   presenting: model.pendingRemoval) { item in
+                Button("Remove", role: .destructive) { confirmRemoval(item) }
+                Button("Cancel", role: .cancel) { model.pendingRemoval = nil }
+            } message: { _ in
+                Text("This deletes it from your Real\u{2011}Debrid account.")
+            }
+            .alert("Couldn\u{2019}t Remove",
+                   isPresented: Binding(get: { model.removalError != nil },
+                                        set: { if !$0 { model.removalError = nil } })) {
+                Button("OK") { model.removalError = nil }
+            } message: {
+                Text(model.removalError ?? "")
+            }
+            .alert("Couldn\u{2019}t Play",
+                   isPresented: Binding(get: { model.couldNotPlay != nil },
+                                        set: { if !$0 { model.couldNotPlay = nil } })) {
+                Button("OK") { model.couldNotPlay = nil }
+            } message: {
+                Text("Nothing playable is in your library for \u{201C}\(model.couldNotPlay?.title ?? "")\u{201D}.")
+            }
     }
 }
