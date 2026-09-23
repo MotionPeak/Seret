@@ -40,6 +40,12 @@ struct UIPreviewRoot: View {
                 libraryPreview(.empty)
             case "libraryfailed":
                 libraryPreview(.failing)
+            case "titlemovie":
+                titlePreview(item: Fixture.films[0])
+            case "titleshow":
+                titlePreview(item: Fixture.show)
+            case "titleshows2":
+                titlePreview(item: Fixture.show, selectSeason: 2)
             case "shellnav":
                 MainShell(model: {
                     let model = ShellModel(defaults: UserDefaults(suiteName: "seret.preview.shellnav")!)
@@ -86,6 +92,22 @@ struct UIPreviewRoot: View {
         return MainShell(model: model)
             .environment(store)
             .environment(\.previewForcedLibraryKind, forcedKind)
+    }
+
+    /// Mounts `MainShell` on `.library` with the title already pushed (the real navigation path a
+    /// poster click takes) and a fixture `DetailStore` injected — the same seam `TitleRoute` reads
+    /// before falling back to the session.
+    private func titlePreview(item: MediaItem, selectSeason: Int? = nil) -> some View {
+        let suite = "seret.preview.title.\(UUID().uuidString)"
+        let model = ShellModel(defaults: UserDefaults(suiteName: suite)!)
+        model.select(.library)
+        model.open(.title(item))
+        let store = DetailStore(item: item, details: PreviewDetails(), watch: PreviewWatch(Fixture.watch), profileID: "")
+        return MainShell(model: model)
+            .environment(store)
+            .task {
+                if let selectSeason { await store.selectSeason(selectSeason) }
+            }
     }
 }
 

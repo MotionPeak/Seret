@@ -42,21 +42,14 @@ struct SectionStack: View {
     }
 }
 
-/// Renders whatever a pushed route resolves to. `.title` is a stand-in until Task 5 builds the
-/// real title page.
+/// Renders whatever a pushed route resolves to.
 private struct RouteView: View {
     let route: AppRoute
-    @Environment(\.pageLeadingInset) private var pageLeadingInset
 
     var body: some View {
         switch route {
         case .title(let item):
-            Text(item.title)
-                .font(Theme.Typo.titleXL())
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .padding(.top, 54)
-                .padding(.leading, pageLeadingInset)
-                .padding(.trailing, 28)
+            TitleRoute(item: item)
         }
     }
 }

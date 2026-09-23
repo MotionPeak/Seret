@@ -171,4 +171,58 @@ actor PreviewWatch: WatchProgressProviding {
         for key in keys { states.removeValue(forKey: key) }
     }
 }
+
+/// A fake `MediaDetailsProviding` for the title-page harness: canned TMDB details for the fixture
+/// film and show — real still paths for Breaking Bad S1/S2 (fetched once, like Task 3's posters),
+/// no network. Season 2 lists 8 episodes against 3 owned (`Fixture.show`), so `titleshows2` shows
+/// exactly "3 owned, 5 not downloaded".
+struct PreviewDetails: MediaDetailsProviding {
+    func movieDetails(tmdbID: Int) async throws -> TMDBMovieDetails {
+        let title = Fixture.films.first { $0.tmdbID == tmdbID }?.title ?? "Film"
+        return TMDBMovieDetails(id: tmdbID, title: title, releaseDate: nil, overview: nil,
+                                posterPath: nil, backdropPath: nil, runtime: 167,
+                                genres: [TMDBGenre(id: 1, name: "Science Fiction"), TMDBGenre(id: 2, name: "Adventure")],
+                                voteAverage: nil)
+    }
+
+    func tvDetails(tmdbID: Int) async throws -> TMDBTVDetails {
+        TMDBTVDetails(id: tmdbID, name: Fixture.show.title, firstAirDate: nil, overview: nil,
+                      posterPath: nil, backdropPath: nil, numberOfSeasons: 2,
+                      genres: [TMDBGenre(id: 1, name: "Crime"), TMDBGenre(id: 2, name: "Drama")], voteAverage: nil)
+    }
+
+    func seasonEpisodes(tvID: Int, season: Int) async throws -> [TMDBEpisodeDetails] {
+        switch season {
+        case 1: return Self.season1
+        case 2: return Self.season2
+        default: return []
+        }
+    }
+
+    private static func episode(_ n: Int, _ name: String, _ still: String, _ runtime: Int) -> TMDBEpisodeDetails {
+        TMDBEpisodeDetails(episodeNumber: n, name: name, overview: nil, stillPath: still, runtime: runtime, airDate: nil)
+    }
+
+    /// Breaking Bad S1 — all 6 owned by `Fixture.show`.
+    static let season1: [TMDBEpisodeDetails] = [
+        episode(1, "Pilot", "/88Z0fMP8a88EpQWMCs1593G0ngu.jpg", 59),
+        episode(2, "Cat's in the Bag...", "/AbMoecO0ZZio0LcgeLxlzdyGs6X.jpg", 49),
+        episode(3, "...And the Bag's in the River", "/2kBeBlxGqBOdWlKwzAxiwkfU5on.jpg", 49),
+        episode(4, "Cancer Man", "/2UbRgW6apE4XPzhHPA726wUFyaR.jpg", 49),
+        episode(5, "Gray Matter", "/82G3wZgEvZLKcte6yoZJahUWBtx.jpg", 49),
+        episode(6, "Crazy Handful of Nothin'", "/rCCLuycNPL30W3BtuB8HafxEMYz.jpg", 49),
+    ]
+
+    /// Breaking Bad S2 — only the first 3 are owned by `Fixture.show`; 4–8 stay "not downloaded".
+    static let season2: [TMDBEpisodeDetails] = [
+        episode(1, "Seven Thirty-Seven", "/6Uo1z56uKnX60JXvYYFWACHR31u.jpg", 48),
+        episode(2, "Grilled", "/th3SNe0gNgRguv8VveLd4f2JcaH.jpg", 48),
+        episode(3, "Bit by a Dead Bee", "/abgJTOWYPdZGxAWhsg6lmtM8qcU.jpg", 47),
+        episode(4, "Down", "/gMXeL0qcQZi5Tfd4UhnkRJeI9oa.jpg", 48),
+        episode(5, "Breakage", "/bPQxF63jhfT5eNYjhzuGEO7oMQg.jpg", 48),
+        episode(6, "Peekaboo", "/tfCuh20gNHGGF6A1te3NmiqML6D.jpg", 48),
+        episode(7, "Negro y Azul", "/1IOnhCCeru1BZUPeppu7tMmtxvL.jpg", 48),
+        episode(8, "Better Call Saul", "/KmFdF23FtbPwwz3FJF2T885r2Z.jpg", 48),
+    ]
+}
 #endif
