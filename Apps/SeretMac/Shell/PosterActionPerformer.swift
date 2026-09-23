@@ -15,6 +15,10 @@ struct PosterActionPerformer {
     func perform(_ action: PosterAction, on model: PosterTileModel) {
         switch action {
         case .open:
+            // The franchise rail rings the film you're already reading and turns off its quick
+            // actions — but a right-click still offers Open, so this is the one place left that
+            // must refuse to push a second copy of the page you're standing on.
+            guard shell?.titleOnTop?.id != model.page.id else { return }
             shell?.open(.title(model.page))
 
         case .play:

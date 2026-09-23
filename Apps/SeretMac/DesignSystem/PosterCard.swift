@@ -14,12 +14,21 @@ struct PosterDecor: Equatable {
     /// Whether a `.watched` badge also dims the art (Home/Browse/Search); My Library keeps its
     /// ✓-only look and leaves this false.
     var dimsWatched = false
+    /// The franchise rail's 1-based position disc, top-leading. nil elsewhere.
+    var number: Int?
+    /// The franchise rail's current film: a 2 pt gold ring around the poster, always on (not a
+    /// hover state) — `TitleRails.FranchiseRail` also strips its quick actions and makes Open a
+    /// no-op, so this ring is the only thing marking it out.
+    var isCurrent = false
 
-    init(owned: Bool = false, cam: Bool = false, onWatchlist: Bool = false, dimsWatched: Bool = false) {
+    init(owned: Bool = false, cam: Bool = false, onWatchlist: Bool = false, dimsWatched: Bool = false,
+        number: Int? = nil, isCurrent: Bool = false) {
         self.owned = owned
         self.cam = cam
         self.onWatchlist = onWatchlist
         self.dimsWatched = dimsWatched
+        self.number = number
+        self.isCurrent = isCurrent
     }
 }
 
@@ -72,8 +81,37 @@ struct PosterCard: View {
             .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
             .overlay { watchedDim }
             .overlay(alignment: .topTrailing) { trailingBadge }
-            .overlay(alignment: .topLeading) { watchlistRibbon }
+            .overlay(alignment: .topLeading) { leadingBadge }
             .overlay(alignment: .bottom) { progressLine }
+            .overlay { currentRing }
+    }
+
+    /// The number disc takes precedence — a franchise tile is never also on the watchlist ribbon's
+    /// path in practice, and the disc is the one that matters there.
+    @ViewBuilder private var leadingBadge: some View {
+        if let number = decor.number {
+            numberDisc(number)
+        } else {
+            watchlistRibbon
+        }
+    }
+
+    private func numberDisc(_ number: Int) -> some View {
+        ZStack {
+            Circle().fill(Color.black.opacity(0.6))
+            Text("\(number)")
+                .font(.system(size: 11, weight: .heavy))
+                .foregroundStyle(.white)
+        }
+        .frame(width: 22, height: 22)
+        .padding(8)
+    }
+
+    @ViewBuilder private var currentRing: some View {
+        if decor.isCurrent {
+            RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
+                .strokeBorder(Theme.Palette.gold, lineWidth: 2)
+        }
     }
 
     /// Watched + owned + CAM share the top-trailing corner: CAM outranks the owned disc, which

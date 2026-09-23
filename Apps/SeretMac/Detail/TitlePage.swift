@@ -6,6 +6,9 @@ extension EnvironmentValues {
     /// Harness-only knob (`titletrailer`): the trailer normally waits a flat 4 s before it may
     /// autoplay — a screenshot can't wait that long, so the harness overrides it to near-zero.
     @Entry var previewTrailerDelay: Duration?
+    /// Harness-only knob (`titlerails`): scrolls the page to the bottom shortly after it appears,
+    /// so a screenshot can show the franchise/cast/more-like-this rails without a pointer to drag.
+    @Entry var previewScrollToBottom: Bool = false
 }
 
 /// The full title page: hero (logo, credits, franchise, chips, Play/Resume/acquire) plus the
@@ -29,6 +32,9 @@ struct TitlePage: View {
     @Environment(\.pageLeadingInset) private var pageLeadingInset
     /// Harness-only: shortens the trailer's flat 4 s wait so a screenshot doesn't have to.
     @Environment(\.previewTrailerDelay) private var previewTrailerDelay: Duration?
+    /// Harness-only: scrolls to the rails so they can be screenshotted without a pointer.
+    @Environment(\.previewScrollToBottom) private var previewScrollToBottom: Bool
+    @State private var scrollPosition = ScrollPosition()
     @FocusState private var ratingKeysFocused: Bool
 
     /// The version awaiting a delete confirmation (nil = no alert).
@@ -46,9 +52,11 @@ struct TitlePage: View {
                          trailer: trailer, autoplayArmed: trailerAutoplayArmed,
                          onFindOtherVersions: openVersionsSheet)
                 content
+                rails
             }
         }
         .scrollIndicators(.hidden)
+        .scrollPosition($scrollPosition)
         .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y } action: { _, y in
             scrollOffset = y
         }
@@ -79,6 +87,11 @@ struct TitlePage: View {
             ownAcquirer = session.makeTitleAcquirer(for: store)
         }
         .task(id: store.item.tmdbID) { await prepareTrailer() }
+        .task {
+            guard previewScrollToBottom else { return }
+            try? await Task.sleep(for: .milliseconds(250))
+            withAnimation(nil) { scrollPosition.scrollTo(edge: .bottom) }
+        }
         .onChange(of: shell?.playbackEndedCount) { _, _ in Task { await store.reloadWatch() } }
         // Decision 8 / the Wiring bullet: every "Add by Magnet…" control (⋯, the download section,
         // File ▸ …) bumps the same counter; only the page actually on top opens its sheet.
@@ -203,6 +216,39 @@ struct TitlePage: View {
     /// covers both "never requested" and "requested, still going / failed".
     private var showDownloadSection: Bool {
         store.bestSource == nil || acquirer?.status(.movie) != nil
+    }
+
+    /// Franchise (films only) · Cast · More Like This — one skeleton pair while the details call is
+    /// still in flight (cast and similar are the two rails almost every title ends up with;
+    /// franchise cannot be guessed, so loading never reserves room for a third), nothing at all once
+    /// it lands with none of the three to show.
+    @ViewBuilder private var rails: some View {
+        if store.richState == .loading {
+            VStack(alignment: .leading, spacing: 26) {
+                RailSkeleton()
+                RailSkeleton()
+            }
+            .padding(.top, 4)
+            .padding(.bottom, 40)
+        } else if hasAnyRail {
+            VStack(alignment: .leading, spacing: 26) {
+                if store.item.kind == .movie, let franchise = store.franchise {
+                    FranchiseRail(store: store, franchise: franchise)
+                }
+                if !store.cast.isEmpty {
+                    CastRail(store: store)
+                }
+                if !store.similar.isEmpty {
+                    MoreLikeThisRail(store: store)
+                }
+            }
+            .padding(.top, 4)
+            .padding(.bottom, 40)
+        }
+    }
+
+    private var hasAnyRail: Bool {
+        (store.item.kind == .movie && store.franchise != nil) || !store.cast.isEmpty || !store.similar.isEmpty
     }
 
     /// Mockup 5's two-column row: the overview on the left, "YOUR RATING" + history on the right.

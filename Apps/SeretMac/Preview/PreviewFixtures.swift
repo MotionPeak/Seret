@@ -256,7 +256,7 @@ struct PreviewDetails: MediaDetailsProviding {
             genres: [TMDBGenre(id: 1, name: "Science Fiction"), TMDBGenre(id: 2, name: "Adventure")],
             voteAverage: 8.5, originalLanguage: "en", imdbID: "tt15239678",
             cast: Self.duneCast, directors: [TMDBPersonRef(id: 137427, name: "Denis Villeneuve")],
-            similar: [], collection: TMDBCollectionRef(id: 726871, name: "Dune Collection"),
+            similar: Self.similarFilms, collection: TMDBCollectionRef(id: 726871, name: "Dune Collection"),
             images: TMDBImageSet(backdrops: [],
                                  logos: [TMDBImageRef(filePath: "/eYvF1LhPKuoBxOAmWjFTAK7EPWl.png",
                                                       languageCode: "en", voteAverage: 4.722, width: 4319)]))
@@ -281,6 +281,20 @@ struct PreviewDetails: MediaDetailsProviding {
         TMDBCastMember(id: id, name: name, character: nil, profilePath: profile)
     }
 
+    /// Task 6's More Like This rail: real TMDB (id, title, poster) rows, none of them `Fixture`'s
+    /// own Dune or Breaking Bad — reused for both the Dune movie and the Breaking Bad show fixture.
+    private static func similarResult(_ id: Int, _ title: String, _ poster: String) -> TMDBSearchResult {
+        TMDBSearchResult(id: id, title: title, name: nil, releaseDate: "2020-01-01", firstAirDate: nil,
+                         posterPath: poster, overview: nil, voteAverage: 7.5)
+    }
+
+    static let similarFilms: [TMDBSearchResult] = [
+        similarResult(27205, "Inception", "/8ZTVqvKDQ8emSGUEMjsS4yHAwrp.jpg"),
+        similarResult(157336, "Interstellar", "/yQvGrMoipbRoddT0ZR8tPoR7NfX.jpg"),
+        similarResult(155, "The Dark Knight", "/qJ2tW6WMUDux911r6m7haRef0WH.jpg"),
+        similarResult(496243, "Parasite", "/7IiTTgloJzvGI1TAYymCfbfl3vT.jpg"),
+    ]
+
     static let duneCast: [TMDBCastMember] = [
         cast(1190668, "Timoth\u{E9}e Chalamet", "/dFxpwRpmzpVfP1zjluH68DeQhyj.jpg"),
         cast(505710, "Zendaya", "/3WdOloHpjtjL96uVOhFRRCcYSwq.jpg"),
@@ -299,6 +313,7 @@ struct PreviewDetails: MediaDetailsProviding {
                       genres: [TMDBGenre(id: 1, name: "Crime"), TMDBGenre(id: 2, name: "Drama")],
                       voteAverage: nil, originalLanguage: "en", imdbID: "tt0903747", cast: Self.bbCast,
                       creatorRefs: [TMDBPersonRef(id: 66633, name: "Vince Gilligan")],
+                      similar: Self.similarFilms,
                       images: TMDBImageSet(backdrops: [],
                                            logos: [TMDBImageRef(filePath: "/chw44B2VnLha8iiTdyZcIW0ZELC.png",
                                                                 languageCode: "en", voteAverage: 6.312, width: 2184)]))
@@ -348,6 +363,65 @@ struct PreviewDetails: MediaDetailsProviding {
         episode(7, "Negro y Azul", "/1IOnhCCeru1BZUPeppu7tMmtxvL.jpg", 48),
         episode(8, "Better Call Saul", "/KmFdF23FtbPwwz3FJF2T885r2Z.jpg", 48),
     ]
+}
+
+/// A `MediaDetailsProviding` whose details call never returns — `titlerailsloading`'s rail
+/// skeletons, pinning `DetailStore.richState` at `.loading` forever.
+struct PreviewHangingDetails: MediaDetailsProviding {
+    func movieDetails(tmdbID: Int) async throws -> TMDBMovieDetails {
+        try await Task.sleep(for: .seconds(3600))
+        throw CancellationError()
+    }
+    func tvDetails(tmdbID: Int) async throws -> TMDBTVDetails {
+        try await Task.sleep(for: .seconds(3600))
+        throw CancellationError()
+    }
+    func seasonEpisodes(tvID: Int, season: Int) async throws -> [TMDBEpisodeDetails] { [] }
+}
+
+/// A `PersonCreditsProviding` fixture for Task 6's `-uiPreview person*` cases: Denis Villeneuve,
+/// real TMDB (id, title, poster) rows for both AS DIRECTOR (6 films) and AS ACTOR (2, borrowed
+/// posters — he has no notable acting credits, and the page only needs the section to render).
+/// `mode` drives the three non-`.loaded` states without a second fixture type.
+enum PreviewPersonMode { case loaded, empty, failed, hanging }
+
+struct PreviewPersonCredits: PersonCreditsProviding {
+    let mode: PreviewPersonMode
+
+    func person(tmdbID: Int) async throws -> TMDBPersonDetails {
+        switch mode {
+        case .hanging:
+            try await Task.sleep(for: .seconds(3600))
+            throw CancellationError()
+        case .failed: throw URLError(.badServerResponse)
+        case .empty: return TMDBPersonDetails(id: tmdbID, name: "Denis Villeneuve",
+                                              profilePath: "/8YGYJj0FJ5fSXHKZzo23bTNyLTB.jpg",
+                                              knownForDepartment: "Directing")
+        case .loaded: break
+        }
+        func credit(_ id: Int, _ title: String, _ poster: String,
+                   job: String? = nil, character: String? = nil) -> TMDBPersonCredit {
+            TMDBPersonCredit(result: TMDBSearchResult(id: id, title: title, name: nil,
+                                                      releaseDate: "2020-01-01", firstAirDate: nil,
+                                                      posterPath: poster, overview: nil, voteAverage: 7.5),
+                             kind: .movie, character: character, job: job, popularity: 10)
+        }
+        let directing = [
+            credit(693134, "Dune: Part Two", "/6izwz7rsy95ARzTR3poZ8H6c5pp.jpg", job: "Director"),
+            credit(438631, "Dune", "/d5NXSklXo0qyIYkgV94XAgMIckC.jpg", job: "Director"),
+            credit(157336, "Interstellar", "/yQvGrMoipbRoddT0ZR8tPoR7NfX.jpg", job: "Director"),
+            credit(27205, "Inception", "/8ZTVqvKDQ8emSGUEMjsS4yHAwrp.jpg", job: "Director"),
+            credit(155, "The Dark Knight", "/qJ2tW6WMUDux911r6m7haRef0WH.jpg", job: "Director"),
+            credit(496243, "Parasite", "/7IiTTgloJzvGI1TAYymCfbfl3vT.jpg", job: "Director"),
+        ]
+        let acting = [
+            credit(238, "The Godfather", "/3bhkrj58Vtu7enYsRolD1fZdja1.jpg", character: "Cameo"),
+            credit(603, "The Matrix", "/dXNAPwY7VrqMAo51EKhhCJfaGb5.jpg", character: "Cameo"),
+        ]
+        return TMDBPersonDetails(id: tmdbID, name: "Denis Villeneuve",
+                                 profilePath: "/8YGYJj0FJ5fSXHKZzo23bTNyLTB.jpg",
+                                 knownForDepartment: "Directing", castCredits: acting, crewCredits: directing)
+    }
 }
 
 /// A canned `RatingsProviding` — IMDb 8.5, RT 92%, Metacritic 79 for every imdbID asked.

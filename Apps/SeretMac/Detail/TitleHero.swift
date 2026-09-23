@@ -239,24 +239,32 @@ struct TitleHero: View {
             seasonCount: store.item.kind == .show ? store.numberOfSeasons : nil)
     }
 
-    /// "Dir." + bold director names (film) / "Created by" + bold creator names (show), appended
-    /// to the meta line. nil credit → the meta line alone.
-    private var creditParts: (prefix: String, names: String)? {
-        let names = store.item.kind == .movie ? store.directors.map(\.name) : store.creatorRefs.map(\.name)
-        guard !names.isEmpty else { return nil }
-        return (store.item.kind == .movie ? "Dir." : "Created by", names.joined(separator: ", "))
+    /// "Dir." + the directors (film) / "Created by" + the creators (show), each a pressable
+    /// `TMDBPersonRef` — nil credit → the meta line alone.
+    private var creditPeople: (prefix: String, people: [TMDBPersonRef])? {
+        let people = store.item.kind == .movie ? store.directors : store.creatorRefs
+        guard !people.isEmpty else { return nil }
+        return (store.item.kind == .movie ? "Dir." : "Created by", people)
     }
 
     private var metaAndCreditLine: some View {
-        Group {
-            if let parts = creditParts {
-                Text("\(metaLine) \u{00B7} \(parts.prefix) \(Text(parts.names).fontWeight(.bold))")
-            } else {
-                Text(metaLine)
+        HStack(spacing: 4) {
+            Text(metaLine)
+                .font(.system(size: 13))
+                .foregroundStyle(Color.white.opacity(0.8))
+            if let credit = creditPeople {
+                Text("\u{00B7} \(credit.prefix)")
+                    .font(.system(size: 13))
+                    .foregroundStyle(Color.white.opacity(0.8))
+                HStack(spacing: 4) {
+                    ForEach(Array(credit.people.enumerated()), id: \.offset) { index, person in
+                        CreditPersonButton(person: person, trailingComma: index < credit.people.count - 1) { ref in
+                            shell?.open(.person(ref))
+                        }
+                    }
+                }
             }
         }
-        .font(.system(size: 13))
-        .foregroundStyle(Color.white.opacity(0.8))
     }
 
     // MARK: - Chip row
@@ -284,5 +292,27 @@ struct TitleHero: View {
         // The row can run wider than the 640 pt copy column once every chip is present — never
         // compress a chip's text into a vertical wrap to force it back inside that width.
         .fixedSize(horizontal: true, vertical: false)
+    }
+}
+
+/// One credit name in the meta line: bold, underlines on hover, opens the person's page — the
+/// twin right-click "Open" duplicates its only click action, as every hover control must.
+private struct CreditPersonButton: View {
+    let person: TMDBPersonRef
+    let trailingComma: Bool
+    let onOpen: (TMDBPersonRef) -> Void
+
+    @State private var hovering = false
+
+    var body: some View {
+        Button { onOpen(person) } label: {
+            Text(person.name + (trailingComma ? "," : ""))
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(Color.white.opacity(0.8))
+                .underline(hovering)
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .contextMenu { Button("Open") { onOpen(person) } }
     }
 }

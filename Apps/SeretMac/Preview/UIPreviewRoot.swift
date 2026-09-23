@@ -104,6 +104,18 @@ struct UIPreviewRoot: View {
                 TitleDownloadPreviewHost(phase: .failed("No seeders available right now."))
             case "titleversions":
                 titleVersionsPreview()
+            case "titlerails":
+                titleRailsPreview()
+            case "titlerailsloading":
+                titleRailsLoadingPreview()
+            case "person":
+                personPreview(mode: .loaded)
+            case "personloading":
+                personPreview(mode: .hanging)
+            case "personempty":
+                personPreview(mode: .empty)
+            case "personfailed":
+                personPreview(mode: .failed)
             case "versionssheet":
                 VersionsSheetPreviewHost(mode: .list)
             case "versionsloading":
@@ -323,6 +335,64 @@ struct UIPreviewRoot: View {
         let store = DetailStore(item: item, details: PreviewDetails(), watch: PreviewWatch(Fixture.watch),
                                 profileID: "", versionPrefs: PreviewVersionPrefs(sourceKey: preferredKey))
         return MainShell(model: model).environment(store)
+    }
+
+    /// `-uiPreview titlerails` — the owned Dune page scrolled to its rails, with a fixture
+    /// `LibraryStore` injected (unlike the other title cases) so the franchise rail's "Dune" part —
+    /// owned, but not the one you're reading — shows M2's owned disc, not just Part Two's ring.
+    /// "Dune" (438631) is added to the fixture library here alone, not to `Fixture.films` itself,
+    /// so every other screen's stable ordering is untouched.
+    private func titleRailsPreview() -> some View {
+        let item = Fixture.films[0]
+        let dune = MediaItem(id: "movie:tmdb:438631", kind: .movie, title: "Dune", year: 2021,
+                             sources: [Fixture.source(id: "t438631")], seasons: [], tmdbID: 438631,
+                             posterPath: "/d5NXSklXo0qyIYkgV94XAgMIckC.jpg",
+                             backdropPath: "/xOMo8BRK7PfcJv9JCnx7s5hj0PX.jpg", addedAt: .now)
+        let suite = "seret.preview.titlerails.\(UUID().uuidString)"
+        let model = ShellModel(defaults: UserDefaults(suiteName: suite)!)
+        model.select(.library)
+        model.open(.title(item))
+        let store = DetailStore(item: item, details: PreviewDetails(), watch: PreviewWatch(Fixture.watch), profileID: "")
+        let library = LibraryStore(library: PreviewLibrary(mode: .items(Fixture.films + [dune] + Fixture.shows)),
+                                   watch: PreviewWatch(Fixture.watch), profileID: { "" })
+        let watchActor = PreviewWatch(Fixture.watch)
+        let marks = TileWatchMarks(watch: { watchActor }, profileID: { "" })
+        return MainShell(model: model)
+            .environment(store)
+            .environment(library)
+            .environment(marks)
+            .environment(\.previewScrollToBottom, true)
+    }
+
+    /// `-uiPreview titlerailsloading` — the owned Dune page with a details call that never
+    /// resolves, so `richState` stays `.loading` and the rail skeletons stay on screen.
+    private func titleRailsLoadingPreview() -> some View {
+        let item = Fixture.films[0]
+        let suite = "seret.preview.titlerailsloading.\(UUID().uuidString)"
+        let model = ShellModel(defaults: UserDefaults(suiteName: suite)!)
+        model.select(.library)
+        model.open(.title(item))
+        let store = DetailStore(item: item, details: PreviewHangingDetails(), watch: PreviewWatch(Fixture.watch), profileID: "")
+        return MainShell(model: model)
+            .environment(store)
+            .environment(\.previewScrollToBottom, true)
+    }
+
+    /// `-uiPreview person` / `personloading` / `personempty` / `personfailed` — a `PersonRoute`
+    /// pushed on `.library` with a fixture `PersonStore` injected, the same seam production reads
+    /// before building one from the session.
+    private func personPreview(mode: PreviewPersonMode) -> some View {
+        let suite = "seret.preview.person.\(UUID().uuidString)"
+        let model = ShellModel(defaults: UserDefaults(suiteName: suite)!)
+        model.select(.library)
+        let ref = TMDBPersonRef(id: 137427, name: "Denis Villeneuve")
+        model.open(.person(ref))
+        let store = PersonStore(ref: ref, credits: PreviewPersonCredits(mode: mode))
+        let library = LibraryStore(library: PreviewLibrary(mode: .items(Fixture.films + Fixture.shows)),
+                                   watch: PreviewWatch(Fixture.watch), profileID: { "" })
+        return MainShell(model: model)
+            .environment(library)
+            .environment(store)
     }
 }
 
