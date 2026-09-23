@@ -128,6 +128,7 @@ struct MyLibraryScreen: View {
             PosterRail(title: "Downloading", items: tiles) { tile in
                 DownloadingCard(tile: tile, library: store) { item in shell?.open(.title(item)) }
             }
+            .padding(.top, 16)          // clear of the header's "12 films" line
             .padding(.bottom, 6)
         }
     }
