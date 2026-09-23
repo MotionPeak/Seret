@@ -60,6 +60,18 @@ struct UIPreviewRoot: View {
                 toastPreview(isFailure: false)
             case "toastfailure":
                 toastPreview(isFailure: true)
+            case "browse":
+                BrowsePreviewHost()
+            case "browseloading":
+                BrowsePreviewHost(mode: .hanging)
+            case "browsefailed":
+                BrowsePreviewHost(mode: .failing)
+            case "browseshows":
+                BrowsePreviewHost(kind: .show)
+            case "genre":
+                BrowsePreviewHost(genre: DiscoverStore.genres(for: .movie).first { $0.name == "Drama" })
+            case "titlenotowned":
+                titleNotOwnedPreview()
             case "titlemovie":
                 titlePreview(item: Fixture.films[0])
             case "titleshow":
@@ -169,6 +181,24 @@ struct UIPreviewRoot: View {
                 if let selectSeason { await store.selectSeason(selectSeason) }
             }
     }
+
+    /// `-uiPreview titlenotowned` — `MainShell` on `.movies` with `.title(.placeholder(for:))`
+    /// pushed for a title the fixture library does NOT own (Decision 2), so the hero shows the
+    /// disabled gold "Not in Your Library" button instead of Play.
+    private func titleNotOwnedPreview() -> some View {
+        let suite = "seret.preview.titlenotowned.\(UUID().uuidString)"
+        let model = ShellModel(defaults: UserDefaults(suiteName: suite)!)
+        model.select(.movies)
+        let hit = SearchHit(result: TMDBSearchResult(id: 693134, title: "Dune: Part Two", name: nil,
+                                                     releaseDate: "2024-01-01", firstAirDate: nil,
+                                                     posterPath: "/6izwz7rsy95ARzTR3poZ8H6c5pp.jpg",
+                                                     overview: nil, voteAverage: 8.2), kind: .movie)
+        let item = MediaItem.placeholder(for: hit)
+        model.open(.title(item))
+        let store = DetailStore(item: item, details: PreviewDetails(), watch: PreviewWatch(Fixture.watch), profileID: "")
+        return MainShell(model: model)
+            .environment(store)
+    }
 }
 
 /// Mounts `PlayerScreen` directly (not through `MainShell`/`ShellModel`) over a `PlayerPreviewDriver`
@@ -250,6 +280,37 @@ private struct RailGalleryPreview: View {
                          imageURL: TMDBClient.imageURL(path: item.backdropPath, size: "w780"),
                          fraction: 0.42, highlighted: item.id == Fixture.films[0].id)
         }
+    }
+}
+
+/// `-uiPreview browse` / `browseloading` / `browsefailed` / `browseshows` / `genre` — `MainShell`
+/// on `.movies`/`.shows` with a fixture `BrowseSources` injected via `\.previewBrowse` (the same
+/// seam `BrowseRoot` reads before falling back to the session), plus the fixture library and marks
+/// every poster needs for its owned/watched/CAM badges.
+private struct BrowsePreviewHost: View {
+    var kind: MediaKind = .movie
+    var mode: PreviewDiscover.Mode = .normal
+    var genre: DiscoverStore.Genre? = nil
+
+    var body: some View {
+        let suite = "seret.preview.browse.\(UUID().uuidString)"
+        let model: ShellModel = {
+            let m = ShellModel(defaults: UserDefaults(suiteName: suite)!)
+            m.select(kind == .movie ? .movies : .shows)
+            if let genre { m.setBrowseGenre(genre, for: kind) }
+            return m
+        }()
+        let library = LibraryStore(library: PreviewLibrary(mode: .items(Fixture.films + Fixture.shows)),
+                                   watch: PreviewWatch(Fixture.watch), profileID: { "" })
+        let sources = BrowseSources(movies: DiscoverStore(kind: .movie, discover: PreviewDiscover(mode: mode)),
+                                    shows: DiscoverStore(kind: .show, discover: PreviewDiscover(mode: mode)),
+                                    makeGenreGrid: { k, g in GenreGridStore(kind: k, genre: g, browsing: PreviewGenres()) })
+        let watchActor = PreviewWatch(Fixture.watch)
+        let marks = TileWatchMarks(watch: { watchActor }, profileID: { "" })
+        return MainShell(model: model)
+            .environment(library)
+            .environment(marks)
+            .environment(\.previewBrowse, sources)
     }
 }
 

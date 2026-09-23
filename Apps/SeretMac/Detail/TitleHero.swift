@@ -172,12 +172,18 @@ struct TitleHero: View {
             }
             .padding(.top, 4)
         } else {
-            Button { } label: { Text("Not Available") }
+            Button { } label: { Text(TitlePageText.unavailableTitle(isOwned: isOwned)) }
                 .buttonStyle(GoldButtonStyle())
                 .disabled(true)
                 .padding(.top, 4)
         }
     }
+
+    /// Owned = the library has something under this item — a source (a film) or a season (a show).
+    /// A title that never went through `LibraryStore` at all (a placeholder for a TMDB hit,
+    /// Decision 2) has neither, so its disabled button reads "Not in Your Library" rather than
+    /// "Not Available".
+    private var isOwned: Bool { !(store.item.sources.isEmpty && store.item.seasons.isEmpty) }
 
     private func primaryTitle(_ pp: DetailStore.PrimaryPlay) -> String {
         TitlePageText.primaryTitle(episode: pp.episode.map { ($0.season, $0.number) }, resumeAt: pp.resumeAt)

@@ -34,6 +34,13 @@ enum TitlePageText {
         guard let resumeAt else { return "Play" }
         return "Resume · \(Timecode.format(resumeAt))"
     }
+
+    /// What the hero's disabled primary button reads when nothing is playable (Decision 2). Owned
+    /// but nothing usable is in the library for it → "Not Available"; not owned at all (acquiring
+    /// is M3) → "Not in Your Library".
+    static func unavailableTitle(isOwned: Bool) -> String {
+        isOwned ? "Not Available" : "Not in Your Library"
+    }
 }
 
 /// Pure layout math for the title page: the hero's height and the episode grid's column count, both

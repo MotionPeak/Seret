@@ -368,6 +368,111 @@ final class PlayerPreviewDriver {
     }
 }
 
+/// `DiscoverProviding` fixture for Task 6's `-uiPreview browse*` cases: 30 real (tmdbID, title,
+/// year, poster) rows, split across rails so `DiscoverStore`'s cross-rail dedup doesn't erase any
+/// of them — `trending(.day)` gets rows 0..<12 (238 The Godfather, watched in `Fixture.watch`, and
+/// 693134 Dune: Part Two, owned via `Fixture.films`, are both in it), `trending(.week)` gets
+/// 12..<24, and every other rail falls back to 24..<30. `nowPlayingMovies()` returns one id already
+/// in the day rail, so that poster carries the CAM badge. `hanging` never resolves (what
+/// `browseloading` needs — the segment stays `.loading`, no spinner); `failing` returns `[]`
+/// everywhere, so every rail is empty and the segment ends `.failed`.
+struct PreviewDiscover: DiscoverProviding {
+    enum Mode { case normal, hanging, failing }
+    let mode: Mode
+
+    /// `fileprivate`, not `private`: `PreviewGenres` (below, same file) reuses the same real poster
+    /// paths so the genre grid's screenshot shows real artwork too.
+    fileprivate static let table: [(Int, String, Int, String)] = [
+        (693134, "Dune: Part Two", 2024, "/6izwz7rsy95ARzTR3poZ8H6c5pp.jpg"),
+        (73, "American History X", 1998, "/x2drgoXYZ8484lqyDj7L1CEVR4T.jpg"),
+        (762504, "Nope", 2022, "/AcKVlWaNVVVFQwro3nLXqPljcYA.jpg"),
+        (238, "The Godfather", 1972, "/3bhkrj58Vtu7enYsRolD1fZdja1.jpg"),
+        (340666, "Nocturnal Animals", 2016, "/mdLDgQBD0va09npSQX5Zgo2evXM.jpg"),
+        (103663, "The Hunt", 2012, "/jkixsXzRh28q3PCqFoWcf7unghT.jpg"),
+        (701387, "Bugonia", 2025, "/rSdOua3wKMEaFWDcKAYWRjXQWOt.jpg"),
+        (26513, "Punishment Park", 1971, "/fPGnMnp80ycqUHdgP1T3nzCyYKe.jpg"),
+        (406, "La Haine", 1995, "/hY4exng4s29RzDbtQInjx9MA3PZ.jpg"),
+        (26719, "House of Games", 1987, "/4i27Ut4cIoLbcNpW7aeuUQErEPE.jpg"),
+        (1592, "Primal Fear", 1996, "/qJf2TzE8nRTFbFMPJNW6c8mI0KU.jpg"),
+        (4553, "The Machinist", 2004, "/diAYqR4xdF9Hnj7qun6DEQhRrT2.jpg"),
+        (2649, "The Game", 1997, "/4UOa079915QjiTA2u5hT2yKVgUu.jpg"),
+        (655, "Paris, Texas", 1984, "/sP27Qm4THyRZyHjHYMfIDtJP6YE.jpg"),
+        (274, "The Silence of the Lambs", 1991, "/uS9m8OBk1A8eM9I042bx8XXpqAq.jpg"),
+        (62, "2001: A Space Odyssey", 1968, "/ve72VxNqjGM69Uky4WTo2bK6rfq.jpg"),
+        (28, "Apocalypse Now", 1979, "/gQB8Y5RCMkv2zwzFHbUJX3kAhvA.jpg"),
+        (117, "The Untouchables", 1987, "/tPq0R4jTO4Ey8ZspFaWK9wGA4Ls.jpg"),
+        (424, "Schindler's List", 1993, "/sF1U4EUQS8YHUYjNl3pMGNIQyr0.jpg"),
+        (380, "Rain Man", 1988, "/iTNHwO896WKkaoPtpMMS74d8VNi.jpg"),
+        (500, "Reservoir Dogs", 1992, "/xi8Iu6qyTfyZVDVy60raIOYJJmk.jpg"),
+        (968, "Dog Day Afternoon", 1975, "/mavrhr0ig2aCRR8d48yaxtD5aMQ.jpg"),
+        (510, "One Flew Over the Cuckoo's Nest", 1975, "/kjWsMh72V6d8KRLV4EOoSJLT1H7.jpg"),
+        (1018, "Mulholland Drive", 2001, "/x7A59t6ySylr1L7aubOQEA480vM.jpg"),
+        (769, "GoodFellas", 1990, "/9OkCLM73MIU2CrKZbqiT8Ln1wY2.jpg"),
+        (98, "Gladiator", 2000, "/wN2xWp1eIwCKOD0BHTcErTBv1Uq.jpg"),
+        (7345, "There Will Be Blood", 2007, "/fa0RDkAlCec0STeMNAhPaF89q6U.jpg"),
+        (77016, "End of Watch", 2012, "/pDeVKQICkcdwwjHxGj0MeS14YJ6.jpg"),
+        (496243, "Parasite", 2019, "/7IiTTgloJzvGI1TAYymCfbfl3vT.jpg"),
+        (901563, "Close", 2022, "/dlMNnWs7Mz8Nk5AC447Ew1tD5pn.jpg"),
+    ]
+
+    private func result(_ i: Int) -> TMDBSearchResult {
+        let (id, title, year, poster) = Self.table[i]
+        return TMDBSearchResult(id: id, title: title, name: nil, releaseDate: "\(year)-01-01",
+                                firstAirDate: nil, posterPath: poster, overview: nil, voteAverage: 7.5)
+    }
+
+    private func slice(_ range: Range<Int>) -> [TMDBSearchResult] { range.map(result) }
+
+    private func respond(_ hits: [TMDBSearchResult]) async throws -> [TMDBSearchResult] {
+        switch mode {
+        case .normal: return hits
+        case .hanging: try await Task.sleep(for: .seconds(3600)); return []
+        case .failing: return []
+        }
+    }
+
+    func nowPlayingMovies() async throws -> [TMDBSearchResult] { try await respond([result(6)]) }
+
+    func trending(_ kind: MediaKind, window: TMDBTrendingWindow) async throws -> [TMDBSearchResult] {
+        try await respond(window == .day ? slice(0..<12) : slice(12..<24))
+    }
+    func topRatedCurated(_ kind: MediaKind) async throws -> [TMDBSearchResult] { try await respond(slice(24..<30)) }
+    func newOverall(_ kind: MediaKind, from: String, to: String) async throws -> [TMDBSearchResult] {
+        try await respond(slice(24..<30))
+    }
+    func decade(_ kind: MediaKind, from: String, to: String) async throws -> [TMDBSearchResult] {
+        try await respond(slice(24..<30))
+    }
+    func recommended(_ kind: MediaKind, tmdbID: Int) async throws -> [TMDBSearchResult] {
+        try await respond(slice(24..<30))
+    }
+    func newByGenre(_ kind: MediaKind, _ genreID: Int, from: String, to: String) async throws -> [TMDBSearchResult] {
+        try await respond(slice(24..<30))
+    }
+    func popularByGenre(_ kind: MediaKind, _ genreID: Int) async throws -> [TMDBSearchResult] {
+        try await respond(slice(24..<30))
+    }
+    func topRatedByGenre(_ kind: MediaKind, _ genreID: Int) async throws -> [TMDBSearchResult] {
+        try await respond(slice(24..<30))
+    }
+}
+
+/// `GenreBrowsing` fixture for `-uiPreview genre`: 20 titles on pages 1 and 2, then nothing — so
+/// `GenreGridStore.loadMore()` reaches its end after two pages rather than climbing toward the
+/// real 10-page cap, and the footer skeleton row disappears once scrolled that far.
+struct PreviewGenres: GenreBrowsing {
+    func titles(kind: MediaKind, genreID: Int, sort: GenreSort, page: Int) async throws -> [TMDBSearchResult] {
+        guard page <= 2 else { return [] }
+        return (0..<20).map { i in
+            let n = (page - 1) * 20 + i
+            let (_, _, _, poster) = PreviewDiscover.table[n % PreviewDiscover.table.count]
+            return TMDBSearchResult(id: 900_000 + n, title: "Genre Title \(n + 1)", name: nil,
+                                    releaseDate: "2020-01-01", firstAirDate: nil,
+                                    posterPath: poster, overview: nil, voteAverage: 7)
+        }
+    }
+}
+
 /// A `DownloadStore` over two canned in-flight downloads, no network — real TMDB poster paths
 /// (from `Apps/SeretTV/Playback/PlayerUIPreview.swift`'s Home preview table) so the sidebar card,
 /// the popover and the library strip all show real art.

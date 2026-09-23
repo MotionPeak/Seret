@@ -36,6 +36,10 @@ struct SectionStack: View {
         switch section {
         case .home:
             HomeRoot()
+        case .movies:
+            BrowseRoot(kind: .movie)
+        case .shows:
+            BrowseRoot(kind: .show)
         case .library:
             LibraryRoot()
         default:

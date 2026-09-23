@@ -137,4 +137,28 @@ import Testing
 
         #expect(model.toast?.message == "Second")
     }
+
+    // MARK: - Browse genre
+
+    @Test func eachKindRemembersItsGenre() {
+        let model = ShellModel(defaults: freshDefaults())
+        let drama = DiscoverStore.Genre(name: "Drama", tmdbID: 18)
+        let action = DiscoverStore.Genre(name: "Action & Adventure", tmdbID: 10759)
+
+        model.setBrowseGenre(drama, for: .movie)
+        model.setBrowseGenre(action, for: .show)
+
+        #expect(model.browseGenre[.movie] == drama)
+        #expect(model.browseGenre[.show] == action)
+    }
+
+    @Test func allClearsTheGenre() {
+        let model = ShellModel(defaults: freshDefaults())
+        let drama = DiscoverStore.Genre(name: "Drama", tmdbID: 18)
+        model.setBrowseGenre(drama, for: .movie)
+
+        model.setBrowseGenre(nil, for: .movie)
+
+        #expect(model.browseGenre[.movie] == nil)
+    }
 }

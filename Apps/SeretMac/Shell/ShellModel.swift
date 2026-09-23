@@ -120,4 +120,15 @@ final class ShellModel {
     var removalError: String?
     /// "Couldn't Play" alert target, set when a poster's Play finds nothing playable.
     var couldNotPlay: MediaItem?
+
+    // MARK: - Browse (Task 6 on)
+
+    /// The genre each kind is currently showing — nil means **All**. A genre is an in-place filter
+    /// on the Movies/Shows page, not a route, so it lives here rather than on the navigation path
+    /// (Decision 5): it is remembered per kind and survives pushing a title and coming back.
+    private(set) var browseGenre: [MediaKind: DiscoverStore.Genre] = [:]
+
+    func setBrowseGenre(_ genre: DiscoverStore.Genre?, for kind: MediaKind) {
+        browseGenre[kind] = genre
+    }
 }

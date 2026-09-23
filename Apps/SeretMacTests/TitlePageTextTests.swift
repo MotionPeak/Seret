@@ -50,4 +50,12 @@ import Testing
         #expect(TitlePageLayout.episodeColumns(width: 900) == 3)
         #expect(TitlePageLayout.episodeColumns(width: 559) == 1)
     }
+
+    @Test func aTitleYouDoNotOwnSaysSo() {
+        #expect(TitlePageText.unavailableTitle(isOwned: false) == "Not in Your Library")
+    }
+
+    @Test func anOwnedTitleWithNothingPlayableIsNotAvailable() {
+        #expect(TitlePageText.unavailableTitle(isOwned: true) == "Not Available")
+    }
 }
