@@ -24,6 +24,7 @@ public final class DetailStore {
 
     public private(set) var richState: RichState = .idle
     public private(set) var backdropPath: String?
+    public private(set) var logoPath: String?
     public private(set) var runtime: Int?
     public private(set) var genres: [String] = []
     public private(set) var overview: String?
@@ -198,6 +199,7 @@ public final class DetailStore {
             case .movie:
                 let d = try await details.movieDetails(tmdbID: tmdbID)
                 backdropPath = d.preferredBackdropPath ?? backdropPath
+                logoPath = d.logoPath
                 runtime = d.runtime
                 genres = d.genres.map(\.name)
                 overview = d.overview ?? overview
@@ -211,6 +213,7 @@ public final class DetailStore {
             case .show:
                 let d = try await details.tvDetails(tmdbID: tmdbID)
                 backdropPath = d.preferredBackdropPath ?? backdropPath
+                logoPath = d.logoPath
                 genres = d.genres.map(\.name)
                 overview = d.overview ?? overview
                 imdbID = d.imdbID
