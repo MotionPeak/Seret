@@ -165,7 +165,20 @@ struct TitleHero: View {
             ZStack {
                 HeroBackdrop(url: TMDBClient.imageURL(path: store.backdropPath ?? store.item.posterPath, size: "w1280"))
                 if trailerActive, let url = trailer?.streamURL {
+                    // The trailer covers the backdrop's own shading, so it carries its own — a
+                    // little heavier, since a trailer is often brighter than a still.
                     InlineTrailer(url: url, muted: $muted)
+                        .overlay {
+                            ZStack {
+                                LinearGradient(
+                                    stops: [.init(color: .clear, location: 0.4), .init(color: Theme.Palette.canvas, location: 1)],
+                                    startPoint: .top, endPoint: .bottom)
+                                LinearGradient(
+                                    stops: [.init(color: .black.opacity(0.7), location: 0), .init(color: .clear, location: 0.65)],
+                                    startPoint: .leading, endPoint: .trailing)
+                            }
+                            .allowsHitTesting(false)
+                        }
                         .transition(.opacity)
                 }
             }
