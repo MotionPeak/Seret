@@ -27,6 +27,10 @@ struct SeretCommands: Commands {
                     .disabled(shell == nil)
             }
             Divider()
+            Button("Search") { shell?.requestSearchFocus() }
+                .keyboardShortcut("f", modifiers: .command)
+                .disabled(shell == nil || shell?.playback != nil)
+            Divider()
             Button("Back") { shell?.goBack() }
                 .keyboardShortcut("[", modifiers: .command)
                 .disabled(shell?.canGoBack != true || shell?.playback != nil)

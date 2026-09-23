@@ -19,11 +19,16 @@ struct MainShell: View {
     @Environment(LibraryStore.self) private var injectedLibrary: LibraryStore?
     @Environment(TileWatchMarks.self) private var injectedMarks: TileWatchMarks?
     @Environment(WatchlistMarks.self) private var injectedWatchlist: WatchlistMarks?
+    @Environment(\.searchStore) private var injectedSearchStore: SearchStore?
     @State private var ownMarks: TileWatchMarks?
     @State private var ownWatchlist: WatchlistMarks?
+    // Per-window, never shared through the session (Decision 4) — two windows must not overwrite
+    // each other's search results.
+    @State private var ownSearchStore: SearchStore?
 
     private var library: LibraryStore? { injectedLibrary ?? session?.libraryStore }
     private var watchlist: WatchlistMarks? { injectedWatchlist ?? ownWatchlist }
+    private var searchStore: SearchStore? { injectedSearchStore ?? ownSearchStore }
 
     var body: some View {
         core.shellConfirmationsAndAlerts(model: model, confirmRemoval: confirmRemoval)
@@ -55,6 +60,7 @@ struct MainShell: View {
         .environment(model)
         .environment(injectedMarks ?? ownMarks ?? .placeholder)
         .environment(watchlist ?? .placeholder)
+        .environment(\.searchStore, searchStore)
         .background(TrafficLightsPlacement(origin: SidebarMetrics.trafficLightsOrigin))
         .animation(Theme.Motion.standard, value: model.isSidebarCollapsed)
         .animation(Theme.Motion.fade, value: model.selection)
@@ -68,6 +74,9 @@ struct MainShell: View {
             guard let session else { return }
             if injectedMarks == nil, ownMarks == nil { ownMarks = session.makeTileWatchMarks() }
             if injectedWatchlist == nil, ownWatchlist == nil { ownWatchlist = session.makeWatchlistMarks() }
+            if injectedSearchStore == nil, ownSearchStore == nil {
+                ownSearchStore = SearchStore(search: TMDBSearchService(client: TMDBClient(apiKey: Secrets.tmdbAPIKey)))
+            }
             await watchlist?.load()
         }
         .onChange(of: watchlist?.lastOutcome?.event) { _, _ in
@@ -85,6 +94,10 @@ struct MainShell: View {
                 .transition(.opacity)
             FloatingSidebar(model: model)
             BackForwardCapsule(model: model)
+            SearchField(model: model)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .padding(.trailing, 24)
+                .padding(.top, 14)
         }
     }
 

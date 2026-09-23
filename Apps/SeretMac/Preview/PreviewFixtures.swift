@@ -473,6 +473,46 @@ struct PreviewGenres: GenreBrowsing {
     }
 }
 
+/// `SearchProviding` fixture for Task 7's `-uiPreview search*` cases: 8 films out of
+/// `PreviewDiscover.table` (including 238 The Godfather, watched in `Fixture.watch`, and 693134
+/// Dune: Part Two, owned via `Fixture.films`) plus two shows — Breaking Bad (1396, owned) and
+/// Stranger Things (66732, NOT owned — `Fixture.shows` already owns Sherlock/19885, so that one
+/// would show the owned disc too) — so a results grid shows every badge at once.
+struct PreviewSearch: SearchProviding {
+    enum Mode { case results, empty, failing, hanging }
+    let mode: Mode
+
+    private static let filmIndices = [0, 1, 2, 3, 6, 7, 8, 9]
+
+    func searchMovie(query: String, year: Int?) async throws -> [TMDBSearchResult] {
+        try await respond(Self.filmIndices.map { i in
+            let (id, title, y, poster) = PreviewDiscover.table[i]
+            return TMDBSearchResult(id: id, title: title, name: nil, releaseDate: "\(y)-01-01",
+                                    firstAirDate: nil, posterPath: poster, overview: nil, voteAverage: 7.5)
+        })
+    }
+
+    func searchTV(query: String, firstAirYear: Int?) async throws -> [TMDBSearchResult] {
+        try await respond([
+            TMDBSearchResult(id: 1396, title: nil, name: "Breaking Bad", releaseDate: nil,
+                             firstAirDate: "2008-01-01", posterPath: "/anFx9aTOOYqgS3v7x3R84Kz67ly.jpg",
+                             overview: nil, voteAverage: 9.0),
+            TMDBSearchResult(id: 66732, title: nil, name: "Stranger Things", releaseDate: nil,
+                             firstAirDate: "2016-01-01", posterPath: "/49WJfeN0moxb9IPfGn8AIqMGskD.jpg",
+                             overview: nil, voteAverage: 8.6),
+        ])
+    }
+
+    private func respond(_ hits: [TMDBSearchResult]) async throws -> [TMDBSearchResult] {
+        switch mode {
+        case .results: return hits
+        case .empty: return []
+        case .failing: throw URLError(.notConnectedToInternet)
+        case .hanging: try await Task.sleep(for: .seconds(3600)); return []
+        }
+    }
+}
+
 /// A `DownloadStore` over two canned in-flight downloads, no network — real TMDB poster paths
 /// (from `Apps/SeretTV/Playback/PlayerUIPreview.swift`'s Home preview table) so the sidebar card,
 /// the popover and the library strip all show real art.

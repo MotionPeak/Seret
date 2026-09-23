@@ -131,4 +131,28 @@ final class ShellModel {
     func setBrowseGenre(_ genre: DiscoverStore.Genre?, for kind: MediaKind) {
         browseGenre[kind] = genre
     }
+
+    // MARK: - Search (Task 7 on)
+
+    private(set) var searchQuery = ""
+    var searchScope: SearchScope = .all
+    /// Bumped by ⌘F / *Go ▸ Search* — `SearchField` focuses itself when this changes.
+    private(set) var searchFocusRequest = 0
+
+    func requestSearchFocus() { searchFocusRequest += 1 }
+
+    /// Stores the query, then pushes or pops `.search` on the SELECTED section so the field and the
+    /// navigation stay in lockstep: a non-blank query while `.search` isn't already on top pushes it
+    /// once (typing further keystrokes is a no-op here — the page itself re-searches); a blank query
+    /// while `.search` is on top pops back to wherever the viewer was.
+    func setSearchQuery(_ text: String) {
+        searchQuery = text
+        let topIsSearch = history(for: selection).path.last == .search
+        let isBlank = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if !isBlank, !topIsSearch {
+            open(.search)
+        } else if isBlank, topIsSearch {
+            goBack()
+        }
+    }
 }

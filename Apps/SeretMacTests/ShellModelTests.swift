@@ -161,4 +161,47 @@ import Testing
 
         #expect(model.browseGenre[.movie] == nil)
     }
+
+    // MARK: - Search
+
+    @Test func typingOpensSearchOnce() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.setSearchQuery("d")
+        model.setSearchQuery("du")
+        #expect(model.history(for: .home).path == [.search])
+    }
+
+    @Test func clearingGoesBack() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.setSearchQuery("dune")
+        model.setSearchQuery("")
+        #expect(model.history(for: .home).path.isEmpty)
+    }
+
+    @Test func searchOpensOnTheSelectedSection() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.select(.library)
+        model.setSearchQuery("dune")
+        #expect(model.history(for: .library).path == [.search])
+        #expect(model.history(for: .home).path.isEmpty)
+    }
+
+    @Test func aTitleOpenedFromResultsComesBackToResults() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.setSearchQuery("dune")
+        model.open(route("a"))
+        #expect(model.history(for: .home).path == [.search, route("a")])
+
+        model.goBack()
+
+        #expect(model.history(for: .home).path == [.search])
+    }
+
+    @Test func focusRequestsCount() {
+        let model = ShellModel(defaults: freshDefaults())
+        #expect(model.searchFocusRequest == 0)
+        model.requestSearchFocus()
+        model.requestSearchFocus()
+        #expect(model.searchFocusRequest == 2)
+    }
 }

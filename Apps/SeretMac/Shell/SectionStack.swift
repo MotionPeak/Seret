@@ -56,6 +56,8 @@ private struct RouteView: View {
         switch route {
         case .title(let item):
             TitleRoute(item: item)
+        case .search:
+            SearchPage()
         }
     }
 }

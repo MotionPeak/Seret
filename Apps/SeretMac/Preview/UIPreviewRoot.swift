@@ -72,6 +72,14 @@ struct UIPreviewRoot: View {
                 BrowsePreviewHost(genre: DiscoverStore.genres(for: .movie).first { $0.name == "Drama" })
             case "titlenotowned":
                 titleNotOwnedPreview()
+            case "searchresults":
+                SearchPreviewHost(mode: .results)
+            case "searching":
+                SearchPreviewHost(mode: .hanging)
+            case "searchempty":
+                SearchPreviewHost(mode: .empty)
+            case "searchfailed":
+                SearchPreviewHost(mode: .failing)
             case "titlemovie":
                 titlePreview(item: Fixture.films[0])
             case "titleshow":
@@ -311,6 +319,31 @@ private struct BrowsePreviewHost: View {
             .environment(library)
             .environment(marks)
             .environment(\.previewBrowse, sources)
+    }
+}
+
+/// `-uiPreview searchresults` / `searching` / `searchempty` / `searchfailed` — `MainShell` on
+/// `.home` with the query already set through `ShellModel.setSearchQuery` (the real path a
+/// keystroke takes, so `.search` is genuinely on the path and the ‹ capsule appears), a fixture
+/// `SearchStore` injected via `\.searchStore`, plus the fixture library and marks every result tile
+/// needs for its owned/watched badges.
+private struct SearchPreviewHost: View {
+    let mode: PreviewSearch.Mode
+
+    var body: some View {
+        let suite = "seret.preview.search.\(UUID().uuidString)"
+        let model = ShellModel(defaults: UserDefaults(suiteName: suite)!)
+        model.select(.home)
+        model.setSearchQuery("the")
+        let library = LibraryStore(library: PreviewLibrary(mode: .items(Fixture.films + Fixture.shows)),
+                                   watch: PreviewWatch(Fixture.watch), profileID: { "" })
+        let store = SearchStore(search: PreviewSearch(mode: mode))
+        let watchActor = PreviewWatch(Fixture.watch)
+        let marks = TileWatchMarks(watch: { watchActor }, profileID: { "" })
+        return MainShell(model: model)
+            .environment(library)
+            .environment(marks)
+            .environment(\.searchStore, store)
     }
 }
 
