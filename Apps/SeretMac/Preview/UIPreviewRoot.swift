@@ -12,6 +12,10 @@ struct UIPreviewRoot: View {
             switch target {
             case "vlcsmoke":
                 VLCSmokePreview(url: VLCSmokePreview.url(from: ProcessInfo.processInfo.arguments))
+            case "design":
+                DesignGalleryPreview()
+            case "splash":
+                SplashView { }
             default:
                 Text("Unknown -uiPreview case: \(target)")
                     .font(.system(size: 15, weight: .semibold))
