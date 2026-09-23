@@ -78,12 +78,12 @@ struct SeasonDownloadButton: View {
     }
 
     private func startSeasonDownload() async {
-        guard let store, let key = contentKey, let tmdb = showTmdbID else { return }
+        guard let store, let tmdb = showTmdbID else { return }
         let candidates = await store.uncachedCandidates()
         guard !candidates.isEmpty else { return }
-        await session.downloadStore?.request(
-            contentKey: key, tmdbID: tmdb,
-            title: "\(showTitle) Season \(season)",
-            kind: .show, candidates: candidates, posterPath: posterPath)
+        let target = DownloadTarget(contentKey: DownloadKey.season(showTmdbID: tmdb, season: season),
+                                    tmdbID: tmdb, title: "\(showTitle) Season \(season)", kind: .show,
+                                    posterPath: posterPath)
+        await session.downloadStore?.request(target, candidates: candidates)
     }
 }

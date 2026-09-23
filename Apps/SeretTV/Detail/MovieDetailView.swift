@@ -373,9 +373,10 @@ private struct MovieDownloadSection: View {
                                                               originalLanguage: originalLanguage) {
                     candidates = await add.uncachedCandidates()
                 }
-                await session.downloadStore?.request(contentKey: DownloadKey.movie(tmdbID: tmdbID),
-                                                     tmdbID: tmdbID, title: title, kind: .movie,
-                                                     candidates: candidates, posterPath: posterPath)
+                let target = DownloadTarget(contentKey: DownloadKey.movie(tmdbID: tmdbID),
+                                            tmdbID: tmdbID, title: title, kind: .movie,
+                                            posterPath: posterPath)
+                await session.downloadStore?.request(target, candidates: candidates)
                 requesting = false
             }
         } label: { Label(label, systemImage: "arrow.down.circle") }
