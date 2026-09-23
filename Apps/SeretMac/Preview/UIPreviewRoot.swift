@@ -32,6 +32,12 @@ struct UIPreviewRoot: View {
                 PosterGalleryPreview(isLoading: true)
             case "rail":
                 RailGalleryPreview()
+            case "downloads":
+                DownloadsPreviewHost(collapsedSidebar: false, popoverOnly: false)
+            case "downloadsrail":
+                DownloadsPreviewHost(collapsedSidebar: true, popoverOnly: false)
+            case "downloadspopover":
+                DownloadsPreviewHost(collapsedSidebar: false, popoverOnly: true)
             case "library":
                 libraryPreview(.items(Fixture.films + Fixture.shows))
             case "libraryshows":
@@ -236,6 +242,48 @@ private struct RailGalleryPreview: View {
                          imageURL: TMDBClient.imageURL(path: item.backdropPath, size: "w780"),
                          fraction: 0.42, highlighted: item.id == Fixture.films[0].id)
         }
+    }
+}
+
+/// `-uiPreview downloads` / `downloadsrail` / `downloadspopover` — `MainShell` on `.library` with
+/// the fixture library and `PreviewDownloads.store()` injected (built asynchronously, so this
+/// waits for it before mounting the shell). `popoverOnly` renders `DownloadsPopover` alone,
+/// centred on the canvas (Decision 14 — a real `.popover` is a separate window the capture script
+/// cannot see).
+private struct DownloadsPreviewHost: View {
+    let collapsedSidebar: Bool
+    let popoverOnly: Bool
+
+    @State private var downloadStore: DownloadStore?
+    @State private var libraryStore = LibraryStore(library: PreviewLibrary(mode: .items(Fixture.films + Fixture.shows)),
+                                                    watch: PreviewWatch(Fixture.watch), profileID: { "" })
+
+    var body: some View {
+        Group {
+            if let downloadStore {
+                if popoverOnly {
+                    ZStack {
+                        CanvasBackground()
+                        DownloadsPopover(tiles: downloadStore.activeTiles, library: libraryStore) { _ in }
+                    }
+                } else {
+                    let suite = "seret.preview.downloads.\(UUID().uuidString)"
+                    let model: ShellModel = {
+                        let defaults = UserDefaults(suiteName: suite)!
+                        defaults.set(collapsedSidebar, forKey: "seret.mac.sidebarCollapsed")
+                        let m = ShellModel(defaults: defaults)
+                        m.select(.library)
+                        return m
+                    }()
+                    MainShell(model: model)
+                        .environment(libraryStore)
+                        .environment(downloadStore)
+                }
+            } else {
+                CanvasBackground()
+            }
+        }
+        .task { downloadStore = await PreviewDownloads.store() }
     }
 }
 

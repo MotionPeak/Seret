@@ -40,12 +40,15 @@ struct MyLibraryScreen: View {
     @Environment(ShellModel.self) private var shell: ShellModel?
     @Environment(TileWatchMarks.self) private var marks: TileWatchMarks?
     @Environment(WatchlistMarks.self) private var watchlist: WatchlistMarks?
+    @Environment(DownloadStore.self) private var injectedDownloads: DownloadStore?
     @Environment(\.pageLeadingInset) private var pageLeadingInset
     @Environment(\.previewForcedLibraryKind) private var previewForcedKind: MediaKind?
 
     private var performer: PosterActionPerformer {
         PosterActionPerformer(session: session, shell: shell, library: store, marks: marks, watchlist: watchlist)
     }
+
+    private var downloads: DownloadStore? { injectedDownloads ?? session?.downloadStore }
 
     @SceneStorage("seret.library.kind") private var storedKindRaw = MediaKind.movie.rawValue
     @State private var kindOverride: MediaKind?
@@ -67,9 +70,9 @@ struct MyLibraryScreen: View {
             header
             switch content {
             case .skeleton:
-                ScrollView { grid(isLoading: true) }
+                ScrollView { VStack(alignment: .leading, spacing: 0) { downloadsRail; grid(isLoading: true) } }
             case .grid:
-                ScrollView { grid(isLoading: false) }
+                ScrollView { VStack(alignment: .leading, spacing: 0) { downloadsRail; grid(isLoading: false) } }
             case .empty(let title, let detail):
                 emptyState(icon: "tray", title: title, detail: detail)
             case .failed(let message):
@@ -117,6 +120,16 @@ struct MyLibraryScreen: View {
 
     private var countCaption: String {
         "\(items.count) \(kind == .movie ? "films" : "shows")"
+    }
+
+    @ViewBuilder private var downloadsRail: some View {
+        let tiles = downloads?.activeTiles ?? []
+        if !tiles.isEmpty {
+            PosterRail(title: "Downloading", items: tiles) { tile in
+                DownloadingCard(tile: tile, library: store) { item in shell?.open(.title(item)) }
+            }
+            .padding(.bottom, 6)
+        }
     }
 
     private func grid(isLoading: Bool) -> some View {

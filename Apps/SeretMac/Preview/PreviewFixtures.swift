@@ -341,4 +341,56 @@ final class PlayerPreviewDriver {
         try? await Task.sleep(for: .milliseconds(80))
     }
 }
+
+/// A `DownloadStore` over two canned in-flight downloads, no network — real TMDB poster paths
+/// (from `Apps/SeretTV/Playback/PlayerUIPreview.swift`'s Home preview table) so the sidebar card,
+/// the popover and the library strip all show real art.
+enum PreviewDownloads {
+    private struct FailingService: DownloadRequesting {
+        func startDownload(infoHash: String) async throws -> TorrentInfo { throw URLError(.badServerResponse) }
+    }
+
+    private struct FixedRecords: DownloadRecording {
+        let items: [DownloadRequestData]
+        func upsert(_ data: DownloadRequestData) async throws {}
+        func all() async throws -> [DownloadRequestData] { items }
+        func delete(torrentID: String) async throws {}
+    }
+
+    private struct FixedPoller: DownloadPolling {
+        let statuses: [DownloadStatus]
+        func poll() async throws -> [DownloadStatus] { statuses }
+    }
+
+    private struct NoOpDeleter: DownloadDeleting {
+        func deleteTorrent(id: String) async throws {}
+    }
+
+    private static let bugonia = DownloadRequestData(
+        torrentID: "t-bugonia", contentKey: "movie:tmdb:701387", tmdbID: 701387,
+        infoHash: "bugonia-hash", kind: .movie, title: "Bugonia",
+        posterPath: "/rSdOua3wKMEaFWDcKAYWRjXQWOt.jpg", requestedAt: .now)
+    private static let nope = DownloadRequestData(
+        torrentID: "t-nope", contentKey: "movie:tmdb:762504", tmdbID: 762504,
+        infoHash: "nope-hash", kind: .movie, title: "Nope",
+        posterPath: "/AcKVlWaNVVVFQwro3nLXqPljcYA.jpg", requestedAt: .now)
+
+    @MainActor
+    static func store() async -> DownloadStore {
+        let statuses = [
+            DownloadStatus(torrentID: bugonia.torrentID, contentKey: bugonia.contentKey, tmdbID: bugonia.tmdbID,
+                          phase: .downloading, fraction: 0.64, seeders: 12, secondsRemaining: 360,
+                          title: bugonia.title, posterPath: bugonia.posterPath),
+            DownloadStatus(torrentID: nope.torrentID, contentKey: nope.contentKey, tmdbID: nope.tmdbID,
+                          phase: .downloading, fraction: 0.22, seeders: 0, secondsRemaining: nil,
+                          title: nope.title, posterPath: nope.posterPath),
+        ]
+        let store = DownloadStore(service: FailingService(), records: FixedRecords(items: [bugonia, nope]),
+                                  poller: FixedPoller(statuses: statuses), deleter: NoOpDeleter(),
+                                  pollInterval: .seconds(3600))
+        await store.loadActive()
+        await store.refresh()
+        return store
+    }
+}
 #endif

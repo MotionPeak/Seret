@@ -8,8 +8,13 @@ struct FloatingSidebar: View {
     @Bindable var model: ShellModel
     @Namespace private var selectionSpace
     @Environment(\.openSettings) private var openSettings
+    @Environment(DownloadStore.self) private var injectedDownloads: DownloadStore?
+    @Environment(AppSession.self) private var session: AppSession?
 
     private var collapsed: Bool { model.isSidebarCollapsed }
+    private var downloadsSummary: DownloadsSummary {
+        DownloadsSummary(tiles: (injectedDownloads ?? session?.downloadStore)?.activeTiles ?? [])
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -18,6 +23,9 @@ struct FloatingSidebar: View {
             group(.browse)
             group(.yours).padding(.top, 6)
             Spacer(minLength: 12)
+            SidebarDownloadsCard(summary: downloadsSummary, collapsed: collapsed)
+                .padding(.horizontal, collapsed ? 0 : 6)
+                .padding(.bottom, downloadsSummary.count > 0 ? 10 : 0)
             SidebarRow(title: "Settings", symbol: "gearshape", selectedSymbol: "gearshape.fill",
                        isSelected: false, collapsed: collapsed, namespace: selectionSpace) { openSettings() }
         }
