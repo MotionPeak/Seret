@@ -16,6 +16,14 @@ struct UIPreviewRoot: View {
                 DesignGalleryPreview()
             case "splash":
                 SplashView { }
+            case "shell":
+                MainShell(model: ShellModel(defaults: UserDefaults(suiteName: "seret.preview.shell")!))
+            case "shellcollapsed":
+                MainShell(model: {
+                    let defaults = UserDefaults(suiteName: "seret.preview.shellcollapsed")!
+                    defaults.set(true, forKey: "seret.mac.sidebarCollapsed")
+                    return ShellModel(defaults: defaults)
+                }())
             default:
                 Text("Unknown -uiPreview case: \(target)")
                     .font(.system(size: 15, weight: .semibold))
