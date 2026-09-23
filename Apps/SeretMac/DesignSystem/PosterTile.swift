@@ -113,8 +113,10 @@ struct PosterTile: View {
     /// What both the click and the menu's Open take: the tile hands the shell its own frame + art
     /// right before the push, so a flight (if one starts) has a snapshot from the instant of the tap.
     private func openWithFlightSource() {
-        shell?.pendingFlightSource = FlightSource(tileID: tileID, frame: shell?.tileFrames[tileID],
-                                                  posterURL: model.posterURL)
+        // No recorded frame (never laid out in the window space) → no source → the page cross-fades.
+        if let frame = shell?.tileFrames[tileID] {
+            shell?.pendingFlightSource = FlightSource(tileID: tileID, frame: frame, posterURL: model.posterURL)
+        }
         perform(.open, model)
     }
 

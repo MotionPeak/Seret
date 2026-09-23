@@ -109,7 +109,8 @@ final class ShellModel {
 
     // MARK: - Hero flight (Task 8)
 
-    private(set) var flight: HeroFlight?
+    /// Set only by `open`/`back`/the flight driver (and the DEBUG harness's `previewPinFlight`).
+    var flight: HeroFlight?
     /// Every VISIBLE poster tile's own frame, in window coordinates — written by the tile itself on
     /// every layout pass. Deliberately unobserved (Decision 10): a `@Published`-style dictionary
     /// here would re-run on every scroll frame of every grid and rail; nothing ever reads this

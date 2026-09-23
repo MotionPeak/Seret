@@ -52,6 +52,10 @@ enum HeroFlightGeometry {
               width: lerp(from.width, to.width, progress), height: lerp(from.height, to.height, progress))
     }
 
+    private static func lerp(_ a: CGFloat, _ b: CGFloat, _ t: Double) -> CGFloat {
+        a + (b - a) * CGFloat(t)
+    }
+
     /// 12 → 0, floored at 0 so overshoot past progress 1 never goes negative.
     static func cornerRadius(progress: Double) -> CGFloat {
         max(0, startRadius * (1 - CGFloat(progress)))

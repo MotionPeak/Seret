@@ -14,7 +14,7 @@ struct HeroFlightLayer: View, Animatable {
     let flight: HeroFlight
     var progress: Double
 
-    var animatableData: Double {
+    nonisolated var animatableData: Double {
         get { progress }
         set { progress = newValue }
     }
