@@ -26,11 +26,28 @@ enum RailPager {
 }
 
 /// What a rail's `ScrollView` reports right now, so the pager buttons know whether — and how far —
-/// to page.
+/// to page. Measured from the START of the scrollable range: `ScrollGeometry.contentOffset` sits
+/// at `-leadingInset` when a rail is at rest (its `.contentMargins` are insets), while
+/// `ScrollPosition.scrollTo(x:)` takes 0 as that start — so the raw reading is shifted by the
+/// leading inset and the content widened by both insets, or the first page falls short by the
+/// inset and the last page can never be reached (a forward ‹ › that stays up and does nothing).
 struct RailGeometry: Equatable {
     var offset: CGFloat = 0
     var viewport: CGFloat = 0
     var content: CGFloat = 0
+
+    init(offset: CGFloat = 0, viewport: CGFloat = 0, content: CGFloat = 0) {
+        self.offset = offset
+        self.viewport = viewport
+        self.content = content
+    }
+
+    init(contentOffset: CGFloat, leadingInset: CGFloat, trailingInset: CGFloat,
+         contentSize: CGFloat, containerSize: CGFloat) {
+        offset = contentOffset + leadingInset
+        viewport = containerSize
+        content = contentSize + leadingInset + trailingInset
+    }
 }
 
 /// A full-bleed horizontal rail: a gold label, then cards a mouse wheel cannot scroll sideways, so
@@ -71,8 +88,9 @@ struct PosterRail<Item: Identifiable, Card: View>: View {
                 .scrollIndicators(.hidden)
                 .scrollPosition($position)
                 .onScrollGeometryChange(for: RailGeometry.self) { geo in
-                    RailGeometry(offset: geo.contentOffset.x, viewport: geo.containerSize.width,
-                                content: geo.contentSize.width)
+                    RailGeometry(contentOffset: geo.contentOffset.x, leadingInset: geo.contentInsets.leading,
+                                 trailingInset: geo.contentInsets.trailing, contentSize: geo.contentSize.width,
+                                 containerSize: geo.containerSize.width)
                 } action: { _, new in
                     geometry = new
                 }
