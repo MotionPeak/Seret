@@ -61,7 +61,7 @@ struct TitleHeroPlaceholder: View {
             .padding(.bottom, 28)
             .frame(maxWidth: 640, alignment: .leading)
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .frame(height: height)
         .background {
             HeroBackdrop(url: TMDBClient.imageURL(path: item.backdropPath ?? item.posterPath, size: "w1280"))
@@ -88,7 +88,7 @@ struct TitleHero: View {
             Spacer(minLength: 0)
             copy
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .frame(height: height)
         .background {
             HeroBackdrop(url: TMDBClient.imageURL(path: store.backdropPath ?? store.item.posterPath, size: "w1280"))
