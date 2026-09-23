@@ -37,6 +37,13 @@ struct AutoPlayHarness: ViewModifier {
         return args[i + 1]
     }
 
+    /// The film title `-autoPlayMovie` asked for, if any.
+    static var movieNeedle: String? {
+        let args = ProcessInfo.processInfo.arguments
+        guard let i = args.firstIndex(of: "-autoPlayMovie"), i + 1 < args.count else { return nil }
+        return args[i + 1]
+    }
+
     /// `-autoMemory` runs the whole footprint timeline: idle, playing, and — the part that matters —
     /// after the player is dismissed.
     ///
@@ -85,7 +92,11 @@ struct AutoPlayHarness: ViewModifier {
                                       episode: episode, fromStart: true)
             return
         }
-        let candidates = Self.heaviestFirst(store.movies)
+        // `-autoPlayMovie <text>` names the film instead of ranking for it, so a comparison can be
+        // run against the exact file a report is about.
+        let candidates = Self.movieNeedle.map { needle in
+            store.movies.filter { $0.title.localizedCaseInsensitiveContains(needle) }
+        } ?? Self.heaviestFirst(store.movies)
         guard !candidates.isEmpty else { return }     // library still loading — the task re-runs
         started = true
         let item = candidates[min(index, candidates.count - 1)]

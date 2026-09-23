@@ -63,6 +63,7 @@ extension PlayerModel {
     func startSeekProbeIfRequested() {
         guard !seekProbeStarted else { return }
         if let hold = Self.scanProbeHold { seekProbeStarted = true; runScanProbe(holding: hold); return }
+        if let spec = Self.skipProbeSpec { seekProbeStarted = true; runSkipProbe(spec); return }
         guard let target = Self.seekProbeTarget else { return }
         seekProbeStarted = true
         Task { @MainActor [weak self] in
@@ -119,6 +120,57 @@ extension PlayerModel {
                     + "vs-released=\(String(format: "%+.1f", missed))s "
                     + "buffering=\(self.isBuffering) phase=\(self.phase)")
             }
+        }
+    }
+
+    /// `-autoSkips "10,-10,30,10x4,@1965"`: the skips a viewer actually makes, in order. `10` is one
+    /// tap forward, `-10` one back, `10x4` four taps 0.28s apart (the cadence on the iPad's log),
+    /// and `@1965` a scrub straight to 32:45 — how a run reaches the stretch of a file a report
+    /// was about.
+    ///
+    /// Exists to A/B libvlc's read-ahead (`-prefetchKiB` / `-prefetchThreshold`) on the same file
+    /// with the same inputs. The latency printed here is coarse — landing is only noticed on a
+    /// time tick, about one a second — so the figures to compare are libvlc's own, in vlc.log:
+    /// `[seret] seek` → `seek: preroll{ req` (the network part) → `Stream buffering done`.
+    static var skipProbeSpec: [(delta: Double, taps: Int, absolute: Bool)]? {
+        let args = ProcessInfo.processInfo.arguments
+        guard let i = args.firstIndex(of: "-autoSkips"), i + 1 < args.count else { return nil }
+        let steps = args[i + 1].split(separator: ",").compactMap { token -> (Double, Int, Bool)? in
+            if token.hasPrefix("@") { return Double(token.dropFirst()).map { ($0, 1, true) } }
+            let parts = token.split(separator: "x")
+            guard let delta = Double(parts[0]) else { return nil }
+            return (delta, parts.count > 1 ? Int(parts[1]) ?? 1 : 1, false)
+        }
+        return steps.isEmpty ? nil : steps
+    }
+
+    private func runSkipProbe(_ steps: [(delta: Double, taps: Int, absolute: Bool)]) {
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(10))      // a settled stream, as a viewer would have
+            for step in steps {
+                guard let self else { return }
+                let label = step.absolute ? "@\(Int(step.delta))"
+                    : step.taps > 1 ? "\(Int(step.delta))x\(step.taps)" : "\(Int(step.delta))"
+                print("[skips] \(label) from \(Self.t(self.position))")
+                if step.absolute { self.scrub(to: step.delta) }
+                for tap in 0..<(step.absolute ? 0 : step.taps) {
+                    if tap > 0 { try? await Task.sleep(for: .milliseconds(280)) }
+                    self.skip(step.delta)
+                }
+                let tapped = Date()
+                var landed = false
+                for _ in 0..<400 {                           // up to 40s
+                    try? await Task.sleep(for: .milliseconds(100))
+                    if self.pendingSeek == nil, !self.isBuffering, self.phase == .playing {
+                        landed = true; break
+                    }
+                }
+                print(String(format: "[skips] %@ %@ after %.1fs at %@", label,
+                             landed ? "landed" : "NOT landed", Date().timeIntervalSince(tapped),
+                             Self.t(self.position)))
+                try? await Task.sleep(for: .seconds(8))      // watch a while before the next skip
+            }
+            print("[skips] done")
         }
     }
 
