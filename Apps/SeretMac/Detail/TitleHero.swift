@@ -3,15 +3,29 @@ import DebridUI
 import SwiftUI
 
 /// The full-bleed backdrop + fade every hero state shares: the real `TitleHero` (once a
-/// `DetailStore` exists) and `TitleHeroPlaceholder` (before it does). Runs under the floating
-/// sidebar — only the copy on top of it clears the sidebar, by `pageLeadingInset`.
-private struct HeroBackdrop: View {
+/// `DetailStore` exists), `TitleHeroPlaceholder` (before it does) and Home's `HomeHero`. Runs
+/// under the floating sidebar — only the copy on top of it clears the sidebar, by
+/// `pageLeadingInset`.
+///
+/// `drifts` runs mockup 3's Ken Burns — a slow 24 s scale + pan, autoreversing — on the image
+/// alone (the fades stay put); Reduce Motion drops it to a still frame.
+struct HeroBackdrop: View {
     let url: URL?
+    var drifts: Bool = false
+
+    @State private var size: CGSize = .zero
+    @State private var drift = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var kenBurns: Bool { drifts && !reduceMotion }
 
     var body: some View {
         ZStack {
             RemoteImage(url: url)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .scaleEffect(kenBurns && drift ? 1.09 : 1)
+                .offset(x: kenBurns && drift ? -0.014 * size.width : 0,
+                       y: kenBurns && drift ? -0.012 * size.height : 0)
                 .clipped()
             LinearGradient(
                 stops: [.init(color: .clear, location: 0.45), .init(color: Theme.Palette.canvas, location: 1)],
@@ -19,6 +33,11 @@ private struct HeroBackdrop: View {
             LinearGradient(
                 stops: [.init(color: .black.opacity(0.55), location: 0), .init(color: .clear, location: 0.6)],
                 startPoint: .leading, endPoint: .trailing)
+        }
+        .onGeometryChange(for: CGSize.self) { $0.size } action: { size = $0 }
+        .onAppear {
+            guard kenBurns else { return }
+            withAnimation(.easeInOut(duration: 24).repeatForever(autoreverses: true)) { drift = true }
         }
     }
 }

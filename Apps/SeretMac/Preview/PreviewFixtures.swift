@@ -15,40 +15,48 @@ enum Fixture {
                    sizeBytes: sizeBytes)
     }
 
+    /// A fixed anchor (not `.now`) so "Recently Added" order is stable across runs — a screenshot
+    /// taken today and one taken next month must show the same ordering.
+    private static let addedAtAnchor = Date(timeIntervalSinceReferenceDate: 780_000_000)
+    /// `n` days before the anchor — every fixture film/show gets one of these, by its position
+    /// below, so `HomeStore.recentlyAdded` (newest `addedAt` first) has a stable order.
+    private static func daysAgo(_ n: Int) -> Date { addedAtAnchor.addingTimeInterval(-Double(n) * 86_400) }
+
     private static func film(_ tmdbID: Int, _ title: String, _ year: Int,
-                             _ poster: String, _ backdrop: String) -> MediaItem {
+                             _ poster: String, _ backdrop: String, addedAt: Date) -> MediaItem {
         MediaItem(id: "movie:tmdb:\(tmdbID)", kind: .movie, title: title, year: year,
                  sources: [source(id: "t\(tmdbID)")], seasons: [], tmdbID: tmdbID,
-                 posterPath: poster, backdropPath: backdrop, overview: "A film about \(title).")
+                 posterPath: poster, backdropPath: backdrop, overview: "A film about \(title).",
+                 addedAt: addedAt)
     }
 
     /// ~12 films — includes a long title ("The Lord of the Rings: The Fellowship of the Ring") to
     /// prove a card truncates rather than widening.
     static let films: [MediaItem] = [
         film(693134, "Dune: Part Two", 2024,
-             "/6izwz7rsy95ARzTR3poZ8H6c5pp.jpg", "/eZ239CUp1d6OryZEBPnO2n87gMG.jpg"),
+             "/6izwz7rsy95ARzTR3poZ8H6c5pp.jpg", "/eZ239CUp1d6OryZEBPnO2n87gMG.jpg", addedAt: daysAgo(0)),
         film(120, "The Lord of the Rings: The Fellowship of the Ring", 2001,
-             "/6oom5QYQ2yQTMJIbnvbkBL9cHo6.jpg", "/oiwc338EoBgS4sEI2ixAny4KQKg.jpg"),
+             "/6oom5QYQ2yQTMJIbnvbkBL9cHo6.jpg", "/oiwc338EoBgS4sEI2ixAny4KQKg.jpg", addedAt: daysAgo(1)),
         film(238, "The Godfather", 1972,
-             "/3bhkrj58Vtu7enYsRolD1fZdja1.jpg", "/tSPT36ZKlP2WVHJLM4cQPLSzv3b.jpg"),
+             "/3bhkrj58Vtu7enYsRolD1fZdja1.jpg", "/tSPT36ZKlP2WVHJLM4cQPLSzv3b.jpg", addedAt: daysAgo(2)),
         film(27205, "Inception", 2010,
-             "/xlaY2zyzMfkhk0HSC5VUwzoZPU1.jpg", "/8ZTVqvKDQ8emSGUEMjsS4yHAwrp.jpg"),
+             "/xlaY2zyzMfkhk0HSC5VUwzoZPU1.jpg", "/8ZTVqvKDQ8emSGUEMjsS4yHAwrp.jpg", addedAt: daysAgo(3)),
         film(157336, "Interstellar", 2014,
-             "/yQvGrMoipbRoddT0ZR8tPoR7NfX.jpg", "/8sNiAPPYU14PUepFNeSNGUTiHW.jpg"),
+             "/yQvGrMoipbRoddT0ZR8tPoR7NfX.jpg", "/8sNiAPPYU14PUepFNeSNGUTiHW.jpg", addedAt: daysAgo(4)),
         film(155, "The Dark Knight", 2008,
-             "/qJ2tW6WMUDux911r6m7haRef0WH.jpg", "/9FE5eD92WfVCiivM9Pq9GVSrlWk.jpg"),
+             "/qJ2tW6WMUDux911r6m7haRef0WH.jpg", "/9FE5eD92WfVCiivM9Pq9GVSrlWk.jpg", addedAt: daysAgo(5)),
         film(496243, "Parasite", 2019,
-             "/7IiTTgloJzvGI1TAYymCfbfl3vT.jpg", "/hiKmpZMGZsrkA3cdce8a7Dpos1j.jpg"),
+             "/7IiTTgloJzvGI1TAYymCfbfl3vT.jpg", "/hiKmpZMGZsrkA3cdce8a7Dpos1j.jpg", addedAt: daysAgo(6)),
         film(129, "Spirited Away", 2001,
-             "/39wmItIWsg5sZMyRUHLkWBcuVCM.jpg", "/6oaL4DP75yABrd5EbC4H2zq5ghc.jpg"),
+             "/39wmItIWsg5sZMyRUHLkWBcuVCM.jpg", "/6oaL4DP75yABrd5EbC4H2zq5ghc.jpg", addedAt: daysAgo(7)),
         film(603, "The Matrix", 1999,
-             "/dXNAPwY7VrqMAo51EKhhCJfaGb5.jpg", "/lrtSb1skJayPydZk0OSMAKjBOVe.jpg"),
+             "/dXNAPwY7VrqMAo51EKhhCJfaGb5.jpg", "/lrtSb1skJayPydZk0OSMAKjBOVe.jpg", addedAt: daysAgo(8)),
         film(680, "Pulp Fiction", 1994,
-             "/vQWk5YBFWF4bZaofAbv0tShwBvQ.jpg", "/suaEOtk1N1sgg2MTM7oZd2cfVp3.jpg"),
+             "/vQWk5YBFWF4bZaofAbv0tShwBvQ.jpg", "/suaEOtk1N1sgg2MTM7oZd2cfVp3.jpg", addedAt: daysAgo(9)),
         film(313369, "La La Land", 2016,
-             "/uDO8zWDhfWwoFdKS4fzkUJt0Rf0.jpg", "/nlPCdZlHtRNcF6C9hzUH4ebmV1w.jpg"),
+             "/uDO8zWDhfWwoFdKS4fzkUJt0Rf0.jpg", "/nlPCdZlHtRNcF6C9hzUH4ebmV1w.jpg", addedAt: daysAgo(10)),
         film(872585, "Oppenheimer", 2023,
-             "/8Gxv8gSFCU0XGDykEGv7zR1n2ua.jpg", "/neeNHeXjMF5fXoCJRsOmkNGC7q.jpg"),
+             "/8Gxv8gSFCU0XGDykEGv7zR1n2ua.jpg", "/neeNHeXjMF5fXoCJRsOmkNGC7q.jpg", addedAt: daysAgo(11)),
     ]
 
     private static func episode(_ season: Int, _ number: Int, _ torrentID: String) -> Episode {
@@ -66,31 +74,37 @@ enum Fixture {
         ],
         tmdbID: 1396, posterPath: "/anFx9aTOOYqgS3v7x3R84Kz67ly.jpg",
         backdropPath: "/tsRy63Mu5cu8etL1X7ZLyf7UP1M.jpg",
-        overview: "A high school chemistry teacher turns to manufacturing after a cancer diagnosis.")
+        overview: "A high school chemistry teacher turns to manufacturing after a cancer diagnosis.",
+        addedAt: daysAgo(12))
 
     private static func simpleShow(_ tmdbID: Int, _ title: String, _ year: Int,
-                                   _ poster: String, _ backdrop: String) -> MediaItem {
+                                   _ poster: String, _ backdrop: String, addedAt: Date) -> MediaItem {
         MediaItem(id: "show:tmdb:\(tmdbID)", kind: .show, title: title, year: year, sources: [],
                  seasons: [Season(number: 1, episodes: (1...6).map { episode(1, $0, "\(tmdbID)-s1e\($0)") })],
-                 tmdbID: tmdbID, posterPath: poster, backdropPath: backdrop)
+                 tmdbID: tmdbID, posterPath: poster, backdropPath: backdrop, addedAt: addedAt)
     }
 
     static let shows: [MediaItem] = [
         show,
         simpleShow(19885, "Sherlock", 2010,
-                  "/7WTsnHkbA0FaG6R9twfFde0I9hl.jpg", "/8rvLEmdI4gLrMO1rLqbNdnNcPFE.jpg"),
+                  "/7WTsnHkbA0FaG6R9twfFde0I9hl.jpg", "/8rvLEmdI4gLrMO1rLqbNdnNcPFE.jpg", addedAt: daysAgo(13)),
         simpleShow(1399, "Game of Thrones", 2011,
-                  "/1XS1oqL89opfnbLl8WnZY1O1uJx.jpg", "/zZqpAXxVSBtxV9qPBcscfXBcL2w.jpg"),
+                  "/1XS1oqL89opfnbLl8WnZY1O1uJx.jpg", "/zZqpAXxVSBtxV9qPBcscfXBcL2w.jpg", addedAt: daysAgo(14)),
     ]
 
-    /// Canned watch state: one finished film, one mid-watch film, and the fixture show's first
+    /// Canned watch state: one finished film, two mid-watch films, and the fixture show's first
     /// three S1 episodes (two finished, one mid-watch) — what the poster/episode badges render.
+    /// The three unfinished rows carry distinct, ordered timestamps (Dune newest, Breaking Bad
+    /// S1E3 an hour older, Interstellar two hours older) so `PreviewWatch.recentlyWatched` — which
+    /// mirrors `LocalWatchStore.recent`'s "unfinished, newest first" rule — has a stable order for
+    /// Home's Continue Watching rail.
     static let watch: [String: WatchState] = {
         var map: [String: WatchState] = [:]
-        func set(_ key: String, source: MediaSource, position: Double, duration: Double, finished: Bool) {
+        func set(_ key: String, source: MediaSource, position: Double, duration: Double, finished: Bool,
+                updatedAt: Date = .now) {
             map[key] = WatchState(contentKey: key, sourceKey: WatchKey.source(source),
                                   positionSeconds: position, durationSeconds: duration,
-                                  finished: finished, updatedAt: .now)
+                                  finished: finished, updatedAt: updatedAt)
         }
         let godfather = films[2]
         set(WatchKey.content(forMovie: godfather), source: godfather.sources[0],
@@ -98,7 +112,7 @@ enum Fixture {
 
         let dune = films[0]
         set(WatchKey.content(forMovie: dune), source: dune.sources[0],
-           position: 3753, duration: 8160, finished: false)
+           position: 3753, duration: 8160, finished: false, updatedAt: .now)
 
         let s1 = show.seasons.first { $0.number == 1 }!.episodes
         for ep in s1.prefix(2) {
@@ -107,8 +121,12 @@ enum Fixture {
         }
         if let e3 = s1.first(where: { $0.number == 3 }) {
             set(WatchKey.content(forShow: show, episode: e3), source: e3.source,
-               position: 1210, duration: 2580, finished: false)
+               position: 1210, duration: 2580, finished: false, updatedAt: .now.addingTimeInterval(-3600))
         }
+
+        let interstellar = films[4]
+        set(WatchKey.content(forMovie: interstellar), source: interstellar.sources[0],
+           position: 5000, duration: 10140, finished: false, updatedAt: .now.addingTimeInterval(-7200))
         return map
     }()
 }
@@ -165,7 +183,15 @@ actor PreviewWatch: WatchProgressProviding {
                                         finished: finished, updatedAt: .now)
     }
 
-    func recentlyWatched(limit: Int, profileID: String) async throws -> [WatchState] { [] }
+    /// Mirrors `LocalWatchStore.recent`: unfinished rows with a real position, newest first, capped
+    /// at `limit` — so Home's fixture Continue Watching rail orders the same way the real store
+    /// would.
+    func recentlyWatched(limit: Int, profileID: String) async throws -> [WatchState] {
+        Array(states.values
+            .filter { !$0.finished && $0.positionSeconds > 0 }
+            .sorted { $0.updatedAt > $1.updatedAt }
+            .prefix(limit))
+    }
 
     func deleteProgress(forContentKeys keys: [String]) async throws {
         for key in keys { states.removeValue(forKey: key) }

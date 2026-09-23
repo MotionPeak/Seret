@@ -34,6 +34,8 @@ struct SectionStack: View {
 
     @ViewBuilder private var root: some View {
         switch section {
+        case .home:
+            HomeRoot()
         case .library:
             LibraryRoot()
         default:

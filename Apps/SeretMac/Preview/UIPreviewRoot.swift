@@ -38,6 +38,14 @@ struct UIPreviewRoot: View {
                 DownloadsPreviewHost(collapsedSidebar: true, popoverOnly: false)
             case "downloadspopover":
                 DownloadsPreviewHost(collapsedSidebar: false, popoverOnly: true)
+            case "home":
+                HomePreviewHost()
+            case "homenohistory":
+                HomePreviewHost(withHistory: false, includeDownloads: false)
+            case "homeloading":
+                HomePreviewHost(libraryMode: .loadingForever, includeDownloads: false)
+            case "homeempty":
+                HomePreviewHost(libraryMode: .empty, includeDownloads: false)
             case "library":
                 libraryPreview(.items(Fixture.films + Fixture.shows))
             case "libraryshows":
@@ -284,6 +292,55 @@ private struct DownloadsPreviewHost: View {
             }
         }
         .task { downloadStore = await PreviewDownloads.store() }
+    }
+}
+
+/// `-uiPreview home` / `homenohistory` / `homeloading` / `homeempty` — `MainShell` on `.home`
+/// with a fixture `LibraryStore` and `HomeStore` injected (`PreviewDownloads.store()` too, when
+/// `includeDownloads`). Built asynchronously in `.task` (the library store and, for `home`, the
+/// downloads store), same as `DownloadsPreviewHost`. `HomeScreen`'s own `.task`/`onChange` rebuild
+/// `HomeStore` once `MainShell`'s injected `LibraryStore` finishes loading — the same reactive path
+/// a real session drives, not a harness shortcut.
+private struct HomePreviewHost: View {
+    var libraryMode: PreviewLibrary.Mode = .items(Fixture.films + Fixture.shows)
+    var withHistory: Bool = true
+    var includeDownloads: Bool = true
+
+    @State private var library: LibraryStore?
+    @State private var home: HomeStore?
+    @State private var downloadStore: DownloadStore?
+
+    var body: some View {
+        Group {
+            if let library, let home {
+                let suite = "seret.preview.home.\(UUID().uuidString)"
+                let model: ShellModel = {
+                    let m = ShellModel(defaults: UserDefaults(suiteName: suite)!)
+                    m.select(.home)
+                    return m
+                }()
+                shellView(model: model, library: library, home: home)
+            } else {
+                CanvasBackground()
+            }
+        }
+        .task {
+            if includeDownloads { downloadStore = await PreviewDownloads.store() }
+            let homeStore = HomeStore(watch: PreviewWatch(withHistory ? Fixture.watch : [:]))
+            homeStore.activeProfileID = "preview"
+            home = homeStore
+            library = LibraryStore(library: PreviewLibrary(mode: libraryMode),
+                                   watch: PreviewWatch(Fixture.watch), profileID: { "" })
+        }
+    }
+
+    @ViewBuilder
+    private func shellView(model: ShellModel, library: LibraryStore, home: HomeStore) -> some View {
+        if let downloadStore {
+            MainShell(model: model).environment(library).environment(home).environment(downloadStore)
+        } else {
+            MainShell(model: model).environment(library).environment(home)
+        }
     }
 }
 
