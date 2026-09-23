@@ -1,5 +1,6 @@
 #if DEBUG
 import DebridCore
+import DebridUI
 import SwiftUI
 
 /// DEBUG only: `-uiPreview <case>` boots straight into one screen with fixture data, so every screen
@@ -29,6 +30,16 @@ struct UIPreviewRoot: View {
                 PosterGalleryPreview()
             case "postersloading":
                 PosterGalleryPreview(isLoading: true)
+            case "library":
+                libraryPreview(.items(Fixture.films + Fixture.shows))
+            case "libraryshows":
+                libraryPreview(.items(Fixture.films + Fixture.shows), forcedKind: .show)
+            case "libraryloading":
+                libraryPreview(.loadingForever)
+            case "libraryempty":
+                libraryPreview(.empty)
+            case "libraryfailed":
+                libraryPreview(.failing)
             case "shellnav":
                 MainShell(model: {
                     let model = ShellModel(defaults: UserDefaults(suiteName: "seret.preview.shellnav")!)
@@ -62,6 +73,19 @@ struct UIPreviewRoot: View {
 
     private func signIn(_ panel: SignInScreenState.Panel, mode: SignInMode) -> some View {
         SignInPreviewHost(state: SignInScreenState(panel: panel), mode: mode)
+    }
+
+    /// Mounts `MainShell` on `.library` with a fixture `LibraryStore` injected into the
+    /// environment — the same seam `LibraryRoot` reads before falling back to the session.
+    private func libraryPreview(_ mode: PreviewLibrary.Mode, forcedKind: MediaKind? = nil) -> some View {
+        let suite = "seret.preview.library.\(UUID().uuidString)"
+        let model = ShellModel(defaults: UserDefaults(suiteName: suite)!)
+        model.select(.library)
+        let store = LibraryStore(library: PreviewLibrary(mode: mode), watch: PreviewWatch(Fixture.watch),
+                                 profileID: { "" })
+        return MainShell(model: model)
+            .environment(store)
+            .environment(\.previewForcedLibraryKind, forcedKind)
     }
 }
 

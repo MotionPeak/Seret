@@ -32,7 +32,7 @@ struct SeretMacApp: App {
         .windowStyle(.hiddenTitleBar)
         .windowToolbarStyle(.unified(showsTitle: false))
         .defaultSize(width: 1440, height: 900)
-        .commands { SeretCommands() }
+        .commands { SeretCommands(session: session) }
 
         Settings {
             SettingsRoot().environment(session)

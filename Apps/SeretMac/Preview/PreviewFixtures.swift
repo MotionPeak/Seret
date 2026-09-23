@@ -1,5 +1,6 @@
 #if DEBUG
 import DebridCore
+import DebridUI
 import Foundation
 
 /// Canned data every `-uiPreview` screen builds on: real TMDB poster/backdrop paths, fetched once
@@ -110,5 +111,64 @@ enum Fixture {
         }
         return map
     }()
+}
+
+/// A fake `LibraryProviding` for the harness: no Real-Debrid, no TMDB — canned items, or a
+/// scripted empty/hang/failure — so every `LibraryStore.State` can be screenshot-verified.
+struct PreviewLibrary: LibraryProviding {
+    enum Mode {
+        case items([MediaItem]), loadingForever, failing, empty
+    }
+    let mode: Mode
+
+    func loadCached() -> [MediaItem]? {
+        switch mode {
+        case .items(let items): return items
+        case .empty: return []
+        case .loadingForever, .failing: return nil
+        }
+    }
+
+    func refresh() async throws -> [MediaItem] {
+        switch mode {
+        case .items(let items): return items
+        case .empty: return []
+        case .loadingForever:
+            try await Task.sleep(for: .seconds(3600))
+            return []
+        case .failing:
+            throw URLError(.notConnectedToInternet)
+        }
+    }
+
+    func remove(_ item: MediaItem) async throws {}
+    func removeVersion(_ item: MediaItem, source: MediaSource) async throws {}
+}
+
+/// A fake `WatchProgressProviding` over an in-memory map. Records into it, so marking watched in
+/// the harness actually changes what the next read sees.
+actor PreviewWatch: WatchProgressProviding {
+    private var states: [String: WatchState]
+
+    init(_ seed: [String: WatchState] = [:]) { states = seed }
+
+    func progress(forContentKey key: String, profileID: String) async throws -> WatchState? { states[key] }
+
+    func progress(forContentKeys keys: [String], profileID: String) async throws -> [String: WatchState] {
+        keys.reduce(into: [:]) { $0[$1] = states[$1] }
+    }
+
+    func record(contentKey: String, sourceKey: String, positionSeconds: Double, durationSeconds: Double,
+               finished: Bool, profileID: String) async throws {
+        states[contentKey] = WatchState(contentKey: contentKey, sourceKey: sourceKey,
+                                        positionSeconds: positionSeconds, durationSeconds: durationSeconds,
+                                        finished: finished, updatedAt: .now)
+    }
+
+    func recentlyWatched(limit: Int, profileID: String) async throws -> [WatchState] { [] }
+
+    func deleteProgress(forContentKeys keys: [String]) async throws {
+        for key in keys { states.removeValue(forKey: key) }
+    }
 }
 #endif

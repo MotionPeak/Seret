@@ -1,3 +1,4 @@
+import DebridUI
 import SwiftUI
 
 extension FocusedValues {
@@ -5,8 +6,9 @@ extension FocusedValues {
     @Entry var shellModel: ShellModel?
 }
 
-/// Menu-bar commands. Later phases add File, Library and Playback.
+/// Menu-bar commands. Later phases add File and Playback.
 struct SeretCommands: Commands {
+    let session: AppSession
     @FocusedValue(\.shellModel) private var shell
 
     var body: some Commands {
@@ -31,6 +33,11 @@ struct SeretCommands: Commands {
             Button("Forward") { shell?.goForward() }
                 .keyboardShortcut("]", modifiers: .command)
                 .disabled(shell?.canGoForward != true || shell?.playback != nil)
+        }
+        CommandMenu("Library") {
+            Button("Refresh") { session.libraryStore?.reload() }
+                .keyboardShortcut("r")
+                .disabled(session.libraryStore == nil)
         }
     }
 }

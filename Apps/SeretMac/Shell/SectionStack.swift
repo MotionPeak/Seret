@@ -22,13 +22,22 @@ struct SectionStack: View {
 
     var body: some View {
         NavigationStack(path: path) {
-            // The section root. M2/M4 swap this per-section (My Library lands in Task 4); every
-            // other section stays this placeholder until its own phase.
-            SectionPlaceholder(section: section)
+            // The section root. M2 swaps the rest in (My Library landed in Task 4); every other
+            // section stays this placeholder until its own phase.
+            root
                 .navigationDestination(for: AppRoute.self) { route in
                     RouteView(route: route)
                         .navigationBarBackButtonHidden(true)
                 }
+        }
+    }
+
+    @ViewBuilder private var root: some View {
+        switch section {
+        case .library:
+            LibraryRoot()
+        default:
+            SectionPlaceholder(section: section)
         }
     }
 }
