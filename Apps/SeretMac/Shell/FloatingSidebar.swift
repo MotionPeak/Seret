@@ -13,7 +13,7 @@ struct FloatingSidebar: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Color.clear.frame(height: 30)            // the window's traffic lights sit here
+            Color.clear.frame(height: SidebarMetrics.trafficLightsBand)   // the window's traffic lights sit here
             brand.padding(.bottom, 18)
             group(.browse)
             group(.yours).padding(.top, 6)
@@ -56,8 +56,22 @@ struct FloatingSidebar: View {
         .frame(height: 30)
     }
 
-    @ViewBuilder
+    /// One VStack, not a bare view builder: a modifier on a multi-view builder result applies to EVERY
+    /// child, so `.padding(.top, 6)` on the group used to space out each of its rows.
     private func group(_ group: SidebarGroup) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            header(group)
+            ForEach(SidebarSection.allCases.filter { $0.group == group }) { section in
+                SidebarRow(title: section.title, symbol: section.symbol, selectedSymbol: section.selectedSymbol,
+                           isSelected: model.selection == section, collapsed: collapsed,
+                           namespace: selectionSpace) {
+                    withAnimation(Theme.Motion.standard) { model.select(section) }
+                }
+            }
+        }
+    }
+
+    private func header(_ group: SidebarGroup) -> some View {
         ZStack(alignment: .leading) {
             if collapsed {
                 Theme.Palette.hairline.frame(height: 1).padding(.horizontal, 14)
@@ -70,14 +84,7 @@ struct FloatingSidebar: View {
                     .transition(.opacity.combined(with: .move(edge: .leading)))
             }
         }
-        .frame(height: 24)
-        ForEach(SidebarSection.allCases.filter { $0.group == group }) { section in
-            SidebarRow(title: section.title, symbol: section.symbol, selectedSymbol: section.selectedSymbol,
-                       isSelected: model.selection == section, collapsed: collapsed,
-                       namespace: selectionSpace) {
-                withAnimation(Theme.Motion.standard) { model.select(section) }
-            }
-        }
+        .frame(maxWidth: .infinity, minHeight: 24, maxHeight: 24, alignment: .leading)
     }
 }
 

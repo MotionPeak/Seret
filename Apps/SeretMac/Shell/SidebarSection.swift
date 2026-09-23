@@ -52,6 +52,13 @@ enum SidebarMetrics {
     /// Space between the sidebar and the page content.
     static let gap: CGFloat = 14
 
+    /// Where the window's close button goes (its top-left, from the window's top-left): inside the
+    /// sidebar's corner, clear of the rounded edge, and at the same place in both states — the three
+    /// buttons (≈60 pt) fit the rail with even margins.
+    static let trafficLightsOrigin = CGPoint(x: inset + 8, y: inset + 8)
+    /// The sidebar's empty top band the traffic lights sit in, before the brand row.
+    static let trafficLightsBand: CGFloat = 40
+
     static func width(collapsed: Bool) -> CGFloat { collapsed ? railWidth : expandedWidth }
     static func contentLeading(collapsed: Bool) -> CGFloat { inset + width(collapsed: collapsed) + gap }
 }

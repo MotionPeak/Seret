@@ -15,6 +15,7 @@ struct MainShell: View {
                 .padding(.trailing, 28)
             FloatingSidebar(model: model)
         }
+        .background(TrafficLightsPlacement(origin: SidebarMetrics.trafficLightsOrigin))
         .animation(Theme.Motion.standard, value: model.isSidebarCollapsed)
         .animation(Theme.Motion.fade, value: model.selection)
         .ignoresSafeArea()
