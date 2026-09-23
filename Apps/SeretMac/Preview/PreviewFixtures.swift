@@ -225,4 +225,100 @@ struct PreviewDetails: MediaDetailsProviding {
         episode(8, "Better Call Saul", "/KmFdF23FtbPwwz3FJF2T885r2Z.jpg", 48),
     ]
 }
+
+/// A no-op engine that relays emitted events — enough to drive `PlayerModel` end to end with no
+/// VLCKit. Port of `Apps/SeretMobile/Playback/PlayerUIPreview.swift`'s `MobilePreviewEngine`, plus
+/// `play()`/`pause()` emitting `.state(.playing)`/`.state(.paused)` so the harness transport (Space,
+/// the play/pause button) actually moves the model.
+@MainActor
+final class PreviewEngine: VideoPlayerEngine {
+    var audioTracks: [MediaTrack] = []
+    var subtitleTracks: [MediaTrack] = []
+    let events: AsyncStream<PlaybackEvent>
+    private let continuation: AsyncStream<PlaybackEvent>.Continuation
+    private var attachedSubtitleURLs: [URL] = []
+
+    init() {
+        var c: AsyncStream<PlaybackEvent>.Continuation!
+        events = AsyncStream { c = $0 }
+        continuation = c
+    }
+
+    func emit(_ event: PlaybackEvent) { continuation.yield(event) }
+
+    func load(url: URL, headers: [String: String], audioLanguage: String?, audioTrackID: String?) {}
+    func play() { emit(.state(.playing)) }
+    func pause() { emit(.state(.paused)) }
+    func stop() { continuation.finish() }
+    func seek(to seconds: Double) {}
+    func setRate(_ rate: Double) {}
+    func selectAudioTrack(id: String?) {}
+    func selectSubtitleTrack(id: String?) {}
+
+    /// Surface a slave the way VLCKit does — named "Track N", with NO language, never twice for the
+    /// same URL.
+    func addExternalSubtitle(url: URL) {
+        guard !attachedSubtitleURLs.contains(url) else { return }
+        attachedSubtitleURLs.append(url)
+        subtitleTracks.append(MediaTrack(id: "ext/\(attachedSubtitleURLs.count)", kind: .subtitle,
+                                         name: "Track \(subtitleTracks.count + 1)",
+                                         language: nil, isExternal: true, codec: "subt"))
+        emit(.tracksChanged)
+    }
+}
+
+/// Drives a `PlayerModel` over `PreviewEngine` with no VLCKit and no network, so every player
+/// `-uiPreview` case shows real model state (phase, tracks, playhead) rather than hand-placed view
+/// fields. `failing` makes the load itself fail, so the failure text shown is the shared model's own
+/// ("The Real-Debrid link could not be opened.") rather than a harness-invented string.
+@MainActor
+@Observable
+final class PlayerPreviewDriver {
+    let engine = PreviewEngine()
+    let model: PlayerModel
+
+    /// `hangs`: the unrestrict never returns, so `PlayerScreen`'s own `.onAppear { model.start() }`
+    /// begins loading but never gets past it — `phase` stays `.preparing` and the cold-open overlay
+    /// (title + "Preparing…" + shimmer) stays on screen, which is what "not primed" (`playerloading`)
+    /// needs to show. `failing` throws instead, so the failure text shown is the shared model's own.
+    init(failing: Bool = false, hangs: Bool = false) {
+        let item = Fixture.films[0]
+        let source = item.sources[0]
+        let request = PlaybackRequest(item: item, source: source, resumeAt: nil,
+                                      label: item.title, contentKey: item.id)
+        let unrestrict: (String) async throws -> URL
+        if hangs {
+            unrestrict = { _ in try await Task.sleep(for: .seconds(3600)); return URL(string: "https://example.invalid/film.mkv")! }
+        } else if failing {
+            unrestrict = { _ in throw URLError(.timedOut) }
+        } else {
+            unrestrict = { _ in URL(string: "https://example.invalid/film.mkv")! }
+        }
+        model = PlayerModel(request: request, engine: engine, unrestrict: unrestrict,
+                            recordProgress: { _, _, _, _, _ in }, subtitles: nil, loadTimeout: 3600)
+    }
+
+    /// `start()`, then the sequence a real play makes: tracks discovered, `.playing`, and a moving
+    /// playhead (two ticks — the second is what marks the first rendered frame) — so the HUD is
+    /// screenshot-verified against real model state, not hand-placed fields.
+    func prime() async {
+        model.start()
+        try? await Task.sleep(for: .milliseconds(50))
+        engine.audioTracks = [
+            MediaTrack(id: "audio/0", kind: .audio, name: "English 5.1 (E-AC-3)", language: "en", codec: "eac3"),
+            MediaTrack(id: "audio/1", kind: .audio, name: "English 2.0 (AAC)", language: "en", codec: "mp4a"),
+        ]
+        engine.subtitleTracks = [
+            MediaTrack(id: "spu/0", kind: .subtitle, name: "English", language: "en", codec: "subt"),
+            MediaTrack(id: "spu/1", kind: .subtitle, name: "English SDH", language: "en", codec: "subt"),
+            MediaTrack(id: "spu/2", kind: .subtitle, name: "עברית", language: "he", codec: "subt"),
+        ]
+        engine.emit(.tracksChanged)
+        engine.emit(.state(.playing))
+        engine.emit(.time(.init(position: 3752, duration: 8160)))
+        try? await Task.sleep(for: .milliseconds(30))
+        engine.emit(.time(.init(position: 3753, duration: 8160)))
+        try? await Task.sleep(for: .milliseconds(30))
+    }
+}
 #endif

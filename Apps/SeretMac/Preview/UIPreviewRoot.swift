@@ -46,6 +46,13 @@ struct UIPreviewRoot: View {
                 titlePreview(item: Fixture.show)
             case "titleshows2":
                 titlePreview(item: Fixture.show, selectSeason: 2)
+            case "playerloading":
+                // `PlayerScreen`'s own `.onAppear` calls `model.start()`; a hanging unrestrict keeps
+                // it stuck in `.preparing` so the cold-open overlay stays on screen.
+                PlayerPreviewHost(driver: PlayerPreviewDriver(hangs: true), action: .none)
+            case "playerfailed":
+                // Likewise: `.onAppear` alone drives the (failing) load to `.failed`.
+                PlayerPreviewHost(driver: PlayerPreviewDriver(failing: true), action: .none)
             case "shellnav":
                 MainShell(model: {
                     let model = ShellModel(defaults: UserDefaults(suiteName: "seret.preview.shellnav")!)
@@ -108,6 +115,28 @@ struct UIPreviewRoot: View {
             .task {
                 if let selectSeason { await store.selectSeason(selectSeason) }
             }
+    }
+}
+
+/// Mounts `PlayerScreen` directly (not through `MainShell`/`ShellModel`) over a `PlayerPreviewDriver`
+/// — the fixture film's backdrop stands in for the video surface, a still frame to judge the HUD
+/// against. `PlayerScreen`'s own `.onAppear` already calls `model.start()`, so `.none` is enough for
+/// `playerloading`/`playerfailed` (the driver's `hangs`/`failing` decide what that load does);
+/// `.prime` runs the full tracks + playhead sequence (Task 7's playing/paused/tracks/upnext cases).
+private struct PlayerPreviewHost: View {
+    enum Action: Equatable { case none, prime }
+    @State var driver: PlayerPreviewDriver
+    let action: Action
+
+    var body: some View {
+        PlayerScreen(model: driver.model, onClose: {}) {
+            RemoteImage(url: TMDBClient.imageURL(path: Fixture.films[0].backdropPath, size: "w1280"))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .clipped()
+        }
+        .task {
+            if action == .prime { await driver.prime() }
+        }
     }
 }
 
