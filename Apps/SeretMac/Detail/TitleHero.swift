@@ -14,7 +14,6 @@ struct HeroBackdrop: View {
     var drifts: Bool = false
 
     @State private var size: CGSize = .zero
-    @State private var drift = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var kenBurns: Bool { drifts && !reduceMotion }
@@ -23,9 +22,7 @@ struct HeroBackdrop: View {
         ZStack {
             RemoteImage(url: url)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .scaleEffect(kenBurns && drift ? 1.09 : 1)
-                .offset(x: kenBurns && drift ? -0.014 * size.width : 0,
-                       y: kenBurns && drift ? -0.012 * size.height : 0)
+                .modifier(KenBurnsDrift(active: kenBurns, size: size))
                 .clipped()
             LinearGradient(
                 stops: [.init(color: .clear, location: 0.45), .init(color: Theme.Palette.canvas, location: 1)],
@@ -35,9 +32,28 @@ struct HeroBackdrop: View {
                 startPoint: .leading, endPoint: .trailing)
         }
         .onGeometryChange(for: CGSize.self) { $0.size } action: { size = $0 }
-        .onAppear {
-            guard kenBurns else { return }
-            withAnimation(.easeInOut(duration: 24).repeatForever(autoreverses: true)) { drift = true }
+    }
+}
+
+/// The drift itself: a `phaseAnimator` cycling rest ⇄ drifted every 24 s for as long as the view
+/// exists. A `withAnimation(.repeatForever)` fired from `.onAppear` never moved the art at all
+/// on Home (two captures 6 s apart were pixel-identical, while a shimmer on the same screen
+/// animated), and even when it runs it does not survive the view leaving and re-entering the
+/// screen. The phase animator owns its own loop, so a data refresh neither restarts nor stops it.
+/// Inactive (Reduce Motion, or a title page) = the image untouched, no animator at all.
+private struct KenBurnsDrift: ViewModifier {
+    let active: Bool
+    let size: CGSize
+
+    func body(content: Content) -> some View {
+        if active {
+            content.phaseAnimator([false, true]) { image, drifted in
+                image
+                    .scaleEffect(drifted ? 1.09 : 1)
+                    .offset(x: drifted ? -0.014 * size.width : 0, y: drifted ? -0.012 * size.height : 0)
+            } animation: { _ in .easeInOut(duration: 24) }
+        } else {
+            content
         }
     }
 }
