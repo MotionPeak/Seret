@@ -37,8 +37,11 @@ struct ShellToastView: View {
             Text(toast.message)
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(Theme.Palette.textPrimary)
-                .lineLimit(1)
+                // Two lines, not one: a failure's reason comes last ("Couldn't remove “…”. Please
+                // try again…") and one line cut exactly that off for any long title.
+                .lineLimit(2)
                 .truncationMode(.tail)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
