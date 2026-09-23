@@ -230,7 +230,10 @@ struct SurpriseReel: View {
 
     var body: some View {
         ZStack {
-            Color.black.opacity(0.82).ignoresSafeArea()
+            // Opaque: the grid behind must not show through the reel's dimmed neighbours.
+            Rectangle().fill(.ultraThinMaterial)
+                .overlay(Theme.Palette.canvas.opacity(0.94))
+                .ignoresSafeArea()
                 .onTapGesture(perform: onClose)
             VStack(spacing: 26) {
                 Text("SURPRISE ME")
