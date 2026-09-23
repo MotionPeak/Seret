@@ -32,8 +32,10 @@ struct SeretTVApp: App {
                 #if DEBUG
                 // The harness is attached ONLY when the flag is present. Attaching it
                 // unconditionally would hijack every debug launch into playback.
-                // `-autoPlayShow <title>` implies auto-play, so it works without `-autoPlay 0`.
-                if let index = Self.autoPlayIndex ?? (AutoPlayHarness.showNeedle != nil ? 0 : nil) {
+                // `-autoPlayShow` / `-autoPlayMovie <title>` imply auto-play, so they work without
+                // `-autoPlay 0`.
+                let named = AutoPlayHarness.showNeedle != nil || AutoPlayHarness.movieNeedle != nil
+                if let index = Self.autoPlayIndex ?? (named ? 0 : nil) {
                     RootView()
                         .environment(session)
                         .modifier(AutoPlayHarness(session: session, index: index))

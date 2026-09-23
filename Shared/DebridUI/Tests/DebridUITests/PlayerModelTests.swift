@@ -1246,6 +1246,45 @@ import DebridCore
         #expect(model.position == 299.5)                     // landed near the target → live again
     }
 
+    /// A burst that lasts longer than the window is still ONE burst. The window used to be fixed
+    /// from the leading seek, so steady tapping (~3/s on the iPad's log) reopened it every ~0.5s
+    /// and reached libvlc as a seek every 150–380ms — thirteen in one burst, each restarting the
+    /// network reads of the one before. Every tap now pushes the window out.
+    @Test func aBurstLongerThanTheWindowStillCostsOnlyTheLeadingAndFinalSeek() async {
+        let engine = FakeVideoPlayerEngine()
+        let model = makeModel(request: Fixture.request(), engine: engine, seekCoalesceWindow: 0.5)
+        model.start(); await model.waitForIdleForTesting()
+        engine.emit(.time(.init(position: 50, duration: 1000))); await model.waitForIdleForTesting()
+        for tap in 0..<8 {                                   // 0.7s of tapping > the 0.5s window
+            if tap > 0 { try? await Task.sleep(nanoseconds: 100_000_000) }
+            model.skip(10)
+        }
+        #expect(engine.seeks == [60])                        // still inside the burst
+        try? await Task.sleep(nanoseconds: 900_000_000)      // go quiet for longer than the window
+        #expect(engine.seeks == [60, 130])
+    }
+
+    /// Every engine seek makes VLCKit echo the PRE-seek time (`setTime:` calls `timeChangeUpdate`),
+    /// and the give-up count was never reset between taps. Twelve echoes into a burst it expired,
+    /// the bar adopted the stale time, and the next tap counted from there — the iPad's log shows a
+    /// burst's target climbing to 1004s and then dropping back to 924s.
+    @Test func staleEchoesAcrossALongBurstDoNotEraseTheViewersSkips() async {
+        let engine = FakeVideoPlayerEngine()
+        let model = makeModel(request: Fixture.request(), engine: engine, seekCoalesceWindow: 5)
+        model.start(); await model.waitForIdleForTesting()
+        engine.emit(.time(.init(position: 100, duration: 2000))); await model.waitForIdleForTesting()
+        for _ in 0..<6 {
+            model.skip(10)
+            for echo in 0..<3 {                              // 18 echoes in all — past the 12-tick grace
+                engine.emit(.time(.init(position: 100 + Double(echo) * 0.1, duration: 2000)))
+            }
+            await model.waitForIdleForTesting()
+        }
+        #expect(model.position == 160)
+        model.skip(10)
+        #expect(model.position == 170)                       // the next tap counts from the burst
+    }
+
     // MARK: - Up Next prefetch (binge warm-up)
 
     @Test func upNextAppearingPrefetchesTheNextEpisodesLink() async {

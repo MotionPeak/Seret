@@ -27,7 +27,7 @@ extension PlayerModel {
         // never emits `.playing`, so raising it here would leave it up for good.
         if phase != .paused { isBuffering = true }
         lastTickPosition = target    // re-arm advance detection past the target
-        pendingSeek = target != origin ? (from: origin, to: target) : nil   // hold the bar through stale ticks
+        holdBar(from: origin, to: target)
         if seekEngine { scheduleCoalescedSeek(to: target) } else { coalescedSeekTarget = target }
         accumulateSkipFeedback(target - before)         // this tap's real jump feeds the indicator
     }
@@ -47,8 +47,18 @@ extension PlayerModel {
         position = target            // optimistic: the bar stays where the viewer put it
         if phase != .paused { isBuffering = true }
         lastTickPosition = target    // re-arm advance detection past the target
-        pendingSeek = target != origin ? (from: origin, to: target) : nil
+        holdBar(from: origin, to: target)
         engine.seek(to: target)
+    }
+
+    /// Hold the displayed playhead at `target` through VLCKit's stale pre-seek ticks (see `tick`),
+    /// with a FRESH give-up window. Carrying the old count into a new target is what erased skips:
+    /// every engine seek makes VLCKit echo the pre-seek time once (`setTime:` calls
+    /// `timeChangeUpdate`), so a burst of taps spent the whole grace on echoes, the bar adopted the
+    /// stale time, and the next tap counted from there.
+    func holdBar(from origin: Double, to target: Double) {
+        pendingSeek = target != origin ? (from: origin, to: target) : nil
+        pendingSeekTicks = 0
     }
 
     /// Shared bookkeeping for a deliberate user-initiated seek (skip / scrub commit / direct scrub):
@@ -83,12 +93,21 @@ extension PlayerModel {
     }
 
     /// See `seekCoalesceWindow`: leading seek fires immediately, skips landing inside the open
-    /// window only retarget, and one trailing seek issues the final target when it closes.
+    /// window only retarget, and one trailing seek issues the final target once the taps stop.
+    ///
+    /// Each skip pushes the window out rather than the window running from the leading seek. A
+    /// fixed window closed mid-burst whenever tapping outlasted it, and the next tap then opened a
+    /// fresh one with a fresh leading seek — steady tapping reached libvlc as a seek every
+    /// 150–380ms. libvlc cannot abandon a seek it has started, and on an RD stream one seek is
+    /// several new HTTPS connections, so each extra seek was paid for in full before the viewer's
+    /// real target even began.
     func scheduleCoalescedSeek(to target: Double) {
         coalescedSeekTarget = target
-        guard seekDispatchTask == nil else { return }   // window open → the trailing pass handles it
-        engine.seek(to: target)
-        dispatchedSeekTarget = target
+        if seekDispatchTask == nil {                    // idle → respond to this tap at once
+            engine.seek(to: target)
+            dispatchedSeekTarget = target
+        }
+        seekDispatchTask?.cancel()                      // a burst in progress → restart the quiet period
         seekGeneration &+= 1
         let generation = seekGeneration
         seekDispatchTask = Task { @MainActor in
@@ -160,7 +179,7 @@ extension PlayerModel {
         position = scrubTarget
         lastTickPosition = scrubTarget
         if phase != .paused { isBuffering = true }   // hint only while playing — see `skip`
-        pendingSeek = scrubTarget != from ? (from: from, to: scrubTarget) : nil   // hold through stale ticks
+        holdBar(from: from, to: scrubTarget)
         cancelCoalescedSeek()                  // a commit supersedes any open skip window
         engine.seek(to: scrubTarget)
         armAutoHide()
