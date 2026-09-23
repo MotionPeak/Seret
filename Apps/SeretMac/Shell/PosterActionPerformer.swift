@@ -41,6 +41,9 @@ struct PosterActionPerformer {
                 if ok {
                     shell?.showToast(Self.markedMessage(model: model, watched: watched))
                 } else {
+                    // Nothing was written, so take back the tick flipped above — or the poster
+                    // shows a mark that is gone on the next load.
+                    if let hit = model.hit { marks?.set(!watched, for: hit) }
                     shell?.showToast("Couldn\u{2019}t mark \u{201C}\(model.title)\u{201D} \u{2014} your profile hasn\u{2019}t loaded yet",
                                      isFailure: true)
                 }
