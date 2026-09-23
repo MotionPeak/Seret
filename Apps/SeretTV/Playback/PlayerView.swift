@@ -43,7 +43,7 @@ struct PlayerView: View {
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()                      // black backing for the open transition
-            VLCVideoView(videoView: engine.videoView).ignoresSafeArea()
+            VideoSurface(videoView: engine.videoView).ignoresSafeArea()
 
             // The interaction layer is ALWAYS mounted. It used to be the `else` branch of the
             // loading check, so while "Buffering…" showed there was no input surface, no bar and

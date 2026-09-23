@@ -1,4 +1,8 @@
+#if canImport(UIKit)
 import UIKit
+#else
+import AppKit
+#endif
 import DebridUI
 import VLCKit
 import DebridCore
@@ -31,6 +35,7 @@ import os
 /// Forcing every subview to fill our bounds — on add and on every layout pass — keeps VLCKit's
 /// render surface matched to the on-screen size, so aspect-fit letterboxes correctly and self-
 /// corrects across first layout, rotation, and split-view resize.
+#if canImport(UIKit)
 @MainActor
 final class VLCDrawableView: UIView {
     override func didAddSubview(_ subview: UIView) {
@@ -44,9 +49,40 @@ final class VLCDrawableView: UIView {
     }
 }
 
+/// The view type VLCKit renders into on this platform.
+typealias PlatformVideoView = UIView
+#else
+/// The AppKit twin. VLCKit 4's macOS drawable contract is the same `addSubview:` + `bounds` pair, so
+/// the same fix applies: force every subview to fill our bounds, on add and on every layout pass.
+@MainActor
+final class VLCDrawableView: NSView {
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.black.cgColor   // no flash of window colour before VLC draws
+    }
+
+    required init?(coder: NSCoder) { fatalError("VLCDrawableView is created in code") }
+
+    override func didAddSubview(_ subview: NSView) {
+        super.didAddSubview(subview)
+        subview.frame = bounds
+        subview.autoresizingMask = [.width, .height]
+    }
+
+    override func layout() {
+        super.layout()
+        for sub in subviews { sub.frame = bounds }
+    }
+}
+
+/// The view type VLCKit renders into on this platform.
+typealias PlatformVideoView = NSView
+#endif
+
 @MainActor
 final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
-    let videoView: UIView = VLCDrawableView()
+    let videoView: PlatformVideoView = VLCDrawableView(frame: .zero)
     private let player: VLCMediaPlayer
     private let subtitleScale: Float
     /// Text-track ids present before any external subtitle was attached. Anything not in here is a
@@ -97,8 +133,12 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
         events = AsyncStream(bufferingPolicy: .bufferingNewest(64)) { cont = $0 }
         continuation = cont
         super.init()
+        #if canImport(UIKit)
         videoView.backgroundColor = .black   // base stays black (no grey flash before VLCKit renders)
         videoView.autoresizingMask = [.flexibleWidth, .flexibleHeight]   // track the SwiftUI host frame
+        #else
+        videoView.autoresizingMask = [.width, .height]   // the drawable paints its own black layer
+        #endif
         // NOTE: the actual aspect/crop fix is VLCDrawableView (above) — it keeps VLCKit's render
         // SUBVIEW matched to bounds. Assigning drawable here (pre-layout, .zero bounds) is why that
         // subview would otherwise stay mis-sized.

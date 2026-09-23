@@ -189,9 +189,14 @@ targets:
     deploymentTarget: "26.0"
     sources:
       - path: Apps/SeretMac
+      - path: Shared/SeretPlayer
+      - path: Shared/Fonts
     dependencies:
       - package: DebridCore
       - package: DebridUI
+      - framework: Frameworks/VLCKit.xcframework
+        embed: true
+        codeSign: true
     info:
       path: Apps/SeretMac/Info.plist
       properties:
@@ -208,6 +213,8 @@ targets:
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
         NSLocalNetworkUsageDescription: Seret uses your local network to reach your Seret server.
+        # Rubik is a subtitle option; VLC resolves it by family name, so it must be registered.
+        ATSApplicationFontsPath: "."
     settings:
       base:
         PRODUCT_NAME: Seret
@@ -218,6 +225,10 @@ targets:
         ENABLE_HARDENED_RUNTIME: NO
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         COMBINE_HIDPI_IMAGES: YES
+        SWIFT_OBJC_BRIDGING_HEADER: Shared/SeretPlayer/SeretVLCBridge.h
+        LD_RUNPATH_SEARCH_PATHS:
+          - "$(inherited)"
+          - "@executable_path/../Frameworks"
     configFiles:
       Debug: Secrets.xcconfig
       Release: Secrets.xcconfig
