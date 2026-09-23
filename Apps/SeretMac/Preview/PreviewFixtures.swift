@@ -203,19 +203,80 @@ actor PreviewWatch: WatchProgressProviding {
 /// no network. Season 2 lists 8 episodes against 3 owned (`Fixture.show`), so `titleshows2` shows
 /// exactly "3 owned, 5 not downloaded".
 struct PreviewDetails: MediaDetailsProviding {
+    /// Dune: Part Two gets the real TMDB logo/cast/director/collection (fetched once against the
+    /// live API — Task 3); any other fixture film degrades to the plain genres it always had.
     func movieDetails(tmdbID: Int) async throws -> TMDBMovieDetails {
         let title = Fixture.films.first { $0.tmdbID == tmdbID }?.title ?? "Film"
-        return TMDBMovieDetails(id: tmdbID, title: title, releaseDate: nil, overview: nil,
-                                posterPath: nil, backdropPath: nil, runtime: 167,
-                                genres: [TMDBGenre(id: 1, name: "Science Fiction"), TMDBGenre(id: 2, name: "Adventure")],
-                                voteAverage: nil)
+        guard tmdbID == 693134 else {
+            return TMDBMovieDetails(id: tmdbID, title: title, releaseDate: nil, overview: nil,
+                                    posterPath: nil, backdropPath: nil, runtime: 167,
+                                    genres: [TMDBGenre(id: 1, name: "Science Fiction"), TMDBGenre(id: 2, name: "Adventure")],
+                                    voteAverage: nil)
+        }
+        return TMDBMovieDetails(
+            id: tmdbID, title: title, releaseDate: "2024-02-27", overview: nil,
+            posterPath: nil, backdropPath: nil, runtime: 167,
+            genres: [TMDBGenre(id: 1, name: "Science Fiction"), TMDBGenre(id: 2, name: "Adventure")],
+            voteAverage: 8.5, originalLanguage: "en", imdbID: "tt15239678",
+            cast: Self.duneCast, directors: [TMDBPersonRef(id: 137427, name: "Denis Villeneuve")],
+            similar: [], collection: TMDBCollectionRef(id: 726871, name: "Dune Collection"),
+            images: TMDBImageSet(backdrops: [],
+                                 logos: [TMDBImageRef(filePath: "/eYvF1LhPKuoBxOAmWjFTAK7EPWl.png",
+                                                      languageCode: "en", voteAverage: 4.722, width: 4319)]))
     }
 
-    func tvDetails(tmdbID: Int) async throws -> TMDBTVDetails {
-        TMDBTVDetails(id: tmdbID, name: Fixture.show.title, firstAirDate: nil, overview: nil,
-                      posterPath: nil, backdropPath: nil, numberOfSeasons: 2,
-                      genres: [TMDBGenre(id: 1, name: "Crime"), TMDBGenre(id: 2, name: "Drama")], voteAverage: nil)
+    /// The Dune Collection, real (fetched once) — two released films plus one unreleased (Part
+    /// Three, 2026-12-15) that `FranchiseOrder` must drop, proving "Film 2 of 2" not "of 3".
+    func collection(id: Int) async throws -> TMDBCollection? {
+        guard id == 726871 else { return nil }
+        func part(_ id: Int, _ title: String, _ date: String, _ poster: String) -> TMDBSearchResult {
+            TMDBSearchResult(id: id, title: title, name: nil, releaseDate: date, firstAirDate: nil,
+                             posterPath: poster, overview: nil, voteAverage: nil)
+        }
+        return TMDBCollection(id: 726871, name: "Dune Collection", parts: [
+            part(438631, "Dune", "2021-09-15", "/d5NXSklXo0qyIYkgV94XAgMIckC.jpg"),
+            part(693134, "Dune: Part Two", "2024-02-27", "/6izwz7rsy95ARzTR3poZ8H6c5pp.jpg"),
+            part(1170608, "Dune: Part Three", "2026-12-15", "/d43fvHQsIMa4kpyhKXw0haEJIvI.jpg"),
+        ])
     }
+
+    private static func cast(_ id: Int, _ name: String, _ profile: String) -> TMDBCastMember {
+        TMDBCastMember(id: id, name: name, character: nil, profilePath: profile)
+    }
+
+    static let duneCast: [TMDBCastMember] = [
+        cast(1190668, "Timoth\u{E9}e Chalamet", "/dFxpwRpmzpVfP1zjluH68DeQhyj.jpg"),
+        cast(505710, "Zendaya", "/3WdOloHpjtjL96uVOhFRRCcYSwq.jpg"),
+        cast(933238, "Rebecca Ferguson", "/ra53cM1aNmdH0aFhj8yBqPOj2fb.jpg"),
+        cast(3810, "Javier Bardem", "/zfRID0jx8DKBluPGU9xtk9sZWUt.jpg"),
+        cast(16851, "Josh Brolin", "/sX2etBbIkxRaCsATyw5ZpOVMPTD.jpg"),
+        cast(86654, "Austin Butler", "/atdAs4pFGjUQ4m2W8kJYly7N6cC.jpg"),
+        cast(1373737, "Florence Pugh", "/ejgQXt1fAvPueAvacDsGwG00aA.jpg"),
+        cast(543530, "Dave Bautista", "/snk6JiXOOoRjPtHU5VMoy6qbd32.jpg"),
+    ]
+
+    /// Breaking Bad also gets its real logo/cast/creator.
+    func tvDetails(tmdbID: Int) async throws -> TMDBTVDetails {
+        TMDBTVDetails(id: tmdbID, name: Fixture.show.title, firstAirDate: "2008-01-20", overview: nil,
+                      posterPath: nil, backdropPath: nil, numberOfSeasons: 2,
+                      genres: [TMDBGenre(id: 1, name: "Crime"), TMDBGenre(id: 2, name: "Drama")],
+                      voteAverage: nil, originalLanguage: "en", imdbID: "tt0903747", cast: Self.bbCast,
+                      creatorRefs: [TMDBPersonRef(id: 66633, name: "Vince Gilligan")],
+                      images: TMDBImageSet(backdrops: [],
+                                           logos: [TMDBImageRef(filePath: "/chw44B2VnLha8iiTdyZcIW0ZELC.png",
+                                                                languageCode: "en", voteAverage: 6.312, width: 2184)]))
+    }
+
+    static let bbCast: [TMDBCastMember] = [
+        cast(17419, "Bryan Cranston", "/7Jahy5LZX2Fo8fGJltMreAI49hC.jpg"),
+        cast(84497, "Aaron Paul", "/8Ac9uuoYwZoYVAIJfRLzzLsGGJn.jpg"),
+        cast(134531, "Anna Gunn", "/adppyeu1a4REN3khtgmXusrapFi.jpg"),
+        cast(209674, "RJ Mitte", "/sNPA92ZrssYhlaB1UA2pWcLD9db.jpg"),
+        cast(14329, "Dean Norris", "/mKRrEbsxAX3ro700HsViFArRM7l.jpg"),
+        cast(1217934, "Betsy Brandt", "/xAnuzyjdMbQq9L1c4JNwXL52Wm4.jpg"),
+        cast(59410, "Bob Odenkirk", "/rF0Lb6SBhGSTvjRffmlKRSeI3jE.jpg"),
+        cast(783, "Jonathan Banks", "/bswk26L13PvY4iMTwUTAsepXCLv.jpg"),
+    ]
 
     func seasonEpisodes(tvID: Int, season: Int) async throws -> [TMDBEpisodeDetails] {
         switch season {
@@ -250,6 +311,84 @@ struct PreviewDetails: MediaDetailsProviding {
         episode(7, "Negro y Azul", "/1IOnhCCeru1BZUPeppu7tMmtxvL.jpg", 48),
         episode(8, "Better Call Saul", "/KmFdF23FtbPwwz3FJF2T885r2Z.jpg", 48),
     ]
+}
+
+/// A canned `RatingsProviding` — IMDb 8.5, RT 92%, Metacritic 79 for every imdbID asked.
+struct PreviewRatings: RatingsProviding {
+    func ratings(imdbID: String) async throws -> OMDbRatings {
+        OMDbRatings(imdb: 8.5, rottenTomatoes: 92, metacritic: 79)
+    }
+}
+
+/// A `RatingsProviding` that never resolves — `titleratingsloading`'s shimmer chips.
+struct PreviewHangingRatings: RatingsProviding {
+    func ratings(imdbID: String) async throws -> OMDbRatings {
+        try await Task.sleep(for: .seconds(3600))
+        return OMDbRatings(imdb: nil, rottenTomatoes: nil, metacritic: nil)
+    }
+}
+
+/// A canned `LetterboxdRatingProviding` — 4.4 from 120,000 members for every TMDB id.
+struct PreviewLetterboxd: LetterboxdRatingProviding {
+    func rating(forTMDB id: Int) async throws -> LetterboxdFilmRating? {
+        LetterboxdFilmRating(score: 4.4, count: 120_000)
+    }
+}
+
+/// The acquisition harness: a `StreamSource` + `AddProviding` pair that `TitleAcquirer` drives
+/// through fake `AcquisitionStore`/`AddStore` instances, so the not-owned title page's Play button
+/// can be screenshot-verified with no Real-Debrid account. `.instant` finds a cached stream and
+/// adds it straight away; `.none` finds nothing cached (the download section takes over in Task 4);
+/// `.hanging` never resolves, pinning the "Finding a version…" busy state.
+enum PreviewAcquireMode { case instant, none, hanging }
+
+struct PreviewAcquireSource: StreamSource, AddProviding {
+    let mode: PreviewAcquireMode
+
+    func streams(for query: StreamQuery) async throws -> [CachedStream] {
+        switch mode {
+        case .instant:
+            return [CachedStream(infoHash: String(repeating: "a", count: 40), fileIdx: nil,
+                                 rawTitle: "Dune.Part.Two.2024.2160p.BluRay.x265",
+                                 parsed: ParsedRelease(title: "Dune Part Two", resolution: "2160p",
+                                                       source: "BluRay", videoCodec: "HEVC", audioCodec: "DTS-HD"),
+                                 languages: ["en"], sizeBytes: 40_000_000_000, sourceName: "Preview", isCached: true)]
+        case .none:
+            return []
+        case .hanging:
+            try await Task.sleep(for: .seconds(3600))
+            return []
+        }
+    }
+
+    func add(infoHash: String) async throws -> TorrentInfo {
+        TorrentInfo(id: "preview-torrent", filename: "Dune.Part.Two.2024.2160p.BluRay.x265.mkv",
+                   hash: infoHash, bytes: 40_000_000_000, progress: 100, status: "downloaded",
+                   files: [TorrentFile(id: 1, path: "Dune.Part.Two.2024.2160p.BluRay.x265.mkv",
+                                       bytes: 40_000_000_000, selected: 1)],
+                   links: ["https://real-debrid.invalid/preview"])
+    }
+}
+
+/// Builds a `TitleAcquirer` over `PreviewAcquireSource`, for injection via `.environment(_:)` —
+/// the same seam `TitlePage` reads before falling back to `session?.makeTitleAcquirer(for:)`.
+@MainActor
+func makePreviewAcquirer(item: MediaItem, mode: PreviewAcquireMode) -> TitleAcquirer {
+    let source = PreviewAcquireSource(mode: mode)
+    return TitleAcquirer(
+        item: item,
+        makeAcquisition: {
+            AcquisitionStore(item: item) { kind in
+                AddStore(imdbID: "tt0000000", kind: kind, originalLanguage: "en",
+                        streamSource: source, add: source)
+            }
+        },
+        makeSeasonPack: { season in
+            AddStore(imdbID: "tt0000000", kind: .series(season: season, episode: 1),
+                    originalLanguage: "en", streamSource: source, add: source, seasonPack: season)
+        },
+        downloads: nil,
+        onAdded: {})
 }
 
 /// A no-op engine that relays emitted events — enough to drive `PlayerModel` end to end with no

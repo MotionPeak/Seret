@@ -2,29 +2,44 @@ import DebridCore
 import DebridUI
 import SwiftUI
 
-/// The basic title page: hero (Play/Resume/Start Over) plus the overview and, for a show, its
-/// season pills and episode grid. Everything else (cast, franchise, ratings, versions…) is M3.
+/// The full title page: hero (logo, credits, franchise, chips, Play/Resume/acquire) plus the
+/// overview and, for a show, its season pills and episode grid.
 struct TitlePage: View {
     let store: DetailStore
+    /// A harness-injected acquirer wins; otherwise the page builds one once its store's imdbID is
+    /// known — `TitleAcquirer` reads the store lazily, but building it needs the session on hand.
+    @Environment(TitleAcquirer.self) private var injectedAcquirer: TitleAcquirer?
+    @State private var ownAcquirer: TitleAcquirer?
+    @State private var scrollOffset: CGFloat = 0
 
     @Environment(AppSession.self) private var session: AppSession?
     @Environment(ShellModel.self) private var shell: ShellModel?
     @Environment(\.pageLeadingInset) private var pageLeadingInset
 
+    private var acquirer: TitleAcquirer? { injectedAcquirer ?? ownAcquirer }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                TitleHero(store: store)
+                TitleHero(store: store, acquirer: acquirer, scrollOffset: scrollOffset)
                 content
             }
         }
         .scrollIndicators(.hidden)
+        .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y } action: { _, y in
+            scrollOffset = y
+        }
         .task {
             await store.load()
             let source = store.item.kind == .movie ? store.bestSource : store.nextEpisode()?.source
             if let source { session?.prefetchPlayback(for: source) }
         }
         .task { await store.loadPreferredVersion() }
+        .task { await store.loadMyList(contentKey: store.item.id) }
+        .task(id: store.imdbID) {
+            guard injectedAcquirer == nil, ownAcquirer == nil, let session else { return }
+            ownAcquirer = session.makeTitleAcquirer(for: store)
+        }
         .onChange(of: shell?.playbackEndedCount) { _, _ in Task { await store.reloadWatch() } }
     }
 

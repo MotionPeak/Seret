@@ -106,6 +106,10 @@ struct MainShell: View {
         Task {
             if let message = await library?.removeReportingFailure(item) {
                 model.removalError = message
+            } else {
+                // Removed clean — if the title page for it is what's on top, there is nothing
+                // left there to show.
+                model.popTitleIfShowing(item.id)
             }
         }
     }

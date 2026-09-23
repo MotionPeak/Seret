@@ -1,3 +1,5 @@
+import DebridCore
+import DebridUI
 import Testing
 @testable import Seret
 
@@ -57,5 +59,63 @@ import Testing
 
     @Test func anOwnedTitleWithNothingPlayableIsNotAvailable() {
         #expect(TitlePageText.unavailableTitle(isOwned: true) == "Not Available")
+    }
+
+    // MARK: - Credit line
+
+    @Test func creditLineForAFilm() {
+        #expect(TitlePageText.creditLine(kind: .movie, names: ["Denis Villeneuve"]) == "Dir. Denis Villeneuve")
+    }
+
+    @Test func creditLineForAShow() {
+        #expect(TitlePageText.creditLine(kind: .show, names: ["Vince Gilligan"]) == "Created by Vince Gilligan")
+    }
+
+    @Test func multipleCreditsAreCommaJoined() {
+        #expect(TitlePageText.creditLine(kind: .show, names: ["A", "B"]) == "Created by A, B")
+    }
+
+    @Test func noCreditsNoLine() {
+        #expect(TitlePageText.creditLine(kind: .movie, names: []) == nil)
+    }
+
+    // MARK: - Franchise line
+
+    @Test func franchiseLineReadsFilmNOfM() {
+        // `count` is `parts.count` — a "2 of 2" franchise needs two parts, not just a position.
+        func part(_ id: Int, _ title: String, _ date: String) -> TMDBSearchResult {
+            TMDBSearchResult(id: id, title: title, name: nil, releaseDate: date, firstAirDate: nil,
+                             posterPath: nil, overview: nil, voteAverage: nil)
+        }
+        let twoPart = Franchise(name: "Dune Collection",
+                                parts: [part(1, "Dune", "2021-01-01"), part(2, "Dune: Part Two", "2024-01-01")],
+                                position: 2)
+        #expect(TitlePageText.franchiseLine(twoPart) == "Film 2 of 2 \u{00B7} Dune Collection")
+    }
+
+    // MARK: - Ratings formatting
+
+    @Test func ratingsFormat() {
+        #expect(TitlePageText.imdb(8.5) == "8.5")
+        #expect(TitlePageText.rottenTomatoes(92) == "92%")
+        #expect(TitlePageText.letterboxd(4.4) == "4.4")
+        #expect(TitlePageText.letterboxd(4.0) == "4.0")
+    }
+
+    @Test func metacriticBandsAt61And40() {
+        #expect(TitlePageText.metacriticBand(79) == .good)
+        #expect(TitlePageText.metacriticBand(61) == .good)
+        #expect(TitlePageText.metacriticBand(60) == .mixed)
+        #expect(TitlePageText.metacriticBand(40) == .mixed)
+        #expect(TitlePageText.metacriticBand(39) == .bad)
+    }
+
+    // MARK: - Acquire title
+
+    @Test func acquireTitles() {
+        #expect(TitlePageText.acquireTitle(episode: nil, finding: false) == "Play")
+        #expect(TitlePageText.acquireTitle(episode: (season: 1, number: 1), finding: false) == "Play S1\u{00B7}E1")
+        #expect(TitlePageText.acquireTitle(episode: nil, finding: true) == "Finding a version\u{2026}")
+        #expect(TitlePageText.acquireTitle(episode: (season: 1, number: 1), finding: true) == "Finding a version\u{2026}")
     }
 }

@@ -1,3 +1,4 @@
+import DebridCore
 import DebridUI
 import Foundation
 
@@ -40,6 +41,43 @@ enum TitlePageText {
     /// is M3) → "Not in Your Library".
     static func unavailableTitle(isOwned: Bool) -> String {
         isOwned ? "Not Available" : "Not in Your Library"
+    }
+
+    /// "Dir. Denis Villeneuve" / "Created by Vince Gilligan, Peter Gould"; nil when there is no
+    /// credit at all — the row simply does not draw.
+    static func creditLine(kind: MediaKind, names: [String]) -> String? {
+        guard !names.isEmpty else { return nil }
+        let prefix = kind == .movie ? "Dir." : "Created by"
+        return "\(prefix) \(names.joined(separator: ", "))"
+    }
+
+    /// "Film 2 of 3 · Dune Collection" — the "3" is released films only (`Franchise.count`
+    /// already dropped anything unreleased when it was built).
+    static func franchiseLine(_ f: Franchise) -> String {
+        "Film \(f.position) of \(f.count) · \(f.name)"
+    }
+
+    /// "8.5" — one decimal, IMDb's own scale.
+    static func imdb(_ v: Double) -> String { String(format: "%.1f", v) }
+
+    /// "92%" — Rotten Tomatoes' own scale.
+    static func rottenTomatoes(_ v: Int) -> String { "\(v)%" }
+
+    /// "4.4" — Letterboxd's own 0.5–5 scale, one decimal.
+    static func letterboxd(_ v: Double) -> String { String(format: "%.1f", v) }
+
+    /// Which colour a Metacritic score reads in: their own thresholds.
+    enum MetacriticBand: Equatable { case good, mixed, bad }
+    static func metacriticBand(_ v: Int) -> MetacriticBand {
+        v >= 61 ? .good : (v >= 40 ? .mixed : .bad)
+    }
+
+    /// The not-owned hero's primary button: "Play" (film) / "Play S1·E1" (show, from
+    /// `nextEpisodeTarget()`) / "Finding a version…" while `TitleAcquirer` is busy on it.
+    static func acquireTitle(episode: (season: Int, number: Int)?, finding: Bool) -> String {
+        if finding { return "Finding a version\u{2026}" }
+        if let episode { return "Play S\(episode.season)\u{00B7}E\(episode.number)" }
+        return "Play"
     }
 }
 

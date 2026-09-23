@@ -86,6 +86,10 @@ struct UIPreviewRoot: View {
                 titlePreview(item: Fixture.show)
             case "titleshows2":
                 titlePreview(item: Fixture.show, selectSeason: 2)
+            case "titlefinding":
+                titleFindingPreview()
+            case "titleratingsloading":
+                titlePreview(item: Fixture.films[0], ratings: PreviewHangingRatings())
             case "playerloading":
                 // `PlayerScreen`'s own `.onAppear` calls `model.start()`; a hanging unrestrict keeps
                 // it stuck in `.preparing` so the cold-open overlay stays on screen.
@@ -176,23 +180,37 @@ struct UIPreviewRoot: View {
 
     /// Mounts `MainShell` on `.library` with the title already pushed (the real navigation path a
     /// poster click takes) and a fixture `DetailStore` injected — the same seam `TitleRoute` reads
-    /// before falling back to the session.
-    private func titlePreview(item: MediaItem, selectSeason: Int? = nil) -> some View {
+    /// before falling back to the session. `acquireMode` injects a `TitleAcquirer` over
+    /// `PreviewAcquireSource`, the same seam `TitlePage` reads before building its own.
+    private func titlePreview(item: MediaItem, selectSeason: Int? = nil,
+                              ratings: RatingsProviding = PreviewRatings(),
+                              letterboxd: LetterboxdRatingProviding = PreviewLetterboxd(),
+                              acquireMode: PreviewAcquireMode? = nil) -> some View {
         let suite = "seret.preview.title.\(UUID().uuidString)"
         let model = ShellModel(defaults: UserDefaults(suiteName: suite)!)
         model.select(.library)
         model.open(.title(item))
-        let store = DetailStore(item: item, details: PreviewDetails(), watch: PreviewWatch(Fixture.watch), profileID: "")
-        return MainShell(model: model)
-            .environment(store)
-            .task {
-                if let selectSeason { await store.selectSeason(selectSeason) }
+        let store = DetailStore(item: item, details: PreviewDetails(), watch: PreviewWatch(Fixture.watch),
+                                profileID: "", ratings: ratings, letterboxd: letterboxd)
+        return Group {
+            if let acquireMode {
+                MainShell(model: model)
+                    .environment(store)
+                    .environment(makePreviewAcquirer(item: item, mode: acquireMode))
+            } else {
+                MainShell(model: model)
+                    .environment(store)
             }
+        }
+        .task {
+            if let selectSeason { await store.selectSeason(selectSeason) }
+        }
     }
 
     /// `-uiPreview titlenotowned` — `MainShell` on `.movies` with `.title(.placeholder(for:))`
-    /// pushed for a title the fixture library does NOT own (Decision 2), so the hero shows the
-    /// disabled gold "Not in Your Library" button instead of Play.
+    /// pushed for a title the fixture library does NOT own (Decision 2). `PreviewDetails` gives
+    /// 693134 (Dune: Part Two) its real imdbID, so once details resolve the hero's acquire button
+    /// reads an enabled gold "Play" rather than the disabled M2 "Not in Your Library".
     private func titleNotOwnedPreview() -> some View {
         let suite = "seret.preview.titlenotowned.\(UUID().uuidString)"
         let model = ShellModel(defaults: UserDefaults(suiteName: suite)!)
@@ -206,6 +224,31 @@ struct UIPreviewRoot: View {
         let store = DetailStore(item: item, details: PreviewDetails(), watch: PreviewWatch(Fixture.watch), profileID: "")
         return MainShell(model: model)
             .environment(store)
+            .environment(makePreviewAcquirer(item: item, mode: .instant))
+    }
+
+    /// `-uiPreview titlefinding` — the same not-owned Dune page, but the acquirer's stream source
+    /// hangs forever, and Play is auto-tapped once details resolve — pinning the busy "Finding a
+    /// version…" state (icon pulsing, button disabled) for a screenshot.
+    private func titleFindingPreview() -> some View {
+        let suite = "seret.preview.titlefinding.\(UUID().uuidString)"
+        let model = ShellModel(defaults: UserDefaults(suiteName: suite)!)
+        model.select(.movies)
+        let hit = SearchHit(result: TMDBSearchResult(id: 693134, title: "Dune: Part Two", name: nil,
+                                                     releaseDate: "2024-01-01", firstAirDate: nil,
+                                                     posterPath: "/6izwz7rsy95ARzTR3poZ8H6c5pp.jpg",
+                                                     overview: nil, voteAverage: 8.2), kind: .movie)
+        let item = MediaItem.placeholder(for: hit)
+        model.open(.title(item))
+        let store = DetailStore(item: item, details: PreviewDetails(), watch: PreviewWatch(Fixture.watch), profileID: "")
+        let acquirer = makePreviewAcquirer(item: item, mode: .hanging)
+        return MainShell(model: model)
+            .environment(store)
+            .environment(acquirer)
+            .task {
+                await store.load()
+                Task { _ = await acquirer.play(.movie) }
+            }
     }
 }
 

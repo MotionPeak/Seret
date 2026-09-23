@@ -204,4 +204,22 @@ import Testing
         model.requestSearchFocus()
         #expect(model.searchFocusRequest == 2)
     }
+
+    // MARK: - Title removal pop
+
+    @Test func aRemovedTitleOnTopIsPopped() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.select(.library)
+        model.open(route("a"))
+        model.popTitleIfShowing("a")
+        #expect(model.history(for: .library).path.isEmpty)
+    }
+
+    @Test func aRemovedTitleNotOnTopIsLeftAlone() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.select(.library)
+        model.open(route("a"))
+        model.popTitleIfShowing("b")               // some other title's removal
+        #expect(model.history(for: .library).path == [route("a")])
+    }
 }

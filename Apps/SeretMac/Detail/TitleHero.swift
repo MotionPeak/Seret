@@ -58,7 +58,9 @@ private struct KenBurnsDrift: ViewModifier {
     }
 }
 
-private struct QualityChip: View {
+/// A film's resolution/source/codec pill. File-internal (not `private`) — the Versions list
+/// (Task 5) draws the same chip for an owned copy.
+struct QualityChip: View {
     let text: String
 
     var body: some View {
@@ -106,17 +108,31 @@ struct TitleHeroPlaceholder: View {
     }
 }
 
-/// The title page's hero: full-bleed backdrop fading into the canvas, title, meta line, quality
-/// chips (films only) and the primary action row (Play/Resume + Start Over, from
-/// `DetailStore.primaryPlay()`).
+/// The title page's hero: full-bleed backdrop (parallaxing and fading on scroll), logo art, the
+/// meta + credit line, the franchise line, quality/rating chips and the action row.
 struct TitleHero: View {
     let store: DetailStore
+    let acquirer: TitleAcquirer?
+    /// The page's `ScrollView` offset, for the backdrop parallax (Decision 12). 0 when the page
+    /// itself does not track it (e.g. the placeholder never scrolls under this view alone).
+    var scrollOffset: CGFloat = 0
 
-    @Environment(ShellModel.self) private var shell: ShellModel?
     @Environment(\.pageLeadingInset) private var pageLeadingInset
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var width: CGFloat = 1200
 
     private var height: CGFloat { TitlePageLayout.heroHeight(width: width) }
+
+    /// 0.4× the scroll offset — Reduce Motion drops the parallax to a still frame (Decision 12).
+    private var parallaxOffset: CGFloat {
+        reduceMotion ? 0 : max(0, scrollOffset) * 0.4
+    }
+
+    /// Fades out across the hero's own height, floor 0.
+    private var backdropOpacity: Double {
+        guard height > 0 else { return 1 }
+        return 1 - min(1, max(0, scrollOffset) / height)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -127,6 +143,8 @@ struct TitleHero: View {
         .frame(height: height)
         .background {
             HeroBackdrop(url: TMDBClient.imageURL(path: store.backdropPath ?? store.item.posterPath, size: "w1280"))
+                .offset(y: parallaxOffset)
+                .opacity(backdropOpacity)
         }
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
         .clipped()
@@ -134,25 +152,22 @@ struct TitleHero: View {
 
     private var copy: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(store.item.title)
-                .font(.system(size: 38, weight: .heavy))
-                .foregroundStyle(Theme.Palette.textPrimary)
-                .lineLimit(2)
-                .shadow(color: .black.opacity(0.6), radius: 12, y: 4)
-            Text(metaLine)
-                .font(.system(size: 13))
-                .foregroundStyle(Color.white.opacity(0.8))
-            if !qualityChips.isEmpty {
-                HStack(spacing: 6) {
-                    ForEach(qualityChips, id: \.self) { QualityChip(text: $0) }
-                }
+            TitleLogo(path: store.logoPath, title: store.item.title)
+            metaAndCreditLine
+            if let franchise = store.franchise {
+                Text(TitlePageText.franchiseLine(franchise))
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Theme.Palette.gold)
             }
-            actions
+            if !qualityChips.isEmpty || hasAnyRatingChip { chipRow }
+            TitleActionsRow(store: store, acquirer: acquirer)
         }
         .padding(.leading, pageLeadingInset + 8)
         .padding(.bottom, 28)
         .frame(maxWidth: 640, alignment: .leading)
     }
+
+    // MARK: - Meta + credit
 
     private var metaLine: String {
         TitlePageText.metaLine(
@@ -162,46 +177,50 @@ struct TitleHero: View {
             seasonCount: store.item.kind == .show ? store.numberOfSeasons : nil)
     }
 
-    /// Films only — a show's chips would just repeat the meta line's season count.
+    /// "Dir." + bold director names (film) / "Created by" + bold creator names (show), appended
+    /// to the meta line. nil credit → the meta line alone.
+    private var creditParts: (prefix: String, names: String)? {
+        let names = store.item.kind == .movie ? store.directors.map(\.name) : store.creatorRefs.map(\.name)
+        guard !names.isEmpty else { return nil }
+        return (store.item.kind == .movie ? "Dir." : "Created by", names.joined(separator: ", "))
+    }
+
+    private var metaAndCreditLine: some View {
+        Group {
+            if let parts = creditParts {
+                Text("\(metaLine) \u{00B7} \(parts.prefix) \(Text(parts.names).fontWeight(.bold))")
+            } else {
+                Text(metaLine)
+            }
+        }
+        .font(.system(size: 13))
+        .foregroundStyle(Color.white.opacity(0.8))
+    }
+
+    // MARK: - Chip row
+
+    /// Films only, and only once owned — a show's chips would just repeat the meta line's season
+    /// count, and an unowned film has no source to describe.
     private var qualityChips: [String] {
         guard store.item.kind == .movie, let parsed = store.bestSource?.parsed else { return [] }
         return [parsed.resolution, parsed.source, parsed.videoCodec, parsed.audioCodec].compactMap { $0 }
     }
 
-    @ViewBuilder private var actions: some View {
-        if let pp = store.primaryPlay() {
-            HStack(spacing: 10) {
-                Button {
-                    shell?.present(pp.request)
-                } label: {
-                    Label(primaryTitle(pp), systemImage: "play.fill")
-                }
-                .buttonStyle(GoldButtonStyle())
-                if pp.resumeAt != nil {
-                    Button {
-                        shell?.present(pp.startOver)
-                    } label: {
-                        Label("Start Over", systemImage: "arrow.counterclockwise")
-                    }
-                    .buttonStyle(GlassButtonStyle())
-                }
-            }
-            .padding(.top, 4)
-        } else {
-            Button { } label: { Text(TitlePageText.unavailableTitle(isOwned: isOwned)) }
-                .buttonStyle(GoldButtonStyle())
-                .disabled(true)
-                .padding(.top, 4)
-        }
+    private var hasAnyRatingChip: Bool {
+        store.ratingsState == .loading || store.letterboxdState == .loading
+            || (store.ratings?.hasAny ?? false) || store.letterboxdRating != nil
     }
 
-    /// Owned = the library has something under this item — a source (a film) or a season (a show).
-    /// A title that never went through `LibraryStore` at all (a placeholder for a TMDB hit,
-    /// Decision 2) has neither, so its disabled button reads "Not in Your Library" rather than
-    /// "Not Available".
-    private var isOwned: Bool { !(store.item.sources.isEmpty && store.item.seasons.isEmpty) }
-
-    private func primaryTitle(_ pp: DetailStore.PrimaryPlay) -> String {
-        TitlePageText.primaryTitle(episode: pp.episode.map { ($0.season, $0.number) }, resumeAt: pp.resumeAt)
+    private var chipRow: some View {
+        HStack(spacing: 6) {
+            ForEach(qualityChips, id: \.self) { QualityChip(text: $0) }
+            if !qualityChips.isEmpty, hasAnyRatingChip {
+                Rectangle().fill(Theme.Palette.hairline).frame(width: 1, height: 14)
+            }
+            RatingChips(store: store)
+        }
+        // The row can run wider than the 640 pt copy column once every chip is present — never
+        // compress a chip's text into a vertical wrap to force it back inside that width.
+        .fixedSize(horizontal: true, vertical: false)
     }
 }

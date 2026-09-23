@@ -116,6 +116,14 @@ final class ShellModel {
 
     /// Set by any poster's "Remove from Library…" — drives the shared confirmation alert.
     var pendingRemoval: MediaItem?
+
+    /// Pops the SELECTED section's history once, but only when `id` is the route on top of it —
+    /// what a title page's own "Remove from Library…" needs once removal succeeds (a poster's
+    /// removal, from some OTHER page, must never pop whatever the viewer is looking at now).
+    func popTitleIfShowing(_ id: String) {
+        guard case .title(let top)? = history(for: selection).path.last, top.id == id else { return }
+        goBack()
+    }
     /// "Couldn't Remove" alert message, set when a confirmed removal fails.
     var removalError: String?
     /// "Couldn't Play" alert target, set when a poster's Play finds nothing playable.
