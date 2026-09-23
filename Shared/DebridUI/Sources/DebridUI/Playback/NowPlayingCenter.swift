@@ -1,8 +1,16 @@
 import Foundation
-#if canImport(MediaPlayer) && canImport(UIKit)
+#if canImport(MediaPlayer) && (canImport(UIKit) || canImport(AppKit))
 import MediaPlayer
-import UIKit
 import QuartzCore
+#if canImport(UIKit)
+import UIKit
+/// The image type MediaPlayer's artwork takes on this platform.
+typealias NowPlayingImage = UIImage
+#else
+import AppKit
+/// The image type MediaPlayer's artwork takes on this platform.
+typealias NowPlayingImage = NSImage
+#endif
 
 /// `NowPlayingControlling` backed by MediaPlayer. Declaring these commands is what makes the
 /// iPhone Remote app render a transport row with ±10s buttons and a scrubber — the same mechanism
@@ -138,6 +146,10 @@ public final class NowPlayingCenter: NowPlayingControlling {
         if let show = info.showName { entry[MPMediaItemPropertyArtist] = show }
         if let artwork { entry[MPMediaItemPropertyArtwork] = artwork }
         MPNowPlayingInfoCenter.default().nowPlayingInfo = entry
+        #if os(macOS)
+        // macOS routes the media keys and draws Control Center from this, not from the rate.
+        MPNowPlayingInfoCenter.default().playbackState = Self.playbackState(rate: info.rate)
+        #endif
     }
 
     public func deactivate() {
@@ -159,6 +171,9 @@ public final class NowPlayingCenter: NowPlayingControlling {
             command.isEnabled = false
         }
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+        #if os(macOS)
+        MPNowPlayingInfoCenter.default().playbackState = .stopped
+        #endif
         handlers = nil
     }
 
@@ -171,7 +186,7 @@ public final class NowPlayingCenter: NowPlayingControlling {
         artworkTask = Task { @MainActor [weak self] in
             guard let (data, _) = try? await URLSession.shared.data(from: url),
                   !Task.isCancelled, let self,
-                  let image = UIImage(data: data) else { return }
+                  let image = NowPlayingImage(data: data) else { return }
             self.artwork = Self.artwork(for: image)
             if let info = self.lastInfo { self.push(info) }
         }
@@ -187,12 +202,20 @@ public final class NowPlayingCenter: NowPlayingControlling {
     /// it isolation-free, so it can run wherever MediaPlayer likes.
     ///
     /// `nonisolated` is load-bearing, not stylistic. It is `internal` rather than `private` so
-    /// `NowPlayingArtworkTests` can call it off the main actor — that suite is tvOS app-hosted
-    /// because this file does not compile on macOS, so `swift test` can never reach it. Removing
-    /// `nonisolated` breaks that test's BUILD ("main actor-isolated static method cannot be called
-    /// from outside of the actor"), which is the compile-time guard on this regression.
-    nonisolated static func artwork(for image: UIImage) -> MPMediaItemArtwork {
+    /// `NowPlayingArtworkTests` can call it off the main actor — that suite is tvOS app-hosted.
+    /// This file compiles on macOS too, where `NowPlayingCenterMacTests` guards the same
+    /// regression under `swift test`. Removing `nonisolated` breaks that test's BUILD ("main
+    /// actor-isolated static method cannot be called from outside of the actor"), which is the
+    /// compile-time guard on this regression.
+    nonisolated static func artwork(for image: NowPlayingImage) -> MPMediaItemArtwork {
         MPMediaItemArtwork(boundsSize: image.size) { _ in image }
     }
+
+    #if os(macOS)
+    /// macOS does not infer playing/paused from the rate the way iOS does; it has to be told.
+    nonisolated static func playbackState(rate: Double) -> MPNowPlayingPlaybackState {
+        rate > 0 ? .playing : .paused
+    }
+    #endif
 }
 #endif
