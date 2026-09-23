@@ -16,6 +16,7 @@ struct PosterCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             poster
+                .posterHover(highlighted: highlighted)
             Text(title)
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(Theme.Palette.textPrimary)
@@ -28,7 +29,6 @@ struct PosterCard: View {
             }
         }
         .frame(width: Self.posterSize.width, alignment: .leading)
-        .posterHover(highlighted: highlighted)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityLabel)
     }
@@ -93,10 +93,10 @@ private struct PosterHover: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .offset(y: lifted ? -6 : 0)
-            .scaleEffect(lifted ? 1.03 : 1)
-            .overlay(alignment: .top) { rim }
+            .overlay { rim }
             .shadow(color: active ? Color.black.opacity(0.5) : .clear, radius: active ? 20 : 0, y: 10)
+            .scaleEffect(lifted ? 1.03 : 1)
+            .offset(y: lifted ? -6 : 0)
             .animation(Theme.Motion.quick, value: active)
             .onHover { hovering = $0 }
     }
@@ -105,7 +105,6 @@ private struct PosterHover: ViewModifier {
         if active {
             RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
                 .strokeBorder(Theme.Palette.gold.opacity(0.75), lineWidth: 1.5)
-                .frame(width: PosterCard.posterSize.width, height: PosterCard.posterSize.height)
                 .goldGlow(18, opacity: 0.28)
         }
     }
