@@ -42,8 +42,8 @@ struct SectionStack: View {
             BrowseRoot(kind: .show)
         case .library:
             LibraryRoot()
-        default:
-            SectionPlaceholder(section: section)
+        case .watchlist:
+            WatchlistRoot()
         }
     }
 }
