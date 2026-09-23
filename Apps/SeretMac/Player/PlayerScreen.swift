@@ -8,6 +8,8 @@ import SwiftUI
 struct PlayerScreen<Surface: View>: View {
     let model: PlayerModel
     let onClose: () -> Void
+    /// Runs after `teardown()` returns — the engine is stopped and the final position written.
+    let onTornDown: () -> Void
     @ViewBuilder let surface: () -> Surface
 
     @State private var windowRef = WindowRef()
@@ -20,10 +22,12 @@ struct PlayerScreen<Surface: View>: View {
     /// `hud` is injectable so the harness can pin auto-hide off (`HUDVisibility(delay: nil)`), and
     /// `tracksPanelOpen` so it can start the Audio & Subtitles panel already open — the real app
     /// always takes the defaults (a real-delay `HUDVisibility`, the panel closed).
-    init(model: PlayerModel, onClose: @escaping () -> Void, hud: HUDVisibility = HUDVisibility(),
+    init(model: PlayerModel, onClose: @escaping () -> Void, onTornDown: @escaping () -> Void = {},
+        hud: HUDVisibility = HUDVisibility(),
         tracksPanelOpen: Bool = false, @ViewBuilder surface: @escaping () -> Surface) {
         self.model = model
         self.onClose = onClose
+        self.onTornDown = onTornDown
         self.surface = surface
         _hud = State(wrappedValue: hud)
         _tracksPanelOpen = State(wrappedValue: tracksPanelOpen)
@@ -91,7 +95,10 @@ struct PlayerScreen<Surface: View>: View {
             sleepGuard.release()
             windowRef.restoreChrome()
             // Keeps the model (and so the engine) alive until it has actually stopped.
-            Task { await model.teardown() }
+            Task {
+                await model.teardown()
+                onTornDown()
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { note in
             guard (note.object as? NSWindow) === windowRef.window else { return }

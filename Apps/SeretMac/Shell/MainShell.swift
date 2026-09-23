@@ -20,7 +20,8 @@ struct MainShell: View {
                 .allowsHitTesting(model.playback == nil)
                 .accessibilityHidden(model.playback != nil)
             if let playback = model.playback, let session {
-                PlayerHost(request: playback.request, app: session, onExit: { model.endPlayback() })
+                PlayerHost(request: playback.request, app: session, onExit: { model.endPlayback() },
+                           onTornDown: { model.playerDidTearDown() })
                     .id(playback.id)          // a new presentation is a new host
                     .transition(.opacity)
                     .zIndex(2)

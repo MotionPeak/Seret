@@ -92,16 +92,17 @@ import Testing
         return PlaybackRequest(item: item(id), source: source, resumeAt: nil, label: "t", contentKey: id)
     }
 
-    @Test func endingPlaybackCountsOnceAndClearsTheSlot() {
+    @Test func endingPlaybackClearsTheSlotAndOnlyTeardownSignalsPages() {
         let model = ShellModel(defaults: freshDefaults())
         model.present(request("a"))
         #expect(model.playback != nil)
 
         model.endPlayback()
         #expect(model.playback == nil)
-        #expect(model.playbackEndedCount == 1)
+        // Pages must not re-read watch state yet: the final position is still being written.
+        #expect(model.playbackEndedCount == 0)
 
-        model.endPlayback()                         // no active presentation: no-op
+        model.playerDidTearDown()
         #expect(model.playbackEndedCount == 1)
     }
 

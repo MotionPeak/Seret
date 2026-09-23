@@ -10,16 +10,19 @@ struct PlayerHost: View {
     @StateObject private var session: PlayerSession
     private let request: PlaybackRequest
     private let onExit: () -> Void
+    private let onTornDown: () -> Void
 
-    init(request: PlaybackRequest, app: AppSession, onExit: @escaping () -> Void) {
+    init(request: PlaybackRequest, app: AppSession, onExit: @escaping () -> Void,
+         onTornDown: @escaping () -> Void = {}) {
         _session = StateObject(wrappedValue: PlayerSession(request: request, app: app))
         self.request = request
         self.onExit = onExit
+        self.onTornDown = onTornDown
     }
 
     var body: some View {
         if let model = session.model {
-            PlayerScreen(model: model, onClose: onExit) {
+            PlayerScreen(model: model, onClose: onExit, onTornDown: onTornDown) {
                 VideoSurface(videoView: session.engine.videoView)
             }
         } else {

@@ -68,7 +68,9 @@ final class ShellModel {
     }
 
     private(set) var playback: PlaybackPresentation?
-    /// Bumped every time a player closes; pages re-read watch state when it changes.
+    /// Bumped once a closed player has STOPPED AND WRITTEN its final position (not when it merely
+    /// leaves the screen — teardown is async, and a page that re-read watch state at dismissal
+    /// raced that last write and could show the previous Resume time). Pages re-read on change.
     private(set) var playbackEndedCount = 0
 
     /// Replaces any current presentation with a new one (a fresh id even for the same request).
@@ -76,9 +78,14 @@ final class ShellModel {
         playback = PlaybackPresentation(request: request)
     }
 
+    /// Takes the player off screen. Watch state is re-read later, by `playerDidTearDown()`.
     func endPlayback() {
-        guard playback != nil else { return }
         playback = nil
+    }
+
+    /// Called by the player after `PlayerModel.teardown()` has returned (engine stopped, final
+    /// progress recorded) — once per presentation.
+    func playerDidTearDown() {
         playbackEndedCount += 1
     }
 }
