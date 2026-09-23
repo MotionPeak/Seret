@@ -330,20 +330,28 @@ private struct BrowsePreviewHost: View {
 private struct SearchPreviewHost: View {
     let mode: PreviewSearch.Mode
 
+    /// Built once — built in `body`, every re-render made a fresh shell, library and store.
+    @State private var fixture: (model: ShellModel, library: LibraryStore, marks: TileWatchMarks)?
+    @State private var store: SearchStore?
+
     var body: some View {
-        let suite = "seret.preview.search.\(UUID().uuidString)"
-        let model = ShellModel(defaults: UserDefaults(suiteName: suite)!)
-        model.select(.home)
-        model.setSearchQuery("the")
-        let library = LibraryStore(library: PreviewLibrary(mode: .items(Fixture.films + Fixture.shows)),
-                                   watch: PreviewWatch(Fixture.watch), profileID: { "" })
-        let store = SearchStore(search: PreviewSearch(mode: mode))
-        let watchActor = PreviewWatch(Fixture.watch)
-        let marks = TileWatchMarks(watch: { watchActor }, profileID: { "" })
-        return MainShell(model: model)
-            .environment(library)
-            .environment(marks)
-            .environment(\.searchStore, store)
+        if let fixture, let store {
+            MainShell(model: fixture.model)
+                .environment(fixture.library)
+                .environment(fixture.marks)
+                .environment(\.searchStore, store)
+        } else {
+            Color.clear.onAppear {
+                let model = ShellModel(defaults: UserDefaults(suiteName: "seret.preview.search.\(UUID().uuidString)")!)
+                model.select(.home)
+                model.setSearchQuery("the")
+                let library = LibraryStore(library: PreviewLibrary(mode: .items(Fixture.films + Fixture.shows)),
+                                           watch: PreviewWatch(Fixture.watch), profileID: { "" })
+                let watchActor = PreviewWatch(Fixture.watch)
+                fixture = (model, library, TileWatchMarks(watch: { watchActor }, profileID: { "" }))
+                store = SearchStore(search: PreviewSearch(mode: mode))
+            }
+        }
     }
 }
 
