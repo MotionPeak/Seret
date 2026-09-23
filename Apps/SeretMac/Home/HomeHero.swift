@@ -13,8 +13,11 @@ struct HomeHero: View {
     let entry: HomeItem
 
     @Environment(ShellModel.self) private var shell: ShellModel?
+    @Environment(AppSession.self) private var session: AppSession?
     @Environment(\.pageLeadingInset) private var pageLeadingInset
     @State private var width: CGFloat = 1200
+    /// The title's TMDB logo art (spec §2: heroes show the logo, falling back to the title).
+    @State private var logoPath: String?
 
     private var height: CGFloat { TitlePageLayout.heroHeight(width: width) }
 
@@ -31,6 +34,18 @@ struct HomeHero: View {
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
         .clipped()
         .contextMenu { menuContent }
+        .task(id: entry.item.id) { await loadLogo() }
+    }
+
+    /// Details are cached with the title page's, so this is usually a memory hit; a failure just
+    /// leaves the text title in place.
+    private func loadLogo() async {
+        logoPath = nil
+        guard let details = session?.detailsProvider, let tmdbID = entry.item.tmdbID else { return }
+        switch entry.item.kind {
+        case .movie: logoPath = try? await details.movieDetails(tmdbID: tmdbID).logoPath
+        case .show: logoPath = try? await details.tvDetails(tmdbID: tmdbID).logoPath
+        }
     }
 
     private var copy: some View {
@@ -39,11 +54,16 @@ struct HomeHero: View {
                 .font(Theme.Typo.label())
                 .tracking(1.5)
                 .foregroundStyle(Theme.Palette.gold)
-            Text(entry.item.title)
-                .font(.system(size: 44, weight: .heavy))
-                .foregroundStyle(Theme.Palette.textPrimary)
-                .lineLimit(2)
-                .shadow(color: .black.opacity(0.6), radius: 12, y: 4)
+            if logoPath != nil {
+                TitleLogo(path: logoPath, title: entry.item.title)
+                    .transition(.opacity)
+            } else {
+                Text(entry.item.title)
+                    .font(.system(size: 44, weight: .heavy))
+                    .foregroundStyle(Theme.Palette.textPrimary)
+                    .lineLimit(2)
+                    .shadow(color: .black.opacity(0.6), radius: 12, y: 4)
+            }
             actions
         }
         .padding(.leading, pageLeadingInset + 8)
