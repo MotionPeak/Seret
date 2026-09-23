@@ -132,6 +132,12 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
         // with a 2× gain brings it to 127.9 and leaves SDR untouched (128.7). The values are
         // integers: libvlc silently ignores the names ("clip", "linear").
         options += ["--gl-tone-mapping-function=7", "--gl-tone-mapping-param=2.0"]
+        // Subtitles: libvlc's default is a heavy black outline plus a hard offset shadow. The
+        // approved look is a soft shadow with no box; a thin, semi-opaque outline and a close,
+        // softer shadow are as near as freetype gets (it cannot blur, and `--freetype-bold` has
+        // no effect in this build — checked by screenshot against the default).
+        options += ["--freetype-outline-thickness=2", "--freetype-outline-opacity=170",
+                    "--freetype-shadow-opacity=200", "--freetype-shadow-distance=0.04"]
         #endif
         options += extraOptions
         player = VLCMediaPlayer(options: options)
