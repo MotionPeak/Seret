@@ -313,7 +313,7 @@ final class PlayerPreviewDriver {
         try? await Task.sleep(for: .milliseconds(50))
         engine.audioTracks = [
             MediaTrack(id: "audio/0", kind: .audio, name: "English 5.1 (E-AC-3)", language: "en", codec: "eac3"),
-            MediaTrack(id: "audio/1", kind: .audio, name: "English 2.0 (AAC)", language: "en", codec: "mp4a"),
+            MediaTrack(id: "audio/1", kind: .audio, name: "Commentary with Denis Villeneuve - English 2.0 (AAC) - [eng]", language: "en", codec: "mp4a"),
         ]
         engine.subtitleTracks = [
             MediaTrack(id: "spu/0", kind: .subtitle, name: "English", language: "en", codec: "subt"),

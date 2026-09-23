@@ -31,8 +31,14 @@ struct PlayerScreen<Surface: View>: View {
 
     var body: some View {
         ZStack {
+            // The surface is an OVERLAY of the black layer, never a ZStack sibling: an overlay is
+            // offered exactly the window's size and cannot grow its parent. As a sibling, anything
+            // wider than the window (an aspect-filled frame, an NSView reporting its video size)
+            // widened the whole ZStack past the window edges, pushing the top bar under the traffic
+            // lights and the tracks panel's trailing column off screen.
             Color.black
-            surface()
+                .overlay { surface() }
+                .clipped()
             tapLayer
             PlayerStateOverlays(model: model, onClose: onClose)
             PlayerHUD(model: model, hud: hud, windowRef: windowRef, tracksPanelOpen: $tracksPanelOpen,

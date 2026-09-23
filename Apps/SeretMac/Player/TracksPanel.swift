@@ -24,21 +24,13 @@ struct TracksPanel: View {
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: PlayerHUDMetrics.panelCorner, style: .continuous))
     }
 
-    /// Measured (colour-swatch markers, step by step): a trailing sibling placed via `Spacer()`,
-    /// `.overlay(alignment: .trailing)`, `ZStack(alignment: .trailing)`, a `GeometryReader`-measured
-    /// `.position()`, or a leading `Text` grown via `.frame(maxWidth: .infinity)` never drew in this
-    /// panel — only a plain LEADING sibling at a small fixed width did. Root cause not pinned down;
-    /// every "icon on the right" here is a small fixed-width leading column instead, so the panel is
-    /// at least honest about what it can show rather than silently losing the selection indicator.
-    private static let rowTextWidth: CGFloat = 130
-
     private var header: some View {
         HStack {
             Text("Audio & Subtitles")
                 .font(Theme.Typo.headline())
                 .foregroundStyle(Theme.Palette.textPrimary)
                 .lineLimit(1)
-                .frame(width: Self.rowTextWidth + 40, alignment: .leading)
+            Spacer(minLength: 8)
             Button(action: onClose) {
                 Image(systemName: "xmark")
                     .font(.system(size: 12, weight: .semibold))
@@ -97,12 +89,16 @@ struct TracksPanel: View {
 
     private func row(title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack {
+            HStack(spacing: 8) {
+                // Takes every point the checkmark leaves; a long name truncates in the middle so
+                // both its language and its codec/title tail stay readable.
                 Text(title)
                     .font(.system(size: 13))
                     .foregroundStyle(Theme.Palette.textPrimary)
                     .lineLimit(1)
-                    .frame(width: Self.rowTextWidth, alignment: .leading)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .help(title)
                 Image(systemName: "checkmark")
                     .font(.system(size: 12, weight: .bold))
                     .foregroundStyle(Theme.Palette.gold)
