@@ -264,4 +264,113 @@ import Testing
         model.setSearchQuery("dune")                    // pushes .search on top of "a"
         #expect(model.titleOnTop == nil)                 // top of stack is .search, not a title
     }
+
+    // MARK: - Hero flight
+
+    private func sourceFrame() -> CGRect { CGRect(x: 100, y: 200, width: 150, height: 225) }
+    private func heroFrame() -> CGRect { CGRect(x: 0, y: 0, width: 1440, height: 533) }
+
+    @Test func openingATitleFromATileFliesForward() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.windowSize = CGSize(width: 1440, height: 900)
+        model.select(.library)
+        let tileID = UUID()
+        model.pendingFlightSource = FlightSource(tileID: tileID, frame: sourceFrame(), posterURL: nil)
+
+        model.open(route("a"))
+
+        #expect(model.flight?.direction == .forward)
+        #expect(model.flight?.routeID == "a")
+        #expect(model.flight?.from == sourceFrame())
+        #expect(model.flight?.tileID == tileID)
+        #expect(model.flight?.landed == false)
+    }
+
+    @Test func openingWithoutASourceDoesNotFly() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.windowSize = CGSize(width: 1440, height: 900)
+        model.select(.library)
+
+        model.open(route("a"))
+
+        #expect(model.flight == nil)
+    }
+
+    @Test func thePendingSourceIsConsumedEvenWhenNotFlying() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.select(.library)
+        // `windowSize` is left at `.zero` — the plan always cross-fades — but the pending source
+        // must still be cleared, or a LATER open (once the window has a size) would wrongly fly
+        // from this stale tile.
+        model.pendingFlightSource = FlightSource(tileID: UUID(), frame: sourceFrame(), posterURL: nil)
+
+        model.open(route("a"))
+
+        #expect(model.pendingFlightSource == nil)
+        #expect(model.flight == nil)
+    }
+
+    @Test func goingBackFliesToTheTilesLatestFrame() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.windowSize = CGSize(width: 1440, height: 900)
+        model.select(.library)
+        let tileID = UUID()
+        model.pendingFlightSource = FlightSource(tileID: tileID, frame: sourceFrame(), posterURL: nil)
+        model.open(route("a"))
+        model.heroFrame = heroFrame()
+        // The grid scrolled while the title page was up: the tile now reports a different frame.
+        let movedFrame = CGRect(x: 100, y: 40, width: 150, height: 225)
+        model.tileFrames[tileID] = movedFrame
+
+        model.goBack()
+
+        #expect(model.flight?.direction == .back)
+        #expect(model.flight?.from == movedFrame)
+        #expect(model.flight?.to == heroFrame())
+    }
+
+    @Test func goingBackWithTheTileGoneCrossFades() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.windowSize = CGSize(width: 1440, height: 900)
+        model.select(.library)
+        let tileID = UUID()
+        model.pendingFlightSource = FlightSource(tileID: tileID, frame: sourceFrame(), posterURL: nil)
+        model.open(route("a"))
+        model.heroFrame = heroFrame()
+        model.tileFrames[tileID] = nil          // the tile scrolled out of the grid / was recycled
+
+        model.goBack()
+
+        #expect(model.flight == nil)
+        #expect(model.history(for: .library).path.isEmpty)
+    }
+
+    @Test func aStaleLandingIsIgnored() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.windowSize = CGSize(width: 1440, height: 900)
+        model.select(.library)
+        model.pendingFlightSource = FlightSource(tileID: UUID(), frame: sourceFrame(), posterURL: nil)
+        model.open(route("a"))
+        let realID = model.flight!.id
+
+        model.landFlight(UUID())                // some other, already-replaced flight's id
+
+        #expect(model.flight?.id == realID)
+        #expect(model.flight?.landed == false)
+    }
+
+    @Test func aSecondOpenMidFlightReplacesTheFlight() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.windowSize = CGSize(width: 1440, height: 900)
+        model.select(.library)
+        model.pendingFlightSource = FlightSource(tileID: UUID(), frame: sourceFrame(), posterURL: nil)
+        model.open(route("a"))
+        let firstID = model.flight?.id
+
+        model.pendingFlightSource = FlightSource(tileID: UUID(), frame: sourceFrame(), posterURL: nil)
+        model.open(route("b"))
+
+        #expect(model.flight?.id != firstID)
+        #expect(model.flight?.routeID == "b")
+    }
 }

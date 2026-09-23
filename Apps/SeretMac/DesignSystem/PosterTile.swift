@@ -55,19 +55,33 @@ struct PosterTile: View {
     let perform: (PosterAction, PosterTileModel) -> Void
     /// Forces the tilt/hover look on — harness only, so it can be screenshotted without a pointer.
     var forcedPointer: UnitPoint? = nil
+    /// Harness only (`-uiPreview flight`/`flightback`): fixes this tile's identity to a known value
+    /// so a pinned `HeroFlight` can be built pointing at exactly this tile.
+    var forcedTileID: UUID? = nil
 
     @State private var pointer: UnitPoint?
+    /// A fresh identity every time this tile mounts — a lazy grid recycling the view underneath a
+    /// stable `id` would otherwise leave a flight pointed at whatever cell happens to sit there now.
+    @State private var generatedTileID = UUID()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(WatchlistMarks.self) private var watchlistMarks: WatchlistMarks?
+    @Environment(ShellModel.self) private var shell: ShellModel?
+
+    private var tileID: UUID { forcedTileID ?? generatedTileID }
 
     private var activePointer: UnitPoint? { forcedPointer ?? pointer }
     private var isHovered: Bool { activePointer != nil }
     private var watchlistInFlight: Bool {
         model.watchlistFilm.map { watchlistMarks?.isInFlight(tmdbID: $0.tmdbID) ?? false } ?? false
     }
+    /// This tile IS the flight currently in the air — hidden so the real card never shows twice at
+    /// once alongside the flyer (Decision 10). Clears itself the instant the flight does (forward:
+    /// stays hidden — the page it flew to has replaced this one; back: `landFlight` clears `flight`
+    /// entirely once it lands, which is exactly when the real tile should reappear).
+    private var isFlightSource: Bool { shell?.flight?.tileID == tileID }
 
     var body: some View {
-        Button { perform(.open, model) } label: {
+        Button { openWithFlightSource() } label: {
             PosterCard(title: model.title, caption: model.caption, posterURL: model.posterURL,
                       badge: state.badge, pointer: activePointer, decor: state.decor)
         }
@@ -89,13 +103,26 @@ struct PosterTile: View {
             }
         }
         .contextMenu { menuContent }
+        .opacity(isFlightSource ? 0 : 1)
+        .allowsHitTesting(!isFlightSource)
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(ShellSpace.window)) } action: { frame in
+            shell?.tileFrames[tileID] = frame
+        }
+    }
+
+    /// What both the click and the menu's Open take: the tile hands the shell its own frame + art
+    /// right before the push, so a flight (if one starts) has a snapshot from the instant of the tap.
+    private func openWithFlightSource() {
+        shell?.pendingFlightSource = FlightSource(tileID: tileID, frame: shell?.tileFrames[tileID],
+                                                  posterURL: model.posterURL)
+        perform(.open, model)
     }
 
     @ViewBuilder private var menuContent: some View {
         ForEach(Array(actions.menu.enumerated()), id: \.offset) { index, group in
             ForEach(group, id: \.self) { action in
                 Button {
-                    perform(action, model)
+                    if action == .open { openWithFlightSource() } else { perform(action, model) }
                 } label: {
                     Label(action.title, systemImage: action.symbol)
                 }

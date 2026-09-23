@@ -123,6 +123,9 @@ struct TitleHero: View {
     var autoplayArmed = false
     /// Opens the page's Versions sheet — threaded down to `TitleActionsRow`'s ⋯ menu.
     var onFindOtherVersions: () -> Void = {}
+    /// `false` while a forward flight for THIS title is still mid-air (Task 8): the real backdrop
+    /// stays invisible (the flyer is showing it instead) and the copy holds off its cascade.
+    var cascadeActive = true
 
     @Environment(\.pageLeadingInset) private var pageLeadingInset
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -167,12 +170,17 @@ struct TitleHero: View {
                 }
             }
             .offset(y: parallaxOffset)
-            .opacity(backdropOpacity)
+            // The flyer paints this exact band while it is mid-air — the real backdrop only takes
+            // over once `landFlight` fires (Task 8).
+            .opacity(cascadeActive ? backdropOpacity : 0)
         }
         .overlay(alignment: .bottomTrailing) {
             if trailer?.streamURL != nil { trailerCapsules.padding(24) }
         }
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(ShellSpace.window)) } action: { frame in
+            shell?.heroFrame = frame
+        }
         .onScrollVisibilityChange(threshold: 0.2) { visible in heroVisible = visible }
         .onChange(of: autoplayArmed, initial: true) { _, armed in
             guard armed, !reduceMotion else { return }
@@ -214,15 +222,21 @@ struct TitleHero: View {
     private var copy: some View {
         VStack(alignment: .leading, spacing: 10) {
             TitleLogo(path: store.logoPath, title: store.item.title)
+                .cascadeIn(index: 0, active: cascadeActive)
             metaAndCreditLine
+                .cascadeIn(index: 1, active: cascadeActive)
             if let franchise = store.franchise {
                 Text(TitlePageText.franchiseLine(franchise))
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(Theme.Palette.gold)
+                    .cascadeIn(index: 2, active: cascadeActive)
             }
-            if !qualityChips.isEmpty || hasAnyRatingChip { chipRow }
+            if !qualityChips.isEmpty || hasAnyRatingChip {
+                chipRow.cascadeIn(index: 3, active: cascadeActive)
+            }
             TitleActionsRow(store: store, acquirer: acquirer, trailer: trailer,
                            onFindOtherVersions: onFindOtherVersions)
+                .cascadeIn(index: 4, active: cascadeActive)
         }
         .padding(.leading, pageLeadingInset + 8)
         .padding(.bottom, 28)

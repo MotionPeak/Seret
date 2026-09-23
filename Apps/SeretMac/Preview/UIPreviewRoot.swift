@@ -108,6 +108,12 @@ struct UIPreviewRoot: View {
                 TitleDownloadPreviewHost(phase: .failed("No seeders available right now."))
             case "titleversions":
                 titleVersionsPreview()
+            case "flight":
+                heroFlightPreview(back: false)
+            case "flightback":
+                heroFlightPreview(back: true)
+            case "flightlanded":
+                heroFlightLandedPreview()
             case "titlerails":
                 titleRailsPreview()
             case "titlerailsloading":
@@ -382,6 +388,40 @@ struct UIPreviewRoot: View {
             .environment(\.previewScrollToBottom, true)
     }
 
+    /// `-uiPreview flight` / `flightback` — a bespoke Movies-style rail (sidebar + one `PosterRail`,
+    /// the same pieces `MainShell`/`BrowseRoot` compose, built directly here so ONE tile's identity
+    /// is known ahead of time via `forcedTileID`) with a `HeroFlight` pinned halfway, via
+    /// `previewFlightProgressOverride`, instead of letting the real spring run. The flight's `from`
+    /// is that tile's OWN reported frame (real geometry, Decision 10), read back after a short
+    /// settle rather than guessed.
+    private func heroFlightPreview(back: Bool) -> some View {
+        HeroFlightPreviewHost(back: back)
+    }
+
+    /// `-uiPreview flightlanded` — the owned Dune page (`titlemovie`'s own fixture) with a forward
+    /// flight pinned already `landed`, at `progressOverride: 1` — the flyer's final frame is exactly
+    /// the real hero's band, so this must render pixel-identical to `titlemovie` itself.
+    private func heroFlightLandedPreview() -> some View {
+        let item = Fixture.films[0]
+        let suite = "seret.preview.flightlanded.\(UUID().uuidString)"
+        let model = ShellModel(defaults: UserDefaults(suiteName: suite)!)
+        model.select(.library)
+        model.open(.title(item))
+        let store = DetailStore(item: item, details: PreviewDetails(), watch: PreviewWatch(Fixture.watch), profileID: "")
+        let windowSize = CGSize(width: 1440, height: 900)
+        model.windowSize = windowSize
+        var landed = HeroFlight(direction: .forward, routeID: item.id, from: .zero,
+                                to: HeroFlightGeometry.backdropFrame(window: windowSize),
+                                posterURL: TMDBClient.imageURL(path: item.posterPath, size: "w342"),
+                                backdropURL: TMDBClient.imageURL(path: item.backdropPath ?? item.posterPath, size: "w1280"),
+                                tileID: nil)
+        landed.landed = true
+        model.previewPinFlight(landed)
+        return MainShell(model: model)
+            .environment(store)
+            .environment(\.previewFlightProgressOverride, 1)
+    }
+
     /// `-uiPreview person` / `personloading` / `personempty` / `personfailed` — a `PersonRoute`
     /// pushed on `.library` with a fixture `PersonStore` injected, the same seam production reads
     /// before building one from the session.
@@ -620,6 +660,80 @@ private struct PlayerPreviewHost: View {
             case .primeNearEpisodeEnd:
                 await driver.primeNearEpisodeEnd()
             }
+        }
+    }
+}
+
+/// `-uiPreview flight` / `flightback` — the sidebar + a `PosterRail` over `CanvasBackground` (the
+/// same pieces `MainShell` composes for `.movies`, assembled directly here so the SECOND tile's
+/// identity is fixed via `forcedTileID`), plus a `HeroFlightDriver` pinned halfway by
+/// `previewFlightProgressOverride`. The flight's source frame is read back from `shell.tileFrames`
+/// after that tile actually lays out — real geometry, not a guessed rectangle.
+private struct HeroFlightPreviewHost: View {
+    let back: Bool
+    private static let targetTileID = UUID()
+    private let targetItem = Fixture.films[1]
+
+    @State private var shell: ShellModel
+    private let library: LibraryStore
+    private let marks: TileWatchMarks
+
+    init(back: Bool) {
+        self.back = back
+        let suite = "seret.preview.heroflight.\(back).\(UUID().uuidString)"
+        let model = ShellModel(defaults: UserDefaults(suiteName: suite)!)
+        model.select(.movies)
+        _shell = State(initialValue: model)
+        library = LibraryStore(library: PreviewLibrary(mode: .items(Fixture.films + Fixture.shows)),
+                               watch: PreviewWatch(Fixture.watch), profileID: { "" })
+        let watchActor = PreviewWatch(Fixture.watch)
+        marks = TileWatchMarks(watch: { watchActor }, profileID: { "" })
+    }
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            CanvasBackground()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    Text("Movies").font(Theme.Typo.titleXL()).foregroundStyle(Theme.Palette.textPrimary)
+                        .padding(.leading, SidebarMetrics.contentLeading(collapsed: false))
+                        .padding(.top, 54)
+                    PosterRail(title: "Trending", items: Fixture.films) { item in
+                        PosterTile(model: .library(item),
+                                  state: PosterTileState(badge: .none),
+                                  actions: .make(kind: .movie, owned: true, watched: false, onWatchlist: false),
+                                  perform: { _, _ in },
+                                  forcedTileID: item.id == targetItem.id ? Self.targetTileID : nil)
+                    }
+                }
+                .padding(.bottom, 40)
+            }
+            .scrollIndicators(.hidden)
+            .environment(\.pageLeadingInset, SidebarMetrics.contentLeading(collapsed: false))
+            if let flight = shell.flight {
+                HeroFlightDriver(flight: flight, progressOverride: 0.5, onLand: { shell.landFlight($0) })
+                    .id(flight.id)
+            }
+            FloatingSidebar(model: shell)
+        }
+        .coordinateSpace(.named(ShellSpace.window))
+        .onGeometryChange(for: CGSize.self) { $0.size } action: { shell.windowSize = $0 }
+        .environment(shell)
+        .environment(library)
+        .environment(marks)
+        .environment(WatchlistMarks.placeholder)
+        .frame(minWidth: 1440, minHeight: 900)
+        .preferredColorScheme(.dark)
+        .task {
+            try? await Task.sleep(for: .milliseconds(200))
+            guard let sourceFrame = shell.tileFrames[Self.targetTileID] else { return }
+            let heroFrame = HeroFlightGeometry.backdropFrame(window: shell.windowSize)
+            let flight = HeroFlight(
+                direction: back ? .back : .forward, routeID: targetItem.id, from: sourceFrame, to: heroFrame,
+                posterURL: TMDBClient.imageURL(path: targetItem.posterPath, size: "w342"),
+                backdropURL: TMDBClient.imageURL(path: targetItem.backdropPath ?? targetItem.posterPath, size: "w1280"),
+                tileID: Self.targetTileID)
+            shell.previewPinFlight(flight)
         }
     }
 }

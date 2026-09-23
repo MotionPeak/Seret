@@ -1,7 +1,9 @@
+import CoreGraphics
 import DebridCore
 import DebridUI
 import Foundation
 import Observation
+import SwiftUI
 
 /// One window's shell state: which section is showing and whether the sidebar is a rail.
 /// Collapsing is remembered across launches. Also owns each section's back/forward history and
@@ -51,14 +53,105 @@ final class ShellModel {
     }
 
     /// Pushes on the SELECTED section's history — every push starts from wherever the viewer is.
+    /// Decision 10: a poster tile sets `pendingFlightSource` immediately before this call (both the
+    /// click and the menu's Open take the same path), and it is ALWAYS consumed here, whether or
+    /// not the push actually flies — a stale source must never survive to the next open.
     func open(_ route: AppRoute) {
-        histories[selection, default: NavigationHistory()].push(route)
+        let source = pendingFlightSource
+        pendingFlightSource = nil
+        var newFlight: HeroFlight?
+        if case .title(let item) = route {
+            let target = HeroFlightGeometry.backdropFrame(window: windowSize)
+            let plan = HeroFlightGeometry.plan(source: source?.frame, target: target,
+                                               window: windowSize, reduceMotion: reduceMotion)
+            if case .fly(let from, let to) = plan, let source {
+                titleSources[item.id] = source.tileID
+                newFlight = HeroFlight(direction: .forward, routeID: item.id, from: from, to: to,
+                                       posterURL: source.posterURL, backdropURL: backdropURL(for: item),
+                                       tileID: source.tileID)
+            }
+        }
+        // Explicitly replaces (or clears) any old flight — a stale landed flight from an earlier
+        // title must never leak into a push it has nothing to do with (e.g. opening a Person page).
+        flight = newFlight
+        // A NavigationStack push animates its own slide by default — while a flight runs, only the
+        // flyer itself should move (the "push itself" note in Task 8).
+        withTransaction(newFlight == nil ? Transaction() : Transaction(animation: nil)) {
+            histories[selection, default: NavigationHistory()].push(route)
+        }
     }
 
-    func goBack() { histories[selection, default: NavigationHistory()].back() }
+    /// Pops the SELECTED section's history. When the top route is a title this flew in from a still
+    /// -reachable tile, it flies back to that tile's LATEST reported frame (Decision 10) — the tile
+    /// may have moved under scrolling since the forward flight landed. Anything else (no flight ever
+    /// happened, or the tile is gone) just pops, and the page's own cross-fade is the whole transition.
+    func goBack() {
+        var newFlight: HeroFlight?
+        if case .title(let item)? = history(for: selection).path.last,
+           let tileID = titleSources[item.id], let sourceFrame = tileFrames[tileID], let heroFrame {
+            let plan = HeroFlightGeometry.plan(source: sourceFrame, target: heroFrame,
+                                               window: windowSize, reduceMotion: reduceMotion)
+            if case .fly(let from, let to) = plan {
+                newFlight = HeroFlight(direction: .back, routeID: item.id, from: from, to: to,
+                                       posterURL: posterURL(for: item), backdropURL: backdropURL(for: item),
+                                       tileID: tileID)
+            }
+        }
+        flight = newFlight
+        withTransaction(newFlight == nil ? Transaction() : Transaction(animation: nil)) {
+            histories[selection, default: NavigationHistory()].back()
+        }
+    }
+
     func goForward() { histories[selection, default: NavigationHistory()].forward() }
     var canGoBack: Bool { history(for: selection).canGoBack }
     var canGoForward: Bool { history(for: selection).canGoForward }
+
+    // MARK: - Hero flight (Task 8)
+
+    private(set) var flight: HeroFlight?
+    /// Every VISIBLE poster tile's own frame, in window coordinates — written by the tile itself on
+    /// every layout pass. Deliberately unobserved (Decision 10): a `@Published`-style dictionary
+    /// here would re-run on every scroll frame of every grid and rail; nothing ever reads this
+    /// through SwiftUI's observation, only `open`/`goBack`/a tile's own `isFlightSource` check.
+    @ObservationIgnored var tileFrames: [UUID: CGRect] = [:]
+    /// The visible title hero's own frame, in window coordinates — reported the same way, so `back`
+    /// starts from where the hero really is after scrolling, not where it was when the page opened.
+    @ObservationIgnored var heroFrame: CGRect?
+    @ObservationIgnored var windowSize: CGSize = .zero
+    @ObservationIgnored var reduceMotion = false
+    /// Set by a poster tile immediately before it calls `open(.title(...))` — the click and the
+    /// menu's Open both take this path. `open` always consumes it, whether or not it ends up flying.
+    @ObservationIgnored var pendingFlightSource: FlightSource?
+    /// Which tile a title (by `item.id`) flew in from, so `goBack()` can look that tile up again.
+    @ObservationIgnored private var titleSources: [String: UUID] = [:]
+
+    private func posterURL(for item: MediaItem) -> URL? {
+        TMDBClient.imageURL(path: item.posterPath, size: "w342")
+    }
+
+    private func backdropURL(for item: MediaItem) -> URL? {
+        TMDBClient.imageURL(path: item.backdropPath ?? item.posterPath, size: "w1280")
+    }
+
+    /// What a title page's hero and its own sections read to stay hidden until the flight that
+    /// brought THEM here lands — `false` the instant it lands, and just as `false` when there was
+    /// never a flight at all (a direct push, or a cross-fade), so the page shows normally either way.
+    func isFlightLanding(for routeID: String) -> Bool {
+        guard let flight, flight.routeID == routeID, flight.direction == .forward else { return false }
+        return !flight.landed
+    }
+
+    /// `HeroFlightLayer`'s completion callback: a stale id (a flight since replaced) is ignored.
+    /// Forward marks `landed` so the real hero can take over while the flyer's final frame still
+    /// matches it exactly; back simply clears the flight — the real tile underneath is what shows.
+    func landFlight(_ id: UUID) {
+        guard flight?.id == id else { return }
+        switch flight?.direction {
+        case .forward: flight?.landed = true
+        case .back, nil: flight = nil
+        }
+    }
 
     // MARK: - Playback slot (Task 4 on)
 

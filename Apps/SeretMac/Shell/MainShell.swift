@@ -13,6 +13,9 @@ import SwiftUI
 struct MainShell: View {
     @Bindable var model: ShellModel
     @Environment(AppSession.self) private var session: AppSession?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Harness-only (`-uiPreview flight`/`flightback`): pins the flyer at an exact progress.
+    @Environment(\.previewFlightProgressOverride) private var previewFlightProgressOverride: Double?
 
     // A harness-injected instance wins; otherwise this shell builds one once and re-injects it, so
     // every page underneath reads the same object instead of each rebuilding its own (Decision 6).
@@ -78,6 +81,12 @@ struct MainShell: View {
         .ignoresSafeArea()
         .frame(minWidth: 1000, minHeight: 650)
         .focusedSceneValue(\.shellModel, model)
+        // Every poster tile's and the title hero's own frame (Decision 10) is reported in THIS
+        // space, so a flight's `from`/`to` are always comparable no matter which page they came
+        // from.
+        .coordinateSpace(.named(ShellSpace.window))
+        .onGeometryChange(for: CGSize.self) { $0.size } action: { model.windowSize = $0 }
+        .onChange(of: reduceMotion, initial: true) { _, new in model.reduceMotion = new }
         // The library loads here, not only on My Library — Home and Browse need ownership and
         // watch state without a visit there, and the splash covers this first load (Decision 7).
         .task(id: library?.attempt ?? -1) { await library?.load() }
@@ -103,6 +112,11 @@ struct MainShell: View {
             SectionStack(section: model.selection, model: model)
                 .id(model.selection)
                 .transition(.opacity)
+            if let flight = model.flight {
+                HeroFlightDriver(flight: flight, progressOverride: previewFlightProgressOverride,
+                                 onLand: { model.landFlight($0) })
+                    .id(flight.id)
+            }
             FloatingSidebar(model: model)
             BackForwardCapsule(model: model)
             SearchField(model: model)

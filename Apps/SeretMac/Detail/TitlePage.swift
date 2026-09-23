@@ -44,15 +44,20 @@ struct TitlePage: View {
 
     private var acquirer: TitleAcquirer? { injectedAcquirer ?? ownAcquirer }
     private var trailer: TrailerModel? { injectedTrailer ?? ownTrailer }
+    /// `false` while a forward flight for THIS title is still mid-air (Task 8) — the hero holds its
+    /// backdrop and copy back, and the sections below wait for the same moment to cascade in.
+    private var cascadeActive: Bool { !(shell?.isFlightLanding(for: store.item.id) ?? false) }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 TitleHero(store: store, acquirer: acquirer, scrollOffset: scrollOffset,
                          trailer: trailer, autoplayArmed: trailerAutoplayArmed,
-                         onFindOtherVersions: { openVersionsSheet() })
+                         onFindOtherVersions: { openVersionsSheet() }, cascadeActive: cascadeActive)
                 content
+                    .cascadeIn(index: 5, active: cascadeActive)
                 rails
+                    .cascadeIn(index: 6, active: cascadeActive)
             }
         }
         .scrollIndicators(.hidden)
