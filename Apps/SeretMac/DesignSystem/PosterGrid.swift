@@ -41,6 +41,9 @@ struct PosterGridLayout: Equatable {
 struct PosterGrid<Item: Identifiable, Card: View>: View {
     let items: [Item]
     var isLoading: Bool = false
+    /// Called from each card's `.onAppear` — a genre grid or search page uses it to trigger the
+    /// next page shortly before the viewer reaches the bottom.
+    var onItemAppear: (Item) -> Void = { _ in }
     @ViewBuilder let card: (Item) -> Card
 
     @State private var width: CGFloat = 0
@@ -58,7 +61,9 @@ struct PosterGrid<Item: Identifiable, Card: View>: View {
                 let count = PosterGridLayout(availableWidth: width).skeletonCount()
                 ForEach(0..<count, id: \.self) { _ in skeletonCard }
             } else {
-                ForEach(items) { item in card(item) }
+                ForEach(items) { item in
+                    card(item).onAppear { onItemAppear(item) }
+                }
             }
         }
         .padding(.top, 12)

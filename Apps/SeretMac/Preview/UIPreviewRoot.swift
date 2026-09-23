@@ -30,6 +30,8 @@ struct UIPreviewRoot: View {
                 PosterGalleryPreview()
             case "postersloading":
                 PosterGalleryPreview(isLoading: true)
+            case "rail":
+                RailGalleryPreview()
             case "library":
                 libraryPreview(.items(Fixture.films + Fixture.shows))
             case "libraryshows":
@@ -196,6 +198,43 @@ private struct PlayerPreviewHost: View {
             case .primeNearEpisodeEnd:
                 await driver.primeNearEpisodeEnd()
             }
+        }
+    }
+}
+
+/// `-uiPreview rail` — a `PosterRail` (one card forced-hovered, the pager forced on), a
+/// `LandscapeCard` rail, and a `RailSkeleton` of each size, all starting at the page inset.
+private struct RailGalleryPreview: View {
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            CanvasBackground()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 30) {
+                    PosterRail(title: "Trending", items: Fixture.films, previewShowsPager: true) { item in
+                        PosterTile(model: .library(item),
+                                  state: PosterTileState(badge: WatchBadge(Fixture.watch[WatchKey.content(forMovie: item)])),
+                                  actions: .make(kind: .movie, owned: true, watched: false, onWatchlist: false),
+                                  perform: { _, _ in },
+                                  forcedPointer: item.id == Fixture.films[2].id ? UnitPoint(x: 0.5, y: 0.5) : nil)
+                    }
+                    landscapeRail
+                    RailSkeleton(cardSize: PosterCard.posterSize, count: 7)
+                    RailSkeleton(cardSize: LandscapeCard.artSize, count: 5)
+                }
+                .padding(.top, 40)
+                .padding(.bottom, 40)
+            }
+        }
+        .environment(\.pageLeadingInset, SidebarMetrics.contentLeading(collapsed: false))
+        .frame(minWidth: 1440, minHeight: 900)
+    }
+
+    private var landscapeRail: some View {
+        PosterRail(title: "Continue Watching", items: Fixture.films.prefix(4).map { $0 },
+                   cardHeight: LandscapeCard.artSize.height) { item in
+            LandscapeCard(title: item.title, caption: item.year.map(String.init) ?? "",
+                         imageURL: TMDBClient.imageURL(path: item.backdropPath, size: "w780"),
+                         fraction: 0.42, highlighted: item.id == Fixture.films[0].id)
         }
     }
 }

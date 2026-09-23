@@ -11,43 +11,11 @@ struct SeasonPills: View {
     var body: some View {
         HStack(spacing: 10) {
             ForEach(store.allSeasons, id: \.self) { season in
-                SeasonPill(title: SeasonOrder.label(season), isSelected: store.selectedSeason == season) {
+                Button(SeasonOrder.label(season)) {
                     Task { await store.selectSeason(season) }
                 }
+                .buttonStyle(PillButtonStyle(selected: store.selectedSeason == season))
             }
-        }
-    }
-}
-
-private struct SeasonPill: View {
-    let title: String
-    let isSelected: Bool
-    let action: () -> Void
-
-    @State private var hovering = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        Button(action: action) {
-            Text(title)
-                .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(isSelected ? Theme.Palette.onGold : Theme.Palette.textSecondary)
-                .padding(.vertical, 8)
-                .padding(.horizontal, 16)
-                .background { fill }
-        }
-        .buttonStyle(.plain)
-        .offset(y: hovering && !isSelected && !reduceMotion ? -2 : 0)
-        .goldGlow(isSelected ? 10 : 0, opacity: isSelected ? 0.35 : 0)
-        .animation(Theme.Motion.quick, value: hovering)
-        .onHover { hovering = $0 }
-    }
-
-    @ViewBuilder private var fill: some View {
-        if isSelected {
-            Capsule().fill(Theme.Palette.goldGradient)
-        } else {
-            Capsule().fill(Color.white.opacity(0.06))
         }
     }
 }
