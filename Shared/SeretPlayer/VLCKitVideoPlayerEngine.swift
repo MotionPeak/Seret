@@ -88,6 +88,8 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
     init(preferences: SubtitlePreferences = .default) {
         var options = ["--freetype-color=\(preferences.color.rgb)"]
         if let font = preferences.font.freetypeName { options.append("--freetype-font=\(font)") }
+        let prefetch = Self.prefetchOptions()
+        options += prefetch
         player = VLCMediaPlayer(options: options)
         let handle = Self.openDiagnosticsLog()
         diagnosticsHandle = handle
@@ -104,6 +106,59 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
         // subview would otherwise stay mis-sized.
         player.drawable = videoView
         player.delegate = self
+        note("player \(prefetch.joined(separator: " "))")   // which read-ahead this log was made with
+    }
+
+    /// libvlc's read-ahead in front of the Real-Debrid connection — the `prefetch` stream filter,
+    /// which is the only cache between the demuxer and the network.
+    ///
+    /// This, not `:network-caching`, is what a skip waits on. The iPad's vlc.log (111 real seeks)
+    /// put 79% of every skip's wait in the demuxer's seek, and all of that is network reads:
+    /// - RD's server answers `Connection: close`, and libvlc asks for open-ended ranges, so every
+    ///   reposition is a new TCP + TLS connection plus ~200ms before RD's first byte — ~460ms a hop.
+    /// - An MKV seek is not one reposition. The demuxer hops back and forth to find a keyframe for
+    ///   every track, and one 10s rewind took 230 of those hops (108s).
+    /// - libvlc's defaults turn nearly every hop into a reconnect. A 16 MiB buffer is ~1.5s of a
+    ///   4K remux, so any skip lands outside it; and a forward hop more than 16 KiB past the bytes
+    ///   already downloaded reconnects rather than waiting for the connection that is streaming.
+    ///
+    /// `prefetchBufferKiB`: forward skips inside the read-ahead are served from memory with no
+    /// network at all. 128 MiB is about ten seconds of an 80 Mbps remux and a good deal more of
+    /// everything lighter. It is allocated up front, and on the Apple TV playback measured 457 MB
+    /// on the device with jetsam never choosing Seret at ~830 MB, so this fits.
+    ///
+    /// `prefetchSeekThresholdBytes`: a forward hop within this many bytes of the downloaded edge
+    /// reads through on the live connection instead of opening a new one. This is what tames the
+    /// demuxer's hunt for a keyframe, which walks back and forth over the same few megabytes.
+    ///
+    /// Measured A/B in the tvOS simulator on the file behind the 108s report (The Shining, N0DS13),
+    /// same skips, libvlc's defaults vs these:
+    /// - +10s skip: 2.8–3.7s → 0.1s (served from memory, no connection at all)
+    /// - a rewind landing in a 10s gap between keyframes: 72 connections / 35.4s → 5 / 4.7s
+    /// - a plain rewind: unchanged at ~2s, for the reason below
+    ///
+    /// What neither can do: survive a BACKWARD jump past the buffer's start. `prefetch` resets on
+    /// one and reconnects, and it discards already-played data whenever read-ahead needs the room,
+    /// so a rewind always goes to the network.
+    static let prefetchBufferKiB = 128 * 1024
+    static let prefetchSeekThresholdBytes = 8 << 20
+
+    /// DEBUG `-prefetchKiB <KiB>` / `-prefetchThreshold <bytes>` override the two, so a run can be
+    /// compared against another without a rebuild. `-prefetchKiB 16384 -prefetchThreshold 16384`
+    /// is libvlc's own default and so reproduces the old behaviour.
+    private static func prefetchOptions() -> [String] {
+        var kib = prefetchBufferKiB
+        var threshold = prefetchSeekThresholdBytes
+        #if DEBUG
+        let args = ProcessInfo.processInfo.arguments
+        func value(after flag: String) -> Int? {
+            guard let i = args.firstIndex(of: flag), i + 1 < args.count else { return nil }
+            return Int(args[i + 1])
+        }
+        kib = value(after: "-prefetchKiB") ?? kib
+        threshold = value(after: "-prefetchThreshold") ?? threshold
+        #endif
+        return ["--prefetch-buffer-size=\(kib)", "--prefetch-seek-threshold=\(threshold)"]
     }
 
     /// Route libvlc's own log into the diagnostics file — always — and to the console under
