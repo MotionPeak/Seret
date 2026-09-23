@@ -1,4 +1,6 @@
 import CoreGraphics
+import DebridCore
+import DebridUI
 import Foundation
 import Testing
 @testable import Seret
@@ -43,5 +45,71 @@ import Testing
     @Test func contentStartsBesideTheSidebarInBothStates() {
         #expect(SidebarMetrics.contentLeading(collapsed: false) == CGFloat(10 + 250 + 14))
         #expect(SidebarMetrics.contentLeading(collapsed: true) == CGFloat(10 + 76 + 14))
+    }
+
+    // MARK: - Navigation
+
+    private func item(_ id: String) -> MediaItem {
+        MediaItem(id: id, kind: .movie, title: "Title \(id)", year: 2024, sources: [], seasons: [])
+    }
+    private func route(_ id: String) -> AppRoute { .title(item(id)) }
+
+    @Test func eachSectionKeepsItsOwnPath() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.select(.movies)
+        model.open(route("a"))
+        model.select(.shows)
+        model.open(route("b"))
+
+        #expect(model.history(for: .movies).path == [route("a")])
+        #expect(model.history(for: .shows).path == [route("b")])
+    }
+
+    @Test func reselectingTheCurrentSectionPopsToRoot() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.select(.library)
+        model.open(route("a"))
+        #expect(model.history(for: .library).path == [route("a")])
+
+        model.select(.library)                     // already selected: pop to root
+        #expect(model.selection == .library)
+        #expect(model.history(for: .library).path.isEmpty)
+    }
+
+    @Test func openPushesOnTheSelectedSection() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.select(.library)
+        model.open(route("a"))
+        #expect(model.history(for: .library).path == [route("a")])
+        #expect(model.canGoBack)
+    }
+
+    // MARK: - Playback slot
+
+    private func request(_ id: String) -> PlaybackRequest {
+        let source = MediaSource(torrentID: id, fileID: nil, restrictedLink: "rd://\(id)",
+                                 parsed: ParsedRelease(title: "t"))
+        return PlaybackRequest(item: item(id), source: source, resumeAt: nil, label: "t", contentKey: id)
+    }
+
+    @Test func endingPlaybackCountsOnceAndClearsTheSlot() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.present(request("a"))
+        #expect(model.playback != nil)
+
+        model.endPlayback()
+        #expect(model.playback == nil)
+        #expect(model.playbackEndedCount == 1)
+
+        model.endPlayback()                         // no active presentation: no-op
+        #expect(model.playbackEndedCount == 1)
+    }
+
+    @Test func presentingReplacesAnEarlierPresentation() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.present(request("a"))
+        let firstID = model.playback?.id
+        model.present(request("a"))
+        #expect(model.playback?.id != firstID)
     }
 }

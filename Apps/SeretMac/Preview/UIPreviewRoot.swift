@@ -1,4 +1,5 @@
 #if DEBUG
+import DebridCore
 import SwiftUI
 
 /// DEBUG only: `-uiPreview <case>` boots straight into one screen with fixture data, so every screen
@@ -23,6 +24,14 @@ struct UIPreviewRoot: View {
                     let defaults = UserDefaults(suiteName: "seret.preview.shellcollapsed")!
                     defaults.set(true, forKey: "seret.mac.sidebarCollapsed")
                     return ShellModel(defaults: defaults)
+                }())
+            case "shellnav":
+                MainShell(model: {
+                    let model = ShellModel(defaults: UserDefaults(suiteName: "seret.preview.shellnav")!)
+                    model.select(.library)
+                    model.open(.title(MediaItem(id: "movie:tmdb:1", kind: .movie, title: "Preview Title",
+                                                year: 2024, sources: [], seasons: [])))
+                    return model
                 }())
             case "signincode":
                 signIn(.code(userCode: "W6XD2P7N", verificationURL: URL(string: "https://real-debrid.com/device"),

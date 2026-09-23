@@ -24,6 +24,13 @@ struct SeretCommands: Commands {
                     .keyboardShortcut(KeyEquivalent(Character("\(section.shortcutDigit)")), modifiers: .command)
                     .disabled(shell == nil)
             }
+            Divider()
+            Button("Back") { shell?.goBack() }
+                .keyboardShortcut("[", modifiers: .command)
+                .disabled(shell?.canGoBack != true || shell?.playback != nil)
+            Button("Forward") { shell?.goForward() }
+                .keyboardShortcut("]", modifiers: .command)
+                .disabled(shell?.canGoForward != true || shell?.playback != nil)
         }
     }
 }
