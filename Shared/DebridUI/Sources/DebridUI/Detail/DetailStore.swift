@@ -21,6 +21,11 @@ public final class DetailStore {
     public private(set) var inMyList = false
     private let ratingsProvider: RatingsProviding?
     private let letterboxdProvider: LetterboxdRatingProviding?
+    private let subtitleEvidence: SubtitleEvidenceProviding?
+    /// Hebrew subtitles OpenSubtitles has for this film. nil until asked, or when nothing is known.
+    public private(set) var hebrewResults: [SubtitleResult]?
+    /// Everything the rankers and the version badges know about subtitles.
+    public private(set) var subtitles: SubtitleEvidenceSet = .empty
 
     public private(set) var richState: RichState = .idle
     public private(set) var backdropPath: String?
@@ -76,7 +81,8 @@ public final class DetailStore {
     public init(item: MediaItem, details: MediaDetailsProviding, watch: WatchProgressProviding?,
                 profileID: String? = nil, myList: MyListProviding? = nil,
                 ratings: RatingsProviding? = nil, versionPrefs: VersionPreferring? = nil,
-                letterboxd: LetterboxdRatingProviding? = nil) {
+                letterboxd: LetterboxdRatingProviding? = nil,
+                subtitleEvidence: SubtitleEvidenceProviding? = nil) {
         self.item = item
         self.details = details
         self.watch = watch
@@ -84,6 +90,7 @@ public final class DetailStore {
         self.myList = myList
         self.ratingsProvider = ratings
         self.letterboxdProvider = letterboxd
+        self.subtitleEvidence = subtitleEvidence
         self.versionPrefs = versionPrefs
         self.overview = item.overview
         self.backdropPath = item.backdropPath
@@ -93,7 +100,7 @@ public final class DetailStore {
     }
 
     // Movies: ranked sources.
-    public var versions: [MediaSource] { ownedSources.bestFirst() }
+    public var versions: [MediaSource] { ownedSources.bestFirst(subtitles: subtitles) }
 
     /// The versions still on Real-Debrid. `item` is an immutable snapshot taken when the screen
     /// opened, so a version deleted from here has to be filtered out locally — otherwise the row
@@ -107,7 +114,21 @@ public final class DetailStore {
     /// The version Play uses: the user's choice when it still resolves to an owned source,
     /// otherwise the quality ranker. A preference for a torrent since deleted from RD must fall
     /// back rather than leave Play permanently broken.
-    public var bestSource: MediaSource? { ownedSources.preferred(preferredSourceKey) }
+    public var bestSource: MediaSource? { ownedSources.preferred(preferredSourceKey, subtitles: subtitles) }
+
+    /// The hero's Hebrew chip: about the version Play will use when you own one, about the film
+    /// otherwise. nil hides it.
+    public var hebrewChip: HebrewTitleChip? {
+        HebrewTitleChip.forTitle(playing: bestSource, subtitles: subtitles, hebrewResults: hebrewResults)
+    }
+
+    /// The Hebrew level of one owned copy, for its row's badge.
+    public func hebrew(for source: MediaSource) -> HebrewSubtitles {
+        subtitles.hebrew(forVersion: WatchKey.source(source))
+    }
+
+    /// The film's original language, named for the meta line. nil leaves it off.
+    public var languageName: String? { LanguageName.forTitle(originalLanguage) }
 
     /// Called after a version was deleted from Real-Debrid: drop it from this screen, and retire a
     /// "play this one by default" preference that now points at nothing.
@@ -230,7 +251,8 @@ public final class DetailStore {
             // by imdbID; TMDB by collection), so they now settle together and sooner.
             async let ratingsLoad: Void = loadRatings()
             async let franchiseLoad: Void = loadFranchise()
-            _ = await (ratingsLoad, franchiseLoad)
+            async let subtitleLoad: Void = loadSubtitleEvidence()
+            _ = await (ratingsLoad, franchiseLoad, subtitleLoad)
         } catch {
             await watchLoad
             richState = .failed          // keep base info; no error wall
@@ -246,6 +268,22 @@ public final class DetailStore {
         async let omdb: Void = loadOMDbRatings()
         async let letterboxd: Void = loadLetterboxdRating()
         _ = await (omdb, letterboxd)
+    }
+
+    /// Hebrew subtitles for this film's versions: what each owned file carries, and what
+    /// OpenSubtitles made for it. Movies only; a show's evidence is per episode, on its Versions
+    /// screen. Lands in one piece, so the versions re-sort at most once.
+    private func loadSubtitleEvidence() async {
+        guard let provider = subtitleEvidence, item.kind == .movie, item.tmdbID != nil else { return }
+        let language = originalLanguage
+        let query = SubtitleQuery.movie(item)
+        let key = WatchKey.content(forMovie: item)
+        async let search = provider.hebrewResults(contentKey: key, query: query, originalLanguage: language)
+        let records = await provider.records(for: ownedSources)
+        let results = await search
+        hebrewResults = results
+        subtitles = .owned(item.sources, records: records, hebrewResults: results ?? [],
+                           originalLanguage: language)
     }
 
     private func loadOMDbRatings() async {
