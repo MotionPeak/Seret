@@ -258,17 +258,41 @@ actor StreamSession {
         }
     }
 
-    // MARK: - Lifecycle (persistence lands in Task 7)
+    // MARK: - Lifecycle
 
+    /// The first frame is on screen. Everything read until now — the header, the keyframe index,
+    /// the resume point's region — is what the next open of this file will read first, so it goes
+    /// to disk now, while it is certainly still in RAM.
     func markPlaybackStarted() async {
+        guard !playbackStarted else { return }
         playbackStarted = true
+        guard let totalSize else { return }
+        let limit = budget.indexHeadBytesPerFile / budget.chunkSize
+        let chunks = headReads.prefix(limit).compactMap { index in
+            cache.completeData(index).map { (index, $0) }
+        }
+        await index.saveHead(fileKey: fileKey, totalSize: totalSize, chunks: chunks)
+        indexed.formUnion(chunks.map(\.0))
+        log("kept \(chunks.count) head chunks for the next open")
     }
 
+    /// Stop fetching, release waiting reads, and keep the region around the last read — where the
+    /// next resume will land, including the keyframe before it.
     func close() async {
         guard !closed else { return }
         closed = true
         for id in Array(fetches.keys) { cancelFetch(id) }
         wakeWaiters(throwing: StreamError.closed)
+        guard let totalSize, let last = lastReadEnd, last > 0 else { return }
+        let size = Int64(budget.chunkSize)
+        let from = max(0, last - Int64(budget.resumeBehindBytes))
+        let to = min(totalSize, last + Int64(budget.resumeAheadBytes))
+        guard to > from else { return }
+        let chunks = (Int(from / size)...Int((to - 1) / size)).compactMap { index in
+            cache.completeData(index).map { (index, $0) }
+        }
+        await index.saveResume(fileKey: fileKey, totalSize: totalSize, chunks: chunks)
+        log("kept \(chunks.count) resume chunks around \(last)")
     }
 
     func trimMemory() {
