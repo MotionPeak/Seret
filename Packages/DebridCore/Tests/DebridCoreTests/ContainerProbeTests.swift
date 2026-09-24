@@ -24,7 +24,8 @@ extension MockTests {
 
         private let url = URL(string: "https://example.download.real-debrid.com/d/ABC/Movie.mkv")!
 
-        /// Serves `file` honouring `Range`, as Real-Debrid's download servers do.
+        /// Serves `file` honouring `Range`, as Real-Debrid's download servers do — including a 416
+        /// for a range that starts past the end of the file.
         private static func serve(_ file: [UInt8], log: RangeLog, status: Int = 206)
             -> (URLRequest) throws -> (HTTPURLResponse, Data) {
             { request in
@@ -32,6 +33,10 @@ extension MockTests {
                 log.add(range)
                 let bounds = (range ?? "").replacingOccurrences(of: "bytes=", with: "")
                     .split(separator: "-").compactMap { Int($0) }
+                if status == 206, let first = bounds.first, first >= file.count {
+                    return (HTTPURLResponse(url: request.url!, statusCode: 416, httpVersion: nil,
+                                            headerFields: nil)!, Data())
+                }
                 let start = status == 206 ? (bounds.first ?? 0) : 0
                 let end = status == 206 ? min(bounds.count > 1 ? bounds[1] : file.count - 1, file.count - 1)
                                         : file.count - 1
@@ -77,6 +82,29 @@ extension MockTests {
         @Test func anMP4IsNotMatroska() async {
             MockURLProtocol.handler = Self.serve(Array("....ftypisom....moov".utf8), log: RangeLog())
             #expect(await probe().tracks(at: url) == .notMatroska)
+        }
+
+        /// A SeekHead pointing past the end of the file is a broken file, not a bad connection:
+        /// kept as unreadable, so it is not read again on every visit.
+        @Test func aSeekHeadPointingPastTheEndIsUnreadable() async {
+            let log = RangeLog()
+            MockURLProtocol.handler = Self.serve(EBML.file(seekHeadPointingAt: 10_000_000), log: log)
+            #expect(await probe().tracks(at: url) == .unreadable)
+            #expect(log.all.count == 2)
+        }
+
+        @Test func aTrackListCutOffAtTheWindowIsReadAgainFromItsStart() async {
+            let log = RangeLog()
+            let long = String(repeating: "x", count: 30_000)
+            let file = EBML.file(tracks: (0..<3).map { _ in EBML.Track(type: 17, language: "heb", name: long) },
+                                 padding: 200_000)
+            MockURLProtocol.handler = Self.serve(file, log: log)
+            guard case .tracks(let tracks) = await probe().tracks(at: url) else {
+                Issue.record("expected the track list")
+                return
+            }
+            #expect(tracks.count == 3)
+            #expect(log.all.count == 2)
         }
 
         @Test func aMatroskaFileWithNoTrackListIsUnreadable() async {

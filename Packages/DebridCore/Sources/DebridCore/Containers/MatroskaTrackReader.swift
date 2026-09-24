@@ -11,6 +11,10 @@ import Foundation
 /// back as "can't tell", never as a crash.
 public enum MatroskaTrackReader {
 
+    /// No real file is anywhere near this long (256 TiB). A SeekHead offset past it is corrupt or
+    /// hostile, and is ignored rather than added to anything.
+    public static let maxFileOffset = 1 << 48
+
     public enum Result: Sendable, Equatable {
         case tracks([ContainerTrack])
         /// The Tracks element starts at this absolute file offset, past the bytes given.
@@ -43,8 +47,10 @@ public enum MatroskaTrackReader {
             let end = element.dataOffset + size
             if element.id == ID.seekHead,
                let position = seekPosition(of: ID.tracks, in: bytes, from: element.dataOffset,
-                                           to: min(end, bytes.count)) {
-                tracksAt = segmentStart + position
+                                           to: min(end, bytes.count)),
+               position <= maxFileOffset {
+                let (offset, overflow) = segmentStart.addingReportingOverflow(position)
+                if !overflow { tracksAt = offset }
             }
             if element.id == ID.tracks {
                 guard end <= bytes.count else { return .tracksAt(offset: cursor) }

@@ -83,4 +83,14 @@ enum EBML {
         return header(docType: docType) + idBytes(ID.segment) + unknownSize + children
             + element(ID.cluster, [0x81])
     }
+
+    /// A file whose SeekHead points the Tracks element at `position` and holds no Tracks of its own
+    /// before the first Cluster — the shape a hostile or corrupt file takes.
+    static func file(seekHeadPointingAt position: UInt64) -> [UInt8] {
+        let seekHead = element(ID.seekHead, element(ID.seek, element(ID.seekID, idBytes(ID.tracks))
+                                                    + uint64(ID.seekPosition, position)))
+        let info = element(0x1549A966, uint(0x2AD7B1, 1_000_000))
+        return header() + idBytes(ID.segment) + unknownSize + seekHead + info
+            + element(ID.cluster, [0x81])
+    }
 }

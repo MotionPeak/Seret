@@ -29,7 +29,12 @@ public struct ContainerProbe: Sendable {
     /// nil is a transient failure — network, an HTTP error, or a server that ignored `Range`. The
     /// caller must not remember it; the next visit tries again.
     public func tracks(at url: URL) async -> Outcome? {
-        guard let head = await read(url, from: 0) else { return nil }
+        let head: [UInt8]
+        switch await read(url, from: 0) {
+        case .bytes(let bytes): head = bytes
+        case .pastEnd: return .unreadable            // an empty file
+        case .failed: return nil
+        }
         switch MatroskaTrackReader.read(head) {
         case .tracks(let tracks):
             return .tracks(tracks)
@@ -42,18 +47,38 @@ public struct ContainerProbe: Sendable {
                let tracks = MatroskaTrackReader.readTracksElement(Array(head[offset...])) {
                 return .tracks(tracks)
             }
-            guard let tail = await read(url, from: offset) else { return nil }
-            return MatroskaTrackReader.readTracksElement(tail).map(Outcome.tracks) ?? .unreadable
+            switch await read(url, from: offset) {
+            case .bytes(let tail):
+                return MatroskaTrackReader.readTracksElement(tail).map(Outcome.tracks) ?? .unreadable
+            case .pastEnd:
+                return .unreadable                   // the SeekHead points past the end: a broken file
+            case .failed:
+                return nil
+            }
         }
     }
 
-    private func read(_ url: URL, from offset: Int) async -> [UInt8]? {
+    private func read(_ url: URL, from offset: Int) async -> RangedReadResult {
+        // The offset came out of the file. However it was bounded upstream, the arithmetic here
+        // must not be what traps.
+        guard offset >= 0, offset <= Int.max - Self.window else { return .pastEnd }
         var request = URLRequest(url: url)
         request.setValue("bytes=\(offset)-\(offset + Self.window - 1)", forHTTPHeaderField: "Range")
         let settings = configuration()
         settings.timeoutIntervalForRequest = 15
+        // The request timeout is only the longest SILENCE: a server trickling a byte a second
+        // would hold one of the few read slots for good.
+        settings.timeoutIntervalForResource = 30
         return await RangedRead(cap: Self.window).run(request, configuration: settings)
     }
+}
+
+/// What one ranged GET came back with.
+private enum RangedReadResult: Sendable {
+    case bytes([UInt8])
+    /// `416`: the range starts past the end of the file. A fact about the file, not the network.
+    case pastEnd
+    case failed
 }
 
 /// One ranged GET, driven by a delegate so it can refuse a response that is not `206` as soon as
@@ -67,11 +92,11 @@ private final class RangedRead: NSObject, URLSessionDataDelegate, @unchecked Sen
     private let lock = NSLock()
     private var buffer: [UInt8] = []
     private var refused = false
-    private var continuation: CheckedContinuation<[UInt8]?, Never>?
+    private var continuation: CheckedContinuation<RangedReadResult, Never>?
 
     init(cap: Int) { self.cap = cap }
 
-    func run(_ request: URLRequest, configuration: URLSessionConfiguration) async -> [UInt8]? {
+    func run(_ request: URLRequest, configuration: URLSessionConfiguration) async -> RangedReadResult {
         let session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
         defer { session.finishTasksAndInvalidate() }
         return await withCheckedContinuation { continuation in
@@ -99,7 +124,14 @@ private final class RangedRead: NSObject, URLSessionDataDelegate, @unchecked Sen
         let status = (task.response as? HTTPURLResponse)?.statusCode
         lock.lock()
         let complete = error == nil || buffer.count >= cap
-        let result: [UInt8]? = (!refused && status == 206 && complete) ? Array(buffer.prefix(cap)) : nil
+        let result: RangedReadResult
+        if status == 416 {
+            result = .pastEnd
+        } else if !refused, status == 206, complete {
+            result = .bytes(Array(buffer.prefix(cap)))
+        } else {
+            result = .failed
+        }
         let continuation = self.continuation
         self.continuation = nil
         lock.unlock()

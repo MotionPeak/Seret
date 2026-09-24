@@ -82,15 +82,38 @@ import Testing
     }
 
     @Test func aTrackListCutOffByTheBufferIsReReadFromItsStart() {
-        let long = String(repeating: "x", count: 100_000)
+        // ~90 KB of track list starting ~200 KB in: it straddles the first window, and a second
+        // window-sized read from its start holds all of it — exactly what the probe can do.
+        let long = String(repeating: "x", count: 30_000)
         let file = EBML.file(tracks: (0..<3).map { _ in T(type: 17, language: "heb", name: long) },
                              padding: 200_000)
-        let head = Array(file.prefix(262_144))
+        let head = Array(file.prefix(ContainerProbe.window))
         guard case .tracksAt(let offset) = MatroskaTrackReader.read(head) else {
             Issue.record("expected the start of the cut-off Tracks element")
             return
         }
-        #expect(MatroskaTrackReader.readTracksElement(Array(file[offset...]))?.count == 3)
+        let reread = Array(file[offset...].prefix(ContainerProbe.window))
+        #expect(MatroskaTrackReader.readTracksElement(reread)?.count == 3)
+    }
+
+    /// The SeekHead is bytes off the network. Adding an offset near `Int.max` to the Segment's start
+    /// trapped — a crash on opening the title page, every time, since a failed read is not kept.
+    @Test func anAbsurdSeekHeadOffsetIsIncompleteNotACrash() {
+        let positions: [UInt64] = [UInt64(Int.max), UInt64(Int.max) - 100, UInt64.max,
+                                   UInt64(MatroskaTrackReader.maxFileOffset) + 1]
+        for position in positions {
+            #expect(MatroskaTrackReader.read(EBML.file(seekHeadPointingAt: position)) == .incomplete,
+                    "position \(position)")
+        }
+    }
+
+    @Test func aPlausibleSeekHeadOffsetIsStillFollowed() {
+        guard case .tracksAt(let offset) = MatroskaTrackReader.read(EBML.file(seekHeadPointingAt: 5_000_000))
+        else {
+            Issue.record("expected the SeekHead's offset")
+            return
+        }
+        #expect(offset > 5_000_000 && offset < 5_000_100)
     }
 
     @Test func notMatroskaAtAll() {
