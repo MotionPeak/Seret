@@ -53,6 +53,16 @@ import Testing
         #expect(ranked.first?.infoHash == "ok")
     }
 
+    /// The guards need the film's language: without it a Hebrew film's copies, or a dub that lost
+    /// the film's language, would jump. Where the language is unknown — TMDB failed, or only the
+    /// player has reported on a title — nothing jumps, and the badges still show.
+    @Test func withNoFilmLanguageNothingJumps() {
+        let uhd = stream("uhd", "2160p"), sd = stream("sd", "720p")
+        let unknown = evidence(["sd": .builtIn], original: nil)
+        #expect([uhd, sd].rankedFor(originalLanguage: nil, subtitles: unknown).map(\.infoHash) == ["uhd", "sd"])
+        #expect(unknown.hebrew(forVersion: "sd") == .builtIn)
+    }
+
     @Test func aTheatreRecordingNeverJumps() {
         let cam = stream("cam", "720p", source: "HDCAM"), web = stream("web", "1080p", source: "WEB-DL")
         let ranked = [cam, web].rankedFor(originalLanguage: "en", subtitles: evidence(["cam": .builtIn]))

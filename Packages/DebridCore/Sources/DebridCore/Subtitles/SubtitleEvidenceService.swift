@@ -109,6 +109,11 @@ public actor SubtitleEvidenceService: SubtitleEvidenceProviding {
         await searches.stored(contentKey)?.results
     }
 
+    /// The title's language as last stored, for a caller that could not learn it this time.
+    func storedLanguage(for contentKey: String) async -> String? {
+        await languages.stored(contentKey)
+    }
+
     public func records(for sources: [MediaSource]) async -> [String: VersionSubtitleRecord] {
         var known: [String: VersionSubtitleRecord] = [:]
         var flights: [(key: String, flight: Task<VersionSubtitleRecord?, Never>)] = []

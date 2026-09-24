@@ -189,6 +189,16 @@ import Foundation
         #expect(later.hebrewResults == [result])
     }
 
+    /// The web's route has no language when TMDB failed. Both of titleEvidence's paths then use
+    /// the stored one, so the pick for a film does not depend on which path answered.
+    @Test func aTitleWithoutItsLanguageUsesTheStoredOne() async {
+        let svc = service(tempDir(), calls: Calls())
+        _ = await svc.hebrewResults(contentKey: "k", query: query, originalLanguage: "fr")
+        let found = await svc.titleEvidence(for: [source("A")], contentKey: "k", query: query,
+                                            originalLanguage: nil, within: .seconds(5))
+        #expect(found.evidence.originalLanguage == "fr")
+    }
+
     @Test func storedResultsNeverTouchTheNetwork() async {
         let calls = Calls()
         let svc = service(tempDir(), calls: calls, search: { _, _ in calls.hit("search"); return [Self.result] })

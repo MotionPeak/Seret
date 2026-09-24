@@ -18,6 +18,10 @@ public extension SubtitleEvidenceService {
     /// answer, so the next ask has them. For a page that must not wait on either — the web's.
     func titleEvidence(for sources: [MediaSource], contentKey: String, query: SubtitleQuery?,
                        originalLanguage: String?, within limit: Duration) async -> TitleSubtitleEvidence {
+        // Both paths rank with the same language, so which one answered cannot change the pick.
+        var language = LanguageCode.normalize(originalLanguage)
+        if language == nil { language = await storedLanguage(for: contentKey) }
+        let originalLanguage = language
         let gather = Task { () -> TitleSubtitleEvidence in
             async let records = self.records(for: sources)
             var results: [SubtitleResult]?
@@ -31,7 +35,9 @@ public extension SubtitleEvidenceService {
                 hebrewResults: results)
         }
         if let ready = await valueIfReady(of: gather, within: limit) { return ready }
-        return TitleSubtitleEvidence(evidence: await storedEvidence(for: sources, contentKey: contentKey),
-                                     hebrewResults: await storedHebrewResults(contentKey: contentKey))
+        let stored = await storedEvidence(for: sources, contentKey: contentKey)
+        return TitleSubtitleEvidence(
+            evidence: SubtitleEvidenceSet(byVersion: stored.byVersion, originalLanguage: originalLanguage),
+            hebrewResults: await storedHebrewResults(contentKey: contentKey))
     }
 }
