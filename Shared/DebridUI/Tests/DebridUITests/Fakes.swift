@@ -275,6 +275,14 @@ actor FakeStreamProxy: StreamProxying {
     private(set) var marked: [URL] = []
     private var refresh: (@Sendable () async throws -> URL)?
     private var gate: AsyncStream<Void>?
+    private var closeGate: AsyncStream<Void>?
+
+    /// Hold every `close` (the cache's disk write) until the returned continuation is finished.
+    func holdCloses() -> AsyncStream<Void>.Continuation {
+        let (stream, continuation) = AsyncStream.makeStream(of: Void.self)
+        closeGate = stream
+        return continuation
+    }
 
     /// Hold every `open` in flight until the returned continuation is finished.
     func holdOpens() -> AsyncStream<Void>.Continuation {
@@ -292,7 +300,10 @@ actor FakeStreamProxy: StreamProxying {
         return handle
     }
     func markPlaybackStarted(_ handle: StreamHandle) async { marked.append(handle.url) }
-    func close(_ handle: StreamHandle) async { closed.append(handle.url) }
+    func close(_ handle: StreamHandle) async {
+        closed.append(handle.url)
+        if let closeGate { for await _ in closeGate {} }
+    }
     func trimMemory() async {}
     func callRefresh() async throws -> URL { try await refresh!() }
 }

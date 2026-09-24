@@ -426,10 +426,12 @@ extension PlayerModel {
         // reads only model state (`position`/`duration`), never the engine, so stopping first
         // records exactly the same values.
         engine.stop()
+        // Progress before the stream cache: its close writes the resume region to flash (up to
+        // 56 MiB), and the Detail page reloads "Resume · …" as soon as the player is gone.
+        await recordCurrentProgress()
         if let handle = streamHandle, let streamProxy {
             streamHandle = nil
             await streamProxy.close(handle)          // keep the resume region for next time
         }
-        await recordCurrentProgress()
     }
 }

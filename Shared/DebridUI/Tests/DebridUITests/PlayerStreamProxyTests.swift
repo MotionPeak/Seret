@@ -81,6 +81,25 @@ import DebridCore
         #expect(engine.loadedURL == nil)                           // and nothing played it
     }
 
+    /// Found in review: closing the stream writes up to 56 MiB of resume region to flash, and the
+    /// final progress write waited behind it — racing the Detail page's reload of "Resume · …".
+    @Test func teardownRecordsProgressBeforeTheCacheWritesToDisk() async {
+        let proxy = FakeStreamProxy(), engine = FakeVideoPlayerEngine(), records = Counter()
+        let m = PlayerModel(request: Fixture.request(), engine: engine,
+                            unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
+                            recordProgress: { _, _, _, _, _ in records.value += 1 },
+                            subtitles: nil, streamProxy: proxy)
+        m.start(); await m.waitForIdleForTesting()
+        let before = records.value
+        let release = await proxy.holdCloses()
+        let teardown = Task { await m.teardown() }
+        await eventually { await !proxy.closed.isEmpty }            // the close is under way
+        await eventually { records.value > before }
+        #expect(records.value > before)                            // recorded while it writes
+        release.finish()
+        await teardown.value
+    }
+
     @Test func theCacheCanAskForAFreshLink() async throws {
         let proxy = FakeStreamProxy(), engine = FakeVideoPlayerEngine(), count = Counter()
         let m = model(proxy, engine, unrestricts: count)
