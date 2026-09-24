@@ -205,6 +205,7 @@ public final class DetailStore {
         // Re-entrancy guard: one load per store (a retry after failure is still allowed).
         guard richState == .idle || richState == .failed else { return }
         richState = .loading
+        await loadStoredSubtitleEvidence()
         // Watch state (local store) and TMDB details (network) are independent — overlap them so
         // neither delays the other. The async let must be awaited on every path below, or scope
         // exit would cancel the store reads mid-flight.
@@ -270,9 +271,21 @@ public final class DetailStore {
         _ = await (omdb, letterboxd)
     }
 
+    /// What earlier visits learned, published before anything touches the network: a revisit's
+    /// Play is the Hebrew copy from the first frame, however slow OpenSubtitles is today. Local
+    /// reads only — a few milliseconds.
+    private func loadStoredSubtitleEvidence() async {
+        guard let provider = subtitleEvidence, item.kind == .movie, item.tmdbID != nil else { return }
+        let key = WatchKey.content(forMovie: item)
+        let stored = await provider.storedEvidence(for: item.sources, contentKey: key)
+        let results = await provider.storedHebrewResults(contentKey: key)
+        publishSubtitles(stored, results: results)
+    }
+
     /// Hebrew subtitles for this film's versions: what each owned file carries, and what
     /// OpenSubtitles made for it. Movies only; a show's evidence is per episode, on its Versions
-    /// screen. Lands in one piece, so the versions re-sort at most once.
+    /// screen. Lands in one piece, and on a revisit it usually matches what was already published,
+    /// so nothing moves.
     private func loadSubtitleEvidence() async {
         guard let provider = subtitleEvidence, item.kind == .movie, item.tmdbID != nil else { return }
         let language = originalLanguage
@@ -281,9 +294,16 @@ public final class DetailStore {
         async let search = provider.hebrewResults(contentKey: key, query: query, originalLanguage: language)
         let records = await provider.records(for: ownedSources)
         let results = await search
-        hebrewResults = results
-        subtitles = .owned(item.sources, records: records, hebrewResults: results ?? [],
-                           originalLanguage: language)
+        publishSubtitles(.owned(item.sources, records: records, hebrewResults: results ?? [],
+                                originalLanguage: language),
+                         results: results)
+    }
+
+    /// Only what changed: every assignment re-renders everything observing it, and an equal
+    /// re-publish would still re-sort the Versions list under the viewer's focus.
+    private func publishSubtitles(_ evidence: SubtitleEvidenceSet, results: [SubtitleResult]?) {
+        if evidence != subtitles { subtitles = evidence }
+        if results != hebrewResults { hebrewResults = results }
     }
 
     private func loadOMDbRatings() async {

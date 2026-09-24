@@ -50,6 +50,25 @@ import DebridCore
         #expect(store.hebrew(for: uhd) == .none)
     }
 
+    /// A revisit's Play must play the Hebrew copy at once, however slow OpenSubtitles is today:
+    /// what earlier visits stored is published before anything touches the network.
+    @Test func whatAnEarlierVisitStoredShowsBeforeTheSearchAnswers() async {
+        let gate = HebrewGate()
+        let record = VersionSubtitleRecord(origin: .header, tracks: [hebrewText])
+        let stored = SubtitleEvidenceSet(byVersion: [WatchKey.source(hd): SubtitleEvidence(hebrew: .builtIn)],
+                                         originalLanguage: "en")
+        let evidence = FakeSubtitleEvidence(results: [], records: [WatchKey.source(hd): record],
+                                            stored: stored, gate: gate)
+        let store = DetailStore(item: movie([uhd, hd]), details: Details(), watch: nil,
+                                subtitleEvidence: evidence)
+        let loading = Task { await store.load() }
+        #expect(await hebrewEventually { store.bestSource == hd })
+        #expect(store.hebrewChip == .builtIn)
+        await gate.release()
+        await loading.value
+        #expect(store.bestSource == hd)
+    }
+
     @Test func aSubtitleMadeForACopyIsMatched() async {
         let store = DetailStore(item: movie([uhd, hd]), details: Details(), watch: nil,
                                 subtitleEvidence: FakeSubtitleEvidence(results: [sparks]))
