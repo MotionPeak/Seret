@@ -43,6 +43,9 @@ public actor SubtitleEvidenceService: SubtitleEvidenceProviding {
     public typealias Probe = @Sendable (URL) async -> ContainerProbe.Outcome?
 
     public static let searchTTL: TimeInterval = 24 * 60 * 60
+    /// How long an old answer is kept as the fallback. Past it, a title not opened in a month
+    /// drops out of the file, which every search rewrites whole.
+    static let searchKeep: TimeInterval = 30 * 24 * 60 * 60
     /// Stands in for "forever" — a file's tracks do not change.
     static let recordTTL: TimeInterval = 10 * 365 * 24 * 60 * 60
     /// Each read is an unrestrict plus up to two ranged requests, and a title can hold a dozen.
@@ -71,7 +74,7 @@ public actor SubtitleEvidenceService: SubtitleEvidenceProviding {
                 probe: @escaping Probe = { await ContainerProbe().tracks(at: $0) },
                 now: @escaping @Sendable () -> Date = { Date() }) {
         self.searches = TTLFileCache(directory: directory, fileName: "hebrew-searches.json",
-                                     ttl: Self.searchTTL, now: now)
+                                     ttl: Self.searchTTL, keepFor: Self.searchKeep, now: now)
         self.recordCache = TTLFileCache(directory: directory, fileName: "version-subtitles.json",
                                         ttl: Self.recordTTL, now: now)
         self.languages = TTLFileCache(directory: directory, fileName: "title-languages.json",

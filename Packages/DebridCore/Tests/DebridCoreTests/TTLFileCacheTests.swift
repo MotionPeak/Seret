@@ -63,4 +63,38 @@ struct TTLFileCacheTests {
         try Data("not json".utf8).write(to: dir.appending(path: "test-cache.json"))
         #expect(await cache(dir).cached("k") == nil)
     }
+
+    /// A cache that keeps a stale fallback forever grows with every title ever opened, and every
+    /// write rewrites the whole file. Entries past `keepFor` go when the file is next written.
+    @Test func entriesPastKeepForAreDroppedOnTheNextWrite() async {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "ttl-keep-\(UUID().uuidString)")
+        let clock = MutableClock()
+        let cache = TTLFileCache<String>(directory: dir, fileName: "c.json", ttl: 60,
+                                         keepFor: 30 * 24 * 60 * 60, now: { clock.now })
+        await cache.store("old", key: "a")
+        clock.advance(31 * 24 * 60 * 60)
+        #expect(await cache.stored("a") == "old")          // still there until something is written
+        await cache.store("new", key: "b")
+        #expect(await cache.stored("a") == nil)
+        let reopened = TTLFileCache<String>(directory: dir, fileName: "c.json", ttl: 60, now: { clock.now })
+        #expect(await reopened.stored("a") == nil)
+        #expect(await reopened.stored("b") == "new")
+    }
+
+    @Test func updateReadsDecidesAndWritesInOneStep() async {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "ttl-update-\(UUID().uuidString)")
+        let cache = TTLFileCache<Int>(directory: dir, fileName: "c.json", ttl: 60)
+        await withTaskGroup(of: Void.self) { group in
+            for _ in 0..<50 { group.addTask { await cache.update("n") { ($0 ?? 0) + 1 } } }
+        }
+        #expect(await cache.stored("n") == 50)
+        #expect(await cache.update("n") { _ in nil } == 50)        // nil leaves it as it is
+    }
+}
+
+final class MutableClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var current = Date(timeIntervalSince1970: 1_000_000)
+    var now: Date { lock.lock(); defer { lock.unlock() }; return current }
+    func advance(_ seconds: TimeInterval) { lock.lock(); current += seconds; lock.unlock() }
 }
