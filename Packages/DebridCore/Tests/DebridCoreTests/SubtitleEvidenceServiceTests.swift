@@ -29,6 +29,7 @@ import Foundation
         private var down = false
         var isDown: Bool { lock.lock(); defer { lock.unlock() }; return down }
         func fail() { lock.lock(); down = true; lock.unlock() }
+        func recover() { lock.lock(); down = false; lock.unlock() }
     }
 
     enum Boom: Error { case offline }
@@ -210,6 +211,22 @@ import Foundation
         let second = await svc.hebrewResults(contentKey: "k", query: query, originalLanguage: "en")
         #expect(first == [result])
         #expect(second == [result])
+    }
+
+    /// A failure is not an answer: kept, it would read as "no Hebrew" for a day.
+    @Test func aFailedSearchIsNotKeptAndIsAskedAgain() async {
+        let calls = Calls(), network = Network(), result = Self.result
+        network.fail()
+        let svc = service(tempDir(), calls: calls, search: { _, _ in
+            calls.hit("search")
+            if network.isDown { throw Boom.offline }
+            return [result]
+        })
+        #expect(await svc.hebrewResults(contentKey: "k", query: query, originalLanguage: "en") == nil)
+        #expect(await svc.storedHebrewResults(contentKey: "k") == nil)
+        network.recover()
+        #expect(await svc.hebrewResults(contentKey: "k", query: query, originalLanguage: "en") == [result])
+        #expect(calls.count("search") == 2)
     }
 
     @Test func withNoSearchClientOnlyStoredAnswersComeBack() async {
