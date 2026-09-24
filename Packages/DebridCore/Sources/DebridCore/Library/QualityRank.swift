@@ -50,3 +50,14 @@ func codecTier(_ c: String?) -> Int {
     default: return 0
     }
 }
+
+/// A recording made in a cinema, or a pre-release screener, as `FilenameParser` names them.
+///
+/// These never take the Hebrew-subtitle boost. Hebrew subtitles are routinely made for exactly
+/// these copies of a new release, and "Hebrew always on top" would otherwise put a camcorder
+/// recording at the head of the list.
+func isTheatreSource(_ source: String?) -> Bool {
+    guard let source else { return false }
+    return ["CAM", "CAMRIP", "HDCAM", "HD-CAM", "HDTS", "HD-TS", "TELESYNC", "TELECINE", "SCREENER"]
+        .contains(source.uppercased())
+}

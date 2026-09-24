@@ -41,8 +41,10 @@ public extension Array where Element == CachedStream {
     /// Best-first. **Audio tier dominates** (clean original → dual-audio dub → foreign), then
     /// quality, then size, then infoHash (deterministic tiebreak). Quality decides *within* a
     /// tier, so a 2160p REMUX never loses to a 720p rip that merely shares the tier. When
-    /// `originalLanguage` is nil, ranks by quality/size only.
-    func rankedFor(originalLanguage: String?, episodesInSeason: Int? = nil) -> [CachedStream] {
+    /// `originalLanguage` is nil, ranks by quality/size only. With `subtitles`, a version with
+    /// Hebrew subtitles ranks above every other (see `hebrewBoostTier` for the guards).
+    func rankedFor(originalLanguage: String?, episodesInSeason: Int? = nil,
+                   subtitles: SubtitleEvidenceSet = .empty) -> [CachedStream] {
         sorted { a, b in
             let at = a.audioTier(relativeTo: originalLanguage)
             let bt = b.audioTier(relativeTo: originalLanguage)
@@ -55,6 +57,15 @@ public extension Array where Element == CachedStream {
             let aMute = isUnplayableAudio(a.parsed.audioCodec)
             let bMute = isUnplayableAudio(b.parsed.audioCodec)
             if aMute != bMute { return bMute }
+            // Hebrew subtitles, above resolution: the owner's "always on top". A Hebrew version
+            // outranks every other, a 720p one included. Below the two terms above, so it never
+            // lifts a dub over the original or a silent file over one that plays; the rest of the
+            // guards live in `hebrewBoostTier`.
+            let ah = hebrewBoostTier(subtitles[version: a.infoHash], parsed: a.parsed,
+                                     originalLanguage: originalLanguage)
+            let bh = hebrewBoostTier(subtitles[version: b.infoHash], parsed: b.parsed,
+                                     originalLanguage: originalLanguage)
+            if ah != bh { return ah < bh }
             let ar = resolutionTier(a.parsed.resolution), br = resolutionTier(b.parsed.resolution)
             if ar != br { return ar > br }
             let af = a.fit(episodesInSeason: episodesInSeason)
@@ -71,8 +82,9 @@ public extension Array where Element == CachedStream {
     /// The top pick plus whether it's a genuine language fallback — a foreign release with no
     /// original-language audio (tier 2). A clean or dual-audio pick is not flagged. `isFallback`
     /// is false when `originalLanguage` is nil.
-    func bestMatch(originalLanguage: String?) -> (stream: CachedStream, isFallback: Bool)? {
-        guard let best = rankedFor(originalLanguage: originalLanguage).first else { return nil }
+    func bestMatch(originalLanguage: String?,
+                   subtitles: SubtitleEvidenceSet = .empty) -> (stream: CachedStream, isFallback: Bool)? {
+        guard let best = rankedFor(originalLanguage: originalLanguage, subtitles: subtitles).first else { return nil }
         return (best, best.audioTier(relativeTo: originalLanguage) == 2)
     }
 
@@ -86,7 +98,8 @@ public extension Array where Element == CachedStream {
     /// The best cached full-season pack for `season` (audio tier + quality, same ranking as
     /// `bestMatch`), plus whether it's a language fallback. nil when no full-season pack is cached
     /// — the whole season can't be grabbed in a single torrent then.
-    func bestSeasonPack(forSeason season: Int, originalLanguage: String?) -> (stream: CachedStream, isFallback: Bool)? {
-        seasonPacks(forSeason: season).bestMatch(originalLanguage: originalLanguage)
+    func bestSeasonPack(forSeason season: Int, originalLanguage: String?,
+                        subtitles: SubtitleEvidenceSet = .empty) -> (stream: CachedStream, isFallback: Bool)? {
+        seasonPacks(forSeason: season).bestMatch(originalLanguage: originalLanguage, subtitles: subtitles)
     }
 }

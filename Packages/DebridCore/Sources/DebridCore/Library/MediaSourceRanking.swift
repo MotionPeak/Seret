@@ -23,11 +23,17 @@ public extension Array where Element == MediaSource {
     /// `qualityRank` was only ever consulted between two releases of the SAME resolution, and the
     /// penalty stopped applying across resolutions entirely. A 2160p TrueHD version won by default
     /// and played with no sound.
-    func bestFirst() -> [MediaSource] {
+    func bestFirst(subtitles: SubtitleEvidenceSet = .empty) -> [MediaSource] {
         sorted { a, b in
             let aMute = isUnplayableAudio(a.parsed.audioCodec)
             let bMute = isUnplayableAudio(b.parsed.audioCodec)
             if aMute != bMute { return bMute }
+            // Hebrew subtitles, above resolution — see `hebrewBoostTier` for the guards.
+            let ah = hebrewBoostTier(subtitles[version: WatchKey.source(a)], parsed: a.parsed,
+                                     originalLanguage: subtitles.originalLanguage)
+            let bh = hebrewBoostTier(subtitles[version: WatchKey.source(b)], parsed: b.parsed,
+                                     originalLanguage: subtitles.originalLanguage)
+            if ah != bh { return ah < bh }
             let ar = resolutionTier(a.parsed.resolution), br = resolutionTier(b.parsed.resolution)
             if ar != br { return ar > br }
             if a.fit != b.fit { return a.fit > b.fit }
@@ -53,8 +59,10 @@ public extension Array where Element == MediaSource {
     ///
     /// The fallback is load-bearing: a preference pointing at a torrent since deleted from RD must
     /// degrade to the ranker rather than leave Play permanently broken.
-    func preferred(_ sourceKey: String?) -> MediaSource? {
+    ///
+    /// The ranker's pick includes Hebrew subtitles when evidence is passed.
+    func preferred(_ sourceKey: String?, subtitles: SubtitleEvidenceSet = .empty) -> MediaSource? {
         if let sourceKey, let chosen = first(where: { WatchKey.source($0) == sourceKey }) { return chosen }
-        return best
+        return bestFirst(subtitles: subtitles).first
     }
 }
