@@ -724,6 +724,11 @@ public final class AppSession {
             nowPlaying: Self.makeNowPlayingCenter(),
             // The stream cache in front of RD: rewinds from RAM, reopening from disk.
             streamProxy: streamProxy,
+            // What the player sees is the file's own account of its tracks; it fills in MP4s and
+            // corrects any header read.
+            recordTracks: { [subtitleEvidence] source, tracks in
+                await subtitleEvidence?.recordPlayback(tracks, for: source)
+            },
             audioProbe: audioProbe)
     }
 

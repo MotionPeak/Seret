@@ -214,14 +214,8 @@ public final class PlayerModel {
     /// current-locale name would put "עברית" directly beneath "Hebrew" and read as two different
     /// things.
     public static func languageName(_ code: String) -> String {
-        // Some containers write a full name where a code belongs ("English", "Brazilian
-        // Portuguese"). Resolving that yields nothing, and the fallback would SHOUT it.
-        guard code.count <= 3 else { return code.capitalized }
-        return Self.englishNames.localizedString(forLanguageCode: code)?.capitalized
-            ?? code.uppercased()
+        LanguageName.english(code)
     }
-
-    private static let englishNames = Locale(identifier: "en_US")
 
     /// Continuous swipe-scrub (Step 2). While `isScrubbing`, the transport shows a preview marker at
     /// `scrubTarget` instead of the live playhead; the seek only happens on `commitScrub()`.
@@ -273,6 +267,11 @@ public final class PlayerModel {
     /// Fire-and-forget unrestrict warm-up (PlayableLinkCache.prefetch) — called for the next
     /// episode's link when the Up Next bar appears, so a binge auto-advance starts instantly.
     let prefetchLink: ((String) -> Void)?
+    /// Reports the file's own tracks to the subtitle evidence. nil when nobody is listening.
+    let recordTracks: (@Sendable (MediaSource, [MediaTrack]) async -> Void)?
+    /// The last track set reported (source key first), so each file is reported once per change
+    /// rather than on every `.tracksChanged`.
+    var recordedTrackSignature: [String] = []
     /// "Start over" was explicitly chosen for the initial request — never resume it. Cleared on
     /// an episode switch (the provider decides for the new episode).
     var fromStart: Bool
@@ -564,6 +563,7 @@ public final class PlayerModel {
          prefetchLink: ((String) -> Void)? = nil,
          nowPlaying: NowPlayingControlling? = nil,
          streamProxy: StreamProxying? = nil,
+         recordTracks: (@Sendable (MediaSource, [MediaTrack]) async -> Void)? = nil,
          autoHideDelay: Double = 4,
          loadTimeout: Double = 30,
          seekCoalesceWindow: Double = 0.35,
@@ -610,6 +610,7 @@ public final class PlayerModel {
         self.recordProgress = recordProgress
         self.subtitles = subtitles
         self.nowPlaying = nowPlaying
+        self.recordTracks = recordTracks
         self.subtitleRows = Self.freshSubtitleRows(hasAccount: subtitles != nil)
     }
 

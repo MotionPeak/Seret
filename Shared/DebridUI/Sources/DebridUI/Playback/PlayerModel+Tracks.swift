@@ -24,6 +24,24 @@ extension PlayerModel {
             applyEffectiveSubtitleDelay(force: true)   // the engine may have just lost it
         }
         reconcileSubtitleShift()
+        recordTrackCensusIfChanged()
+    }
+
+    /// Tell the subtitle evidence what this file really carries, once per change in its track set.
+    /// The player is the only thing that ever sees an MP4's tracks, and it corrects any header read.
+    /// Downloaded subtitles are attached by us, not muxed into the file, so they are left out.
+    func recordTrackCensusIfChanged() {
+        guard let recordTracks else { return }
+        let attached = Set(subtitleRows.compactMap { attachedTrackID($0) })
+        let muxed = (engine.audioTracks + engine.subtitleTracks)
+            .filter { !$0.isExternal && !attached.contains($0.id) }
+        guard !muxed.isEmpty else { return }
+        let source = currentSource
+        let signature = [WatchKey.source(source)]
+            + muxed.map { "\($0.id)|\($0.language ?? "")|\($0.codec ?? "")" }
+        guard signature != recordedTrackSignature else { return }
+        recordedTrackSignature = signature
+        Task { await recordTracks(source, muxed) }
     }
 
     /// Auto-apply the user's persisted audio/subtitle language as this source's tracks are

@@ -26,10 +26,14 @@ extension PlayerModel {
     /// not lock out the automatic path. It only ever runs when the media has no track in that
     /// language, so there is nothing for the automatic path to override it with.
     func downloadSubtitleAutomatically(language: String) async {
-        await downloadSubtitle(language: language)
+        // A language this file already shows as pictures is served, and in sync. Swapping it for
+        // text is worth it only when the text is made for this release: a weak match can drift,
+        // and then the swap would have taken away the one subtitle that was right.
+        let keepPicturesUnlessMatched = subtitleTracks.hasOnlyBitmapSubtitles(forLanguage: language)
+        await downloadSubtitle(language: language, requireReleaseMatch: keepPicturesUnlessMatched)
     }
 
-    private func downloadSubtitle(language: String) async {
+    private func downloadSubtitle(language: String, requireReleaseMatch: Bool = false) async {
         guard let subtitles else {
             // The state five plays on the Apple TV were in, and nothing in the log said so.
             note("\(language): NO PROVIDER — no OpenSubtitles account on this device")
@@ -60,11 +64,17 @@ extension PlayerModel {
             query.moviehash = currentMoviehash
             let results = try await subtitles.search(query, languages: [language])
             note("\(language): search → \(results.count) results")
-            guard let best = rankedBest(results) else {
+            guard let match = rankedBestMatch(results) else {
                 note("\(language): nothing matched this file")
                 setRow(language, .error)
                 return
             }
+            if requireReleaseMatch, match.quality == .uncertain {
+                note("\(language): keeping the built-in picture subtitles — the best download is only an uncertain match")
+                setRow(language, .idle)
+                return
+            }
+            let best = match.result
             let url = try await subtitles.download(best)
             // Requesting a language IS choosing it — make it sticky so the next episode/title
             // auto-downloads the same language without re-picking.
@@ -223,8 +233,14 @@ extension PlayerModel {
     /// shared release group, matching resolution/source, and the fps agreement that decides
     /// whether a subtitle will drift.
     func rankedBest(_ results: [SubtitleResult]) -> SubtitleResult? {
+        rankedBestMatch(results)?.result
+    }
+
+    /// The best-matching result with its confidence — what the automatic swap of a picture track
+    /// needs to know before it takes that track away.
+    func rankedBestMatch(_ results: [SubtitleResult]) -> SubtitleMatch.Ranked? {
         SubtitleMatch.rank(results, against: currentSource.releaseNameForMatching,
-                           videoFPS: engine.videoFPS).first?.result
+                           videoFPS: engine.videoFPS).first
     }
 
     /// Prepare a freshly-downloaded subtitle for attachment: correct its timing when it was
