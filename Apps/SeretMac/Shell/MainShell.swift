@@ -117,6 +117,7 @@ struct MainShell: View {
             ForEach(SidebarSection.allCases.filter { visitedSections.contains($0) || $0 == model.selection }) { section in
                 let isShown = section == model.selection
                 SectionStack(section: section, model: model)
+                    .environment(\.isPageShown, isShown)
                     .opacity(isShown ? 1 : 0)
                     .allowsHitTesting(isShown)
                     .accessibilityHidden(!isShown)

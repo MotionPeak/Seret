@@ -33,16 +33,13 @@ struct FloatingSidebar: View {
         .padding(.bottom, 12)
         .frame(width: SidebarMetrics.width(collapsed: collapsed), alignment: .leading)
         .frame(maxHeight: .infinity)
-        // A dark tint and a steady hairline: untinted glass picked up the desktop's colour through
-        // the window edge and drew an uneven, bluish rim (owner's report).
-        .glassEffect(.regular.tint(Theme.Palette.canvas.opacity(0.55)),
-                     in: RoundedRectangle(cornerRadius: Theme.Radius.sidebar, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: Theme.Radius.sidebar, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.09), lineWidth: 1)
-                .allowsHitTesting(false)
-        )
-        .shadow(color: .black.opacity(0.45), radius: 24, y: 10)
+        // Frosted, as mockup 2 draws it: the art behind shows through blurred, so the thin margins
+        // around the panel read as the same picture continuing — not a dark slab cut out of it
+        // (Liquid Glass's lensing drew an uneven, bluish rim; a dark tint over it hid the art).
+        // Corner radius + inset are concentric with the window's own ~16.5 pt corner.
+        .background { SidebarPanel() }
+        .shadow(color: .black.opacity(0.6), radius: 30, y: 14)
+        .shadow(color: .black.opacity(0.35), radius: 5, y: 2)
         .padding(SidebarMetrics.inset)
         .animation(Theme.Motion.standard, value: collapsed)
     }
@@ -152,5 +149,34 @@ private struct SidebarRow: View {
         .help(collapsed ? title : "")
         .onHover { hovering = $0 }
         .animation(Theme.Motion.quick, value: hovering)
+    }
+}
+
+/// The sidebar's frosted body, to mockup 2's recipe: a blur of what's behind, a charcoal gradient
+/// (rgba 44,44,50 / .36 → 16,16,20 / .5), a faint top sheen, and a hairline that is bright at the
+/// top-left and warms to gold at the bottom-right.
+private struct SidebarPanel: View {
+    private var shape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: Theme.Radius.sidebar, style: .continuous)
+    }
+
+    var body: some View {
+        ZStack {
+            shape.fill(.ultraThinMaterial)
+            shape.fill(LinearGradient(colors: [Color(red: 44 / 255, green: 44 / 255, blue: 50 / 255).opacity(0.36),
+                                               Color(red: 16 / 255, green: 16 / 255, blue: 20 / 255).opacity(0.5)],
+                                      startPoint: .top, endPoint: .bottom))
+            shape.fill(LinearGradient(stops: [.init(color: .white.opacity(0.09), location: 0),
+                                              .init(color: .clear, location: 0.26)],
+                                      startPoint: .top, endPoint: .bottom))
+            shape.strokeBorder(LinearGradient(stops: [.init(color: .white.opacity(0.38), location: 0),
+                                                      .init(color: .white.opacity(0.07), location: 0.38),
+                                                      .init(color: .white.opacity(0.04), location: 0.7),
+                                                      .init(color: Theme.Palette.gold.opacity(0.28), location: 1)],
+                                              startPoint: .topLeading, endPoint: .bottomTrailing),
+                               lineWidth: 1)
+        }
+        .environment(\.colorScheme, .dark)
+        .allowsHitTesting(false)
     }
 }

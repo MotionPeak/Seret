@@ -64,7 +64,12 @@ struct PosterRail<Item: Identifiable, Card: View>: View {
     @Environment(\.pageLeadingInset) private var pageLeadingInset
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    @State private var geometry = RailGeometry()
+    /// Where the rail is scrolled, kept OUT of observation: it changes on every scroll frame and
+    /// only a pager click reads it. As `@State` it re-evaluated the whole rail — every visible
+    /// card — 120 times a second while it scrolled.
+    @State private var liveGeometry = RailGeometryBox()
+    /// What the pager shows. Changes only when a chevron should appear or disappear.
+    @State private var pager = RailPagerState()
     @State private var position: ScrollPosition = ScrollPosition()
     @State private var isHovered = false
 
@@ -92,7 +97,13 @@ struct PosterRail<Item: Identifiable, Card: View>: View {
                                  trailingInset: geo.contentInsets.trailing, contentSize: geo.contentSize.width,
                                  containerSize: geo.containerSize.width)
                 } action: { _, new in
-                    geometry = new
+                    liveGeometry.value = new
+                    let state = RailPagerState(
+                        canBack: RailPager.canPage(offset: new.offset, viewport: new.viewport,
+                                                   content: new.content, .back),
+                        canForward: RailPager.canPage(offset: new.offset, viewport: new.viewport,
+                                                      content: new.content, .forward))
+                    if state != pager { pager = state }
                 }
                 pagerOverlay
             }
@@ -114,10 +125,10 @@ struct PosterRail<Item: Identifiable, Card: View>: View {
     }
 
     @ViewBuilder private func pagerButton(_ direction: RailPager.Direction, symbol: String) -> some View {
-        let canPage = RailPager.canPage(offset: geometry.offset, viewport: geometry.viewport,
-                                        content: geometry.content, direction)
+        let canPage = direction == .back ? pager.canBack : pager.canForward
         if canPage {
             Button {
+                let geometry = liveGeometry.value
                 let target = RailPager.target(offset: geometry.offset, viewport: geometry.viewport,
                                               content: geometry.content, direction)
                 if reduceMotion {
@@ -164,4 +175,16 @@ struct RailSkeleton: View {
             .scrollDisabled(true)
         }
     }
+}
+
+/// The rail's live scroll geometry, held by reference so writing it never invalidates a view.
+@MainActor
+final class RailGeometryBox {
+    var value = RailGeometry()
+}
+
+/// Which pager chevrons a rail offers right now.
+struct RailPagerState: Equatable {
+    var canBack = false
+    var canForward = false
 }

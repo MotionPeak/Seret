@@ -105,8 +105,17 @@ struct PosterTile: View {
         .contextMenu { menuContent }
         .opacity(isFlightSource ? 0 : 1)
         .allowsHitTesting(!isFlightSource)
-        .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(ShellSpace.window)) } action: { frame in
-            shell?.tileFrames[tileID] = frame
+        // The flight needs this tile's frame only at the moment it is clicked (and to fly back to,
+        // unchanged underneath the page it opened), and a click always comes from a pointer that
+        // is over the tile — so it is measured only while hovered, not by every tile on every
+        // scroll frame.
+        .background {
+            if isHovered {
+                Color.clear
+                    .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(ShellSpace.window)) } action: { frame in
+                        shell?.tileFrames[tileID] = frame
+                    }
+            }
         }
     }
 

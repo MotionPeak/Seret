@@ -44,7 +44,14 @@ struct LandscapeCard: View {
             .overlay { rim }
             .overlay { playGlyph }
             .overlay(alignment: .bottom) { progress }
-            .shadow(color: active ? Color.black.opacity(0.5) : .clear, radius: active ? 18 : 0, y: 8)
+            // Shadow only while active (a resting card in a scrolling rail carries none).
+            .background {
+                if active {
+                    RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
+                        .fill(.black)
+                        .shadow(color: .black.opacity(0.5), radius: 18, y: 8)
+                }
+            }
             .scaleEffect(lifted ? 1.02 : 1)
             .offset(y: lifted ? -4 : 0)
             .animation(Theme.Motion.quick, value: active)

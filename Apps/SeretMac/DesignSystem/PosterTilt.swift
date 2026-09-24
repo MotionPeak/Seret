@@ -31,4 +31,16 @@ struct PosterTilt: Equatable {
         yaw = (x - 0.5) * 18
         glare = UnitPoint(x: x, y: y)
     }
+
+    /// The pitch and yaw as a single rotation — the angle about the combined axis. For tilts this
+    /// small (≤ 9°) it is indistinguishable from applying the two in turn, and it is one transform
+    /// instead of two.
+    var magnitude: Double { (pitch * pitch + yaw * yaw).squareRoot() }
+
+    /// The unit axis of that combined rotation (x = pitch, y = yaw); the x axis when flat.
+    var axis: (x: CGFloat, y: CGFloat, z: CGFloat) {
+        let m = magnitude
+        guard m > 0 else { return (1, 0, 0) }
+        return (CGFloat(pitch / m), CGFloat(yaw / m), 0)
+    }
 }

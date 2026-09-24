@@ -7,6 +7,9 @@ extension EnvironmentValues {
     /// of the shell padding the page, so full-bleed art (the title-page hero, later) can run under
     /// the sidebar while text and grids do not.
     @Entry var pageLeadingInset: CGFloat = 0
+    /// False for a section kept alive behind the one on screen — its ambient animations (the hero's
+    /// Ken Burns) pause so they don't cost frames while you scroll the page you're looking at.
+    @Entry var isPageShown: Bool = true
 }
 
 /// One sidebar section's own `NavigationStack`, backed by its `ShellModel`-held `NavigationHistory`

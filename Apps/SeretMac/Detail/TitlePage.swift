@@ -19,7 +19,6 @@ struct TitlePage: View {
     /// known — `TitleAcquirer` reads the store lazily, but building it needs the session on hand.
     @Environment(TitleAcquirer.self) private var injectedAcquirer: TitleAcquirer?
     @State private var ownAcquirer: TitleAcquirer?
-    @State private var scrollOffset: CGFloat = 0
 
     /// Same seam as the acquirer — a harness-injected `TrailerModel` wins over the one the page
     /// builds and drives through the 4 s / autoplay-setting gate itself.
@@ -51,7 +50,7 @@ struct TitlePage: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                TitleHero(store: store, acquirer: acquirer, scrollOffset: scrollOffset,
+                TitleHero(store: store, acquirer: acquirer,
                          trailer: trailer, autoplayArmed: trailerAutoplayArmed,
                          onFindOtherVersions: { openVersionsSheet() }, cascadeActive: cascadeActive)
                 content
@@ -62,9 +61,6 @@ struct TitlePage: View {
         }
         .scrollIndicators(.hidden)
         .scrollPosition($scrollPosition)
-        .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y } action: { _, y in
-            scrollOffset = y
-        }
         // Decision 11 — unmodified digits rate 1–10 with no text field focused; ⌘/⌥/⌃ pass
         // through untouched (`RatingKey.value` already refuses them), so ⌘1…⌘5 still switch
         // sections. Focused on appear so a push straight from search doesn't leave the field with

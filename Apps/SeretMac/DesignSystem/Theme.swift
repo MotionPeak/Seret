@@ -52,7 +52,7 @@ enum Theme {
     }
 
     enum Radius {
-        static let card: CGFloat = 12, chip: CGFloat = 8, panel: CGFloat = 18, sidebar: CGFloat = 22
+        static let card: CGFloat = 12, chip: CGFloat = 8, panel: CGFloat = 18, sidebar: CGFloat = 11
     }
 
     enum Motion {

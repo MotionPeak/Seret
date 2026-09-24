@@ -251,9 +251,19 @@ private struct PosterHover: ViewModifier {
         content
             .overlay { rim }
             .overlay { glare }
-            .shadow(color: active ? Color.black.opacity(0.5) : .clear, radius: active ? 20 : 0, y: 10)
-            .rotation3DEffect(.degrees(tilting ? tilt.pitch : 0), axis: (1, 0, 0), perspective: 0.6)
-            .rotation3DEffect(.degrees(tilting ? tilt.yaw : 0), axis: (0, 1, 0), perspective: 0.6)
+            // A card at rest carries no shadow and no 3D transform at all: a grid scrolls dozens
+            // of them, and a (clear) shadow or a perspective matrix on each one is render work
+            // on every frame. The shadow lives on a backing shape that exists only while active,
+            // and the tilt is ONE rotation about the combined pitch/yaw axis, a no-op at rest.
+            .background {
+                if active {
+                    RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
+                        .fill(.black)
+                        .shadow(color: .black.opacity(0.5), radius: 20, y: 10)
+                }
+            }
+            .rotation3DEffect(.degrees(tilting ? tilt.magnitude : 0),
+                              axis: tilting ? tilt.axis : (x: 1, y: 0, z: 0), perspective: 0.6)
             .scaleEffect(lifted ? 1.05 : 1)
             .offset(y: lifted ? -6 : 0)
             .animation(Theme.Motion.quick, value: active)

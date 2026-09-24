@@ -48,7 +48,7 @@ enum SidebarMetrics {
     static let expandedWidth: CGFloat = 250
     static let railWidth: CGFloat = 76
     /// Distance from the window's edges: the sidebar floats.
-    static let inset: CGFloat = 10
+    static let inset: CGFloat = 8
     /// Space between the sidebar and the page content.
     static let gap: CGFloat = 14
 

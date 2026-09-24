@@ -14,9 +14,14 @@ struct HeroBackdrop: View {
     var drifts: Bool = false
 
     @State private var size: CGSize = .zero
+    /// Whether the backdrop is on screen at all; the drift only runs while it is.
+    @State private var onScreen = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.isPageShown) private var isPageShown
 
-    private var kenBurns: Bool { drifts && !reduceMotion }
+    /// The drift runs only where it can be seen: not under Reduce Motion, not on a section kept
+    /// alive behind the current one, not once the hero has scrolled away.
+    private var kenBurns: Bool { drifts && !reduceMotion && isPageShown && onScreen }
 
     var body: some View {
         ZStack {
@@ -32,6 +37,7 @@ struct HeroBackdrop: View {
                 startPoint: .leading, endPoint: .trailing)
         }
         .onGeometryChange(for: CGSize.self) { $0.size } action: { size = $0 }
+        .onScrollVisibilityChange(threshold: 0.05) { onScreen = $0 }
     }
 }
 
@@ -113,9 +119,6 @@ struct TitleHeroPlaceholder: View {
 struct TitleHero: View {
     let store: DetailStore
     let acquirer: TitleAcquirer?
-    /// The page's `ScrollView` offset, for the backdrop parallax (Decision 12). 0 when the page
-    /// itself does not track it (e.g. the placeholder never scrolls under this view alone).
-    var scrollOffset: CGFloat = 0
     /// nil until the page's own trailer resolution starts (Task 4). The muted inline loop and the
     /// two bottom-trailing capsules only ever appear once it has a stream to show.
     var trailer: TrailerModel?
@@ -137,16 +140,6 @@ struct TitleHero: View {
 
     private var height: CGFloat { TitlePageLayout.heroHeight(width: width) }
 
-    /// 0.4× the scroll offset — Reduce Motion drops the parallax to a still frame (Decision 12).
-    private var parallaxOffset: CGFloat {
-        reduceMotion ? 0 : max(0, scrollOffset) * 0.4
-    }
-
-    /// Fades out across the hero's own height, floor 0.
-    private var backdropOpacity: Double {
-        guard height > 0 else { return 1 }
-        return 1 - min(1, max(0, scrollOffset) / height)
-    }
 
     /// The inline loop only actually renders while every one of these holds — armed, the hero is
     /// on screen, Reduce Motion is off, and neither the player nor the full trailer is up.
@@ -182,10 +175,19 @@ struct TitleHero: View {
                         .transition(.opacity)
                 }
             }
-            .offset(y: parallaxOffset)
+            // Parallax (0.4× the scroll, Reduce Motion: none) and a fade across the hero's own
+            // height, computed per frame from this view's own position in the scroll view. It used
+            // to be a page-level `@State` offset written on every scroll frame, which re-evaluated
+            // the WHOLE title page 120 times a second — the stutter on a ProMotion display.
+            .visualEffect { [factor = reduceMotion ? 0 : 0.4, height] content, proxy in
+                let scrolled = max(0, -proxy.frame(in: .scrollView).minY)
+                return content
+                    .offset(y: scrolled * factor)
+                    .opacity(height > 0 ? 1 - min(1, scrolled / height) : 1)
+            }
             // The flyer paints this exact band while it is mid-air — the real backdrop only takes
             // over once `landFlight` fires (Task 8).
-            .opacity(cascadeActive ? backdropOpacity : 0)
+            .opacity(cascadeActive ? 1 : 0)
         }
         .overlay(alignment: .bottomTrailing) {
             if trailer?.streamURL != nil { trailerCapsules.padding(24) }

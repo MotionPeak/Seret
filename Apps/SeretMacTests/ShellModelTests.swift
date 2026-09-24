@@ -39,12 +39,12 @@ import Testing
         #expect(SidebarSection.allCases.map(\.shortcutDigit) == [1, 2, 3, 4, 5])
     }
 
-    // The literal RHS is cast to CGFloat explicitly: `#expect(cgFloat == 10 + 250 + 14)` mistypes the
+    // The literal RHS is cast to CGFloat explicitly: `#expect(cgFloat == 8 + 250 + 14)` mistypes the
     // right operand under this toolchain's Swift Testing macro expansion and fails even though the
     // values are equal (confirmed with a plain `==` outside the macro) — CGFloat(...) sidesteps it.
     @Test func contentStartsBesideTheSidebarInBothStates() {
-        #expect(SidebarMetrics.contentLeading(collapsed: false) == CGFloat(10 + 250 + 14))
-        #expect(SidebarMetrics.contentLeading(collapsed: true) == CGFloat(10 + 76 + 14))
+        #expect(SidebarMetrics.contentLeading(collapsed: false) == CGFloat(8 + 250 + 14))
+        #expect(SidebarMetrics.contentLeading(collapsed: true) == CGFloat(8 + 76 + 14))
     }
 
     // MARK: - Navigation
