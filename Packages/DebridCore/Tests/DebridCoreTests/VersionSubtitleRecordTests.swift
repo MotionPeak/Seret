@@ -36,10 +36,21 @@ import Testing
     @Test func audioLanguagesAreListedOnce() {
         let record = VersionSubtitleRecord(origin: .header, tracks: [
             ContainerTrack(kind: .audio, language: "en"), ContainerTrack(kind: .audio, language: "en"),
-            ContainerTrack(kind: .audio, language: "fr"), ContainerTrack(kind: .audio, language: nil),
+            ContainerTrack(kind: .audio, language: "fr"),
         ])
         #expect(record.audioLanguages == ["en", "fr"])
         #expect(VersionSubtitleRecord(origin: .header, tracks: [hebrewText]).audioLanguages == nil)
+    }
+
+    @Test func anUntaggedAudioTrackMakesTheAudioUnknown() {
+        // Read off a real file: Arrival's "Multi" UHD release has an untagged first audio track —
+        // almost certainly the English original — then French and Spanish. Listing only the tagged
+        // two called it a dub that had lost the film's own language.
+        let record = VersionSubtitleRecord(origin: .header, tracks: [
+            ContainerTrack(kind: .audio, language: nil), ContainerTrack(kind: .audio, language: "fr"),
+            ContainerTrack(kind: .audio, language: "es"),
+        ])
+        #expect(record.audioLanguages == nil)
     }
 
     @Test func theVideoFrameRateIsKept() {

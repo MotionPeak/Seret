@@ -33,13 +33,17 @@ public struct VersionSubtitleRecord: Sendable, Equatable, Codable {
         return hebrew.isEmpty ? .none : .builtInImage
     }
 
-    /// The file's audio languages in order, nil when none is tagged.
+    /// The file's audio languages in order — nil unless EVERY audio track is tagged.
+    ///
+    /// An untagged track could be the film's own language, and then nothing can be said about a
+    /// dub. Listing only the tagged ones made a real release (untagged English, then French and
+    /// Spanish) look like it had lost its original audio.
     public var audioLanguages: [String]? {
+        let audio = tracks.filter { $0.kind == .audio }
+        guard !audio.isEmpty, audio.allSatisfy({ $0.language != nil }) else { return nil }
         var seen: [String] = []
-        for track in tracks where track.kind == .audio {
-            if let code = track.language, !seen.contains(code) { seen.append(code) }
-        }
-        return seen.isEmpty ? nil : seen
+        for code in audio.compactMap(\.language) where !seen.contains(code) { seen.append(code) }
+        return seen
     }
 
     public var frameRate: Double? { tracks.first { $0.kind == .video }?.frameRate }
