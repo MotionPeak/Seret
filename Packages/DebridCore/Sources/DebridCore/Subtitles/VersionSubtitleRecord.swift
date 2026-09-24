@@ -3,14 +3,17 @@ import Foundation
 /// What is known about one owned file's own subtitles and audio. Keyed by `WatchKey.source`.
 ///
 /// A file's content never changes, so a record is kept for good. It comes from reading the file's
-/// header, from what the player saw while it played, or both.
+/// header, from what the player saw while it played, or — for a file the header reader cannot
+/// read — both.
 public struct VersionSubtitleRecord: Sendable, Equatable, Codable {
     public enum Origin: String, Sendable, Codable {
-        /// Read from the file's first bytes.
+        /// Read from the file's first bytes. Final: the file's own index.
         case header
-        /// Reported by the player (folded over any header read).
+        /// Reported by the player before the header was read. NOT final: the header is still to
+        /// be read, for the forced flags, the frame rate and the file's name.
         case playback
-        /// Not something the header reader understands (MP4, AVI). Nothing more to learn by reading.
+        /// Not something the header reader understands (MP4, AVI); what the player saw fills it in.
+        /// Final: nothing more to learn by reading.
         case unreadable
     }
 
@@ -48,6 +51,9 @@ public struct VersionSubtitleRecord: Sendable, Equatable, Codable {
 
     public var frameRate: Double? { tracks.first { $0.kind == .video }?.frameRate }
 
+    /// Whether reading the header could still teach anything.
+    public var isFinal: Bool { origin != .playback }
+
     /// This record with what the player saw folded in.
     ///
     /// A header read is the file's own index and is kept exactly as read: the player reports the
@@ -61,6 +67,7 @@ public struct VersionSubtitleRecord: Sendable, Equatable, Codable {
         guard origin != .header else { return self }
         var merged = tracks
         for track in observed where !merged.contains(track) { merged.append(track) }
-        return VersionSubtitleRecord(origin: .playback, fileName: fileName, tracks: merged)
+        return VersionSubtitleRecord(origin: origin == .unreadable ? .unreadable : .playback,
+                                     fileName: fileName, tracks: merged)
     }
 }

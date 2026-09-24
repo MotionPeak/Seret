@@ -35,8 +35,8 @@ public protocol SubtitleEvidenceProviding: Sendable {
 ///   changes. A transient failure is not kept, so the next visit tries again.
 /// - OpenSubtitles is asked once a day per movie or episode: new subtitles appear all the time,
 ///   but not so fast that every visit needs to ask.
-/// - What the player sees while a file plays is folded in. That is the only way an MP4's tracks
-///   are ever known, and it corrects any header read.
+/// - What the player sees while a file plays fills in a file the header could not read — the only
+///   way an MP4's tracks are ever known. A header read is final and playback never changes it.
 public actor SubtitleEvidenceService: SubtitleEvidenceProviding {
     public typealias Search = @Sendable (SubtitleQuery, [String]) async throws -> [SubtitleResult]
     public typealias Resolve = @Sendable (String) async throws -> ResolvedLink
@@ -114,9 +114,14 @@ public actor SubtitleEvidenceService: SubtitleEvidenceProviding {
         var flights: [(key: String, flight: Task<VersionSubtitleRecord?, Never>)] = []
         for source in sources {
             let key = WatchKey.source(source)
-            if let record = await recordCache.stored(key) {
+            // A flight first — checked before the await below, so a read that stores its answer
+            // and clears its flight meanwhile cannot be started a second time from here.
+            if let flight = readsInFlight[key] {
+                flights.append((key, flight))
+            } else if let record = await recordCache.stored(key), record.isFinal {
                 known[key] = record
             } else {
+                // Unknown, or only reported by the player: the header is still to be read.
                 flights.append((key, readFlight(for: source)))
             }
         }
@@ -188,14 +193,18 @@ public actor SubtitleEvidenceService: SubtitleEvidenceProviding {
         var kept: VersionSubtitleRecord?
         if let found {                                 // nil is transient: not kept, tried next visit
             kept = await recordCache.update(key) { existing in
-                // The header is the file's own index and replaces what playback reported meanwhile;
-                // a read that found nothing never erases what playback saw.
-                if found.origin == .unreadable, let existing, existing.origin == .playback { return nil }
-                return found
+                // The header is the file's own index and replaces what playback reported. A read
+                // that found no header keeps what playback saw, and records the read as done, with
+                // the name Real-Debrid gives the file: release tags (HebSubs, TS) live there.
+                guard found.origin == .unreadable, let existing, existing.origin == .playback else { return found }
+                return VersionSubtitleRecord(origin: .unreadable, fileName: found.fileName ?? existing.fileName,
+                                             tracks: existing.tracks)
             }
         }
         // Only once the answer is stored: cleared any sooner, a caller arriving in between would
-        // find neither a record nor a flight, and read the file again.
+        // find neither a record nor a flight, and read the file again. (A caller already past its
+        // flight check and waiting on the cache can still start a second read in that instant —
+        // harmless: the same answer, written atomically.)
         readsInFlight[key] = nil
         return kept
     }

@@ -378,7 +378,8 @@ import Foundation
                                              language: "he", codec: "subt")], for: source("A"))
         gate.open()
         let record = await reading.value.first?.value
-        #expect(record?.origin == .playback)
+        #expect(record?.origin == .unreadable)
+        #expect(record?.fileName == "T.2024.1080p.WEB-DL.mkv")
         #expect(record?.hebrewLevel == .builtIn)
     }
 
@@ -398,15 +399,35 @@ import Foundation
         #expect(await svc.records(for: [source("A")]).first?.value.tracks.count == 20)
     }
 
-    @Test func whatPlaybackSawIsKeptAndNoReadFollows() async {
+    /// Home's Resume plays before any title page opens, so the player can report a file first.
+    /// Its report has no forced flags and no frame rate: the header must still be read, and wins.
+    @Test func aFileThePlayerReportedFirstIsStillRead() async {
         let calls = Calls()
-        let svc = service(tempDir(), calls: calls)
+        let forced = ContainerTrack(kind: .subtitle, language: "he", codec: "S_TEXT/UTF8", isForced: true)
+        let svc = service(tempDir(), calls: calls, probe: { _ in calls.hit("probe"); return .tracks([forced]) })
         await svc.recordPlayback([MediaTrack(id: "spu/3", kind: .subtitle, name: "Hebrew",
                                              language: "he", codec: "subt")], for: source("A"))
-        let records = await svc.records(for: [source("A")])
-        #expect(calls.count("probe") == 0)
-        #expect(records.first?.value.origin == .playback)
-        #expect(records.first?.value.hebrewLevel == .builtIn)
+        let record = await svc.records(for: [source("A")]).first?.value
+        #expect(calls.count("probe") == 1)
+        #expect(record?.origin == .header)
+        #expect(record?.hebrewLevel == HebrewSubtitles.none)
+        _ = await svc.records(for: [source("A")])
+        #expect(calls.count("probe") == 1)          // a header read is final: never read again
+    }
+
+    /// An MP4 the player reported first: the read finds no Matroska header, keeps what the player
+    /// saw, and still records the file's own name — the only place a HebSubs or TS tag lives.
+    @Test func anMP4ThePlayerReportedFirstKeepsItsTracksAndGainsItsName() async {
+        let calls = Calls()
+        let svc = service(tempDir(), calls: calls, probe: { _ in calls.hit("probe"); return .notMatroska })
+        await svc.recordPlayback([MediaTrack(id: "spu/3", kind: .subtitle, name: "Hebrew",
+                                             language: "he", codec: "tx3g")], for: source("A"))
+        let record = await svc.records(for: [source("A")]).first?.value
+        #expect(record?.origin == .unreadable)
+        #expect(record?.fileName == "T.2024.1080p.WEB-DL.mkv")
+        #expect(record?.hebrewLevel == .builtIn)
+        _ = await svc.records(for: [source("A")])
+        #expect(calls.count("probe") == 1)
     }
 
     @Test func aDownloadedSubtitleIsNotRecordedAsTheFiles() async {

@@ -76,10 +76,19 @@ import Testing
     @Test func playbackFillsAFileTheHeaderCouldNotRead() {
         let mp4 = VersionSubtitleRecord(origin: .unreadable, fileName: "F.mp4")
         let merged = mp4.merging(playback: [hebrewText, ContainerTrack(kind: .audio, language: "en")])
-        #expect(merged.origin == .playback)
+        #expect(merged.origin == .unreadable)          // the read is still done: nothing to redo
+        #expect(merged.isFinal)
         #expect(merged.fileName == "F.mp4")
         #expect(merged.hebrewLevel == .builtIn)
         #expect(merged.audioLanguages == ["en"])
+    }
+
+    /// What only the player reported is not final: the header still has to be read, for the forced
+    /// flags, the frame rate and the file's own name.
+    @Test func aRecordOnlyThePlayerMadeIsNotFinal() {
+        #expect(!VersionSubtitleRecord(origin: .playback, tracks: [hebrewText]).isFinal)
+        #expect(VersionSubtitleRecord(origin: .header).isFinal)
+        #expect(VersionSubtitleRecord(origin: .unreadable).isFinal)
     }
 
     @Test func playbackReportsAddUp() {
