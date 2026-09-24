@@ -60,6 +60,10 @@ public final class AppSession {
     /// On-demand OpenSubtitles provider (nil while signed out or if no key+account configured).
     public private(set) var subtitlesProvider: SubtitleProvider?
 
+    /// Hebrew-subtitle evidence for the title page, the Versions screen, Home and the player
+    /// (nil while signed out).
+    public private(set) var subtitleEvidence: SubtitleEvidenceService?
+
     /// Global subtitle appearance (size · font · color), persisted and applied to every playback.
     /// Survives sign-out (it's a device preference, not session state).
     public let subtitleSettings = SubtitleSettingsModel()
@@ -224,6 +228,7 @@ public final class AppSession {
         downloadMonitor = nil
         downloadStore = nil
         subtitlesProvider = nil
+        subtitleEvidence = nil
         // The SwiftData-backed stores too. Every one of these holds the same CloudKit-mirrored
         // `ModelContainer`, and sign-in unconditionally builds a NEW one — so leaving them alive
         // meant signing out and back in left two containers open over the same store file, each
@@ -430,6 +435,7 @@ public final class AppSession {
             }
         }
         #endif
+        subtitleEvidence = Self.makeSubtitleEvidence(torrents: torrents, linkCache: linkCache)
         let service = LibraryService(
             torrents: torrents,
             builder: LibraryBuilder(),
@@ -717,6 +723,29 @@ public final class AppSession {
             // The stream cache in front of RD: rewinds from RAM, reopening from disk.
             streamProxy: streamProxy,
             audioProbe: audioProbe)
+    }
+
+    /// The Hebrew-subtitle evidence service. Search needs only the API key, so badges work before
+    /// an OpenSubtitles account is added; with no key, matching is off and built-in detection
+    /// still runs.
+    private static func makeSubtitleEvidence(torrents: TorrentsClient,
+                                             linkCache: PlayableLinkCache?) -> SubtitleEvidenceService {
+        let key = Secrets.openSubtitlesAPIKey
+        var search: SubtitleEvidenceService.Search?
+        if !key.isEmpty {
+            let provider = OpenSubtitlesProvider(apiKey: key, credentials: nil)
+            search = { query, languages in try await provider.search(query, languages: languages) }
+        }
+        return SubtitleEvidenceService(
+            directory: SubtitleEvidenceService.defaultDirectory,
+            search: search,
+            resolve: { link in
+                let unrestricted = try await torrents.unrestrict(link: link)
+                guard let url = URL(string: unrestricted.download) else { throw URLError(.badURL) }
+                // Play would unrestrict this same link. Hand it the answer instead.
+                await linkCache?.seed(link, url: url)
+                return ResolvedLink(url: url, fileName: unrestricted.filename)
+            })
     }
 
     /// The system Now Playing surface, when the platform has MediaPlayer + UIKit (iOS/tvOS).
