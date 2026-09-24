@@ -1,0 +1,134 @@
+#if DEBUG
+import AppKit
+import QuartzCore
+
+/// `-scrollBench [home|library|movies|shows|watchlist] [seconds]` — scrolls the page on screen top
+/// to bottom and back at a steady 2,400 pt/s, one step per display frame, and prints how evenly the
+/// frames arrived: the fps achieved, the hitches (a frame that took ≥ 1.5× the refresh interval),
+/// the time lost to them, and the worst frame. Then quits.
+///
+/// It measures main-thread frame pacing — the kind of stall SwiftUI work causes — through the
+/// display link, which is late exactly when the main thread was busy.
+@MainActor
+final class ScrollBench: NSObject {
+    private static var current: ScrollBench?
+
+    private let scrollView: NSScrollView
+    private let duration: Double
+    private var link: CADisplayLink?
+    private var start: CFTimeInterval = 0
+    private var last: CFTimeInterval = 0
+    private var intervals: [Double] = []
+    private var direction: CGFloat = 1
+    private let speed: CGFloat = 2400
+
+    private init(scrollView: NSScrollView, duration: Double) {
+        self.scrollView = scrollView
+        self.duration = duration
+    }
+
+    /// The section to bench, if `-scrollBench` was passed.
+    static func requestedSection(arguments: [String] = ProcessInfo.processInfo.arguments) -> String? {
+        guard let index = arguments.firstIndex(of: "-scrollBench") else { return nil }
+        let next = index + 1 < arguments.count ? arguments[index + 1] : "home"
+        return next.hasPrefix("-") ? "home" : next
+    }
+
+    static func run(after delay: Double) {
+        let args = ProcessInfo.processInfo.arguments
+        let seconds = args.firstIndex(of: "-scrollBench").flatMap { i in
+            i + 2 < args.count ? Double(args[i + 2]) : nil } ?? 10
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(delay))
+            guard let window = NSApp.windows.first(where: { $0.isVisible && $0.contentView != nil }),
+                  let content = window.contentView,
+                  let scrollView = largestVerticalScrollView(in: content) else {
+                report("[scrollBench] no scroll view found")
+                NSApp.terminate(nil)
+                return
+            }
+            let bench = ScrollBench(scrollView: scrollView, duration: seconds)
+            current = bench
+            bench.begin(in: content)
+        }
+    }
+
+    /// Printed AND appended to `Caches/scrollbench.txt` — stdout is often gone by the time the
+    /// app quits.
+    static func report(_ line: String) {
+        print(line)
+        fflush(stdout)
+        guard let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else { return }
+        let url = dir.appendingPathComponent("scrollbench.txt")
+        let data = Data((line + "\n").utf8)
+        if let handle = try? FileHandle(forWritingTo: url) {
+            handle.seekToEndOfFile()
+            handle.write(data)
+            try? handle.close()
+        } else {
+            try? data.write(to: url)
+        }
+    }
+
+    private static func largestVerticalScrollView(in root: NSView) -> NSScrollView? {
+        var best: NSScrollView?
+        var bestHeight: CGFloat = 0
+        func walk(_ view: NSView) {
+            if let scroll = view as? NSScrollView, let doc = scroll.documentView,
+               doc.frame.height > scroll.contentView.bounds.height + 200,
+               doc.frame.height > bestHeight {
+                best = scroll
+                bestHeight = doc.frame.height
+            }
+            view.subviews.forEach(walk)
+        }
+        walk(root)
+        return best
+    }
+
+    private func begin(in view: NSView) {
+        let link = view.displayLink(target: self, selector: #selector(tick(_:)))
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
+        link.add(to: .main, forMode: .common)
+        self.link = link
+        let doc = scrollView.documentView?.frame.height ?? 0
+        Self.report("[scrollBench] scrolling \(Int(doc)) pt of content for \(Int(duration)) s")
+    }
+
+    @objc private func tick(_ link: CADisplayLink) {
+        let now = link.timestamp
+        if start == 0 {
+            start = now
+            last = now
+            return
+        }
+        let dt = now - last
+        last = now
+        intervals.append(dt)
+
+        let clip = scrollView.contentView
+        let maxY = max(0, (scrollView.documentView?.frame.height ?? 0) - clip.bounds.height)
+        var y = clip.bounds.origin.y + direction * speed * CGFloat(dt)
+        if y >= maxY { y = maxY; direction = -1 }
+        if y <= 0 { y = 0; direction = 1 }
+        clip.scroll(to: NSPoint(x: clip.bounds.origin.x, y: y))
+        scrollView.reflectScrolledClipView(clip)
+
+        if now - start >= duration { finish(refresh: link.targetTimestamp - link.timestamp) }
+    }
+
+    private func finish(refresh: Double) {
+        link?.invalidate()
+        link = nil
+        let frame = intervals.sorted()[intervals.count / 2]   // the median interval is the refresh
+        let hitches = intervals.filter { $0 >= frame * 1.5 }
+        let lost = hitches.reduce(0) { $0 + ($1 - frame) }
+        let total = intervals.reduce(0, +)
+        let p99 = intervals.sorted()[Int(Double(intervals.count - 1) * 0.99)]
+        Self.report(String(format: "[scrollBench] %.0f Hz · %.1f fps · %d hitches · %.1f ms lost per s · p99 %.1f ms · worst %.1f ms",
+                           1 / frame, Double(intervals.count) / total, hitches.count,
+                           lost * 1000 / total, p99 * 1000, (intervals.max() ?? 0) * 1000))
+        NSApp.terminate(nil)
+    }
+}
+#endif

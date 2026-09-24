@@ -92,6 +92,15 @@ struct MainShell: View {
         // The library loads here, not only on My Library — Home and Browse need ownership and
         // watch state without a visit there, and the splash covers this first load (Decision 7).
         .task(id: library?.attempt ?? -1) { await library?.load() }
+        #if DEBUG
+        .task {
+            // `-scrollBench <section>`: open that section, let it load, then measure scrolling.
+            guard let name = ScrollBench.requestedSection(),
+                  let section = SidebarSection.allCases.first(where: { "\($0)" == name }) else { return }
+            model.select(section)
+            ScrollBench.run(after: 9)
+        }
+        #endif
         .task {
             guard let session else { return }
             if injectedMarks == nil, ownMarks == nil { ownMarks = session.makeTileWatchMarks() }

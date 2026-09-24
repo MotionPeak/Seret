@@ -16,6 +16,11 @@ struct SeretMacApp: App {
         if !launch.isRunningTests, launch.uiPreview == nil {
             Self.notifications.install()
         }
+        #if DEBUG
+        if TileBench.requested {
+            DispatchQueue.main.async { TileBench.run() }
+        }
+        #endif
     }
 
     var body: some Scene {

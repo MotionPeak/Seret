@@ -71,7 +71,7 @@ struct PosterCard: View {
             }
         }
         .frame(width: Self.posterSize.width, alignment: .leading)
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityLabel)
     }
 
@@ -234,10 +234,11 @@ private struct PosterHover: ViewModifier {
     let style: PosterHoverStyle
     let highlighted: Bool
     var pointer: UnitPoint? = nil
-    @State private var hovering = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private var active: Bool { hovering || highlighted || pointer != nil }
+    /// Hover arrives from the caller (both callers already track the pointer for the tilt); a
+    /// second tracker of its own here was one more hover region per card on every scroll frame.
+    private var active: Bool { highlighted || pointer != nil }
     private var lifted: Bool { active && !reduceMotion }
     private var tilting: Bool { pointer != nil && !reduceMotion }
 
@@ -267,7 +268,6 @@ private struct PosterHover: ViewModifier {
             .scaleEffect(lifted ? 1.05 : 1)
             .offset(y: lifted ? -6 : 0)
             .animation(Theme.Motion.quick, value: active)
-            .onHover { hovering = $0 }
     }
 
     @ViewBuilder private var rim: some View {

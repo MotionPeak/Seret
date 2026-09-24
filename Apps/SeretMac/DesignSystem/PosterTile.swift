@@ -86,15 +86,19 @@ struct PosterTile: View {
                       badge: state.badge, pointer: activePointer, decor: state.decor)
         }
         .buttonStyle(.plain)
+        // Built only for the hovered tile. Every tile used to carry its own hidden bar — three
+        // buttons, each with hover tracking and a tooltip — which made a row of tiles expensive to
+        // bring on screen while scrolling.
         .overlay(alignment: .top) {
-            QuickActionsBar(actions: actions.hover, isWatchlistInFlight: watchlistInFlight) { action in
-                perform(action, model)
+            if isHovered {
+                QuickActionsBar(actions: actions.hover, isWatchlistInFlight: watchlistInFlight) { action in
+                    perform(action, model)
+                }
+                .frame(width: PosterCard.posterSize.width, height: PosterCard.posterSize.height, alignment: .bottom)
+                .transition(reduceMotion ? .opacity : .opacity.combined(with: .offset(y: 8)))
             }
-            .frame(width: PosterCard.posterSize.width, height: PosterCard.posterSize.height, alignment: .bottom)
-            .opacity(isHovered ? 1 : 0)
-            .offset(y: isHovered || reduceMotion ? 0 : 8)
-            .allowsHitTesting(isHovered)
         }
+        .animation(Theme.Motion.quick, value: isHovered)
         .onContinuousHover(coordinateSpace: .local) { phase in
             if case .active(let p) = phase {
                 pointer = UnitPoint(x: p.x / PosterCard.posterSize.width, y: p.y / PosterCard.posterSize.height)
