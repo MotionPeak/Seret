@@ -56,7 +56,7 @@ struct GenreGridPage: View {
                         if PagingTrigger.shouldLoadMore(appeared: hit.id, in: store.hits.map(\.id)) {
                             Task { await store.loadMore() }
                         }
-                    }) { hit in tile(hit) }
+                    }, prefetchURL: { TMDBClient.imageURL(path: $0.result.posterPath, size: "w342") }) { hit in tile(hit) }
                     .padding(.leading, pageLeadingInset)
                     .padding(.trailing, 28)
                     if !store.reachedEnd {

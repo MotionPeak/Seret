@@ -163,7 +163,8 @@ struct PersonPage: View {
                 .font(Theme.Typo.label())
                 .tracking(1.5)
                 .foregroundStyle(Theme.Palette.gold)
-            PosterGrid(items: hits) { hit in tile(hit) }
+            PosterGrid(items: hits,
+                       prefetchURL: { TMDBClient.imageURL(path: $0.result.posterPath, size: "w342") }) { hit in tile(hit) }
         }
     }
 

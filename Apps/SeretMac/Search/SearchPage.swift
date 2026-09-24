@@ -66,7 +66,8 @@ struct SearchPage: View {
             case .searching:
                 loadingGrid
             case .results:
-                PosterGrid(items: store.results) { hit in tile(hit) }
+                PosterGrid(items: store.results,
+                           prefetchURL: { TMDBClient.imageURL(path: $0.result.posterPath, size: "w342") }) { hit in tile(hit) }
                     .padding(.leading, pageLeadingInset)
                     .padding(.trailing, 28)
                     .task(id: store.results.map(\.id)) { await marks?.load(store.results) }

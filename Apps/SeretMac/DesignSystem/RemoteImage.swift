@@ -1,10 +1,15 @@
 import SwiftUI
 
-/// An image that cross-fades in from its placeholder, backed by `ImageMemoryCache`. Wrap it with
-/// `.frame` and `.clipShape` at the call site exactly like `AsyncImage`.
+/// An image backed by `ImageMemoryCache`, optionally cross-fading in from its placeholder. Wrap it
+/// with `.frame` and `.clipShape` at the call site exactly like `AsyncImage`.
 struct RemoteImage<Placeholder: View>: View {
     let url: URL?
     var contentMode: ContentMode = .fill
+    /// Cross-fade the art in when it arrives after the view appeared. Off by default: grids and
+    /// rails bring dozens of posters in at once while scrolling, and that many fades running at
+    /// the same time was a measured cause of dropped frames (My Library: 38 → 20 hitches, and 0 in
+    /// steady state, with them off). A hero, one image at a time, opts in.
+    var fadesIn: Bool = false
     @ViewBuilder var placeholder: () -> Placeholder
     @State private var loaded: DecodedImage?
     /// The url this view wants now. A task that was already cancelled cannot see it any other way.
@@ -25,7 +30,7 @@ struct RemoteImage<Placeholder: View>: View {
                 placeholder()
             }
         }
-        .animation(Theme.Motion.fade, value: image != nil)
+        .animation(fadesIn ? Theme.Motion.fade : nil, value: image != nil)
         .onChange(of: url, initial: true) { wanted = url; loaded = nil; attempt = 0 }
         .task(id: RemoteImageLoad.Key(url: url, attempt: attempt)) { await load() }
     }
@@ -58,8 +63,8 @@ enum RemoteImageLoad {
 }
 
 extension RemoteImage where Placeholder == MediaPlaceholder {
-    init(url: URL?, contentMode: ContentMode = .fill) {
-        self.init(url: url, contentMode: contentMode) { MediaPlaceholder() }
+    init(url: URL?, contentMode: ContentMode = .fill, fadesIn: Bool = false) {
+        self.init(url: url, contentMode: contentMode, fadesIn: fadesIn) { MediaPlaceholder() }
     }
 }
 

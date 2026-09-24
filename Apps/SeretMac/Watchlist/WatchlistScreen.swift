@@ -138,7 +138,8 @@ struct WatchlistScreen: View {
                     .padding(.top, 20)
             }
         } else {
-            PosterGrid(items: model.entries) { entry in
+            PosterGrid(items: model.entries,
+                       prefetchURL: { TMDBClient.imageURL(path: $0.posterPath, size: "w342") }) { entry in
                 WatchlistTile(entry: entry, owned: model.isOwned(entry),
                               onOpen: { item in shell?.open(.title(item)) },
                               onRemove: { pendingRemoval = entry })

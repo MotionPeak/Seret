@@ -25,7 +25,7 @@ struct HeroBackdrop: View {
 
     var body: some View {
         ZStack {
-            RemoteImage(url: url)
+            RemoteImage(url: url, fadesIn: true)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .modifier(KenBurnsDrift(active: kenBurns, size: size))
                 .clipped()

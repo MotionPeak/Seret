@@ -211,7 +211,8 @@ struct HomeScreen: View {
                     .tracking(1.5)
                     .foregroundStyle(Theme.Palette.gold)
                     .padding(.leading, pageLeadingInset)
-                PosterGrid(items: home.recentlyAdded) { item in
+                PosterGrid(items: home.recentlyAdded,
+                           prefetchURL: { TMDBClient.imageURL(path: $0.posterPath, size: "w342") }) { item in
                     recentlyAddedTile(item)
                 }
                 .padding(.leading, pageLeadingInset)

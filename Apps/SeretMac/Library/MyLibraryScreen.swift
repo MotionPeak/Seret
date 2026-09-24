@@ -134,7 +134,8 @@ struct MyLibraryScreen: View {
     }
 
     private func grid(isLoading: Bool) -> some View {
-        PosterGrid(items: items, isLoading: isLoading) { item in
+        PosterGrid(items: items, isLoading: isLoading,
+                   prefetchURL: { TMDBClient.imageURL(path: $0.posterPath, size: "w342") }) { item in
             let model = PosterTileModel.library(item)
             let watched = store.watchState(for: item)?.finished ?? false
             let onWatchlist = model.watchlistFilm.map { watchlist?.contains(tmdbID: $0.tmdbID) ?? false } ?? false

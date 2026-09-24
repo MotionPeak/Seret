@@ -27,6 +27,23 @@ final class ScrollBench: NSObject {
         self.duration = duration
     }
 
+    /// A window on another Space — the usual case when the owner's own Seret is full screen — is
+    /// never drawn, so SwiftUI never even runs the page's tasks and the bench would wait forever.
+    /// Benchmark runs only: bring the window onto the active Space, floating in front, for the run.
+    static func bringWindowForward() {
+        guard requestedSection() != nil else { return }
+        for delay in [0.3, 1.0, 2.0, 4.0] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                for window in NSApp.windows where window.frame.height > 200 {
+                    window.collectionBehavior.insert([.moveToActiveSpace, .fullScreenAuxiliary])
+                    window.level = .floating
+                    window.orderFrontRegardless()
+                }
+                NSApp.activate()
+            }
+        }
+    }
+
     /// The section to bench, if `-scrollBench` was passed.
     static func requestedSection(arguments: [String] = ProcessInfo.processInfo.arguments) -> String? {
         guard let index = arguments.firstIndex(of: "-scrollBench") else { return nil }
@@ -128,6 +145,15 @@ final class ScrollBench: NSObject {
         Self.report(String(format: "[scrollBench] %.0f Hz · %.1f fps · %d hitches · %.1f ms lost per s · p99 %.1f ms · worst %.1f ms",
                            1 / frame, Double(intervals.count) / total, hitches.count,
                            lost * 1000 / total, p99 * 1000, (intervals.max() ?? 0) * 1000))
+        // Hitches per second of the run: a burst in the first seconds is rows being built for the
+        // first time; hitches spread evenly are a per-frame cost.
+        var perSecond = [Int](repeating: 0, count: Int(duration.rounded(.up)) + 1)
+        var elapsed = 0.0
+        for dt in intervals {
+            elapsed += dt
+            if dt >= frame * 1.5 { perSecond[min(perSecond.count - 1, Int(elapsed))] += 1 }
+        }
+        Self.report("[scrollBench] hitches by second: \(perSecond.map(String.init).joined(separator: " "))")
         NSApp.terminate(nil)
     }
 }

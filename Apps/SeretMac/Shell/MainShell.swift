@@ -99,7 +99,7 @@ struct MainShell: View {
             guard let name = ScrollBench.requestedSection(),
                   let section = SidebarSection.allCases.first(where: { "\($0)" == name }) else { return }
             model.select(section)
-            ScrollBench.run(after: 9)
+            ScrollBench.run(after: UserDefaults.standard.object(forKey: "scrollBenchDelay") as? Double ?? Double(UserDefaults.standard.string(forKey: "scrollBenchDelay") ?? "") ?? 9)
         }
         #endif
         .task {
