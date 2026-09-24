@@ -98,6 +98,9 @@ public actor StreamProxy: StreamProxying {
     public func close(_ handle: StreamHandle) async {
         guard let id = handle.sessionID, let session = sessions.removeValue(forKey: id) else { return }
         await session.close()
+        #if canImport(Network)
+        server?.closeConnections(for: id)                        // a send libvlc stopped reading
+        #endif
         log("session \(id.uuidString.prefix(8)) closed")
     }
 

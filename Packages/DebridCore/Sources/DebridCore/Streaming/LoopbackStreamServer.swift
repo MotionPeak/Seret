@@ -14,6 +14,10 @@ final class LoopbackStreamServer: @unchecked Sendable {
     private let queue = DispatchQueue(label: "seret.stream-proxy")
     private let lock = NSLock()
     private var listener: NWListener?
+    /// The connections serving each session. libvlc stops reading once its own buffer is full,
+    /// which leaves a send waiting on a full socket; only cancelling the connection completes it,
+    /// so closing a session must reach them — see `closeConnections(for:)`.
+    private var serving: [ObjectIdentifier: (session: UUID, connection: NWConnection)] = [:]
 
     /// The most a request head may be. libvlc's are ~200 bytes.
     private static let maxHeadBytes = 16 << 10
@@ -63,6 +67,14 @@ final class LoopbackStreamServer: @unchecked Sendable {
         listener?.cancel()
     }
 
+    /// End every connection still serving `id`. Cancelling one completes its pending send with an
+    /// error, so its task ends and lets go of the session — measured on the Apple TV as 163 MB of
+    /// cache kept after the player closed, held by a send libvlc would never read.
+    func closeConnections(for id: UUID) {
+        let connections = lock.withLock { serving.values.filter { $0.session == id }.map(\.connection) }
+        for connection in connections { connection.cancel() }
+    }
+
     /// True the first time only — a continuation must be resumed exactly once.
     private final class Once: @unchecked Sendable {
         private let lock = NSLock()
@@ -98,6 +110,9 @@ final class LoopbackStreamServer: @unchecked Sendable {
             try? await Self.send(HTTPResponseHead.error(404), on: connection)
             return
         }
+        let key = ObjectIdentifier(connection)
+        lock.withLock { serving[key] = (id, connection) }
+        defer { lock.withLock { serving[key] = nil } }
         var headSent = false
         do {
             let (total, type) = try await session.head()
@@ -141,26 +156,38 @@ final class LoopbackStreamServer: @unchecked Sendable {
         throw StreamError.closed
     }
 
+    // Both cancel the connection when their task is cancelled (the connection failed): a task's
+    // cancellation never reaches a continuation by itself, and NW completes a pending send or
+    // receive only once the connection is cancelled.
+
     private static func receive(_ connection: NWConnection) async throws -> Data? {
-        try await withCheckedThrowingContinuation { continuation in
-            connection.receive(minimumIncompleteLength: 1, maximumLength: maxHeadBytes) {
-                data, _, isComplete, error in
-                if let error {
-                    continuation.resume(throwing: error)
-                } else if isComplete, data == nil {
-                    continuation.resume(returning: nil)
-                } else {
-                    continuation.resume(returning: data)
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                connection.receive(minimumIncompleteLength: 1, maximumLength: maxHeadBytes) {
+                    data, _, isComplete, error in
+                    if let error {
+                        continuation.resume(throwing: error)
+                    } else if isComplete, data == nil {
+                        continuation.resume(returning: nil)
+                    } else {
+                        continuation.resume(returning: data)
+                    }
                 }
             }
+        } onCancel: {
+            connection.cancel()
         }
     }
 
     private static func send(_ data: Data, on connection: NWConnection) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            connection.send(content: data, completion: .contentProcessed { error in
-                if let error { continuation.resume(throwing: error) } else { continuation.resume() }
-            })
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                connection.send(content: data, completion: .contentProcessed { error in
+                    if let error { continuation.resume(throwing: error) } else { continuation.resume() }
+                })
+            }
+        } onCancel: {
+            connection.cancel()
         }
     }
 }
