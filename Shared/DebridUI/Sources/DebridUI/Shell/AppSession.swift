@@ -521,7 +521,9 @@ public final class AppSession {
         letterboxdRatingProvider = Self.makeLetterboxdRatingProvider()
         // Home resumes playback directly, so it needs the same version preference the title page's
         // Play button uses — otherwise Continue Watching quietly plays a different file.
-        home = watchStore.map { HomeStore(watch: $0, versionPrefs: versionPreferences) }
+        home = watchStore.map {
+            HomeStore(watch: $0, versionPrefs: versionPreferences, subtitleEvidence: subtitleEvidence)
+        }
         // Recompute the Home rails the moment a removal changes the library, so a deleted title
         // doesn't linger in Continue Watching / Recently Added until the Home tab is revisited.
         if let home {

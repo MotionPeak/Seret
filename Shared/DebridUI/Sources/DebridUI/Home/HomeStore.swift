@@ -47,12 +47,15 @@ public final class HomeStore {
     /// twenty a side-scrolling rail could show is no longer the shape of the screen; the iPhone,
     /// which still has a rail, asks for fewer.
     private let recentlyAddedLimit: Int
+    /// Stored Hebrew-subtitle evidence, so Resume plays the copy the title page's Play would.
+    private let subtitleEvidence: SubtitleEvidenceProviding?
 
     public init(watch: WatchProgressProviding, versionPrefs: VersionPreferring? = nil,
-                recentlyAddedLimit: Int = 60) {
+                recentlyAddedLimit: Int = 60, subtitleEvidence: SubtitleEvidenceProviding? = nil) {
         self.watch = watch
         self.versionPrefs = versionPrefs
         self.recentlyAddedLimit = recentlyAddedLimit
+        self.subtitleEvidence = subtitleEvidence
     }
 
     /// Bumped per rebuild, so only the newest one may publish. Home triggers a rebuild from half a
@@ -87,12 +90,30 @@ public final class HomeStore {
         // appearing, on movies and shows landing separately, on the profile resolving, on the player
         // closing, and on every CloudKit import.
         let chosen = await versionPrefs?.preferred(forContentKeys: states.map(\.contentKey)) ?? [:]
+        let subtitles = await storedSubtitles(for: states, movies: movies)
         let resumable = states.compactMap {
-            Self.resolve($0, movies: movies, shows: shows, preferredSourceKey: chosen[$0.contentKey])
+            Self.resolve($0, movies: movies, shows: shows, preferredSourceKey: chosen[$0.contentKey],
+                         subtitles: subtitles[$0.contentKey] ?? .empty)
         }
         guard generation == rebuildGeneration else { return }   // a newer rebuild owns the rails
         continueWatching = resumable
         recentlyAdded = added
+    }
+
+    /// Stored Hebrew evidence for every Continue Watching film owned in more than one copy — the
+    /// only ones where it can change the pick. Stored only: Home must not wait on the network.
+    /// Episodes keep their own copy order this round.
+    private func storedSubtitles(for states: [WatchState],
+                                 movies: [MediaItem]) async -> [String: SubtitleEvidenceSet] {
+        guard let subtitleEvidence else { return [:] }
+        var sets: [String: SubtitleEvidenceSet] = [:]
+        for state in states {
+            guard let movie = movies.first(where: { $0.id == state.contentKey }),
+                  movie.sources.count > 1 else { continue }
+            sets[state.contentKey] = await subtitleEvidence.storedEvidence(for: movie.sources,
+                                                                           contentKey: state.contentKey)
+        }
+        return sets
     }
 
     /// Mark one Continue-Watching entry watched or unwatched.
@@ -126,13 +147,15 @@ public final class HomeStore {
     /// `preferredSourceKey` is the viewer's chosen version for this title, if any — resuming must
     /// use the same file the title page's Play button would.
     static func resolve(_ s: WatchState, movies: [MediaItem], shows: [MediaItem],
-                        preferredSourceKey: String? = nil) -> HomeItem? {
+                        preferredSourceKey: String? = nil,
+                        subtitles: SubtitleEvidenceSet = .empty) -> HomeItem? {
         let fraction = s.durationSeconds > 0 ? min(1, s.positionSeconds / s.durationSeconds) : 0
         // Resume hint: only when there's real, unfinished progress to jump back to.
         let resume: Double? = s.resumePosition
         if let movie = movies.first(where: { $0.id == s.contentKey }) {
             return HomeItem(item: movie, fraction: fraction, subtitle: "",
-                            episode: nil, source: movie.sources.preferred(preferredSourceKey),
+                            episode: nil, source: movie.sources.preferred(preferredSourceKey,
+                                                                           subtitles: subtitles),
                             contentKey: s.contentKey, resumeAt: resume)
         }
         if let show = shows.first(where: { s.contentKey.hasPrefix($0.id + ":") }) {
