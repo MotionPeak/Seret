@@ -64,7 +64,55 @@ public enum LanguageCode {
         "hin": "hi", "hindi": "hi",
         "tha": "th", "thai": "th",
         "vie": "vi", "vietnamese": "vi",
+        "per": "fa", "fas": "fa", "persian": "fa", "farsi": "fa",
+        "ind": "id", "in": "id", "indonesian": "id",
+        "may": "ms", "msa": "ms", "malay": "ms",
+        "tgl": "tl", "fil": "tl", "tagalog": "tl", "filipino": "tl",
+        "tam": "ta", "tamil": "ta",
+        "tel": "te", "telugu": "te",
+        "ben": "bn", "bengali": "bn",
+        "urd": "ur", "urdu": "ur",
+        "mal": "ml", "malayalam": "ml",
+        "mar": "mr", "marathi": "mr",
+        "kan": "kn", "kannada": "kn",
+        "pan": "pa", "punjabi": "pa",
+        "guj": "gu", "gujarati": "gu",
+        "cat": "ca", "catalan": "ca",
+        "bul": "bg", "bulgarian": "bg",
+        "srp": "sr", "serbian": "sr",
+        "hrv": "hr", "croatian": "hr",
+        "bos": "bs", "bosnian": "bs",
+        "slo": "sk", "slk": "sk", "slovak": "sk",
+        "slv": "sl", "slovenian": "sl",
+        "est": "et", "estonian": "et",
+        "lav": "lv", "latvian": "lv",
+        "lit": "lt", "lithuanian": "lt",
+        "ice": "is", "isl": "is", "icelandic": "is",
+        "mac": "mk", "mkd": "mk", "macedonian": "mk",
+        "alb": "sq", "sqi": "sq", "albanian": "sq",
+        "arm": "hy", "hye": "hy", "armenian": "hy",
+        "geo": "ka", "kat": "ka", "georgian": "ka",
+        "baq": "eu", "eus": "eu", "basque": "eu",
+        "glg": "gl", "galician": "gl",
+        "wel": "cy", "cym": "cy", "welsh": "cy",
+        "gle": "ga", "irish": "ga",
+        "afr": "af", "afrikaans": "af",
+        "swa": "sw", "swahili": "sw",
+        "kaz": "kk", "kazakh": "kk",
+        "aze": "az", "azerbaijani": "az",
+        "bel": "be", "belarusian": "be",
+        "nb": "no", "nn": "no",
+        "lat": "la", "latin": "la",
     ]
+
+    /// Codes that name one spoken language. TMDB calls Cantonese `cn`, which is no ISO code at all,
+    /// while files tag it `chi`/`zho` (Chinese) or `yue`: all of them are the film's own audio.
+    private static let families: [String: String] = ["cn": "zh", "yue": "zh", "cmn": "zh"]
+
+    /// Whether two normalised codes are the same spoken language, as far as a dub is concerned.
+    public static func sameLanguage(_ a: String, _ b: String) -> Bool {
+        (families[a] ?? a) == (families[b] ?? b)
+    }
 
     /// Words that name a language inside a track name ("Hebrew (Forced)", "English SDH").
     private static let nameWords: [String: String] = [

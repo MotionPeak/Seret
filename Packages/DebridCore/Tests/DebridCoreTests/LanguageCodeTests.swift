@@ -39,4 +39,31 @@ import Testing
         #expect(LanguageCode.fromName("Track 3") == nil)
         #expect(LanguageCode.fromName(nil) == nil)
     }
+
+    /// A track tagged in ISO 639-2 must compare equal to TMDB's ISO 639-1, or the dub guard reads
+    /// the film's own language as foreign and the version silently loses its Hebrew boost.
+    @Test(arguments: [
+        ("per", "fa"), ("fas", "fa"), ("tam", "ta"), ("tel", "te"), ("ind", "id"), ("in", "id"),
+        ("may", "ms"), ("msa", "ms"), ("cat", "ca"), ("bul", "bg"), ("srp", "sr"), ("hrv", "hr"),
+        ("slo", "sk"), ("slk", "sk"), ("slv", "sl"), ("est", "et"), ("lav", "lv"), ("lit", "lt"),
+        ("ice", "is"), ("isl", "is"), ("tgl", "tl"), ("fil", "tl"), ("ben", "bn"), ("urd", "ur"),
+        ("nb", "no"), ("mal", "ml"), ("mar", "mr"), ("kan", "kn"), ("pan", "pa"), ("afr", "af"),
+    ])
+    func moreIsoCodesNormalise(_ tag: String, _ expected: String) {
+        #expect(LanguageCode.normalize(tag) == expected)
+    }
+
+    /// TMDB calls Cantonese `cn`, which is no ISO code at all; files tag it `chi`, `zho` or `yue`.
+    @Test func cantoneseIsTheSameLanguageHoweverItIsTagged() {
+        #expect(LanguageCode.sameLanguage("cn", LanguageCode.normalize("chi")!))
+        #expect(LanguageCode.sameLanguage("cn", LanguageCode.normalize("yue")!))
+        #expect(!LanguageCode.sameLanguage("cn", "ja"))
+        #expect(LanguageCode.sameLanguage("en", "en"))
+    }
+
+    @Test func aCantoneseFilmsOwnAudioIsNotADub() {
+        let evidence = SubtitleEvidence(hebrew: .builtIn, audioLanguages: ["zh"])
+        #expect(hebrewBoostTier(evidence, parsed: ParsedRelease(title: "T"), originalLanguage: "cn")
+                == HebrewSubtitles.builtIn.rawValue)
+    }
 }
