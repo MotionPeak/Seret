@@ -261,6 +261,10 @@ public final class PlayerModel {
     public internal(set) var contentKey: String
     let engine: VideoPlayerEngine
     let unrestrict: (String) async throws -> URL
+    /// The stream cache in front of Real-Debrid, or nil to play RD's links directly.
+    let streamProxy: StreamProxying?
+    /// The cache session for the source playing now.
+    var streamHandle: StreamHandle?
     /// Authoritative resume lookup (contentKey → saved seconds, nil/0 = start). Resolved at LOAD
     /// time so playback always resumes from the store's truth — the screen's watch state can be
     /// not-yet-loaded (tap Play right after Detail opens) or stale (immediate re-play) when the
@@ -559,6 +563,7 @@ public final class PlayerModel {
          resolveResume: ((String) async -> Double?)? = nil,
          prefetchLink: ((String) -> Void)? = nil,
          nowPlaying: NowPlayingControlling? = nil,
+         streamProxy: StreamProxying? = nil,
          autoHideDelay: Double = 4,
          loadTimeout: Double = 30,
          seekCoalesceWindow: Double = 0.35,
@@ -587,6 +592,7 @@ public final class PlayerModel {
         self.trackPreferences = trackPreferences
         self.resolveResume = resolveResume
         self.prefetchLink = prefetchLink
+        self.streamProxy = streamProxy
         self.fromStart = request.fromStart
         self.item = request.item
         // Preferred source first, then remaining sources in quality order (deduped).

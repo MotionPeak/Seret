@@ -210,6 +210,7 @@ extension PlayerModel {
     }
 
     func reload() {
+        closeStream()                     // the old session must not outlive its media
         phase = .preparing
         position = 0
         duration = 0
@@ -288,7 +289,9 @@ extension PlayerModel {
             }
             let url = try await unrestrict(currentSource.restrictedLink)
             guard !Task.isCancelled else { return }   // superseded by a newer reload()
-            engine.load(url: url, headers: [:], audioLanguage: preferredAudioLanguageOption,
+            let playURL = await openStream(for: url)
+            guard !Task.isCancelled else { return }
+            engine.load(url: playURL, headers: [:], audioLanguage: preferredAudioLanguageOption,
                         audioTrackID: rememberedAudioTrackID)
             engineHoldsCurrentMedia = true   // from here, time events describe THIS source
             engine.play()
@@ -323,7 +326,10 @@ extension PlayerModel {
         // the length of the film — and `@Observable` notifies on every set regardless of whether
         // the value differs, so writing all four unconditionally invalidated every view observing
         // them once a second, forever, having changed nothing.
-        if !hasRenderedFrame { hasRenderedFrame = true }
+        if !hasRenderedFrame {
+            hasRenderedFrame = true
+            markStreamPlaybackStarted()
+        }
         if isBuffering { isBuffering = false }
         if loadWatchdog != nil {
             loadWatchdog?.cancel()  // the load succeeded — disarm the timeout
@@ -420,6 +426,10 @@ extension PlayerModel {
         // reads only model state (`position`/`duration`), never the engine, so stopping first
         // records exactly the same values.
         engine.stop()
+        if let handle = streamHandle, let streamProxy {
+            streamHandle = nil
+            await streamProxy.close(handle)          // keep the resume region for next time
+        }
         await recordCurrentProgress()
     }
 }

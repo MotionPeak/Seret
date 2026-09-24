@@ -265,3 +265,24 @@ enum Fixture {
                                contentKey: WatchKey.content(forShow: item, episode: playing), episode: playing)
     }
 }
+
+// MARK: - FakeStreamProxy
+
+/// Records what the player asks of the stream cache, and hands back numbered loopback URLs.
+actor FakeStreamProxy: StreamProxying {
+    private(set) var opened: [(upstream: URL, fileKey: String)] = []
+    private(set) var closed: [URL] = []
+    private(set) var marked: [URL] = []
+    private var refresh: (@Sendable () async throws -> URL)?
+
+    func open(upstream: URL, fileKey: String,
+              refreshUpstream: @escaping @Sendable () async throws -> URL) async -> StreamHandle {
+        opened.append((upstream, fileKey))
+        refresh = refreshUpstream
+        return StreamHandle(direct: URL(string: "http://127.0.0.1:9/s/\(opened.count)")!)
+    }
+    func markPlaybackStarted(_ handle: StreamHandle) async { marked.append(handle.url) }
+    func close(_ handle: StreamHandle) async { closed.append(handle.url) }
+    func trimMemory() async {}
+    func callRefresh() async throws -> URL { try await refresh!() }
+}
