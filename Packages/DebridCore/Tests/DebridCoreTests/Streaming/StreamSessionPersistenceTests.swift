@@ -50,6 +50,28 @@ extension StreamingNetworkTests {
             await second.close()
         }
 
+        /// Found in review: with the index on disk, the head and first frames come from disk before
+        /// RD is ever asked. When RD then refuses (the file is gone, RD is down), all libvlc sees
+        /// is a closed connection — an EOF — and the film "ended" with no Retry. The session must
+        /// remember WHY, for the player to ask.
+        @Test func aRefusalAfterAHeadFromDiskIsRemembered() async throws {
+            let store = index()
+            let first = session(store)
+            _ = try await read(first, 0, 1 << 20)
+            await first.markPlaybackStarted()
+            await first.close()
+
+            RangeFileURLProtocol.reset(.init(fileSize: 64 << 20, statusByPath: ["/f.mkv": 404]))
+            let second = session(store)
+            #expect(try await second.head().total == 64 << 20)        // from disk: RD not asked
+            #expect(await second.upstreamFailure == nil)
+            await #expect(throws: StreamError.upstreamStatus(404)) {
+                try await self.read(second, 40 * Self.mib, 4096)
+            }
+            #expect(await second.upstreamFailure == .upstreamStatus(404))
+            await second.close()
+        }
+
         @Test func whereTheViewerStoppedIsThereNextTime() async throws {
             let store = index()
             let first = session(store)

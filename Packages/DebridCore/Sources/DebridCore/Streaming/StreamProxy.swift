@@ -15,6 +15,9 @@ public protocol StreamProxying: Sendable {
     func close(_ handle: StreamHandle) async
     /// Memory warning: drop history, keep read-ahead.
     func trimMemory() async
+    /// Why RD stopped serving the stream, if it refused: the player asks when libvlc reports the
+    /// end, because a refusal reaches libvlc as a plain EOF.
+    func upstreamFailure(_ handle: StreamHandle) async -> StreamError?
 }
 
 /// What the player plays: the loopback URL of a session, or RD's link directly.
@@ -105,6 +108,11 @@ public actor StreamProxy: StreamProxying {
         server?.closeConnections(for: id)                        // a send libvlc stopped reading
         #endif
         log("session \(id.uuidString.prefix(8)) closed")
+    }
+
+    public func upstreamFailure(_ handle: StreamHandle) async -> StreamError? {
+        guard let id = handle.sessionID else { return nil }
+        return await sessions[id]?.upstreamFailure
     }
 
     public func trimMemory() async {

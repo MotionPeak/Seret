@@ -33,6 +33,11 @@ actor StreamSession {
     private var headFailure: StreamError?
     private var closed = false
 
+    /// Why RD stopped serving this file, once it has refused. libvlc sees only a closed connection
+    /// — an EOF — so without this the player cannot tell a refusal from the end of the film. It
+    /// matters most when the head came from disk: frames render before RD is ever asked.
+    private(set) var upstreamFailure: StreamError?
+
     private(set) var upstreamRequestCount = 0
     /// How many times a fetch has been paused (tests and diagnostics).
     private(set) var suspendCount = 0
@@ -121,9 +126,13 @@ actor StreamSession {
                 if fetches[id]?.suspended == true { resumeFetch(id) }
                 try await waitForProgress()
             case .fetch(let start, let lookBehind, let cancel):
+                // RD has refused this file: asking again only repeats the refusal.
+                if let upstreamFailure { throw upstreamFailure }
                 starts += 1
                 guard starts <= Self.maxFetchesPerRead else {
-                    throw StreamError.transport("RD kept failing at \(offset)")
+                    let failure = StreamError.transport("RD kept failing at \(offset)")
+                    upstreamFailure = failure
+                    throw failure
                 }
                 for id in cancel { cancelFetch(id) }
                 startFetch(at: cache.fetchStart(for: start))
@@ -170,6 +179,7 @@ actor StreamSession {
                 startFetch(at: fetch.start)                      // same bytes, fresh link
             } else {
                 log("fetch #\(id) refused: \(status)")
+                upstreamFailure = .upstreamStatus(status)
                 cancelFetch(id)
                 if totalSize == nil { headFailure = .upstreamStatus(status) }
                 wakeWaiters(throwing: StreamError.upstreamStatus(status))
