@@ -2,6 +2,9 @@ import DebridCore
 import Foundation
 import Observation
 import SwiftData
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// Owns the one shared `RealDebridSession` and the app's coarse auth state. It is the
 /// `AccessTokenProviding` source that 7b's library + 7c's playback will consume.
@@ -104,6 +107,21 @@ public final class AppSession {
     /// Short-TTL, one-shot cache of unrestricted URLs so Detail can warm the RD `unrestrict`
     /// call before Play is tapped (and the player can warm the next episode at Up Next).
     private var linkCache: PlayableLinkCache?
+    /// The stream cache in front of RD for every player. One per signed-in session.
+    private var streamProxy: StreamProxy?
+    private var memoryWarningObserver: (any NSObjectProtocol)?
+
+    /// Where the stream cache writes its diagnostics. The apps point it at `vlc.log` (SeretPlayer's
+    /// DiagnosticsLog), which DebridUI cannot import.
+    public static var streamDiagnostics: (@Sendable (String) -> Void)?
+
+    private static var streamBudget: StreamCacheBudget {
+        #if os(tvOS)
+        .tvOS
+        #else
+        .iOS
+        #endif
+    }
     /// Single, app-lifetime observer that rebuilds Home when CloudKit imports remote changes.
     private var remoteChangeObserver: NSObjectProtocol?
     /// The pending coalesced refresh for those changes — see `scheduleRemoteChangeRefresh`.
@@ -197,6 +215,7 @@ public final class AppSession {
         home = nil
         torrents = nil
         linkCache = nil
+        streamProxy = nil
         trailerResolver = nil
         streamSource = nil
         addService = nil
@@ -393,6 +412,24 @@ public final class AppSession {
             guard let url = URL(string: unrestricted.download) else { throw URLError(.badURL) }
             return url
         }
+        let diagnostics = Self.streamDiagnostics
+        let proxyLog: @Sendable (String) -> Void = { line in diagnostics?("[proxy] \(line)") }
+        streamProxy = StreamProxy(
+            budget: Self.streamBudget,
+            indexDirectory: Self.cachesDirectory.appending(path: "SeretStreamIndex", directoryHint: .isDirectory),
+            log: proxyLog)
+        #if canImport(UIKit)
+        if memoryWarningObserver == nil {
+            memoryWarningObserver = NotificationCenter.default.addObserver(
+                forName: UIApplication.didReceiveMemoryWarningNotification, object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    let proxy = self?.streamProxy
+                    Task { await proxy?.trimMemory() }
+                }
+            }
+        }
+        #endif
         let service = LibraryService(
             torrents: torrents,
             builder: LibraryBuilder(),
@@ -677,6 +714,8 @@ public final class AppSession {
             // scrubber, Control Center, Siri and HDMI-CEC TV remotes. Unavailable on macOS, where
             // this package only builds to run `swift test`.
             nowPlaying: Self.makeNowPlayingCenter(),
+            // The stream cache in front of RD: rewinds from RAM, reopening from disk.
+            streamProxy: streamProxy,
             audioProbe: audioProbe)
     }
 

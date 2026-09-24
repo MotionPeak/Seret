@@ -91,7 +91,7 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
         let prefetch = Self.prefetchOptions()
         options += prefetch
         player = VLCMediaPlayer(options: options)
-        let handle = Self.openDiagnosticsLog()
+        let handle = DiagnosticsLog.shared.prepare()
         diagnosticsHandle = handle
         Self.attachVLCLogger(to: player, file: handle)
         subtitleScale = Float(preferences.size.scale)
@@ -142,6 +142,8 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
     /// so a rewind always goes to the network.
     static let prefetchBufferKiB = 128 * 1024
     static let prefetchSeekThresholdBytes = 8 << 20
+    /// libvlc's own buffer for a stream the app's cache is already serving (see `load`).
+    static let proxiedPrefetchKiB = 16 * 1024
 
     /// DEBUG `-prefetchKiB <KiB>` / `-prefetchThreshold <bytes>` override the two, so a run can be
     /// compared against another without a rebuild. `-prefetchKiB 16384 -prefetchThreshold 16384`
@@ -234,6 +236,10 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
             media.addOption(":input-fast-seek")   // land on the nearest keyframe — skips respond fast
         }
         media.addOption(":http-reconnect")    // transparently re-open a dropped CDN connection
+        // Through the app's stream cache, libvlc's reconnects cost nothing and the cache does the
+        // read-ahead — so libvlc keeps its own 16 MiB default instead of a second 128 MiB copy of
+        // what the cache already holds in RAM.
+        if url.host == "127.0.0.1" { media.addOption(":prefetch-buffer-size=\(Self.proxiedPrefetchKiB)") }
         // Pick the audio track HERE, during setup, rather than switching after playback starts.
         // libvlc's own log made the cost plain: a REMUX whose first audio track is Spanish
         // ("Track Language=`spa'", "Track Name=Latino") began decoding Spanish, then our late
@@ -503,7 +509,7 @@ extension VLCKitVideoPlayerEngine {
     /// Rotate above this size. A two-hour film with a few seeks writes a few hundred kilobytes, so
     /// two files hold the last several sessions; a pathological loop (an audio output failing
     /// thirty times a second) still cannot grow past twice this.
-    nonisolated private static let diagnosticsRotateBytes: UInt64 = 4 << 20
+    nonisolated static let diagnosticsRotateBytes: UInt64 = 4 << 20
 
     /// Open the log for appending, rotating first when it has grown past the cap. nil when the
     /// app has nowhere writable, in which case there is simply no file log.
@@ -529,8 +535,7 @@ extension VLCKitVideoPlayerEngine {
     /// reports state changes from VLC's threads. `write(contentsOf:)` throws rather than raising,
     /// so a full disk costs a dropped line, not the process.
     nonisolated func note(_ line: String) {
-        guard let diagnosticsHandle else { return }
-        try? diagnosticsHandle.write(contentsOf: Data("\(Self.timestamp()) [seret] \(line)\n".utf8))
+        DiagnosticsLog.shared.write("[seret] \(line)")
     }
 
     /// `DateFormatter` is documented thread-safe for formatting once configured; it is never

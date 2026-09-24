@@ -8,6 +8,11 @@ struct SeretMobileApp: App {
     @State private var session = AppSession(
         realDebrid: RealDebridSession(store: KeychainTokenStore()))
 
+    init() {
+        // The stream cache's lines go into vlc.log beside libvlc's own (see DiagnosticsLog).
+        AppSession.streamDiagnostics = { DiagnosticsLog.shared.write($0) }
+    }
+
     var body: some Scene {
         WindowGroup {
             if Self.isRunningTests {
