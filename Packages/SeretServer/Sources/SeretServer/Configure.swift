@@ -15,6 +15,11 @@ func configure(_ app: Application, config: ServerConfig) async throws {
     if config.omdbAPIKey.isEmpty {
         app.logger.notice("OMDB_API_KEY is empty — the detail page ratings row is disabled.")
     }
+    app.subtitleEvidence = makeSubtitleEvidence(torrents: app.torrents,
+                                                openSubtitlesKey: config.openSubtitlesAPIKey)
+    if config.openSubtitlesAPIKey.isEmpty {
+        app.logger.notice("OPENSUBTITLES_API_KEY is empty — Hebrew subtitle matching is off (built-in detection still runs).")
+    }
     app.library = ServerLibrary(
         torrents: app.torrents,
         enricher: MetadataEnricher(tmdb: tmdb))
