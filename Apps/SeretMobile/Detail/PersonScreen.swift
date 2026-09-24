@@ -52,7 +52,8 @@ struct PersonScreen: View {
                                      myList: session.myListStore,
                                      ratings: session.ratingsProvider,
                                      versionPrefs: session.versionPreferences,
-                                     letterboxd: session.letterboxdRatingProvider))
+                                     letterboxd: session.letterboxdRatingProvider,
+                                     subtitleEvidence: session.subtitleEvidence))
             }
         }
     }

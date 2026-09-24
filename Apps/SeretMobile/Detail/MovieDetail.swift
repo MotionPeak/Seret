@@ -41,7 +41,14 @@ struct MovieDetail: View {
                     Text("Film \(franchise.position) of \(franchise.count)  ·  \(franchise.name)")
                         .font(Theme.Typo.body()).foregroundStyle(Theme.Palette.gold)
                 }
-                if let best = store.bestSource { QualityChipRow(parsed: best.parsed) }
+                if store.bestSource != nil || store.hebrewChip != nil {
+                    HStack(spacing: Theme.Space.sm) {
+                        if let best = store.bestSource { QualityChipRow(parsed: best.parsed) }
+                        if let chip = store.hebrewChip {
+                            HebrewBadge(text: chip.text, dimmed: chip == .available, prominent: true)
+                        }
+                    }
+                }
                 RatingsRow(ratings: store.ratings, letterboxd: store.letterboxdRating)
                 actions
                 UserRatingRow(store: store)
@@ -123,6 +130,7 @@ struct MovieDetail: View {
         var parts: [String] = []
         if let y = item.year { parts.append(String(y)) }
         if let r = store.runtime { parts.append("\(r) min") }
+        if let language = store.languageName { parts.append(language) }
         if !store.genres.isEmpty { parts.append(store.genres.prefix(3).joined(separator: " · ")) }
         // The director is NOT folded in here any more — it is its own row of tappable names.
         return parts.joined(separator: "  ·  ")
@@ -254,6 +262,7 @@ struct MovieDetail: View {
                         .foregroundStyle(store.isActive(src)
                                          ? Theme.Palette.gold : Theme.Palette.textSecondary)
                     QualityChipRow(parsed: src.parsed)
+                    if let badge = store.hebrew(for: src).badgeText { HebrewBadge(text: badge) }
                     Spacer()
                     Image(systemName: "play.circle.fill").foregroundStyle(Theme.Palette.gold)
                 }
@@ -359,7 +368,9 @@ private struct MovieDownloadSection: View {
                 requesting = true
                 var candidates: [CachedStream] = []
                 if let imdbID, let add = session.makeAddStore(imdbID: imdbID, kind: .movie,
-                                                              originalLanguage: originalLanguage) {
+                                                              originalLanguage: originalLanguage,
+                                                              subtitleTarget: .movie(tmdbID: tmdbID, title: title,
+                                                                                     year: nil)) {
                     candidates = await add.uncachedCandidates()
                 }
                 await session.downloadStore?.request(contentKey: DownloadKey.movie(tmdbID: tmdbID),

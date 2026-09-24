@@ -33,11 +33,13 @@ struct DetailScreen: View {
     init(item: MediaItem, details: MediaDetailsProviding, watch: WatchProgressProviding?,
          profileID: String? = nil, myList: MyListProviding? = nil, ratings: RatingsProviding? = nil,
          versionPrefs: VersionPreferring? = nil,
-         letterboxd: LetterboxdRatingProviding? = nil) {
+         letterboxd: LetterboxdRatingProviding? = nil,
+         subtitleEvidence: SubtitleEvidenceProviding? = nil) {
         _store = State(initialValue: DetailStore(item: item, details: details, watch: watch,
                                                  profileID: profileID, myList: myList, ratings: ratings,
                                                  versionPrefs: versionPrefs,
-                                                 letterboxd: letterboxd))
+                                                 letterboxd: letterboxd,
+                                                 subtitleEvidence: subtitleEvidence))
     }
 
     var body: some View {
@@ -61,7 +63,12 @@ struct DetailScreen: View {
                                 },
                                 makeEpisodeDownload: { imdb, season, episode, lang in
                                     session.makeAddStore(imdbID: imdb, kind: .series(season: season, episode: episode),
-                                                         originalLanguage: lang)
+                                                         originalLanguage: lang,
+                                                         subtitleTarget: store.item.tmdbID.map {
+                                                             .episode(showTmdbID: $0, title: store.item.title,
+                                                                      year: store.item.year, season: season,
+                                                                      episode: episode)
+                                                         })
                                 },
                                 onSeasonAdded: { session.libraryStore?.retry() },
                                 onOpenTitle: { similarDetail = $0 },
@@ -74,10 +81,16 @@ struct DetailScreen: View {
             }
             .task {
                 await store.load()
-                // Warm the RD unrestrict for what Play would start (the movie's best source /
-                // the show's next-up episode) — tapping Play then skips the network round-trip.
-                let source = store.item.kind == .movie ? store.bestSource : store.nextEpisode()?.source
-                if let source { session.prefetchPlayback(for: source) }
+                // Warm the RD unrestrict for the show's next-up episode — tapping Play then skips
+                // the network round-trip. A movie's link is warmed by the onChange below.
+                if store.item.kind == .show, let source = store.nextEpisode()?.source {
+                    session.prefetchPlayback(for: source)
+                }
+            }
+            // A movie's Play target can change after the page opens — the Hebrew evidence or a
+            // chosen default lands — so warm the link of whatever Play will use, whenever it changes.
+            .onChange(of: store.bestSource, initial: true) { _, source in
+                if store.item.kind == .movie, let source { session.prefetchPlayback(for: source) }
             }
             .task { await store.loadMyList(contentKey: store.item.id) }
             // Movies only — Letterboxd has no watchlist a show can go on — so a show page does not
@@ -149,7 +162,8 @@ struct DetailScreen: View {
                                      myList: session.myListStore,
                                      ratings: session.ratingsProvider,
                                      versionPrefs: session.versionPreferences,
-                                     letterboxd: session.letterboxdRatingProvider))
+                                     letterboxd: session.letterboxdRatingProvider,
+                                     subtitleEvidence: session.subtitleEvidence))
             }
         }
         // "Versions" — the full cached/uncached release list for this title, owned or not.

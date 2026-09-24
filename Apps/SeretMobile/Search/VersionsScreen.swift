@@ -159,6 +159,11 @@ struct VersionsScreen: View {
                             .foregroundStyle(Theme.Palette.gold)
                     }
                 }
+                // Its own line: an iPhone row has no room left beside the chips, and this is the
+                // one fact about a version that must never be truncated away.
+                if let badge = flow?.add?.hebrew(for: stream).badgeText {
+                    HebrewBadge(text: badge)
+                }
                 // The full release name — read the source (CAM/TELESYNC), year, group to confirm
                 // it's the right film/version.
                 Text(stream.rawTitle)
