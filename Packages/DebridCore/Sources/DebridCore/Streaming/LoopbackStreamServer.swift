@@ -14,6 +14,8 @@ final class LoopbackStreamServer: @unchecked Sendable {
     private let queue = DispatchQueue(label: "seret.stream-proxy")
     private let lock = NSLock()
     private var listener: NWListener?
+    /// The port libvlc was given. Kept apart from the listener, which may be replaced.
+    private var boundPort: NWEndpoint.Port?
     /// The connections serving each session. libvlc stops reading once its own buffer is full,
     /// which leaves a send waiting on a full socket; only cancelling the connection completes it,
     /// so closing a session must reach them — see `closeConnections(for:)`.
@@ -39,19 +41,47 @@ final class LoopbackStreamServer: @unchecked Sendable {
 
     /// Listen on 127.0.0.1 at a free port, and return it.
     func start() async throws -> UInt16 {
+        try await listen(on: .any)
+    }
+
+    /// Replace the listener with one on the same port. Run when the listener fails after `ready`:
+    /// the system may reclaim a suspended app's listening socket (TN2277), and libvlc keeps the URL
+    /// it was given — a new port would leave every reconnect refused, and the film "ended".
+    func listenAgain() async throws {
+        let (old, port) = lock.withLock { (listener, boundPort) }
+        guard let port else { return }
+        old?.cancel()
+        // A cancelled listener lets go of its port a moment later: retry while it is still held.
+        for attempt in 1... {
+            do {
+                _ = try await listen(on: port)
+                return
+            } catch NWError.posix(.EADDRINUSE) where attempt < 40 {
+                try await Task.sleep(for: .milliseconds(25))
+            }
+        }
+    }
+
+    private func listen(on port: NWEndpoint.Port) async throws -> UInt16 {
         let parameters = NWParameters.tcp
-        parameters.requiredLocalEndpoint = .hostPort(host: .ipv4(.loopback), port: .any)
+        parameters.requiredLocalEndpoint = .hostPort(host: .ipv4(.loopback), port: port)
+        parameters.allowLocalEndpointReuse = true
         let listener = try NWListener(using: parameters)
         listener.newConnectionHandler = { [weak self] connection in self?.accept(connection) }
         lock.withLock { self.listener = listener }
         return try await withCheckedThrowingContinuation { continuation in
             let once = Once()                    // the listener reports states after `ready` too
-            listener.stateUpdateHandler = { state in
+            listener.stateUpdateHandler = { [weak self] state in
                 switch state {
                 case .ready:
+                    self?.lock.withLock { self?.boundPort = listener.port }
                     if once.fire() { continuation.resume(returning: listener.port?.rawValue ?? 0) }
                 case .failed(let error):
-                    if once.fire() { continuation.resume(throwing: error) }
+                    if once.fire() {
+                        continuation.resume(throwing: error)
+                    } else {
+                        self?.listenerFailed(listener, error)
+                    }
                 case .cancelled:
                     if once.fire() { continuation.resume(throwing: CancellationError()) }
                 default:
@@ -59,6 +89,14 @@ final class LoopbackStreamServer: @unchecked Sendable {
                 }
             }
             listener.start(queue: queue)
+        }
+    }
+
+    private func listenerFailed(_ failed: NWListener, _ error: NWError) {
+        guard lock.withLock({ listener === failed }) else { return }   // stopped, or already replaced
+        log("listener failed (\(error)); listening again on the same port")
+        Task {
+            do { try await listenAgain() } catch { log("could not listen again: \(error)") }
         }
     }
 

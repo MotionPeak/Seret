@@ -71,6 +71,20 @@ extension StreamingNetworkTests {
             await session.close(); server.stop()
         }
 
+        /// Found in review: the system may reclaim a suspended app's listening socket (TN2277) —
+        /// press Home mid-film and come back. libvlc keeps the URL it was given, so the listener that
+        /// replaces the lost one must answer on the SAME port, or every reconnect is refused and the
+        /// film "ends".
+        @Test func aListenerTheSystemTookBackIsReplacedOnTheSamePort() async throws {
+            let (url, server, session) = try await serve()
+            try await server.listenAgain()                           // what a failure after `ready` runs
+            #expect(server.isRunning)
+            let (data, response) = try await get(url, range: "bytes=0-9")
+            #expect(response.statusCode == 206)
+            #expect(data == RangeFileURLProtocol.bytes(0..<10))
+            await session.close(); server.stop()
+        }
+
         @Test func aClientThatHangsUpMidBodyDoesNotBreakTheNext() async throws {
             let (url, server, session) = try await serve()
             var request = URLRequest(url: url)
