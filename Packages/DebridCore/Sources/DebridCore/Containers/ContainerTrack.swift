@@ -41,10 +41,12 @@ public struct ContainerTrack: Sendable, Equatable, Codable {
 
 public extension ContainerTrack {
     /// A track as the player reports it. The player has no forced flag and no per-track frame
-    /// rate; a track with no language tag is named from its label ("Hebrew", "עברית").
+    /// rate; a track with no language tag is named from its label ("Hebrew", "עברית"), and one
+    /// labelled "Forced" is taken at its word.
     init(_ track: MediaTrack) {
         self.init(kind: track.kind == .audio ? .audio : .subtitle,
                   language: LanguageCode.normalize(track.language) ?? LanguageCode.fromName(track.name),
-                  codec: track.codec, name: track.name)
+                  codec: track.codec, name: track.name,
+                  isForced: track.name.range(of: "forced", options: .caseInsensitive) != nil)
     }
 }

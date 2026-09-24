@@ -43,6 +43,7 @@ public actor SubtitleEvidenceService: SubtitleEvidenceProviding {
     /// Stands in for "forever" — a file's tracks do not change.
     static let recordTTL: TimeInterval = 10 * 365 * 24 * 60 * 60
     /// Each read is an unrestrict plus up to two ranged requests, and a title can hold a dozen.
+    /// The limit is the service's: two screens (or two web requests) share the same slots.
     static let readsAtOnce = 2
 
     struct SearchEntry: Codable, Sendable {
@@ -59,6 +60,8 @@ public actor SubtitleEvidenceService: SubtitleEvidenceProviding {
     private let probe: Probe
     private var searchesInFlight: [String: Task<[SubtitleResult]?, Never>] = [:]
     private var readsInFlight: [String: Task<VersionSubtitleRecord?, Never>] = [:]
+    private var readSlotsTaken = 0
+    private var readSlotQueue: [CheckedContinuation<Void, Never>] = []
 
     public init(directory: URL, search: Search?, resolve: @escaping Resolve,
                 probe: @escaping Probe = { await ContainerProbe().tracks(at: $0) },
@@ -103,20 +106,19 @@ public actor SubtitleEvidenceService: SubtitleEvidenceProviding {
 
     public func records(for sources: [MediaSource]) async -> [String: VersionSubtitleRecord] {
         var known: [String: VersionSubtitleRecord] = [:]
-        var unread: [MediaSource] = []
+        var flights: [(key: String, flight: Task<VersionSubtitleRecord?, Never>)] = []
         for source in sources {
             let key = WatchKey.source(source)
-            if let record = await recordCache.stored(key) { known[key] = record } else { unread.append(source) }
-        }
-        var start = 0
-        while start < unread.count {
-            let batch = unread[start..<min(start + Self.readsAtOnce, unread.count)]
-            let flights = batch.map { (WatchKey.source($0), readFlight(for: $0)) }
-            for (key, flight) in flights {
-                if let record = await flight.value { known[key] = record }
-                readsInFlight[key] = nil
+            if let record = await recordCache.stored(key) {
+                known[key] = record
+            } else {
+                flights.append((key, readFlight(for: source)))
             }
-            start += Self.readsAtOnce
+        }
+        // Every read is queued at once and takes a slot as one frees up, so a slow file holds up
+        // nothing but itself.
+        for (key, flight) in flights {
+            if let record = await flight.value { known[key] = record }
         }
         return known
     }
@@ -136,33 +138,66 @@ public actor SubtitleEvidenceService: SubtitleEvidenceProviding {
         // A downloaded subtitle is attached by the player but is not in the file.
         let observed = tracks.filter { !$0.isExternal }.map { ContainerTrack($0) }
         guard !observed.isEmpty else { return }
-        let key = WatchKey.source(source)
-        let existing = await recordCache.stored(key) ?? VersionSubtitleRecord(origin: .playback)
-        let merged = existing.merging(playback: observed)
-        guard merged != existing else { return }
-        await recordCache.store(merged, key: key)
+        await recordCache.update(WatchKey.source(source)) { existing in
+            let merged = (existing ?? VersionSubtitleRecord(origin: .playback)).merging(playback: observed)
+            return merged == existing ? nil : merged
+        }
     }
 
+    /// One read per file, however many screens ask: a second caller joins the first's flight.
     private func readFlight(for source: MediaSource) -> Task<VersionSubtitleRecord?, Never> {
         let key = WatchKey.source(source)
         if let flight = readsInFlight[key] { return flight }
-        let flight = Task { [resolve, probe, recordCache] () -> VersionSubtitleRecord? in
-            guard let link = try? await resolve(source.restrictedLink),
-                  let outcome = await probe(link.url) else { return nil }     // transient: not kept
-            let read: VersionSubtitleRecord
-            switch outcome {
-            case .tracks(let tracks):
-                read = VersionSubtitleRecord(origin: .header, fileName: link.fileName, tracks: tracks)
-            case .notMatroska, .unreadable:
-                read = VersionSubtitleRecord(origin: .unreadable, fileName: link.fileName)
-            }
-            // The player may have reported this file while the header was being read. What it saw
-            // is the file's own account and stays.
-            if let existing = await recordCache.stored(key), existing.origin == .playback { return existing }
-            await recordCache.store(read, key: key)
-            return read
-        }
+        let flight = Task { await self.read(source, key: key) }
         readsInFlight[key] = flight
         return flight
+    }
+
+    private func read(_ source: MediaSource, key: String) async -> VersionSubtitleRecord? {
+        await takeReadSlot()
+        let found = await Self.readHeader(of: source, resolve: resolve, probe: probe)
+        releaseReadSlot()
+        var kept: VersionSubtitleRecord?
+        if let found {                                 // nil is transient: not kept, tried next visit
+            kept = await recordCache.update(key) { existing in
+                // The header is the file's own index and replaces what playback reported meanwhile;
+                // a read that found nothing never erases what playback saw.
+                if found.origin == .unreadable, let existing, existing.origin == .playback { return nil }
+                return found
+            }
+        }
+        // Only once the answer is stored: cleared any sooner, a caller arriving in between would
+        // find neither a record nor a flight, and read the file again.
+        readsInFlight[key] = nil
+        return kept
+    }
+
+    /// Off the actor: an unrestrict and up to two ranged requests.
+    private static func readHeader(of source: MediaSource, resolve: Resolve,
+                                   probe: Probe) async -> VersionSubtitleRecord? {
+        guard let link = try? await resolve(source.restrictedLink),
+              let outcome = await probe(link.url) else { return nil }
+        switch outcome {
+        case .tracks(let tracks):
+            return VersionSubtitleRecord(origin: .header, fileName: link.fileName, tracks: tracks)
+        case .notMatroska, .unreadable:
+            return VersionSubtitleRecord(origin: .unreadable, fileName: link.fileName)
+        }
+    }
+
+    private func takeReadSlot() async {
+        if readSlotsTaken < Self.readsAtOnce {
+            readSlotsTaken += 1
+            return
+        }
+        await withCheckedContinuation { readSlotQueue.append($0) }   // handed a slot on release
+    }
+
+    private func releaseReadSlot() {
+        if readSlotQueue.isEmpty {
+            readSlotsTaken -= 1
+        } else {
+            readSlotQueue.removeFirst().resume()
+        }
     }
 }

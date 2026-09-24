@@ -60,6 +60,17 @@ public actor TTLFileCache<Value: Codable & Sendable> {
         persist()
     }
 
+    /// Read, decide and write in one step, with no suspension in between — so two callers that
+    /// each fold something into the same entry cannot both start from the old one. `transform`
+    /// gets the stored value whatever its age and returns the new one, or nil to leave the entry as
+    /// it is. Returns what is stored afterwards.
+    @discardableResult
+    public func update(_ key: String, _ transform: (Value?) -> Value?) -> Value? {
+        guard let updated = transform(memory[key]?.value) else { return memory[key]?.value }
+        store(updated, key: key)
+        return updated
+    }
+
     private func persist() {
         guard let data = try? JSONEncoder().encode(memory) else { return }
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

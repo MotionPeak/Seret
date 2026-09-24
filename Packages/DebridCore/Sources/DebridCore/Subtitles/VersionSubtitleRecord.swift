@@ -48,10 +48,17 @@ public struct VersionSubtitleRecord: Sendable, Equatable, Codable {
 
     public var frameRate: Double? { tracks.first { $0.kind == .video }?.frameRate }
 
-    /// This record with what the player saw folded in. A union, not a replacement: the player
-    /// announces tracks one at a time, so a report written early in a play can be partial, and
-    /// dropping a header-read track the player had not reported yet would lose it.
+    /// This record with what the player saw folded in.
+    ///
+    /// A header read is the file's own index and is kept exactly as read: the player reports the
+    /// same tracks with less detail — no forced flag, a fourcc for a codec — and appending its
+    /// copies turned a forced-only Hebrew track into "Built in" after a single play. So playback
+    /// only teaches something about a file the header could not read (an MP4) or never read.
+    ///
+    /// For those it is a union, not a replacement: the player announces tracks one at a time, and
+    /// an early, partial report must not erase an earlier, fuller one.
     public func merging(playback observed: [ContainerTrack]) -> VersionSubtitleRecord {
+        guard origin != .header else { return self }
         var merged = tracks
         for track in observed where !merged.contains(track) { merged.append(track) }
         return VersionSubtitleRecord(origin: .playback, fileName: fileName, tracks: merged)

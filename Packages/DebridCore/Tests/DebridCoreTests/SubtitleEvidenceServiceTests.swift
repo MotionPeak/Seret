@@ -33,6 +33,46 @@ import Foundation
 
     enum Boom: Error { case offline }
 
+    /// Holds fake reads open until the test lets them finish.
+    final class Gate: @unchecked Sendable {
+        private let lock = NSLock()
+        private var waiting: [CheckedContinuation<Void, Never>] = []
+        private var isOpen = false
+        private var arrived = 0
+        func wait() async {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                lock.lock()
+                arrived += 1
+                if isOpen {
+                    lock.unlock()
+                    continuation.resume()
+                } else {
+                    waiting.append(continuation)
+                    lock.unlock()
+                }
+            }
+        }
+        func open() {
+            lock.lock()
+            isOpen = true
+            let released = waiting
+            waiting = []
+            lock.unlock()
+            released.forEach { $0.resume() }
+        }
+        var arrivals: Int { lock.lock(); defer { lock.unlock() }; return arrived }
+    }
+
+    /// Polls `condition` for up to two seconds — for asserting that something DID happen while
+    /// something else is still held open.
+    private func eventually(_ condition: () -> Bool) async -> Bool {
+        for _ in 0..<2000 {
+            if condition() { return true }
+            try? await Task.sleep(for: .milliseconds(1))
+        }
+        return condition()
+    }
+
     private static let hebrewText = ContainerTrack(kind: .subtitle, language: "he", codec: "S_TEXT/UTF8")
     private static let result = SubtitleResult(fileID: 1, language: "he", release: "T.2024.1080p.WEB-DL")
     private let query = SubtitleQuery(tmdbID: 1, title: "T")
@@ -157,7 +197,97 @@ import Foundation
         #expect(calls.peak <= 2)
     }
 
+    /// The limit is the service's, not each caller's: two title pages (or two web requests) at
+    /// once used to run two reads EACH.
+    @Test func theReadLimitHoldsAcrossCallers() async {
+        let calls = Calls()
+        let track = Self.hebrewText
+        let svc = service(tempDir(), calls: calls, probe: { _ in
+            calls.enter()
+            try? await Task.sleep(for: .milliseconds(20))
+            calls.leave()
+            return .tracks([track])
+        })
+        async let one = svc.records(for: ["A", "B", "C"].map(source))
+        async let two = svc.records(for: ["D", "E", "F"].map(source))
+        _ = await (one, two)
+        #expect(calls.peak <= 2)
+    }
+
+    /// A slow read must not hold up the next one: reads go a couple at a time as slots free up,
+    /// not in batches that each wait for their slowest.
+    @Test func aSlowReadDoesNotHoldUpTheRest() async {
+        let calls = Calls(), gate = Gate()
+        let track = Self.hebrewText
+        let slow = source("A")
+        // The fake resolver names each URL after its link's length: A's is the only 6-long link.
+        let svc = service(tempDir(), calls: calls, probe: { url in
+            calls.hit("probe")
+            if url.absoluteString.hasSuffix("/\(slow.restrictedLink.count)") { await gate.wait() }
+            return .tracks([track])
+        })
+        let reading = Task { await svc.records(for: [slow, source("B2"), source("C3")]) }
+        #expect(await eventually { calls.count("probe") == 3 })
+        gate.open()
+        #expect(await reading.value.count == 3)
+    }
+
     // MARK: playback + stored
+
+    @Test func playbackNeverChangesAHeaderRead() async {
+        let forced = ContainerTrack(kind: .subtitle, language: "he", codec: "S_TEXT/UTF8", isForced: true)
+        let svc = service(tempDir(), calls: Calls(), probe: { _ in .tracks([forced]) })
+        _ = await svc.records(for: [source("A")])
+        await svc.recordPlayback([MediaTrack(id: "spu/2", kind: .subtitle, name: "Hebrew",
+                                             language: "he", codec: "subt")], for: source("A"))
+        let record = await svc.records(for: [source("A")]).first?.value
+        #expect(record?.origin == .header)
+        #expect(record?.hebrewLevel == HebrewSubtitles.none)
+    }
+
+    /// Playback can land while the header is being read. The header is the file's own index and
+    /// wins; a read that found nothing never erases what playback saw.
+    @Test func aHeaderReadThatLandsAfterPlaybackReplacesIt() async {
+        let gate = Gate()
+        let track = Self.hebrewText
+        let svc = service(tempDir(), calls: Calls(), probe: { _ in await gate.wait(); return .tracks([track]) })
+        let reading = Task { await svc.records(for: [source("A")]) }
+        #expect(await eventually { gate.arrivals == 1 })
+        await svc.recordPlayback([MediaTrack(id: "a/1", kind: .audio, name: "English", language: "en")],
+                                 for: source("A"))
+        gate.open()
+        #expect(await reading.value.first?.value.origin == .header)
+        #expect(await svc.records(for: [source("A")]).first?.value.origin == .header)
+    }
+
+    @Test func anUnreadableHeaderNeverErasesWhatPlaybackSaw() async {
+        let gate = Gate()
+        let svc = service(tempDir(), calls: Calls(), probe: { _ in await gate.wait(); return .notMatroska })
+        let reading = Task { await svc.records(for: [source("A")]) }
+        #expect(await eventually { gate.arrivals == 1 })
+        await svc.recordPlayback([MediaTrack(id: "spu/3", kind: .subtitle, name: "Hebrew",
+                                             language: "he", codec: "subt")], for: source("A"))
+        gate.open()
+        let record = await reading.value.first?.value
+        #expect(record?.origin == .playback)
+        #expect(record?.hebrewLevel == .builtIn)
+    }
+
+    /// Each report is a read-modify-write of the stored record. Two landing together used to read
+    /// the same old record and the second write erased the first.
+    @Test func playbackReportsLandingTogetherAllLand() async {
+        let svc = service(tempDir(), calls: Calls(), probe: { _ in .notMatroska })
+        let a = source("A")
+        await withTaskGroup(of: Void.self) { group in
+            for i in 0..<20 {
+                group.addTask {
+                    await svc.recordPlayback([MediaTrack(id: "a/\(i)", kind: .audio, name: "A\(i)",
+                                                         language: "en", codec: "c\(i)")], for: a)
+                }
+            }
+        }
+        #expect(await svc.records(for: [source("A")]).first?.value.tracks.count == 20)
+    }
 
     @Test func whatPlaybackSawIsKeptAndNoReadFollows() async {
         let calls = Calls()

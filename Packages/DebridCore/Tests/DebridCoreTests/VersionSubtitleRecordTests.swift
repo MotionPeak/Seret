@@ -59,14 +59,42 @@ import Testing
         #expect(record.frameRate == 23.976)
     }
 
-    @Test func playbackIsFoldedInNotSwappedIn() {
-        // The player announces tracks one at a time; a partial report must not erase the header's.
-        let header = VersionSubtitleRecord(origin: .header, fileName: "F.mkv", tracks: [hebrewText])
-        let merged = header.merging(playback: [ContainerTrack(kind: .audio, language: "en", codec: "a52 ")])
+    /// A header read is the file's own index. The player sees the same tracks with less detail —
+    /// no forced flag, a fourcc for a codec — and appending its copies turned a forced-only Hebrew
+    /// track into "Built in" after a single play, for good.
+    @Test func aHeaderReadIsKeptAsReadWhateverPlaybackSees() {
+        let forced = ContainerTrack(kind: .subtitle, language: "he", codec: "S_TEXT/UTF8",
+                                    name: "Hebrew Forced", isForced: true)
+        let header = VersionSubtitleRecord(origin: .header, fileName: "F.mkv", tracks: [
+            ContainerTrack(kind: .audio, language: "en", codec: "A_EAC3"), forced])
+        let seen = [ContainerTrack(kind: .audio, language: "en", codec: "eac3"),
+                    ContainerTrack(kind: .subtitle, language: "he", codec: "subt", name: "Hebrew")]
+        #expect(header.merging(playback: seen) == header)
+        #expect(header.merging(playback: seen).hebrewLevel == .none)
+    }
+
+    @Test func playbackFillsAFileTheHeaderCouldNotRead() {
+        let mp4 = VersionSubtitleRecord(origin: .unreadable, fileName: "F.mp4")
+        let merged = mp4.merging(playback: [hebrewText, ContainerTrack(kind: .audio, language: "en")])
         #expect(merged.origin == .playback)
-        #expect(merged.fileName == "F.mkv")
+        #expect(merged.fileName == "F.mp4")
         #expect(merged.hebrewLevel == .builtIn)
         #expect(merged.audioLanguages == ["en"])
+    }
+
+    @Test func playbackReportsAddUp() {
+        // The player announces tracks one at a time; a partial report must not erase an earlier one.
+        let first = VersionSubtitleRecord(origin: .playback, tracks: [hebrewText])
+        let merged = first.merging(playback: [ContainerTrack(kind: .audio, language: "en", codec: "a52 ")])
+        #expect(merged.hebrewLevel == .builtIn)
+        #expect(merged.audioLanguages == ["en"])
+    }
+
+    @Test func aPlayerTrackNamedForcedIsForced() {
+        let track = ContainerTrack(MediaTrack(id: "spu/4", kind: .subtitle, name: "Hebrew (Forced)",
+                                              language: "he", codec: "subt"))
+        #expect(track.isForced)
+        #expect(VersionSubtitleRecord(origin: .playback, tracks: [track]).hebrewLevel == .none)
     }
 
     @Test func aPlayerTrackBecomesAContainerTrack() {
