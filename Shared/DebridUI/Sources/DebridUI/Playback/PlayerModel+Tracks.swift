@@ -28,10 +28,14 @@ extension PlayerModel {
     }
 
     /// Tell the subtitle evidence what this file really carries, once per change in its track set.
-    /// The player is the only thing that ever sees an MP4's tracks, and it corrects any header read.
-    /// Downloaded subtitles are attached by us, not muxed into the file, so they are left out.
+    /// The player is the only thing that ever sees an MP4's tracks. Downloaded subtitles are
+    /// attached by us, not muxed into the file, so they are left out.
+    ///
+    /// Only once THIS source is on screen: across an episode swap or "Try another version" the
+    /// engine still holds the outgoing file while `currentSource` already names the incoming one,
+    /// and a track change in that window would be filed under the wrong file for good.
     func recordTrackCensusIfChanged() {
-        guard let recordTracks else { return }
+        guard let recordTracks, engineHoldsCurrentMedia, hasRenderedFrame else { return }
         let attached = Set(subtitleRows.compactMap { attachedTrackID($0) })
         let muxed = (engine.audioTracks + engine.subtitleTracks)
             .filter { !$0.isExternal && !attached.contains($0.id) }

@@ -26,6 +26,8 @@ import DebridCore
         let recorded = Recorded()
         let m = model(engine, recorded: recorded)
         m.start()
+        await m.waitForIdleForTesting()
+        engine.emit(.state(.playing))
         engine.emit(.tracksChanged)
         engine.emit(.tracksChanged)
         await m.waitForIdleForTesting()
@@ -43,9 +45,59 @@ import DebridCore
         let recorded = Recorded()
         let m = model(engine, recorded: recorded)
         m.start()
-        engine.emit(.tracksChanged)
+        await m.waitForIdleForTesting()
+        engine.emit(.state(.playing))
         await m.waitForIdleForTesting()
         #expect(await hebrewEventually { recorded.all.count == 1 })
         #expect(recorded.all.first?.1.map(\.id) == ["audio/1"])
+    }
+
+    /// Across an episode swap the engine still holds the OUTGOING file until the incoming one is
+    /// resolved — seconds on a cold link — while the model already names the incoming source. A
+    /// track change in that window (the old input tearing down, or still being parsed) was filed
+    /// under the new episode, for good.
+    @Test func anOutgoingFilesTracksAreNeverFiledUnderTheIncomingOne() async {
+        let engine = FakeVideoPlayerEngine()
+        engine.audioTracks = [MediaTrack(id: "audio/1", kind: .audio, name: "English", language: "en", codec: "a52 ")]
+        let recorded = Recorded()
+        let gate = Gate()
+        let m = PlayerModel(request: Fixture.showRequest(episodes: 3, playingEpisode: 1), engine: engine,
+                            unrestrict: { _ in
+                                await gate.waitIfClosed()
+                                return URL(string: "https://cdn/x.mkv")!
+                            },
+                            recordProgress: { _, _, _, _, _ in }, subtitles: nil,
+                            recordTracks: { source, tracks in recorded.add(source, tracks) })
+        m.start()
+        await m.waitForIdleForTesting()
+        engine.emit(.state(.playing))
+        await m.waitForIdleForTesting()
+        #expect(await hebrewEventually { recorded.all.count == 1 })
+        let first = recorded.all.first?.0
+
+        await gate.close()               // hold E2's unrestrict open: the engine stays on E1
+        m.playNext()
+        await m.waitForIdleWhileLoadIsHeldForTesting()
+        engine.emit(.tracksChanged)
+        await m.waitForIdleWhileLoadIsHeldForTesting()
+        try? await Task.sleep(for: .milliseconds(50))
+        #expect(recorded.all.allSatisfy { $0.0 == first })
+        await gate.open()
+    }
+
+    /// Opens once and stays open; only the swap's load is held.
+    actor Gate {
+        private var closed = false
+        private var waiters: [CheckedContinuation<Void, Never>] = []
+        func close() { closed = true }
+        func open() {
+            closed = false
+            for w in waiters { w.resume() }
+            waiters = []
+        }
+        func waitIfClosed() async {
+            guard closed else { return }
+            await withCheckedContinuation { waiters.append($0) }
+        }
     }
 }
