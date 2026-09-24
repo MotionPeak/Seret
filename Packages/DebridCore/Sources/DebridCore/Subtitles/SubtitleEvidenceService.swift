@@ -13,10 +13,13 @@ public struct ResolvedLink: Sendable, Equatable {
 /// Where every screen gets Hebrew-subtitle evidence. The title page and the Versions screen ask
 /// with the network allowed; Home and the player ask for stored knowledge only.
 public protocol SubtitleEvidenceProviding: Sendable {
-    /// Hebrew subtitles OpenSubtitles has for a movie or an episode. Cached for a day; when the
-    /// network fails the last answer is returned whatever its age; nil when nothing is known.
+    /// Hebrew subtitles OpenSubtitles has for a movie or an episode. Asked once a day: an older
+    /// answer comes back at once and is refreshed behind it, and a failed search falls back to the
+    /// last answer whatever its age. nil when nothing is known.
     func hebrewResults(contentKey: String, query: SubtitleQuery,
                        originalLanguage: String?) async -> [SubtitleResult]?
+    /// The last search answer for a title, whatever its age, without touching the network.
+    func storedHebrewResults(contentKey: String) async -> [SubtitleResult]?
     /// What each owned file carries, keyed by `WatchKey.source`. Reads the header of any file not
     /// seen before, a couple at a time.
     func records(for sources: [MediaSource]) async -> [String: VersionSubtitleRecord]
@@ -90,22 +93,17 @@ public actor SubtitleEvidenceService: SubtitleEvidenceProviding {
             await languages.update(contentKey) { $0 == language ? nil : language }
         }
         if let fresh = await searches.cached(contentKey) { return fresh.results }
-        if let flight = searchesInFlight[contentKey] { return await flight.value }
-        guard let search else { return await searches.stored(contentKey)?.results }
-        let flight = Task { [searches] () -> [SubtitleResult]? in
-            do {
-                let results = try await search(query, ["he"])
-                    .filter { LanguageCode.normalize($0.language) == "he" }
-                await searches.store(SearchEntry(results: results), key: contentKey)
-                return results
-            } catch {
-                return await searches.stored(contentKey)?.results   // a stale answer beats none
-            }
-        }
-        searchesInFlight[contentKey] = flight
-        let results = await flight.value
-        searchesInFlight[contentKey] = nil
-        return results
+        let stale = await searches.stored(contentKey)?.results
+        guard let search else { return stale }
+        let flight = searchFlight(for: contentKey, query: query, search: search)
+        // Yesterday's answer now beats today's in a minute: new Hebrew subtitles for a title
+        // appear over days, and the refresh keeps running behind this answer.
+        if let stale { return stale }
+        return await flight.value
+    }
+
+    public func storedHebrewResults(contentKey: String) async -> [SubtitleResult]? {
+        await searches.stored(contentKey)?.results
     }
 
     public func records(for sources: [MediaSource]) async -> [String: VersionSubtitleRecord] {
@@ -146,6 +144,29 @@ public actor SubtitleEvidenceService: SubtitleEvidenceProviding {
             let merged = (existing ?? VersionSubtitleRecord(origin: .playback)).merging(playback: observed)
             return merged == existing ? nil : merged
         }
+    }
+
+    /// One search per title, however many screens ask: a second caller joins the first's flight.
+    private func searchFlight(for contentKey: String, query: SubtitleQuery,
+                              search: @escaping Search) -> Task<[SubtitleResult]?, Never> {
+        if let flight = searchesInFlight[contentKey] { return flight }
+        let flight = Task { await self.runSearch(contentKey, query: query, search: search) }
+        searchesInFlight[contentKey] = flight
+        return flight
+    }
+
+    private func runSearch(_ contentKey: String, query: SubtitleQuery,
+                           search: Search) async -> [SubtitleResult]? {
+        var results: [SubtitleResult]?
+        do {
+            let found = try await search(query, ["he"]).filter { LanguageCode.normalize($0.language) == "he" }
+            await searches.store(SearchEntry(results: found), key: contentKey)
+            results = found
+        } catch {
+            results = await searches.stored(contentKey)?.results     // a stale answer beats none
+        }
+        searchesInFlight[contentKey] = nil                             // once the answer is stored
+        return results
     }
 
     /// One read per file, however many screens ask: a second caller joins the first's flight.

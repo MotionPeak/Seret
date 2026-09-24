@@ -737,22 +737,9 @@ public final class AppSession {
     /// still runs.
     private static func makeSubtitleEvidence(torrents: TorrentsClient,
                                              linkCache: PlayableLinkCache?) -> SubtitleEvidenceService {
-        let key = Secrets.openSubtitlesAPIKey
-        var search: SubtitleEvidenceService.Search?
-        if !key.isEmpty {
-            let provider = OpenSubtitlesProvider(apiKey: key, credentials: nil)
-            search = { query, languages in try await provider.search(query, languages: languages) }
-        }
-        return SubtitleEvidenceService(
-            directory: SubtitleEvidenceService.defaultDirectory,
-            search: search,
-            resolve: { link in
-                let unrestricted = try await torrents.unrestrict(link: link)
-                guard let url = URL(string: unrestricted.download) else { throw URLError(.badURL) }
-                // Play would unrestrict this same link. Hand it the answer instead.
-                await linkCache?.seed(link, url: url)
-                return ResolvedLink(url: url, fileName: unrestricted.filename)
-            })
+        // Play would unrestrict the same links the header reads do. Hand it their answers instead.
+        .live(torrents: torrents, openSubtitlesKey: Secrets.openSubtitlesAPIKey,
+              resolved: { link, url in await linkCache?.seed(link, url: url) })
     }
 
     /// The system Now Playing surface, when the platform has MediaPlayer + UIKit (iOS/tvOS).

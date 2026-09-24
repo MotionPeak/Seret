@@ -63,6 +63,13 @@ import Foundation
         var arrivals: Int { lock.lock(); defer { lock.unlock() }; return arrived }
     }
 
+    final class Answer: @unchecked Sendable {
+        private let lock = NSLock()
+        private var stored: [SubtitleResult]?
+        func set(_ value: [SubtitleResult]?) { lock.lock(); stored = value; lock.unlock() }
+        var value: [SubtitleResult]? { lock.lock(); defer { lock.unlock() }; return stored }
+    }
+
     /// Polls `condition` for up to two seconds — for asserting that something DID happen while
     /// something else is still held open.
     private func eventually(_ condition: () -> Bool) async -> Bool {
@@ -117,7 +124,49 @@ import Foundation
         #expect(calls.count("search") == 1)
         clock.advance(25 * 60 * 60)
         _ = await svc.hebrewResults(contentKey: "movie:tmdb:1", query: query, originalLanguage: "en")
-        #expect(calls.count("search") == 2)
+        #expect(await eventually { calls.count("search") == 2 })
+    }
+
+    /// A day-old answer comes back at once and is refreshed behind it. A title page waited on
+    /// OpenSubtitles every day before showing what it already knew — up to a minute when the
+    /// service was slow, with Play focused and playing the wrong copy.
+    @Test func aStaleAnswerComesBackAtOnceAndIsRefreshedBehindIt() async {
+        let calls = Calls(), clock = Clock(), gate = Gate(), old = Self.result
+        let new = SubtitleResult(fileID: 2, language: "he", release: "T.2024.2160p.WEB-DL")
+        let svc = service(tempDir(), calls: calls, clock: clock, search: { _, _ in
+            calls.hit("search")
+            if calls.count("search") == 1 { return [old] }
+            await gate.wait()
+            return [old, new]
+        })
+        _ = await svc.hebrewResults(contentKey: "k", query: query, originalLanguage: "en")
+        clock.advance(25 * 60 * 60)
+        // The refresh is held open: the answer must arrive anyway. Asked from a task, so a
+        // regression fails here instead of hanging the run.
+        let answer = Answer()
+        let query = self.query
+        let asking = Task { answer.set(await svc.hebrewResults(contentKey: "k", query: query, originalLanguage: "en")) }
+        #expect(await eventually { answer.value != nil })
+        #expect(answer.value == [old])
+        #expect(await eventually { gate.arrivals == 1 })
+        gate.open()
+        await asking.value
+        #expect(await eventually { calls.count("search") == 2 })
+        var refreshed: [SubtitleResult]?
+        for _ in 0..<2000 where refreshed?.count != 2 {
+            refreshed = await svc.storedHebrewResults(contentKey: "k")
+            try? await Task.sleep(for: .milliseconds(1))
+        }
+        #expect(refreshed == [old, new])
+    }
+
+    @Test func storedResultsNeverTouchTheNetwork() async {
+        let calls = Calls()
+        let svc = service(tempDir(), calls: calls, search: { _, _ in calls.hit("search"); return [Self.result] })
+        #expect(await svc.storedHebrewResults(contentKey: "k") == nil)
+        #expect(calls.count("search") == 0)
+        _ = await svc.hebrewResults(contentKey: "k", query: query, originalLanguage: "en")
+        #expect(await svc.storedHebrewResults(contentKey: "k") == [Self.result])
     }
 
     @Test func aFailedSearchFallsBackToTheLastAnswer() async {

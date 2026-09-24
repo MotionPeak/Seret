@@ -44,6 +44,8 @@ final class FakeSubtitleEvidence: SubtitleEvidenceProviding, @unchecked Sendable
         stored
     }
 
+    func storedHebrewResults(contentKey: String) async -> [SubtitleResult]? { nil }
+
     func recordPlayback(_ tracks: [MediaTrack], for source: MediaSource) async {
         lock.withLock { _played.append((source, tracks)) }
     }
