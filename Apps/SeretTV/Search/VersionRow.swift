@@ -9,6 +9,9 @@ struct VersionRow: View {
     let stream: CachedStream
     /// True while this row's pick is being resolved (instant-add probe / download start).
     let isPicking: Bool
+    /// Hebrew subtitles for this release — the first thing this household asks of a version, so
+    /// the badge sits right after the cache mark.
+    var hebrew: HebrewSubtitles = .none
     let action: () -> Void
 
     var body: some View {
@@ -16,6 +19,7 @@ struct VersionRow: View {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 16) {
                     CacheBadge(isCached: stream.isCached)
+                    if let badge = hebrew.badgeText { HebrewBadge(text: badge) }
                     if let year = stream.parsed.year {
                         Text(String(year)).font(.seret(.caption1, .semibold))
                             .padding(.horizontal, 10).padding(.vertical, 4)

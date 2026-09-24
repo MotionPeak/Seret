@@ -77,11 +77,11 @@ struct PlayerUIPreview: View {
 /// itself, since the sections are computed by `splitOversized` here exactly as in the screen.
 private struct VersionListPreview: View {
     private static func stream(_ name: String, _ gb: Double, _ res: String,
-                               _ source: String, cached: Bool) -> CachedStream {
+                               _ source: String, cached: Bool, subs: [String] = []) -> CachedStream {
         CachedStream(infoHash: name, fileIdx: nil, rawTitle: name,
                      parsed: ParsedRelease(title: "Sherlock", resolution: res, source: source),
                      languages: ["en"], sizeBytes: Int(gb * 1_000_000_000),
-                     sourceName: "RD", isCached: cached)
+                     sourceName: "RD", isCached: cached, subtitleLanguages: subs)
     }
 
     private static let all: [CachedStream] = [
@@ -91,13 +91,20 @@ private struct VersionListPreview: View {
         stream("Sherlock.2160p.WEB-DL.x265", 22, "2160p", "WEB-DL", cached: true),
         stream("Sherlock.1080p.BluRay.x264", 12, "1080p", "BluRay", cached: true),
         stream("Sherlock.1080p.WEB-DL.x265", 6, "1080p", "WEB-DL", cached: false),
-        stream("Sherlock.720p.BluRay.x264", 3, "720p", "BluRay", cached: true),
+        stream("Sherlock.720p.BluRay.x264.HebSubs", 3, "720p", "BluRay", cached: true, subs: ["he"]),
     ]
 
+    /// One release matched by a Hebrew subtitle, one tagged HebSubs: both must lead "Recommended".
+    private static let evidence = SubtitleEvidenceSet.candidates(
+        all, hebrewResults: [SubtitleResult(fileID: 1, language: "he", release: "Sherlock.1080p.WEB-DL.x265")],
+        originalLanguage: "en")
+
     var body: some View {
-        let split = Self.all.splitOversized(episodesInSeason: nil)
+        let split = Self.all.rankedFor(originalLanguage: "en", subtitles: Self.evidence)
+            .splitOversized(episodesInSeason: nil)
         ScrollView {
-            VersionList(larger: split.larger, rest: split.rest, picking: nil, onPick: { _ in })
+            VersionList(larger: split.larger, rest: split.rest, picking: nil, onPick: { _ in },
+                        hebrew: { Self.evidence.hebrew(forVersion: $0.infoHash) })
                 .padding(.horizontal, 60).padding(.vertical, 40)
                 .frame(maxWidth: 1400, alignment: .leading)
         }

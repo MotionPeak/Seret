@@ -106,7 +106,8 @@ struct VersionsScreen: View {
         case .ready:
             // Lazy so the (often 30+) rows realise as they scroll in — building every chip and
             // badge up front made the list stutter on the Add screen.
-            VersionList(larger: larger, rest: rest, picking: picking, onPick: pick)
+            VersionList(larger: larger, rest: rest, picking: picking, onPick: pick,
+                        hebrew: { flow?.add?.hebrew(for: $0) ?? .none })
                 .frame(maxWidth: 1400, alignment: .leading)
         }
     }

@@ -16,6 +16,8 @@ struct VersionList: View {
     let rest: [CachedStream]
     let picking: String?
     let onPick: (CachedStream) -> Void
+    /// Each release's Hebrew subtitles, for its badge. The order already reflects them.
+    var hebrew: (CachedStream) -> HebrewSubtitles = { _ in .none }
 
     var body: some View {
         // Lazy so the (often 30+) rows realise as they scroll in — building every chip and badge
@@ -36,7 +38,9 @@ struct VersionList: View {
     }
 
     private func row(_ stream: CachedStream) -> some View {
-        VersionRow(stream: stream, isPicking: picking == stream.infoHash) { onPick(stream) }
+        VersionRow(stream: stream, isPicking: picking == stream.infoHash, hebrew: hebrew(stream)) {
+            onPick(stream)
+        }
     }
 
     /// A group heading. Plain text, so it takes no focus and the d-pad travels straight from the

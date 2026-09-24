@@ -107,6 +107,7 @@ struct ShowDetailView: View {
     private var metaLine: String {
         var parts: [String] = []
         if let y = item.year { parts.append(String(y)) }
+        if let language = store.languageName { parts.append(language) }
         if !store.genres.isEmpty { parts.append(store.genres.prefix(3).joined(separator: " · ")) }
         let n = store.allSeasons.count
         parts.append("\(n) Season\(n == 1 ? "" : "s")")

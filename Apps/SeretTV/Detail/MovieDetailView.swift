@@ -88,7 +88,14 @@ struct MovieDetailView: View {
                 CreditNamesRow(label: store.directors.count == 1 ? "Director" : "Directors",
                                people: store.directors)
             }
-            if let best = store.bestSource { QualityChips(parsed: best.parsed) }
+            if store.bestSource != nil || store.hebrewChip != nil {
+                HStack(spacing: 16) {
+                    if let best = store.bestSource { QualityChips(parsed: best.parsed) }
+                    if let chip = store.hebrewChip {
+                        HebrewBadge(text: chip.text, dimmed: chip == .available, prominent: true)
+                    }
+                }
+            }
             RatingsRow(ratings: store.ratings, letterboxd: store.letterboxdRating)
             if let overview = store.overview {
                 Text(overview).bodyText().frame(maxWidth: 1100, alignment: .leading).lineLimit(4)
@@ -115,6 +122,7 @@ struct MovieDetailView: View {
         var parts: [String] = []
         if let y = item.year { parts.append(String(y)) }
         if let r = store.runtime { parts.append("\(r) min") }
+        if let language = store.languageName { parts.append(language) }
         if !store.genres.isEmpty { parts.append(store.genres.prefix(3).joined(separator: " · ")) }
         return parts.joined(separator: "  ·  ")
     }
@@ -273,6 +281,7 @@ struct MovieDetailView: View {
                             .foregroundStyle(store.isActive(src)
                                              ? Theme.Palette.gold : Theme.Palette.textSecondary)
                         QualityChips(parsed: src.parsed)
+                        if let badge = store.hebrew(for: src).badgeText { HebrewBadge(text: badge) }
                         Spacer()
                         Image(systemName: "play.fill")
                     }
@@ -370,7 +379,9 @@ private struct MovieDownloadSection: View {
                 requesting = true
                 var candidates: [CachedStream] = []
                 if let imdbID, let add = session.makeAddStore(imdbID: imdbID, kind: .movie,
-                                                              originalLanguage: originalLanguage) {
+                                                              originalLanguage: originalLanguage,
+                                                              subtitleTarget: .movie(tmdbID: tmdbID, title: title,
+                                                                                     year: nil)) {
                     candidates = await add.uncachedCandidates()
                 }
                 await session.downloadStore?.request(contentKey: DownloadKey.movie(tmdbID: tmdbID),
