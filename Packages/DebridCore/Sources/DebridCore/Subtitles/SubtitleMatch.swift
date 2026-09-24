@@ -41,13 +41,35 @@ public enum SubtitleMatch {
     private static let sources: Set<String> = ["bluray", "blu-ray", "bdrip", "brrip", "web-dl", "webdl",
                                                "webrip", "web", "hdtv", "dvdrip", "remux", "uhd"]
 
+    /// A search result with its release name broken down once. Matching one set of results
+    /// against many releases — every version on a Versions screen — used to tokenise each result
+    /// again for every version, on the main actor.
+    public struct Prepared: Sendable {
+        public let result: SubtitleResult
+        let tokens: Set<String>
+        let group: String?
+    }
+
+    public static func prepare(_ results: [SubtitleResult]) -> [Prepared] {
+        results.map { result in
+            let name = result.release ?? result.fileName ?? ""
+            return Prepared(result: result, tokens: tokens(of: name), group: releaseGroup(of: name))
+        }
+    }
+
     public static func rank(_ results: [SubtitleResult], against fileName: String,
+                            videoFPS: Double?) -> [Ranked] {
+        rank(prepared: prepare(results), against: fileName, videoFPS: videoFPS)
+    }
+
+    public static func rank(prepared: [Prepared], against fileName: String,
                             videoFPS: Double?) -> [Ranked] {
         let target = tokens(of: fileName)
         let targetGroup = releaseGroup(of: fileName)
-        let maxDownloads = Double(results.compactMap(\.downloadCount).max() ?? 0)
+        let maxDownloads = Double(prepared.compactMap(\.result.downloadCount).max() ?? 0)
 
-        let ranked = results.map { result -> Ranked in
+        let ranked = prepared.map { entry -> Ranked in
+            let result = entry.result
             var score = 0.0
             var reasons: [Reason] = []
 
@@ -56,9 +78,8 @@ public enum SubtitleMatch {
                 reasons.append(.hashMatch)
             }
 
-            let candidate = tokens(of: result.release ?? result.fileName ?? "")
-            if let group = releaseGroup(of: result.release ?? result.fileName ?? ""),
-               let targetGroup, group == targetGroup {
+            let candidate = entry.tokens
+            if let group = entry.group, let targetGroup, group == targetGroup {
                 score += 120
                 reasons.append(.sameGroup)
             }
@@ -109,19 +130,23 @@ public enum SubtitleMatch {
 
     /// Lowercased, punctuation-split tokens; drops one-character noise.
     private static func tokens(of name: String) -> Set<String> {
-        let cleaned = name.lowercased()
-            .replacingOccurrences(of: #"\.(srt|ass|ssa|sub|vtt|mkv|mp4|avi)$"#,
-                                  with: "", options: .regularExpression)
+        let cleaned = withoutExtension(name.lowercased())
         return Set(cleaned.split(whereSeparator: { !$0.isLetter && !$0.isNumber })
             .map(String.init)
             .filter { $0.count > 1 })
     }
 
+    /// Compiled once: a pattern passed to `replacingOccurrences` is compiled on every call.
+    private static let fileExtension = try! NSRegularExpression(pattern: #"\.(srt|ass|ssa|sub|vtt|mkv|mp4|avi)$"#)
+
+    private static func withoutExtension(_ name: String) -> String {
+        fileExtension.stringByReplacingMatches(in: name, range: NSRange(name.startIndex..., in: name),
+                                               withTemplate: "")
+    }
+
     /// The release group — conventionally the token after the final hyphen.
     private static func releaseGroup(of name: String) -> String? {
-        let base = name.lowercased()
-            .replacingOccurrences(of: #"\.(srt|ass|ssa|sub|vtt|mkv|mp4|avi)$"#,
-                                  with: "", options: .regularExpression)
+        let base = withoutExtension(name.lowercased())
         guard let dash = base.lastIndex(of: "-") else { return nil }
         let group = base[base.index(after: dash)...]
             .split(whereSeparator: { !$0.isLetter && !$0.isNumber })
@@ -160,6 +185,10 @@ public extension SubtitleMatch {
     /// Whether `results` holds a subtitle made for the release named `name`: a hash match, the same
     /// release group, or a strong name overlap. The bar the player's badge calls "good".
     static func hasMatch(in results: [SubtitleResult], for name: String, videoFPS: Double?) -> Bool {
-        rank(results, against: name, videoFPS: videoFPS).contains { $0.quality != .uncertain }
+        hasMatch(prepared: prepare(results), for: name, videoFPS: videoFPS)
+    }
+
+    static func hasMatch(prepared: [Prepared], for name: String, videoFPS: Double?) -> Bool {
+        rank(prepared: prepared, against: name, videoFPS: videoFPS).contains { $0.quality != .uncertain }
     }
 }

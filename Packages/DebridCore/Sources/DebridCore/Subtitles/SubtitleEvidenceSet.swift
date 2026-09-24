@@ -33,11 +33,12 @@ public extension SubtitleEvidenceSet {
     static func candidates(_ streams: [CachedStream], hebrewResults: [SubtitleResult],
                            originalLanguage: String?) -> SubtitleEvidenceSet {
         var byVersion: [String: SubtitleEvidence] = [:]
+        let prepared = SubtitleMatch.prepare(hebrewResults)
         for stream in streams {
             let level: HebrewSubtitles
             if stream.subtitleLanguages.contains("he") {
                 level = .builtIn
-            } else if SubtitleMatch.hasMatch(in: hebrewResults, for: stream.rawTitle, videoFPS: nil) {
+            } else if SubtitleMatch.hasMatch(prepared: prepared, for: stream.rawTitle, videoFPS: nil) {
                 level = .matched
             } else {
                 level = .none
@@ -56,12 +57,13 @@ public extension SubtitleEvidenceSet {
     static func owned(_ sources: [MediaSource], records: [String: VersionSubtitleRecord],
                       hebrewResults: [SubtitleResult], originalLanguage: String?) -> SubtitleEvidenceSet {
         var byVersion: [String: SubtitleEvidence] = [:]
+        let prepared = SubtitleMatch.prepare(hebrewResults)
         for source in sources {
             let key = WatchKey.source(source)
             let record = records[key]
             var level = record?.hebrewLevel ?? .none
             if level == .none,
-               SubtitleMatch.hasMatch(in: hebrewResults, for: source.releaseNameForMatching,
+               SubtitleMatch.hasMatch(prepared: prepared, for: source.releaseNameForMatching,
                                       videoFPS: record?.frameRate) {
                 level = .matched
             }

@@ -62,6 +62,17 @@ import Foundation
         #expect(SubtitleMatch.rank(all, against: fileName, videoFPS: nil).count == 7)
     }
 
+    /// Preparing results once is only an optimisation: it must rank exactly as before.
+    @Test func preparedResultsRankExactlyAsRawOnes() {
+        let all = [result("Oppenheimer.2023.1080p.BluRay.x264-SPARKS.srt", downloads: 50, id: 1),
+                   result("Oppenheimer.2023.2160p.WEB-DL.DDP5.1.x265-FLUX", downloads: 10, id: 2),
+                   result("oppenheimer.2023.720p.bluray", downloads: 0, id: 3)]
+        for name in [fileName, "Oppenheimer.2023.2160p.WEB-DL.x265-FLUX.mkv", "Other.Film.2020.mp4"] {
+            #expect(SubtitleMatch.rank(prepared: SubtitleMatch.prepare(all), against: name, videoFPS: 23.976)
+                    == SubtitleMatch.rank(all, against: name, videoFPS: 23.976))
+        }
+    }
+
     @Test func anEmptyListRanksToNothing() {
         #expect(SubtitleMatch.rank([], against: fileName, videoFPS: nil).isEmpty)
     }
