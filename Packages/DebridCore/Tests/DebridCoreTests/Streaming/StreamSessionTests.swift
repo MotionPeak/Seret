@@ -135,6 +135,19 @@ extension StreamingNetworkTests {
             await s.close()
         }
 
+        /// Measured in the tvOS simulator (Goodfellas): a paused fetch that RD dropped left its chunk
+        /// half filled. The next fetch started at the chunk's boundary, ran straight into those
+        /// bytes, stopped as "already cached" — and the read started it again: 12 fetches from one
+        /// offset, ~200ms apart. A new fetch must continue from the first byte the chunk lacks.
+        @Test func aConnectionThatEndsMidChunkIsContinuedNotRestarted() async throws {
+            RangeFileURLProtocol.reset(.init(fileSize: 64 << 20, maxBytesPerRequest: 1_572_864)) // 1.5 MiB
+            let s = makeSession()
+            #expect(try await read(s, 0, 3 << 20) == RangeFileURLProtocol.bytes(0..<(3 << 20)))
+            let starts = RangeFileURLProtocol.requests.map(\.start)
+            #expect(starts == [0, 1_572_864])                        // continued at the missing byte
+            await s.close()
+        }
+
         @Test func aClosedSessionRefusesReads() async throws {
             let s = makeSession()
             _ = try await s.head()

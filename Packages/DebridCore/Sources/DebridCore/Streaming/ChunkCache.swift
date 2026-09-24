@@ -91,6 +91,16 @@ struct ChunkCache: Sendable {
         return (accepted, false)
     }
 
+    /// Where a fetch for the chunk holding `offset` must start: the first byte that chunk lacks.
+    /// A fetch that ended mid-chunk (RD dropped it, or it was cancelled) leaves the chunk partly
+    /// filled; starting again at its boundary would run straight into those bytes and be stopped
+    /// as "already cached" — measured as the same fetch restarted a dozen times.
+    func fetchStart(for offset: Int64) -> Int64 {
+        let index = chunkIndex(of: offset)
+        guard let chunk = chunks[index], !isComplete(index) else { return chunkStart(index) }
+        return chunkStart(index) + Int64(chunk.data.count)
+    }
+
     /// A complete chunk from the disk index.
     mutating func insert(_ data: Data, index: Int) {
         if let old = chunks[index] { byteCount -= old.data.count }

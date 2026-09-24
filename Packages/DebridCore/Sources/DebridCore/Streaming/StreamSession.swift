@@ -126,8 +126,8 @@ actor StreamSession {
                     throw StreamError.transport("RD kept failing at \(offset)")
                 }
                 for id in cancel { cancelFetch(id) }
-                startFetch(at: start)
-                if let lookBehind { startFetch(at: lookBehind) }
+                startFetch(at: cache.fetchStart(for: start))
+                if let lookBehind { startFetch(at: cache.fetchStart(for: lookBehind)) }
                 try await waitForProgress()
             }
         }
