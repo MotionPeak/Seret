@@ -37,6 +37,25 @@ import Testing
         #expect(tags.scan("Movie.2023.HebSub.EngSub").languages == ["he", "en"])
     }
 
+    /// Italian releases list the audio, then the subtitles: `ITA.ENG.Sub.ITA` is Italian and
+    /// English audio with Italian subtitles. Read left to right, "ENG.Sub" took English for the
+    /// subtitles and the dual-audio release lost its English.
+    @Test func aLanguageAfterSubNamesTheSubtitlesNotTheOneBefore() {
+        #expect(tags.scan("Oppenheimer.2023.1080p.BluRay.ITA.ENG.Sub.ITA").languages == ["it"])
+        #expect(LanguageDetector().detect(in: "Oppenheimer.2023.1080p.BluRay.ITA.ENG.Sub.ITA") == ["it", "en"])
+    }
+
+    /// …but where each language carries its own "Sub", both are subtitles.
+    @Test func twoTaggedSubtitleLanguagesAreBothSubtitles() {
+        #expect(tags.scan("Movie.2023.1080p.Heb.Sub.Eng.Sub").languages == ["he", "en"])
+    }
+
+    /// A Hebrew "Sub" tag is always subtitles — Hebrew dubs say "Dub" — so nothing reads it away.
+    @Test func aHebrewSubTagIsNeverReadAsAudio() {
+        #expect(tags.scan("Movie.2023.1080p.Heb.Sub.Eng").languages.contains("he"))
+        #expect(!LanguageDetector().detect(in: "Movie.2023.1080p.Heb.Sub.Eng").contains("he"))
+    }
+
     @Test func theRemainderHasTheTagBlankedOut() {
         let name = "Movie.2023.Heb.Sub.1080p"
         let scan = tags.scan(name)
