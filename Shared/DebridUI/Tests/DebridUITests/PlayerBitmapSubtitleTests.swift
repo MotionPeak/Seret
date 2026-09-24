@@ -52,12 +52,11 @@ import DebridCore
         #expect(m.selectedSubtitleID == "spu/5")
     }
 
-    @Test func aTextSubtitleMadeForThisFileReplacesAPictureOnlyLanguage() async {
+    @Test func aTextSubtitleIsFetchedWhenEveryTrackInTheLanguageIsABitmap() async {
         let engine = FakeVideoPlayerEngine()
         engine.subtitleTracks = [track("spu/5", "bdpg", "en")]
         let subs = FakeSubtitleProvider()
-        subs.searchResults = [SubtitleResult(fileID: 1, language: "en", release: "X", fps: 23.976,
-                                             moviehashMatch: true)]
+        subs.searchResults = [SubtitleResult(fileID: 1, language: "en", release: "X", fps: 23.976)]
         let m = model(engine, prefs: FakeTrackPreferences(subtitle: .language("en")), subs: subs)
         m.start()
         engine.emit(.tracksChanged)          // VLCKit announces the track set asynchronously
@@ -65,26 +64,9 @@ import DebridCore
         try? await Task.sleep(for: .seconds(0.4))
         await m.waitForIdleForTesting()
 
-        // Made for this exact file: in sync, restylable, retimable — worth the swap.
+        // A bitmap-only language is unserved: the fetched text track honours the font settings and
+        // is the only kind the retimer can correct.
         #expect(subs.downloadedResults.count == 1)
-    }
-
-    @Test func aWeakMatchLeavesThePictureTrackOn() async {
-        let engine = FakeVideoPlayerEngine()
-        engine.subtitleTracks = [track("spu/5", "bdpg", "en")]
-        let subs = FakeSubtitleProvider()
-        subs.searchResults = [SubtitleResult(fileID: 1, language: "en", release: "X", fps: 23.976)]
-        let m = model(engine, prefs: FakeTrackPreferences(subtitle: .language("en")), subs: subs)
-        m.start()
-        engine.emit(.tracksChanged)
-        await m.waitForIdleForTesting()
-        try? await Task.sleep(for: .seconds(0.4))
-        await m.waitForIdleForTesting()
-
-        // The picture track is in the file, so it is in sync. A download not made for this file can
-        // drift, and swapping to it would take away the one subtitle that was right.
-        #expect(subs.downloadedResults.isEmpty)
-        #expect(m.selectedSubtitleID == "spu/5")
     }
 
     @Test func anEmbeddedTextTrackStillCancelsTheFetch() async {

@@ -33,15 +33,11 @@ import DebridCore
 
     /// The file's own Hebrew is a bitmap, so a text subtitle is fetched — and then the preference
     /// put the bitmap back. This is the reproduced defect, in the shape it was reproduced in.
-    ///
-    /// The result is a hash match on purpose: a bitmap-only language is swapped only for a download
-    /// made for this file (a weak match would leave the in-sync picture track on instead), and this
-    /// test is about what happens AFTER the swap.
     @Test func theFetchedSubtitleIsNotTakenBackByThePreference() async {
         let engine = FakeVideoPlayerEngine()
         engine.subtitleTracks = [track("spu/20", "bdpg", "he")]
         let subs = FakeSubtitleProvider()
-        subs.searchResults = [SubtitleResult(fileID: 1, language: "he", moviehashMatch: true)]
+        subs.searchResults = [SubtitleResult(fileID: 1, language: "he")]
         let m = model(engine, prefs: FakeTrackPreferences(subtitle: .language("he")), subs: subs)
         m.start()
         engine.emit(.tracksChanged)
@@ -59,7 +55,7 @@ import DebridCore
         let engine = FakeVideoPlayerEngine()
         engine.subtitleTracks = [track("spu/20", "bdpg", "he")]
         let subs = FakeSubtitleProvider()
-        subs.searchResults = [SubtitleResult(fileID: 1, language: "he", moviehashMatch: true)]
+        subs.searchResults = [SubtitleResult(fileID: 1, language: "he")]
         let m = model(engine, prefs: FakeTrackPreferences(subtitle: .language("he")), subs: subs)
         m.start()
         engine.emit(.tracksChanged)
