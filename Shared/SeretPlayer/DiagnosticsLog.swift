@@ -12,11 +12,14 @@ final class DiagnosticsLog: @unchecked Sendable {
 
     /// Rotate when the file is past its cap, then return the handle to write through. Called once
     /// per player, so every play starts with a size check.
+    ///
+    /// Rotation DROPS the old handle, never closes it: the previous player's libvlc is still alive
+    /// for its release grace, its file logger holds that handle, and a line written to a closed
+    /// FileHandle raises — a crash. The handle closes itself when its last holder lets go.
     func prepare() -> FileHandle? {
         lock.lock(); defer { lock.unlock() }
         if let current = handle,
            (try? current.offset()) ?? 0 > VLCKitVideoPlayerEngine.diagnosticsRotateBytes {
-            try? current.close()
             handle = nil
         }
         if handle == nil { handle = VLCKitVideoPlayerEngine.openDiagnosticsLog() }
