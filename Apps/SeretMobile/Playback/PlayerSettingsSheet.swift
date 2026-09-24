@@ -92,6 +92,13 @@ struct PlayerSettingsSheet: View {
                                     model.isCorrectingSubtitleDrift ? nil : 25)
                             }
                         }
+                        // A built-in track only moves as far as libvlc can reach — see the tvOS
+                        // panel. A downloaded one is rewritten, so this never shows for it.
+                        if model.subtitleOffsetBeyondEmbeddedReach {
+                            Text(PlayerModel.embeddedSubtitleReachNote)
+                                .font(.footnote)
+                                .foregroundStyle(Theme.Palette.textSecondary)
+                        }
                     }
 
                     section("Speed", "speedometer") {

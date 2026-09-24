@@ -154,6 +154,16 @@ private struct PlaybackColumns: View {
                      checked: model.isCorrectingSubtitleDrift) {
                 model.setSubtitleSourceFPS(model.isCorrectingSubtitleDrift ? nil : 25)
             }
+            // A downloaded subtitle can be moved any distance (the file is rewritten); a built-in
+            // one only as far as libvlc can reach, and past that every line silently vanishes.
+            // Last in the group and not focusable, so appearing cannot move the row in focus.
+            if model.subtitleOffsetBeyondEmbeddedReach {
+                Text(PlayerModel.embeddedSubtitleReachNote)
+                    .font(.seret(.caption2, .semibold))
+                    .foregroundStyle(Theme.Palette.textSecondary)
+                    .padding(.leading, 18)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
     }
 
