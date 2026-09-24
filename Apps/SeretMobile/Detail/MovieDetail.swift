@@ -41,17 +41,11 @@ struct MovieDetail: View {
                     Text("Film \(franchise.position) of \(franchise.count)  ·  \(franchise.name)")
                         .font(Theme.Typo.body()).foregroundStyle(Theme.Palette.gold)
                 }
-                if store.bestSource != nil || store.hebrewChip != nil {
-                    HStack(spacing: Theme.Space.sm) {
-                        if let best = store.bestSource { QualityChipRow(parsed: best.parsed) }
-                        if let chip = store.hebrewChip {
-                            HebrewBadge(text: chip.text, dimmed: chip == .available, prominent: true)
-                        } else {
-                            // Holds the row at the badge's height, so the chip landing does not
-                            // push the page down.
-                            HebrewBadge(text: HebrewTitleChip.builtIn.text, prominent: true).hidden()
-                        }
-                    }
+                if let best = store.bestSource { QualityChipRow(parsed: best.parsed) }
+                // Its own line: four quality chips already fill an iPhone's width, and anything
+                // beside them — even an invisible placeholder — squeezed them.
+                if let chip = store.hebrewChip {
+                    HebrewBadge(text: chip.text, dimmed: chip == .available, prominent: true)
                 }
                 RatingsRow(ratings: store.ratings, letterboxd: store.letterboxdRating)
                 actions
