@@ -136,6 +136,7 @@ actor StreamSession {
     // MARK: - Fetches
 
     private func startFetch(at start: Int64) {
+        guard !closed else { return }                            // nobody would read or pause it
         let id = nextFetchID
         nextFetchID += 1
         upstreamRequestCount += 1
@@ -143,7 +144,10 @@ actor StreamSession {
         fetches[id] = ActiveFetch(fetcher: fetcher, start: start, position: start)
         log("fetch #\(id) from \(start)")
         Task { [weak self] in
-            for await event in fetcher.events { await self?.handle(event, from: id) }
+            for await event in fetcher.events {
+                guard let self else { fetcher.cancel(); return }  // session gone: stop downloading
+                await self.handle(event, from: id)
+            }
         }
         fetcher.start()
     }
@@ -159,6 +163,9 @@ actor StreamSession {
                 if let total { await learnSize(total) }
                 if let type { contentType = type }
             } else if [403, 404, 410].contains(status), await refreshUpstreamOnce() {
+                // The refresh is an RD call the viewer can outlast: if the session closed or this
+                // fetch was cancelled meanwhile, a new fetch would download for no one.
+                guard !closed, fetches[id] != nil else { return }
                 cancelFetch(id)
                 startFetch(at: fetch.start)                      // same bytes, fresh link
             } else {

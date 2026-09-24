@@ -113,6 +113,27 @@ extension StreamingNetworkTests {
             await s.close()
         }
 
+        /// Found in review: the refresh is an RD unrestrict the viewer can outlast. Closing the
+        /// player during it used to leave a fresh fetch nobody read or paused — the whole file,
+        /// tens of GB, downloading in the background.
+        @Test func aRefreshThatFinishesAfterCloseStartsNoFetch() async throws {
+            RangeFileURLProtocol.reset(.init(fileSize: 64 << 20, statusByPath: ["/expired.mkv": 403]))
+            let (entered, enter) = AsyncStream.makeStream(of: Void.self)
+            let (gate, release) = AsyncStream.makeStream(of: Void.self)
+            let s = makeSession(upstream: "https://rd.test/expired.mkv", refresh: {
+                enter.yield()
+                for await _ in gate { break }
+                return URL(string: "https://rd.test/fresh.mkv")!
+            })
+            let reader = Task { try? await s.head() }
+            for await _ in entered { break }                         // the refresh is in flight
+            await s.close()
+            release.yield()
+            _ = await reader.value
+            try await Task.sleep(for: .milliseconds(300))
+            #expect(RangeFileURLProtocol.requests.map(\.path) == ["/expired.mkv"])
+        }
+
         @Test func aRefusalThatSurvivesTheRefreshReachesTheCaller() async {
             RangeFileURLProtocol.reset(.init(statusByPath: ["/gone.mkv": 404, "/fresh.mkv": 404]))
             let s = makeSession(upstream: "https://rd.test/gone.mkv")
