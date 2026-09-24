@@ -94,4 +94,15 @@ import Foundation
         let ranked = SubtitleMatch.rank([same], against: video, videoFPS: nil)
         #expect(ranked.first?.reasons.contains(.sameGroup) == true)
     }
+
+    /// A release named both "BluRay" and "REMUX" carries two source tokens. The match took `.first`
+    /// of a Set of them, and a Set's order changes from launch to launch, so the same file matched a
+    /// BluRay subtitle on one launch and not the next. Seen live on Arrival's Versions screen.
+    @Test func aReleaseNamedBothBluRayAndREMUXMatchesABluRaySubtitleEveryTime() {
+        let sub = SubtitleResult(fileID: 1, language: "he",
+                                 release: "Arrival.2016.2160p.UHD.BluRay.x265-CtrlHD")
+        let ranked = SubtitleMatch.rank([sub], against: "Arrival.2016.2160p.BluRay.REMUX.HEVC-FGT",
+                                        videoFPS: nil)
+        #expect(ranked.first?.reasons.contains(.sameSource) == true)
+    }
 }

@@ -62,11 +62,14 @@ public enum SubtitleMatch {
                 score += 120
                 reasons.append(.sameGroup)
             }
-            if let r = target.intersection(resolutions).first, candidate.contains(r) {
+            // Any shared token, never `.first` of a Set: a release named "BluRay.REMUX" holds two
+            // source tokens, a Set's order changes from launch to launch, and the same file matched
+            // a BluRay subtitle on one launch and not the next.
+            if !target.intersection(resolutions).isDisjoint(with: candidate) {
                 score += 40
                 reasons.append(.sameResolution)
             }
-            if let s = target.intersection(sources).first, candidate.contains(s) {
+            if !target.intersection(sources).isDisjoint(with: candidate) {
                 score += 30
                 reasons.append(.sameSource)
             }
