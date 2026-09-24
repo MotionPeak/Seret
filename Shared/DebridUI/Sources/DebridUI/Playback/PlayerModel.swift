@@ -155,6 +155,16 @@ public final class PlayerModel {
     /// Cleared with the rest of the per-file subtitle state on a source change.
     var attachedSubtitleTracks: [URL: String] = [:]
 
+    /// Shifted copies of downloaded subtitles: each copy → the file it was made from and how far
+    /// it moves that file's lines. See `PlayerModel+SubtitleShift`.
+    var subtitleShiftCopies: [URL: (base: URL, seconds: Double)] = [:]
+    /// The debounced re-attach of a shifted copy, and the offset it will land.
+    var subtitleShiftTask: Task<Void, Never>?
+    var scheduledSubtitleShift: Double?
+    /// How long the offset must stay still before a shifted copy is attached — long enough that a
+    /// held nudge button is one re-attach, short enough to read as a response to the last press.
+    let subtitleShiftDebounce: Double
+
     /// Cue lists for downloaded subtitles, keyed by the file that was attached to the engine.
     ///
     /// Parsed on the way in, where the text has already been decoded for the rate check — so asking
@@ -174,9 +184,12 @@ public final class PlayerModel {
         return subtitleTracks.filter { !downloaded.contains($0.id) }
     }
 
-    /// Track ids that came from an on-demand subtitle download (one per `.attached` row).
+    /// Track ids that came from an on-demand subtitle download: every one a language row owns, and
+    /// every file ever attached this session. The second half matters because libvlc cannot drop a
+    /// slave once attached, so each offset a downloaded subtitle has been shifted to leaves its old
+    /// copy behind in the track list — unowned, and otherwise shown as a loose "Track N" pill.
     private var downloadedTrackIDs: Set<String> {
-        Set(subtitleRows.compactMap { attachedTrackID($0) })
+        Set(subtitleRows.compactMap { attachedTrackID($0) }).union(attachedSubtitleTracks.values)
     }
 
     /// The downloaded track id backing a language row, if it has been downloaded.
@@ -553,11 +566,13 @@ public final class PlayerModel {
          scanSeekInterval: Double = 1.5,
          scanMaxDuration: Double = 15,
          subtitleFallbackDelay: Double = 2,
+         subtitleShiftDebounce: Double = 0.5,
          audioProbe: AudioLoudnessProbing? = nil,
          autoSyncWindow: Double = 300,
          autoSyncMaxLag: Double = 120,
          autoSyncMinimumHalf: Double = SubtitleSync.minimumHalfSeconds) {
         self.subtitleFallbackDelay = subtitleFallbackDelay
+        self.subtitleShiftDebounce = subtitleShiftDebounce
         self.audioProbe = audioProbe
         self.autoSyncWindow = autoSyncWindow
         self.autoSyncMaxLag = autoSyncMaxLag
@@ -742,6 +757,7 @@ public final class PlayerModel {
         subtitleDelay = min(max(seconds, -Self.maxSubtitleDelay), Self.maxSubtitleDelay)
         applyEffectiveSubtitleDelay(force: true)
         rememberSubtitleDelay()
+        reconcileSubtitleShift()
     }
 
     /// Keep the offset for this exact file and subtitle, so resuming tomorrow does not mean
@@ -841,7 +857,12 @@ public final class PlayerModel {
     static let subtitleDelayEpsilon = 0.2
 
     func applyEffectiveSubtitleDelay(force: Bool = false) {
-        let value = subtitleDelay + subtitleDriftDelay
+        // A downloaded subtitle carries the hand-dialled offset in the file itself (see
+        // `reconcileSubtitleShift`), because libvlc drops any line it is asked to show more than a
+        // few seconds early. Sending it here as well would apply it twice.
+        let manual = selectedDownloadedSubtitleFile == nil || Self.subtitleShiftDisabled
+            ? subtitleDelay : 0
+        let value = manual + subtitleDriftDelay
         if !force, let pushed = pushedSubtitleDelay,
            abs(value - pushed) < Self.subtitleDelayEpsilon { return }
         pushedSubtitleDelay = value

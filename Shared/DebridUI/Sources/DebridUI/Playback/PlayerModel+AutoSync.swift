@@ -113,8 +113,18 @@ extension PlayerModel {
     /// fetched from somewhere else is, and for those we hold the actual cue times.
     public var canAutoSyncSubtitle: Bool { selectedDownloadedSubtitleFile != nil }
 
-    /// The file backing the selected subtitle, if the selection is one we downloaded.
+    /// The file backing the selected subtitle, if the selection is one we downloaded — the file as
+    /// PREPARED, never a shifted copy of it. Everything keyed off this (the cue list a hand sync
+    /// measures against, the offset remembered for the file, auto-sync's reading) describes the
+    /// subtitle itself, and an offset is something applied TO it.
     var selectedDownloadedSubtitleFile: URL? {
+        guard let attached = selectedAttachedSubtitleFile else { return nil }
+        return subtitleShiftCopies[attached]?.base ?? attached
+    }
+
+    /// The file the selected track was actually attached from: a shifted copy while an offset is
+    /// in effect, otherwise the same as `selectedDownloadedSubtitleFile`.
+    var selectedAttachedSubtitleFile: URL? {
         guard let selectedSubtitleID else { return nil }
         return attachedSubtitleTracks.first { $0.value == selectedSubtitleID }?.key
     }

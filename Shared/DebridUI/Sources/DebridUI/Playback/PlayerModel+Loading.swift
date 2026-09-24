@@ -270,6 +270,8 @@ extension PlayerModel {
         subtitleSearchLanguage = nil
         pendingSubtitleAttach = nil
         attachedSubtitleTracks = [:]   // …and where each attached FILE landed is just as positional
+        subtitleShiftCopies = [:]      // …and every shifted copy of a file this media no longer has
+        cancelSubtitleShift()
         subtitleRows = Self.freshSubtitleRows(hasAccount: subtitles != nil)
         lastSavedPosition = -.infinity
         loadTask?.cancel()
@@ -399,6 +401,7 @@ extension PlayerModel {
         loadWatchdog?.cancel()
         subtitleFallbackTask?.cancel()          // else it spends OpenSubtitles quota on a dead engine
         subtitleAttachTimeoutTask?.cancel()
+        cancelSubtitleShift()
         // A sync outliving the player would keep pulling a stream nobody is watching, for minutes.
         autoSyncTask?.cancel()
         autoSyncProgressTask?.cancel()

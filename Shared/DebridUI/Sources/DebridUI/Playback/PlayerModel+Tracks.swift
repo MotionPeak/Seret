@@ -23,6 +23,7 @@ extension PlayerModel {
         if subtitleDelay != 0 || isCorrectingSubtitleDrift {
             applyEffectiveSubtitleDelay(force: true)   // the engine may have just lost it
         }
+        reconcileSubtitleShift()
     }
 
     /// Auto-apply the user's persisted audio/subtitle language as this source's tracks are
@@ -277,6 +278,7 @@ extension PlayerModel {
         engine.selectSubtitleTrack(id: id)
         recordPreferredSubtitle(forTrackID: id)
         restoreSubtitleDelay()      // switching back to a track that was synced restores its offset
+        reconcileSubtitleShift()    // …and a downloaded one must carry it in the file on screen
     }
     public func selectSubtitleOff() {
         subtitlePickedByUser = true

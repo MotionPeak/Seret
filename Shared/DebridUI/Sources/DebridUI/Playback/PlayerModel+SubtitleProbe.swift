@@ -108,7 +108,9 @@ extension PlayerModel {
             }
             if let target = Self.autoSubtitleSeek {
                 self.subtitleProbe("PROBE seeking to \(Int(target))s for a cue")
-                self.engine.seek(to: target)
+                // Through the model, as a viewer's scrub is — a bare engine seek leaves the model's
+                // playhead describing the old position, which made the probe's own timeline lie.
+                self.scrub(to: target)
             }
             // `-autoSubDelays "-1,-4,0,4"`: hold each offset for 20s, so vlc.log can show which
             // ones still draw lines. A Hebrew line is visible there as freetype's "Will deploy
