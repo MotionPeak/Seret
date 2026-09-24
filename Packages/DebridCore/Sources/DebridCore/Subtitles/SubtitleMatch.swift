@@ -152,3 +152,11 @@ public extension MediaSource {
         return "\(stem)-\(group)"
     }
 }
+
+public extension SubtitleMatch {
+    /// Whether `results` holds a subtitle made for the release named `name`: a hash match, the same
+    /// release group, or a strong name overlap. The bar the player's badge calls "good".
+    static func hasMatch(in results: [SubtitleResult], for name: String, videoFPS: Double?) -> Bool {
+        rank(results, against: name, videoFPS: videoFPS).contains { $0.quality != .uncertain }
+    }
+}

@@ -38,3 +38,13 @@ public struct ContainerTrack: Sendable, Equatable, Codable {
         "bdpg", "pgs", "hdmv", "spu", "spub", "dvbs", "dvds", "xsub", "cvd", "ogt",
     ]
 }
+
+public extension ContainerTrack {
+    /// A track as the player reports it. The player has no forced flag and no per-track frame
+    /// rate; a track with no language tag is named from its label ("Hebrew", "עברית").
+    init(_ track: MediaTrack) {
+        self.init(kind: track.kind == .audio ? .audio : .subtitle,
+                  language: LanguageCode.normalize(track.language) ?? LanguageCode.fromName(track.name),
+                  codec: track.codec, name: track.name)
+    }
+}
