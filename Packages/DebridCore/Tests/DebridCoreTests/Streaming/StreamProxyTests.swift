@@ -34,6 +34,22 @@ extension StreamingNetworkTests {
             await p.close(handle)
         }
 
+        /// Found in review: starting the server suspends the proxy, so a second open arriving then
+        /// started a second server; the first was released, its listener with it, and the first
+        /// open's URL pointed at a dead port.
+        @Test func twoOpensAtOnceShareOneServer() async throws {
+            let p = proxy()
+            async let first = p.open(upstream: URL(string: "https://rd.test/f.mkv")!, fileKey: "t#1",
+                                     refreshUpstream: { URL(string: "https://rd.test/f.mkv")! })
+            async let second = p.open(upstream: URL(string: "https://rd.test/f.mkv")!, fileKey: "t#2",
+                                      refreshUpstream: { URL(string: "https://rd.test/f.mkv")! })
+            let (a, b) = await (first, second)
+            #expect(a.url.port == b.url.port)
+            #expect(try await get(a.url, "bytes=0-9").1 == 206)
+            #expect(try await get(b.url, "bytes=0-9").1 == 206)
+            await p.close(a); await p.close(b)
+        }
+
         @Test func aClosedStreamIsGone() async throws {
             let p = proxy()
             let handle = await p.open(upstream: URL(string: "https://rd.test/f.mkv")!, fileKey: "t#1",

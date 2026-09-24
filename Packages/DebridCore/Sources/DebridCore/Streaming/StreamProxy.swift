@@ -44,6 +44,9 @@ public actor StreamProxy: StreamProxying {
     #if canImport(Network)
     private var server: LoopbackStreamServer?
     private var port: UInt16?
+    /// A start in progress. Starting suspends this actor; a second open arriving meanwhile must
+    /// wait for it, not start a second server that would release the first and kill its port.
+    private var starting: Task<UInt16?, Never>?
     #endif
 
     /// RD traffic without URLCache: 206s of a 60 GB file are not worth caching twice.
@@ -115,6 +118,15 @@ public actor StreamProxy: StreamProxying {
     /// the caller then plays RD's link directly, exactly as before this cache existed.
     private func ensureServer() async -> UInt16? {
         if let port, server?.isRunning == true { return port }
+        if let starting { return await starting.value }
+        let start = Task { await startServer() }
+        starting = start
+        let port = await start.value
+        starting = nil
+        return port
+    }
+
+    private func startServer() async -> UInt16? {
         server?.stop()
         let server = LoopbackStreamServer(session: { [weak self] id in await self?.session(id) }, log: log)
         do {
