@@ -76,7 +76,7 @@ func isTheatreRelease(named name: String) -> Bool {
     let ns = name as NSString
     let whole = NSRange(location: 0, length: ns.length)
     if TheatreTags.tvMarker.firstMatch(in: name, range: whole) != nil { return false }
-    let start = TheatreTags.year.firstMatch(in: name, range: whole).map { $0.range.upperBound } ?? 0
+    let start = TheatreTags.year.firstMatch(in: name, range: whole).map { $0.range.location + $0.range.length } ?? 0
     return TheatreTags.tag.firstMatch(in: name, range: NSRange(location: start, length: ns.length - start)) != nil
 }
 

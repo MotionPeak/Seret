@@ -35,7 +35,7 @@ public struct ReleaseSubtitleTags: Sendable {
         // the subtitles, and the one before is audio. Italian releases list audio, then subtitles.
         // Hebrew is exempt: a Hebrew "Sub" tag is always subtitles, since Hebrew dubs say "Dub".
         let kept = languageFirst.filter { tag in
-            tag.code == "he" || !subtitlesFirst.contains { NSIntersectionRange($0.range, tag.range).length > 0 }
+            tag.code == "he" || !subtitlesFirst.contains { Self.overlap($0.range, tag.range) }
         } + subtitlesFirst
         var found = kept.map { (offset: $0.range.location, code: $0.code) }
         var blanked = kept.map(\.range)
@@ -53,6 +53,12 @@ public struct ReleaseSubtitleTags: Sendable {
             languages.append(item.code)
         }
         return Scan(languages: languages, remainder: remainder as String)
+    }
+
+    /// Whether two ranges share a character. Plain arithmetic: Linux's Foundation is not assumed to
+    /// have every NSRange helper Apple's does.
+    private static func overlap(_ a: NSRange, _ b: NSRange) -> Bool {
+        a.location < b.location + b.length && b.location < a.location + a.length
     }
 
     /// Language tokens a subtitle tag may carry. Only Hebrew is acted on; the rest are reported so
