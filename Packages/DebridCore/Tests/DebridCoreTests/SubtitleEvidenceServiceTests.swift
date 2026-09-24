@@ -63,6 +63,13 @@ import Foundation
         var arrivals: Int { lock.lock(); defer { lock.unlock() }; return arrived }
     }
 
+    final class TitleBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var stored: TitleSubtitleEvidence?
+        func set(_ value: TitleSubtitleEvidence) { lock.lock(); stored = value; lock.unlock() }
+        var value: TitleSubtitleEvidence? { lock.lock(); defer { lock.unlock() }; return stored }
+    }
+
     final class Answer: @unchecked Sendable {
         private let lock = NSLock()
         private var stored: [SubtitleResult]?
@@ -158,6 +165,27 @@ import Foundation
             try? await Task.sleep(for: .milliseconds(1))
         }
         #expect(refreshed == [old, new])
+    }
+
+    /// The web's title page answers within its deadline from whatever is ready — here, what an
+    /// earlier visit stored — while a hung search carries on behind it for the next load.
+    @Test func aTitleAnswersWithinItsDeadlineWithWhatItHas() async {
+        let calls = Calls(), gate = Gate(), dir = tempDir(), result = Self.result
+        _ = await service(dir, calls: calls).records(for: [source("A")])
+        let svc = service(dir, calls: calls, search: { _, _ in await gate.wait(); return [result] })
+        let box = TitleBox(), a = source("A"), query = self.query
+        let asking = Task {
+            box.set(await svc.titleEvidence(for: [a], contentKey: "k", query: query,
+                                            originalLanguage: "en", within: .milliseconds(200)))
+        }
+        #expect(await eventually { box.value != nil })       // answered while the search hangs
+        #expect(box.value?.evidence.hebrew(forVersion: WatchKey.source(a)) == .builtIn)
+        #expect(box.value?.hebrewResults == nil)
+        gate.open()
+        await asking.value
+        let later = await svc.titleEvidence(for: [source("A")], contentKey: "k", query: query,
+                                            originalLanguage: "en", within: .seconds(5))
+        #expect(later.hebrewResults == [result])
     }
 
     @Test func storedResultsNeverTouchTheNetwork() async {

@@ -64,19 +64,18 @@ func registerDetailRoutes(_ app: Application) {
         }
 
         // Hebrew subtitles: what each owned file carries (read once, kept for good), and what
-        // OpenSubtitles made for it. Owned versions only — the web has no search → add.
+        // OpenSubtitles made for it. Owned versions only — the web has no search → add. A first
+        // visit's header reads and search can take seconds, so the page answers within two from
+        // whatever is ready; the rest finishes behind it for the next load.
         var subtitles = SubtitleEvidenceSet.empty
         var hebrewResults: [SubtitleResult]?
         if let evidence = req.application.subtitleEvidence {
-            let records = await evidence.records(for: item.sources)
-            if let tmdbID = item.tmdbID {
-                hebrewResults = await evidence.hebrewResults(
-                    contentKey: item.id,
-                    query: SubtitleQuery(tmdbID: tmdbID, title: item.title, year: item.year),
-                    originalLanguage: originalLanguage)
-            }
-            subtitles = .owned(item.sources, records: records, hebrewResults: hebrewResults ?? [],
-                               originalLanguage: originalLanguage)
+            let found = await evidence.titleEvidence(
+                for: item.sources, contentKey: item.id,
+                query: item.tmdbID.map { SubtitleQuery(tmdbID: $0, title: item.title, year: item.year) },
+                originalLanguage: originalLanguage, within: .seconds(2))
+            subtitles = found.evidence
+            hebrewResults = found.hebrewResults
         }
         let playing = item.sources.preferred(nil, subtitles: subtitles)
         let chip = HebrewTitleChip.forTitle(playing: playing, subtitles: subtitles, hebrewResults: hebrewResults)

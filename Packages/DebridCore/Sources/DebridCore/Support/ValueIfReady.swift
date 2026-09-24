@@ -5,7 +5,7 @@ import Foundation
 ///
 /// A task group cannot do this: it waits for every child before returning, so the slow branch would
 /// hold the answer hostage however early the timer fired.
-func valueIfReady<T: Sendable>(of task: Task<T, Never>, within limit: Duration) async -> T? {
+public func valueIfReady<T: Sendable>(of task: Task<T, Never>, within limit: Duration) async -> T? {
     await withCheckedContinuation { (continuation: CheckedContinuation<T?, Never>) in
         let gate = ResumeOnce()
         let timer = Task {
