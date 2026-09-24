@@ -80,6 +80,7 @@ struct MainShell: View {
         .background(TrafficLightsPlacement(origin: SidebarMetrics.trafficLightsOrigin))
         .animation(Theme.Motion.standard, value: model.isSidebarCollapsed)
         .animation(Theme.Motion.fade, value: model.selection)
+        .animation(Theme.Motion.fade, value: model.isSearching)
         .ignoresSafeArea()
         .frame(minWidth: 1000, minHeight: 650)
         .focusedSceneValue(\.shellModel, model)
@@ -124,7 +125,7 @@ struct MainShell: View {
             // Rebuilding the stack per switch (`.id(selection)`) threw away each page's loaded
             // state — every visit re-fetched and re-laid-out from scratch, and lost its scroll.
             ForEach(SidebarSection.allCases.filter { visitedSections.contains($0) || $0 == model.selection }) { section in
-                let isShown = section == model.selection
+                let isShown = section == model.selection && !model.isSearching
                 SectionStack(section: section, model: model)
                     .environment(\.isPageShown, isShown)
                     .opacity(isShown ? 1 : 0)
@@ -133,6 +134,11 @@ struct MainShell: View {
             }
             .animation(Theme.Motion.fade, value: model.selection)
             .onChange(of: model.selection, initial: true) { _, section in visitedSections.insert(section) }
+            // Search: its own stack over the section, built fresh each time Search opens.
+            if model.isSearching {
+                SearchStack(model: model)
+                    .transition(.opacity)
+            }
             if let flight = model.flight {
                 HeroFlightDriver(flight: flight, progressOverride: previewFlightProgressOverride,
                                  onLand: { model.landFlight($0) })

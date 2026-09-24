@@ -38,8 +38,10 @@ struct SearchField: View {
         .frame(width: 280, height: 32)
         .glassEffect(.regular.interactive(), in: Capsule())
         .onChange(of: model.searchFocusRequest) { _, _ in focused = true }
+        // A result opened: hand the keyboard to the page (its 1–0 rating keys, Esc, arrows).
+        .onChange(of: model.searchBlurRequest) { _, _ in focused = false }
         .onKeyPress(.escape) {
-            model.setSearchQuery("")
+            model.exitSearch()
             focused = false
             return .handled
         }
@@ -56,7 +58,7 @@ struct SearchField: View {
                     .background(Color.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
             }
         } else {
-            Button { model.setSearchQuery("") } label: {
+            Button { model.exitSearch() } label: {
                 Image(systemName: "xmark.circle.fill")
                     .font(.system(size: 13))
                     .foregroundStyle(Theme.Palette.textSecondary)

@@ -162,39 +162,118 @@ import Testing
         #expect(model.browseGenre[.movie] == nil)
     }
 
-    // MARK: - Search
+    // MARK: - Search — its own stack over the selected section; typing never navigates
 
-    @Test func typingOpensSearchOnce() {
-        let model = ShellModel(defaults: freshDefaults())
-        model.setSearchQuery("d")
-        model.setSearchQuery("du")
-        #expect(model.history(for: .home).path == [.search])
-    }
-
-    @Test func clearingGoesBack() {
-        let model = ShellModel(defaults: freshDefaults())
-        model.setSearchQuery("dune")
-        model.setSearchQuery("")
-        #expect(model.history(for: .home).path.isEmpty)
-    }
-
-    @Test func searchOpensOnTheSelectedSection() {
+    @Test func typingShowsSearchWithoutTouchingTheSection() {
         let model = ShellModel(defaults: freshDefaults())
         model.select(.library)
-        model.setSearchQuery("dune")
-        #expect(model.history(for: .library).path == [.search])
-        #expect(model.history(for: .home).path.isEmpty)
+        model.open(route("a"))
+        model.setSearchQuery("d")
+        model.setSearchQuery("du")
+        #expect(model.isSearching)
+        #expect(model.searchHistory.path.isEmpty)                    // on the results
+        #expect(model.history(for: .library).path == [route("a")])    // untouched underneath
+    }
+
+    /// The owner's bug: opening a result made the field re-send "raw" as it lost focus, which
+    /// pushed a second search page on top of the title — mid-animation, stacking the pages.
+    @Test func theFieldResendingItsTextNeverNavigates() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.setSearchQuery("raw")
+        model.open(route("a"))
+        model.setSearchQuery("raw")
+        #expect(model.isSearching)
+        #expect(model.searchHistory.path == [route("a")])
     }
 
     @Test func aTitleOpenedFromResultsComesBackToResults() {
         let model = ShellModel(defaults: freshDefaults())
         model.setSearchQuery("dune")
         model.open(route("a"))
-        #expect(model.history(for: .home).path == [.search, route("a")])
+        #expect(model.searchHistory.path == [route("a")])
+        #expect(model.history(for: .home).path.isEmpty)
 
         model.goBack()
 
-        #expect(model.history(for: .home).path == [.search])
+        #expect(model.isSearching)
+        #expect(model.searchHistory.path.isEmpty)
+    }
+
+    @Test func backFromTheResultsLeavesSearchForTheSectionAsItWas() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.select(.library)
+        model.open(route("a"))
+        model.setSearchQuery("dune")
+        #expect(model.canGoBack)
+
+        model.goBack()
+
+        #expect(!model.isSearching)
+        #expect(model.searchQuery.isEmpty)
+        #expect(model.history(for: .library).path == [route("a")])
+    }
+
+    @Test func aNewQueryOnAPageOpenedFromSearchReturnsToTheResults() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.setSearchQuery("dune")
+        model.open(route("a"))
+        model.setSearchQuery("dune 2")
+        #expect(model.isSearching)
+        #expect(model.searchHistory.path.isEmpty)
+    }
+
+    @Test func clearingTheFieldOnTheResultsLeavesSearch() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.setSearchQuery("dune")
+        model.setSearchQuery("")
+        #expect(!model.isSearching)
+    }
+
+    @Test func clearingTheFieldOnAPageOpenedFromSearchKeepsThePage() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.setSearchQuery("dune")
+        model.open(route("a"))
+        model.setSearchQuery("")
+        #expect(model.isSearching)
+        #expect(model.searchHistory.path == [route("a")])
+    }
+
+    @Test func choosingASectionLeavesSearch() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.setSearchQuery("dune")
+        model.select(.movies)
+        #expect(!model.isSearching)
+        #expect(model.searchQuery.isEmpty)
+        #expect(model.selection == .movies)
+    }
+
+    @Test func choosingTheSameSectionLeavesSearchWithoutPoppingIt() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.select(.library)
+        model.open(route("a"))
+        model.setSearchQuery("x")
+        model.select(.library)
+        #expect(!model.isSearching)
+        #expect(model.history(for: .library).path == [route("a")])
+    }
+
+    @Test func exitSearchClearsItAll() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.setSearchQuery("dune")
+        model.open(route("a"))
+        model.exitSearch()
+        #expect(!model.isSearching)
+        #expect(model.searchQuery.isEmpty)
+        #expect(model.searchHistory.path.isEmpty)
+    }
+
+    /// The title page's 1–0 rating keys must reach the page, not the query.
+    @Test func openingAResultAsksTheFieldToLetGoOfTheKeyboard() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.setSearchQuery("dune")
+        let before = model.searchBlurRequest
+        model.open(route("a"))
+        #expect(model.searchBlurRequest == before + 1)
     }
 
     @Test func focusRequestsCount() {
@@ -261,8 +340,11 @@ import Testing
         model.open(route("a"))
         #expect(model.titleOnTop?.id == "a")
 
-        model.setSearchQuery("dune")                    // pushes .search on top of "a"
-        #expect(model.titleOnTop == nil)                 // top of stack is .search, not a title
+        model.setSearchQuery("dune")                    // Search shows its results over "a"
+        #expect(model.titleOnTop == nil)                 // the results are not a title
+
+        model.open(route("b"))                           // a title opened from the results
+        #expect(model.titleOnTop?.id == "b")
     }
 
     // MARK: - Hero flight

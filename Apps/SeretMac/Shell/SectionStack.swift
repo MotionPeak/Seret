@@ -51,6 +51,26 @@ struct SectionStack: View {
     }
 }
 
+/// Search's own stack (the results are its root), shown over the selected section while
+/// `ShellModel.isSearching`. Typing never pushes onto it; only opening a result does.
+struct SearchStack: View {
+    @Bindable var model: ShellModel
+
+    private var path: Binding<[AppRoute]> {
+        Binding(get: { model.searchHistory.path }, set: { model.setSearchPath($0) })
+    }
+
+    var body: some View {
+        NavigationStack(path: path) {
+            SearchPage()
+                .navigationDestination(for: AppRoute.self) { route in
+                    RouteView(route: route)
+                        .navigationBarBackButtonHidden(true)
+                }
+        }
+    }
+}
+
 /// Renders whatever a pushed route resolves to.
 private struct RouteView: View {
     let route: AppRoute
@@ -61,8 +81,6 @@ private struct RouteView: View {
             TitleRoute(item: item)
         case .person(let ref):
             PersonRoute(ref: ref)
-        case .search:
-            SearchPage()
         }
     }
 }

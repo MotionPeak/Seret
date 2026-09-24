@@ -31,6 +31,13 @@ final class ShellModel {
     /// Selecting the section already showing pops it to root — the sidebar row doubles as "back to
     /// the top". Selecting another section keeps every section's path exactly as it was.
     func select(_ section: SidebarSection) {
+        // A sidebar row always leaves Search. The row the viewer was already on just brings its
+        // section back exactly as it was (it is not also a "pop to root" while Search covers it).
+        if isSearching {
+            exitSearch()
+            selection = section
+            return
+        }
         if selection == section {
             histories[section, default: NavigationHistory()].popToRoot()
         } else {
@@ -50,6 +57,18 @@ final class ShellModel {
 
     func setPath(_ path: [AppRoute], for section: SidebarSection) {
         histories[section, default: NavigationHistory()].setPath(path)
+    }
+
+    /// The history the window is showing: Search's own while searching, else the selected
+    /// section's. Every push, pop and "what is on top" goes through these two.
+    private var activeHistory: NavigationHistory { isSearching ? searchHistory : history(for: selection) }
+
+    private func updateActiveHistory(_ change: (inout NavigationHistory) -> Void) {
+        if isSearching {
+            change(&searchHistory)
+        } else {
+            change(&histories[selection, default: NavigationHistory()])
+        }
     }
 
     /// Pushes on the SELECTED section's history — every push starts from wherever the viewer is.
@@ -77,8 +96,9 @@ final class ShellModel {
         // A NavigationStack push animates its own slide by default — while a flight runs, only the
         // flyer itself should move (the "push itself" note in Task 8).
         withTransaction(newFlight == nil ? Transaction() : Transaction(animation: nil)) {
-            histories[selection, default: NavigationHistory()].push(route)
+            updateActiveHistory { $0.push(route) }
         }
+        if isSearching { searchBlurRequest += 1 }
     }
 
     /// Pops the SELECTED section's history. When the top route is a title this flew in from a still
@@ -86,8 +106,13 @@ final class ShellModel {
     /// may have moved under scrolling since the forward flight landed. Anything else (no flight ever
     /// happened, or the tile is gone) just pops, and the page's own cross-fade is the whole transition.
     func goBack() {
+        // Back from the results leaves Search: the section underneath is exactly as it was.
+        if isSearching, searchHistory.path.isEmpty {
+            exitSearch()
+            return
+        }
         var newFlight: HeroFlight?
-        if case .title(let item)? = history(for: selection).path.last,
+        if case .title(let item)? = activeHistory.path.last,
            let tileID = titleSources[item.id], let sourceFrame = tileFrames[tileID], let heroFrame {
             let plan = HeroFlightGeometry.plan(source: sourceFrame, target: heroFrame,
                                                window: windowSize, reduceMotion: reduceMotion)
@@ -99,13 +124,14 @@ final class ShellModel {
         }
         flight = newFlight
         withTransaction(newFlight == nil ? Transaction() : Transaction(animation: nil)) {
-            histories[selection, default: NavigationHistory()].back()
+            updateActiveHistory { $0.back() }
         }
     }
 
-    func goForward() { histories[selection, default: NavigationHistory()].forward() }
-    var canGoBack: Bool { history(for: selection).canGoBack }
-    var canGoForward: Bool { history(for: selection).canGoForward }
+    func goForward() { updateActiveHistory { $0.forward() } }
+    /// Search can always step back — out of it, from its results.
+    var canGoBack: Bool { isSearching || history(for: selection).canGoBack }
+    var canGoForward: Bool { activeHistory.canGoForward }
 
     // MARK: - Surprise Me
 
@@ -250,7 +276,7 @@ final class ShellModel {
     /// what a title page's own "Remove from Library…" needs once removal succeeds (a poster's
     /// removal, from some OTHER page, must never pop whatever the viewer is looking at now).
     func popTitleIfShowing(_ id: String) {
-        guard case .title(let top)? = history(for: selection).path.last, top.id == id else { return }
+        guard case .title(let top)? = activeHistory.path.last, top.id == id else { return }
         goBack()
     }
     /// "Couldn't Remove" alert message, set when a confirmed removal fails.
@@ -270,7 +296,7 @@ final class ShellModel {
     /// The selected section's top route, when it is a title page — what `magnetRequest` and a
     /// poster's removal both need to know "is the page I'd affect actually the one showing".
     var titleOnTop: MediaItem? {
-        guard case .title(let top)? = history(for: selection).path.last else { return nil }
+        guard case .title(let top)? = activeHistory.path.last else { return nil }
         return top
     }
 
@@ -294,18 +320,45 @@ final class ShellModel {
 
     func requestSearchFocus() { searchFocusRequest += 1 }
 
-    /// Stores the query, then pushes or pops `.search` on the SELECTED section so the field and the
-    /// navigation stay in lockstep: a non-blank query while `.search` isn't already on top pushes it
-    /// once (typing further keystrokes is a no-op here — the page itself re-searches); a blank query
-    /// while `.search` is on top pops back to wherever the viewer was.
+    /// True while the window shows Search: its own stack, over the selected section, which stays
+    /// exactly as it was underneath. The results are the stack's root.
+    private(set) var isSearching = false
+    /// Pages opened FROM the results — back returns to them, back again leaves Search.
+    private(set) var searchHistory = NavigationHistory()
+    /// Bumped when a page is opened from the results, so the field lets go of the keyboard (a
+    /// title page's 1–0 rating keys must reach the page, not the query).
+    private(set) var searchBlurRequest = 0
+
+    /// Typing never navigates: it only changes the query, shows Search if it isn't showing, and —
+    /// when the viewer types a NEW query on a page opened from the results — returns to them.
+    ///
+    /// It used to push a `.search` page onto the section whenever one wasn't on top. The field
+    /// re-sends its text when it loses focus (opening a result does exactly that), so it pushed a
+    /// second search page over the title just opened, mid-transition — the stacked pages and the
+    /// "can't go back" the owner hit.
     func setSearchQuery(_ text: String) {
+        guard text != searchQuery else { return }   // a re-send is not typing
         searchQuery = text
-        let topIsSearch = history(for: selection).path.last == .search
         let isBlank = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        if !isBlank, !topIsSearch {
-            open(.search)
-        } else if isBlank, topIsSearch {
-            goBack()
+        if !isBlank {
+            if !isSearching {
+                searchHistory = NavigationHistory()
+                isSearching = true
+            } else if !searchHistory.path.isEmpty {
+                searchHistory.popToRoot()
+            }
+        } else if isSearching, searchHistory.path.isEmpty {
+            exitSearch()
         }
     }
+
+    /// Esc, the field's ✕, Back from the results, or any sidebar row.
+    func exitSearch() {
+        isSearching = false
+        searchQuery = ""
+        searchHistory = NavigationHistory()
+    }
+
+    /// The Search stack's `NavigationStack` binding.
+    func setSearchPath(_ path: [AppRoute]) { searchHistory.setPath(path) }
 }
