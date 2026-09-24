@@ -140,6 +140,21 @@ import Foundation
         #expect(await svc.hebrewResults(contentKey: "k", query: query, originalLanguage: "en") == nil)
     }
 
+    /// Home and the web read only what was stored. The film's language used to live inside a
+    /// successful search, so with no OpenSubtitles key — or a search that failed — they lost it,
+    /// and with it the Hebrew-film and dub guards the title page applies.
+    @Test func theFilmsLanguageIsKeptWithNoSearchToAsk() async {
+        let svc = service(tempDir(), calls: Calls())
+        _ = await svc.hebrewResults(contentKey: "k", query: query, originalLanguage: "he")
+        #expect(await svc.storedEvidence(for: [source("A")], contentKey: "k").originalLanguage == "he")
+    }
+
+    @Test func theFilmsLanguageIsKeptWhenTheSearchFails() async {
+        let svc = service(tempDir(), calls: Calls(), search: { _, _ in throw Boom.offline })
+        _ = await svc.hebrewResults(contentKey: "k", query: query, originalLanguage: "iw")
+        #expect(await svc.storedEvidence(for: [source("A")], contentKey: "k").originalLanguage == "he")
+    }
+
     @Test func onlyHebrewResultsAreKept() async {
         let svc = service(tempDir(), calls: Calls(),
                           search: { _, _ in [Self.result, SubtitleResult(fileID: 2, language: "en")] })

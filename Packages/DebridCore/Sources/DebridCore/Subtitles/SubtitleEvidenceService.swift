@@ -48,13 +48,14 @@ public actor SubtitleEvidenceService: SubtitleEvidenceProviding {
 
     struct SearchEntry: Codable, Sendable {
         let results: [SubtitleResult]
-        /// The title's language when it was asked about, so stored-only readers apply the same
-        /// guards the title page does.
-        let originalLanguage: String?
     }
 
     private let searches: TTLFileCache<SearchEntry>
     private let recordCache: TTLFileCache<VersionSubtitleRecord>
+    /// Each title's original language, kept apart from the search: Home and the web read it back
+    /// to apply the title page's guards (a Hebrew film takes no boost; a dub that lost the film's
+    /// language takes none) even when the search failed or there is no key to search with.
+    private let languages: TTLFileCache<String>
     private let search: Search?
     private let resolve: Resolve
     private let probe: Probe
@@ -70,6 +71,8 @@ public actor SubtitleEvidenceService: SubtitleEvidenceProviding {
                                      ttl: Self.searchTTL, now: now)
         self.recordCache = TTLFileCache(directory: directory, fileName: "version-subtitles.json",
                                         ttl: Self.recordTTL, now: now)
+        self.languages = TTLFileCache(directory: directory, fileName: "title-languages.json",
+                                      ttl: Self.recordTTL, now: now)
         self.search = search
         self.resolve = resolve
         self.probe = probe
@@ -83,16 +86,17 @@ public actor SubtitleEvidenceService: SubtitleEvidenceProviding {
 
     public func hebrewResults(contentKey: String, query: SubtitleQuery,
                               originalLanguage: String?) async -> [SubtitleResult]? {
+        if let language = LanguageCode.normalize(originalLanguage) {
+            await languages.update(contentKey) { $0 == language ? nil : language }
+        }
         if let fresh = await searches.cached(contentKey) { return fresh.results }
         if let flight = searchesInFlight[contentKey] { return await flight.value }
         guard let search else { return await searches.stored(contentKey)?.results }
-        let language = LanguageCode.normalize(originalLanguage)
         let flight = Task { [searches] () -> [SubtitleResult]? in
             do {
                 let results = try await search(query, ["he"])
                     .filter { LanguageCode.normalize($0.language) == "he" }
-                await searches.store(SearchEntry(results: results, originalLanguage: language),
-                                     key: contentKey)
+                await searches.store(SearchEntry(results: results), key: contentKey)
                 return results
             } catch {
                 return await searches.stored(contentKey)?.results   // a stale answer beats none
@@ -129,9 +133,9 @@ public actor SubtitleEvidenceService: SubtitleEvidenceProviding {
             let key = WatchKey.source(source)
             if let record = await recordCache.stored(key) { records[key] = record }
         }
-        let entry = await searches.stored(contentKey)
-        return .owned(sources, records: records, hebrewResults: entry?.results ?? [],
-                      originalLanguage: entry?.originalLanguage)
+        return .owned(sources, records: records,
+                      hebrewResults: await searches.stored(contentKey)?.results ?? [],
+                      originalLanguage: await languages.stored(contentKey))
     }
 
     public func recordPlayback(_ tracks: [MediaTrack], for source: MediaSource) async {
