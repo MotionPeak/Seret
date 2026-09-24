@@ -46,6 +46,10 @@ struct MovieDetail: View {
                         if let best = store.bestSource { QualityChipRow(parsed: best.parsed) }
                         if let chip = store.hebrewChip {
                             HebrewBadge(text: chip.text, dimmed: chip == .available, prominent: true)
+                        } else {
+                            // Holds the row at the badge's height, so the chip landing does not
+                            // push the page down.
+                            HebrewBadge(text: HebrewTitleChip.builtIn.text, prominent: true).hidden()
                         }
                     }
                 }
@@ -261,8 +265,12 @@ struct MovieDetail: View {
                     Image(systemName: store.isActive(src) ? "checkmark.circle.fill" : "circle")
                         .foregroundStyle(store.isActive(src)
                                          ? Theme.Palette.gold : Theme.Palette.textSecondary)
-                    QualityChipRow(parsed: src.parsed)
-                    if let badge = store.hebrew(for: src).badgeText { HebrewBadge(text: badge) }
+                    // The badge on its own line: an iPhone row has no room beside four chips, and
+                    // this is the one fact about a version that must never be truncated away.
+                    VStack(alignment: .leading, spacing: 4) {
+                        QualityChipRow(parsed: src.parsed)
+                        if let badge = store.hebrew(for: src).badgeText { HebrewBadge(text: badge) }
+                    }
                     Spacer()
                     Image(systemName: "play.circle.fill").foregroundStyle(Theme.Palette.gold)
                 }

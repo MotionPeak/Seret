@@ -93,6 +93,10 @@ struct MovieDetailView: View {
                     if let best = store.bestSource { QualityChips(parsed: best.parsed) }
                     if let chip = store.hebrewChip {
                         HebrewBadge(text: chip.text, dimmed: chip == .available, prominent: true)
+                    } else {
+                        // Holds the row at the badge's height, so the chip landing does not push
+                        // the page — and the Play button focus was just placed on — down.
+                        HebrewBadge(text: HebrewTitleChip.builtIn.text, prominent: true).hidden()
                     }
                 }
             }

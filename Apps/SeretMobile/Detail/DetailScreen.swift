@@ -81,15 +81,15 @@ struct DetailScreen: View {
             }
             .task {
                 await store.load()
-                // Warm the RD unrestrict for the show's next-up episode — tapping Play then skips
-                // the network round-trip. A movie's link is warmed by the onChange below.
-                if store.item.kind == .show, let source = store.nextEpisode()?.source {
-                    session.prefetchPlayback(for: source)
-                }
+                // Warm the RD unrestrict for what Play would start (the movie's best source / the
+                // show's next-up episode) — tapping Play then skips the network round-trip.
+                let source = store.item.kind == .movie ? store.bestSource : store.nextEpisode()?.source
+                if let source { session.prefetchPlayback(for: source) }
             }
-            // A movie's Play target can change after the page opens — the Hebrew evidence or a
-            // chosen default lands — so warm the link of whatever Play will use, whenever it changes.
-            .onChange(of: store.bestSource, initial: true) { _, source in
+            // A movie's Play target can change while the page is open — Hebrew evidence or a chosen
+            // default lands — so a change warms the new target. Never the first value: that is only the
+            // pick before the page knows better, and warming it cost an extra unrestrict per visit.
+            .onChange(of: store.bestSource) { _, source in
                 if store.item.kind == .movie, let source { session.prefetchPlayback(for: source) }
             }
             .task { await store.loadMyList(contentKey: store.item.id) }
