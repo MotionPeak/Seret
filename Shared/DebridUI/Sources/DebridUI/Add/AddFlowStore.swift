@@ -38,6 +38,7 @@ public final class AddFlowStore {
     private let details: MediaDetailsProviding
     private let streamSource: StreamSource
     private let addService: AddProviding
+    private let subtitleEvidence: SubtitleEvidenceProviding?
 
     private var imdbID: String?
     private var originalLanguage: String?
@@ -47,9 +48,11 @@ public final class AddFlowStore {
     public var mediaKind: MediaKind { hit.kind }
 
     public init(hit: SearchHit, details: MediaDetailsProviding,
-                streamSource: StreamSource, add: AddProviding) {
+                streamSource: StreamSource, add: AddProviding,
+                subtitleEvidence: SubtitleEvidenceProviding? = nil) {
         self.hit = hit; self.details = details
         self.streamSource = streamSource; self.addService = add
+        self.subtitleEvidence = subtitleEvidence
     }
 
     public func resolve() async {
@@ -185,7 +188,8 @@ public final class AddFlowStore {
     private func makeAddStore(kind: StreamQuery.Kind, seasonPack: Int? = nil) -> AddStore {
         AddStore(imdbID: imdbID ?? "", kind: kind, originalLanguage: originalLanguage,
                  streamSource: streamSource, add: addService, seasonPack: seasonPack,
-                 title: title, year: year)
+                 title: title, year: year, subtitleEvidence: subtitleEvidence,
+                 subtitleTarget: .forKind(kind, tmdbID: tmdbID, title: title, year: year))
     }
 
     private func yearFrom(_ date: String?) -> Int? {

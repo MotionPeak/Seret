@@ -779,10 +779,12 @@ public final class AppSession {
     /// `AddStore` is per-title (it carries the imdbID/kind/originalLanguage), so it is built
     /// on demand rather than held on the session like `searchStore`.
     public func makeAddStore(imdbID: String, kind: StreamQuery.Kind,
-                             originalLanguage: String?) -> AddStore? {
+                             originalLanguage: String?,
+                             subtitleTarget: SubtitleTarget? = nil) -> AddStore? {
         guard let streamSource, let addService else { return nil }
         return AddStore(imdbID: imdbID, kind: kind, originalLanguage: originalLanguage,
-                        streamSource: streamSource, add: addService)
+                        streamSource: streamSource, add: addService,
+                        subtitleEvidence: subtitleEvidence, subtitleTarget: subtitleTarget)
     }
 
     /// Vend a whole-season download engine (nil while signed out / Stage 2 unavailable). Used by the
@@ -799,7 +801,8 @@ public final class AppSession {
     public func makeAddFlow(for hit: SearchHit) -> AddFlowStore? {
         guard let detailsProvider, let streamSource, let addService else { return nil }
         return AddFlowStore(hit: hit, details: detailsProvider,
-                            streamSource: streamSource, add: addService)
+                            streamSource: streamSource, add: addService,
+                            subtitleEvidence: subtitleEvidence)
     }
 
     /// The acquire-and-play engine for one title — what makes Play work on something you have not
@@ -809,7 +812,9 @@ public final class AppSession {
                                 originalLanguage: String?) -> AcquisitionStore {
         AcquisitionStore(item: item) { [weak self] kind in
             guard let self, let imdbID else { return nil }
-            return self.makeAddStore(imdbID: imdbID, kind: kind, originalLanguage: originalLanguage)
+            return self.makeAddStore(
+                imdbID: imdbID, kind: kind, originalLanguage: originalLanguage,
+                subtitleTarget: item.tmdbID.map { .forKind(kind, tmdbID: $0, title: item.title, year: item.year) })
         }
     }
 
