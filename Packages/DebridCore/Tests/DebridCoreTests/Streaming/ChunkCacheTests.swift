@@ -33,44 +33,51 @@ import Testing
         #expect(result.hitCached)
     }
 
-    @Test func unreadChunksAreNeverEvicted() {
-        // Read-ahead is what libvlc is about to ask for; throwing it away would re-fetch it.
+    @Test func theReadAheadWindowIsNeverEvicted() {
+        // What libvlc is about to ask for; throwing it away would only fetch it again.
         var cache = ChunkCache(chunkSize: 4, budget: 4)
         _ = cache.append(bytes(0..<12), at: 0)
-        cache.evictToBudget()
+        cache.evictToBudget(anchor: 0, protecting: [0..<12])
         #expect(cache.byteCount == 12)
-        #expect(cache.unreadBytes == 12)
     }
 
-    @Test func historyIsEvictedLeastRecentlyUsedFirst() {
+    @Test func inForwardPlayTheOldestHistoryGoesFirst() {
+        // Reading at 12: history 0–11 behind it; the farthest behind is the oldest.
         var cache = ChunkCache(chunkSize: 4, budget: 12)
-        _ = cache.append(bytes(0..<16), at: 0)       // 4 chunks, 16 bytes, over budget
-        _ = cache.read(at: 0, max: 4)                // chunk 0 read first…
-        _ = cache.read(at: 4, max: 4)                // …then chunk 1
-        cache.evictToBudget()
-        #expect(!cache.contains(0))                  // the older history went
+        _ = cache.append(bytes(0..<16), at: 0)
+        cache.evictToBudget(anchor: 12, protecting: [12..<16])
+        #expect(!cache.contains(0))
         #expect(cache.contains(1) && cache.contains(2) && cache.contains(3))
         #expect(cache.byteCount == 12)
     }
 
-    @Test func aRewindReadRefreshesItsChunk() {
-        var cache = ChunkCache(chunkSize: 4, budget: 12)
-        _ = cache.append(bytes(0..<16), at: 0)
-        _ = cache.read(at: 0, max: 4)
-        _ = cache.read(at: 4, max: 4)
-        _ = cache.read(at: 0, max: 4)                // chunk 0 read again: now the most recent
-        cache.evictToBudget()
-        #expect(cache.contains(0) && !cache.contains(1))
+    /// Measured in the tvOS simulator: after a rewind, least-recently-used eviction threw out the
+    /// history just AHEAD of the new playhead — libvlc read it again seconds later and it had to be
+    /// fetched from RD. Distance from the reader keeps it, and loses the far side instead.
+    @Test func afterARewindTheFarSideGoesNotTheNextMinute() {
+        var cache = ChunkCache(chunkSize: 4, budget: 16)
+        _ = cache.append(bytes(0..<24), at: 0)         // chunks 0…5
+        for offset in stride(from: Int64(0), to: 24, by: 4) { _ = cache.read(at: offset, max: 4) }
+        cache.evictToBudget(anchor: 4, protecting: [4..<8])  // rewound to 4
+        #expect(cache.contains(0) && cache.contains(1) && cache.contains(2) && cache.contains(3))
+        #expect(!cache.contains(4) && !cache.contains(5))
     }
 
-    @Test func droppingHistoryKeepsReadAheadAndPartialChunks() {
+    @Test func everyReadersWindowIsProtected() {
+        // Two libvlc connections reading at once: neither one's read-ahead may be evicted for the other.
+        var cache = ChunkCache(chunkSize: 4, budget: 8)
+        _ = cache.append(bytes(0..<24), at: 0)         // chunks 0…5
+        cache.evictToBudget(anchor: 0, protecting: [0..<4, 20..<24])
+        #expect(cache.contains(0) && cache.contains(5))
+        #expect(cache.byteCount == 8)
+    }
+
+    @Test func aMemoryWarningKeepsOnlyTheWindowAndPartialChunks() {
         var cache = ChunkCache(chunkSize: 4, budget: 100)
-        _ = cache.append(bytes(0..<10), at: 0)
-        _ = cache.read(at: 0, max: 4)
-        _ = cache.read(at: 8, max: 2)                // chunk 2 is read but still partial
-        cache.dropHistory()
-        #expect(!cache.contains(0))
-        #expect(cache.contains(1) && cache.contains(2))
+        _ = cache.append(bytes(0..<18), at: 0)         // chunks 0…3 complete, 4 partial
+        cache.dropOutsideWindow(anchor: 8, protecting: [8..<12])
+        #expect(!cache.contains(0) && !cache.contains(1) && !cache.contains(3))
+        #expect(cache.contains(2) && cache.contains(4))
     }
 
     @Test func onlyCompleteChunksAreOfferedForPersistence() {

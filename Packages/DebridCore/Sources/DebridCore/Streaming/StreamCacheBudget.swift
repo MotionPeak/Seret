@@ -51,6 +51,11 @@ public struct StreamCacheBudget: Sendable, Equatable {
     }
 
     /// The Apple TV: playback measured 457 MB on the device, and jetsam never chose Seret at ~830 MB.
-    public static let tvOS = StreamCacheBudget(ramBytes: 192 << 20, readAheadBytes: 96 << 20)
+    ///
+    /// Only a quarter is read-ahead because history is counted back from where libvlc READS, and
+    /// libvlc reads ~45 MB ahead of the picture — so a rewind needs the bigger share. Measured in the
+    /// tvOS simulator on The Shining: with 96 MiB of read-ahead a −10s rewind missed its keyframe
+    /// and took 1.06s from RD; with 48 MiB it lands in 0.14s from RAM, and +10s stays ~0.2s.
+    public static let tvOS = StreamCacheBudget(ramBytes: 192 << 20, readAheadBytes: 48 << 20)
     public static let iOS = StreamCacheBudget(ramBytes: 384 << 20, readAheadBytes: 160 << 20)
 }

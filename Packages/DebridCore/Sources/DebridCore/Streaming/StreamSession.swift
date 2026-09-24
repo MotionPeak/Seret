@@ -34,6 +34,8 @@ actor StreamSession {
     private var closed = false
 
     private(set) var upstreamRequestCount = 0
+    /// How many times a fetch has been paused (tests and diagnostics).
+    private(set) var suspendCount = 0
     var suspendedFetchCount: Int { fetches.values.filter(\.suspended).count }
 
     private struct ActiveFetch {
@@ -42,6 +44,12 @@ actor StreamSession {
         var position: Int64
         var suspended = false
         var responded = false
+        /// The end of the latest read served from this fetch's bytes: where ITS reader is. libvlc
+        /// reads with more than one connection at once (the header and the keyframe index at open),
+        /// so read-ahead must be measured per reader — against one global "last read", each
+        /// reader's fetch looked far ahead of the other and paused on every piece.
+        var anchor: Int64?
+        var readerPosition: Int64 { anchor ?? start }
     }
 
     /// Starts per read before it gives up: a link that keeps failing must not hammer RD forever.
@@ -164,16 +172,18 @@ actor StreamSession {
             let result = cache.append(data, at: fetch.position)
             fetch.position += Int64(result.accepted)
             fetches[id] = fetch
-            cache.evictToBudget()
+            cache.evictToBudget(anchor: lastReadEnd ?? fetch.start, protecting: protectedRanges())
             if result.hitCached {
                 cancelFetch(id)                                  // the rest is already here
             } else if !fetch.suspended,
-                      planner.shouldSuspend(position: fetch.position,
-                                            lastReadEnd: lastReadEnd ?? fetch.start)
+                      planner.shouldSuspend(position: fetch.position, lastReadEnd: fetch.readerPosition)
                         || cache.byteCount > budget.ramBytes {
                 fetch.suspended = true
                 fetches[id] = fetch
                 fetch.fetcher.suspend()
+                suspendCount += 1
+                log("fetch #\(id) paused at \(fetch.position) (reads at \(fetch.readerPosition), "
+                    + "ram \(cache.byteCount >> 20) MiB, unread \(cache.unreadBytes >> 20) MiB)")
             }
         case .finished(let error):
             fetches.removeValue(forKey: id)
@@ -195,6 +205,16 @@ actor StreamSession {
         guard fetches[id]?.suspended == true else { return }
         fetches[id]?.suspended = false
         fetches[id]?.fetcher.resume()
+        log("fetch #\(id) resumed (reads at \(fetches[id]?.readerPosition ?? -1), "
+            + "ram \(cache.byteCount >> 20) MiB)")
+    }
+
+    /// What eviction must not touch: each fetch's unread bytes in front of its reader, and the
+    /// read-ahead window in front of the latest read.
+    private func protectedRanges() -> [Range<Int64>] {
+        var ranges = fetches.values.map { $0.readerPosition..<max($0.readerPosition, $0.position) }
+        if let lastReadEnd { ranges.append(lastReadEnd..<(lastReadEnd + Int64(budget.readAheadBytes))) }
+        return ranges
     }
 
     private func learnSize(_ total: Int64) async {
@@ -223,8 +243,13 @@ actor StreamSession {
             let chunk = cache.chunkIndex(of: offset)
             if !headReads.contains(chunk) { headReads.append(chunk) }
         }
+        // The read lands in a fetch's streamed range: that fetch's reader has moved.
+        for (id, fetch) in fetches where fetch.start <= offset && offset <= fetch.position {
+            fetches[id]?.anchor = max(fetch.anchor ?? 0, end)
+        }
         for (id, fetch) in fetches
-        where fetch.suspended && planner.shouldResume(position: fetch.position, lastReadEnd: end) {
+        where fetch.suspended
+            && planner.shouldResume(position: fetch.position, lastReadEnd: fetch.readerPosition) {
             resumeFetch(id)
         }
     }
@@ -296,7 +321,7 @@ actor StreamSession {
     }
 
     func trimMemory() {
-        cache.dropHistory()
+        cache.dropOutsideWindow(anchor: lastReadEnd ?? 0, protecting: protectedRanges())
     }
 
     private func loadIndexIfNeeded() async {

@@ -110,6 +110,7 @@ final class LoopbackStreamServer: @unchecked Sendable {
                 : HTTPResponseHead.partial(range, total: total, contentType: type)
             try await Self.send(response, on: connection)
             headSent = true
+            log("serve \(id.uuidString.prefix(8)) from \(range.lowerBound)")
             guard head.method == "GET" else { return }
             var offset = range.lowerBound
             while offset <= range.upperBound {
