@@ -43,6 +43,20 @@ extension PlayerModel {
         Task { await streamProxy.close(handle) }
     }
 
+    /// What to tell the viewer when the cache saw RD refuse this stream; nil when it did not.
+    func streamRefusal() async -> String? {
+        guard let handle = streamHandle, let streamProxy,
+              let failure = await streamProxy.upstreamFailure(handle) else { return nil }
+        switch failure {
+        case .upstreamStatus(let status) where status == 404 || status == 410:
+            return "Real-Debrid no longer has this file."
+        case .upstreamStatus(let status):
+            return "Real-Debrid stopped sending this file (HTTP \(status))."
+        default:
+            return "Real-Debrid stopped sending this file."
+        }
+    }
+
     /// The first frame is on screen: what the session has read is what the next open will need.
     func markStreamPlaybackStarted() {
         guard let handle = streamHandle, let streamProxy else { return }

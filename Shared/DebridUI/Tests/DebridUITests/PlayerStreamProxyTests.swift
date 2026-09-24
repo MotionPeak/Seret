@@ -100,6 +100,35 @@ import DebridCore
         await teardown.value
     }
 
+    /// Found in review: with the file's index on disk, the first frames play before RD is asked.
+    /// When RD then refuses, libvlc sees only a closed connection — an EOF — and the film "ended":
+    /// dismissed, or the next episode started, with no Retry. The cache knows it was a refusal.
+    @Test func anEndTheCacheSaysRDRefusedIsAFailureNotAnEnd() async {
+        let proxy = FakeStreamProxy(), engine = FakeVideoPlayerEngine()
+        let m = model(proxy, engine)
+        m.start(); await m.waitForIdleForTesting()
+        engine.emit(.state(.playing))
+        engine.emit(.time(.init(position: 40, duration: 6000))); await m.waitForIdleForTesting()
+        await proxy.failWith(.upstreamStatus(404))
+        engine.emit(.state(.ended)); await m.waitForIdleForTesting()
+        guard case .failed = m.phase else {
+            Issue.record("expected a failure with Retry, got \(m.phase)")
+            return
+        }
+        #expect(m.shouldDismiss == false)
+    }
+
+    @Test func anEndWithoutARefusalIsStillAnEnd() async {
+        let proxy = FakeStreamProxy(), engine = FakeVideoPlayerEngine()
+        let m = model(proxy, engine)
+        m.start(); await m.waitForIdleForTesting()
+        engine.emit(.state(.playing))
+        engine.emit(.time(.init(position: 5990, duration: 6000))); await m.waitForIdleForTesting()
+        engine.emit(.state(.ended)); await m.waitForIdleForTesting()
+        #expect(m.phase == .ended)
+        #expect(m.shouldDismiss == true)
+    }
+
     @Test func theCacheCanAskForAFreshLink() async throws {
         let proxy = FakeStreamProxy(), engine = FakeVideoPlayerEngine(), count = Counter()
         let m = model(proxy, engine, unrestricts: count)

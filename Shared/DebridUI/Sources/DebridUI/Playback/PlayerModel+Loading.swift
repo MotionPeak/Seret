@@ -373,6 +373,13 @@ extension PlayerModel {
             phase = .failed("The stream stopped before it started. The Real-Debrid link may have expired.")
             return
         }
+        // …and one the stream cache saw RD refuse did not end either. With the file's index on
+        // disk the first frames play before RD is asked, so a refusal can come after them — and it
+        // reaches libvlc as a closed connection, which it reports as the end of the file.
+        if let refusal = await streamRefusal() {
+            phase = .failed(refusal)
+            return
+        }
         // Binge: a finished episode records its tail, then auto-advances to the next one in-place
         // (same player/engine) — unless the viewer dismissed the Up Next bar to watch the credits,
         // in which case the real file end exits. A movie or last episode records and dismisses.
