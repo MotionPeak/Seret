@@ -73,5 +73,16 @@ extension MockTests {
             #expect(TorrentioStreamSource.parseSize("💾 700 MB") == 700_000_000)
             #expect(TorrentioStreamSource.parseSize("no size here") == nil)
         }
+
+        @Test func aSubtitleTagBecomesSubtitleLanguagesNotAudio() async throws {
+            let json = #"""
+            {"streams":[{"name":"Torrentio","title":"Obsession.2026.1080p.WEB-DL.HebSubs-GRP\n👤 5 💾 2.1 GB ⚙️ X\n🇮🇱","infoHash":"\#(hash("a"))","behaviorHints":{"filename":"Obsession.2026.1080p.WEB-DL.HebSubs-GRP.mkv"}}]}
+            """#
+            MockURLProtocol.stub(status: 200, json: json)
+            let src = TorrentioStreamSource(http: HTTPClient(session: .mock))
+            let streams = try await src.streams(for: movieQuery(), includeUncached: true)
+            #expect(streams.first?.subtitleLanguages == ["he"])
+            #expect(streams.first?.languages.isEmpty == true)
+        }
     }
 }

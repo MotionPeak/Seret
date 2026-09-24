@@ -56,7 +56,8 @@ public struct TorrentioStreamSource: StreamSource {
             languages: languages.detect(in: text),
             sizeBytes: Self.parseSize(text),
             sourceName: "Torrentio",
-            isCached: false)
+            isCached: false,
+            subtitleLanguages: ReleaseSubtitleTags().scan(text).languages)
     }
 
     /// Same gate as Comet: keep only releases that match the requested title (year for movies,

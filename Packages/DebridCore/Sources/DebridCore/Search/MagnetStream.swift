@@ -16,6 +16,7 @@ public extension CachedStream {
                             languages: languages.detect(in: name),
                             sizeBytes: nil,
                             sourceName: "Magnet",
-                            isCached: false)
+                            isCached: false,
+                            subtitleLanguages: ReleaseSubtitleTags().scan(name).languages)
     }
 }

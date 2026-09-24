@@ -32,6 +32,8 @@ public struct CachedStream: Sendable, Equatable, Identifiable {
     public let sizeBytes: Int?
     public let sourceName: String?     // e.g. "RD" / addon label
     public let isCached: Bool          // true = instant (already on RD); false = will download
+    /// Subtitle languages the release name declares ("HebSubs"). See `ReleaseSubtitleTags`.
+    public let subtitleLanguages: [String]
 
     public var id: String { infoHash }
 
@@ -39,9 +41,11 @@ public struct CachedStream: Sendable, Equatable, Identifiable {
     public var qualityRank: Int { releaseQualityRank(for: parsed) }
 
     public init(infoHash: String, fileIdx: Int?, rawTitle: String, parsed: ParsedRelease,
-                languages: [String], sizeBytes: Int?, sourceName: String?, isCached: Bool = false) {
+                languages: [String], sizeBytes: Int?, sourceName: String?, isCached: Bool = false,
+                subtitleLanguages: [String] = []) {
         self.infoHash = infoHash; self.fileIdx = fileIdx; self.rawTitle = rawTitle
         self.parsed = parsed; self.languages = languages; self.sizeBytes = sizeBytes
         self.sourceName = sourceName; self.isCached = isCached
+        self.subtitleLanguages = subtitleLanguages
     }
 }
