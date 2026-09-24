@@ -110,12 +110,27 @@ extension PlayerModel {
                 self.subtitleProbe("PROBE seeking to \(Int(target))s for a cue")
                 self.engine.seek(to: target)
             }
+            // `-autoSubDelays "-1,-4,0,4"`: hold each offset for 20s, so vlc.log can show which
+            // ones still draw lines. A Hebrew line is visible there as freetype's "Will deploy
+            // fallback font" (Rubik has no Hebrew glyphs), which makes it countable per offset.
+            for delay in Self.autoSubtitleDelays {
+                self.subtitleProbe(String(format: "PROBE subtitle delay %+.1fs", delay))
+                self.applySubtitleDelay(delay)
+                try? await Task.sleep(for: .seconds(20))
+            }
             for _ in 0..<12 {
                 try? await Task.sleep(for: .seconds(2))
                 self.subtitleProbe("PROBE selected=\(self.selectedSubtitleID ?? "nil") "
                     + "picked=\(self.subtitlePickedByUser) rows=\(self.probeRows)")
             }
         }
+    }
+
+    /// `-autoSubDelays "<s>,<s>,…"` — subtitle offsets to step through once the pick has landed.
+    static var autoSubtitleDelays: [Double] {
+        let args = ProcessInfo.processInfo.arguments
+        guard let i = args.firstIndex(of: "-autoSubDelays"), i + 1 < args.count else { return [] }
+        return args[i + 1].split(separator: ",").compactMap { Double($0) }
     }
 
     /// `-autoSubtitleSeek <seconds>` — where to travel once the pick has landed.
