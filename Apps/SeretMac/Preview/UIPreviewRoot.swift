@@ -60,6 +60,8 @@ struct UIPreviewRoot: View {
                 toastPreview(isFailure: false)
             case "toastfailure":
                 toastPreview(isFailure: true)
+            case "surprise":
+                SurprisePreviewHost()
             case "browse":
                 BrowsePreviewHost()
             case "browseloading":
@@ -940,6 +942,28 @@ private struct SignInPreviewHost: View {
     var body: some View {
         SignInScreen(state: state, mode: $mode, token: $token, posters: posters)
             .task { posters = await PosterMosaic.loadPopularPosters() }
+    }
+}
+#endif
+
+#if DEBUG
+/// `-uiPreview surprise`: the Cover Flow reel over the fixture films — spins on appear and lands
+/// on Interstellar with its real backdrop behind it.
+private struct SurprisePreviewHost: View {
+    private let spin: WatchlistRandomizer.Spin = {
+        let entries = Fixture.films.enumerated().map { index, film in
+            WatchlistEntry(slug: "film-\(index)", name: film.title, year: film.year, position: index,
+                           tmdbID: film.tmdbID, posterPath: film.posterPath)
+        }
+        let reel = (0..<34).map { entries[$0 % entries.count] }
+        let winnerIndex = 30
+        return WatchlistRandomizer.Spin(winner: reel[winnerIndex], reel: reel, winnerIndex: winnerIndex)
+    }()
+
+    var body: some View {
+        let winner = Fixture.films.first { $0.tmdbID == spin.winner.tmdbID }
+        SurpriseReel(spin: spin, onWatch: { _ in }, onSpinAgain: {}, onClose: {},
+                     artOverride: (backdropPath: winner?.backdropPath, logoPath: nil))
     }
 }
 #endif
