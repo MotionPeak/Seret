@@ -346,7 +346,7 @@ public struct FilenameParser: Sendable {
 
     // MARK: - Regex helpers
 
-    static func stripExtension(_ s: String) -> String {
+    private static func stripExtension(_ s: String) -> String {
         let exts: Set<String> = ["mkv", "mp4", "avi", "m4v", "mov", "ts", "wmv", "srt", "ass"]
         let range = NSRange(s.startIndex..., in: s)
         guard let m = reExtension.firstMatch(in: s, range: range), let r = Range(m.range, in: s) else { return s }

@@ -83,7 +83,8 @@ public struct CometStreamSource: StreamSource {
             sizeBytes: dto.behaviorHints?.videoSize,
             sourceName: dto.name,
             isCached: Self.isCachedName(dto.name),
-            subtitleLanguages: ReleaseSubtitleTags().scan(text).languages)
+            subtitleLanguages: ReleaseSubtitleTags().scan(text).languages,
+            isTheatreCopy: isTheatreRelease(named: text) || isTheatreRelease(named: rawTitle))
     }
 
     /// Comet flags cache state in the stream `name`: "⚡" = cached/instant, "⬇" = will-download.

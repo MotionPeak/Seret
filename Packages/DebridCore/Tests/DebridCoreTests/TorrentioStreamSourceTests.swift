@@ -74,6 +74,18 @@ extension MockTests {
             #expect(TorrentioStreamSource.parseSize("no size here") == nil)
         }
 
+        /// The Hebrew tag is read from the whole title, so the theatre tag must be too: the file
+        /// name alone can be clean while the torrent's name says TS.
+        @Test func aTheatreTagInTheTorrentsNameMarksTheStream() async throws {
+            let json = #"""
+            {"streams":[{"name":"Torrentio","title":"Obsession.2026.TS.HebSubs-GRP\n👤 5 💾 2.1 GB ⚙️ X","infoHash":"\#(hash("a"))","behaviorHints":{"filename":"Obsession.2026.1080p.x264-GRP.mkv"}}]}
+            """#
+            MockURLProtocol.stub(status: 200, json: json)
+            let src = TorrentioStreamSource(http: HTTPClient(session: .mock))
+            let streams = try await src.streams(for: movieQuery(), includeUncached: true)
+            #expect(streams.first?.isTheatreCopy == true)
+        }
+
         @Test func aSubtitleTagBecomesSubtitleLanguagesNotAudio() async throws {
             let json = #"""
             {"streams":[{"name":"Torrentio","title":"Obsession.2026.1080p.WEB-DL.HebSubs-GRP\n👤 5 💾 2.1 GB ⚙️ X\n🇮🇱","infoHash":"\#(hash("a"))","behaviorHints":{"filename":"Obsession.2026.1080p.WEB-DL.HebSubs-GRP.mkv"}}]}

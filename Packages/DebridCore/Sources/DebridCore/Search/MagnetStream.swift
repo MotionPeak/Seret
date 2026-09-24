@@ -17,6 +17,7 @@ public extension CachedStream {
                             sizeBytes: nil,
                             sourceName: "Magnet",
                             isCached: false,
-                            subtitleLanguages: ReleaseSubtitleTags().scan(name).languages)
+                            subtitleLanguages: ReleaseSubtitleTags().scan(name).languages,
+                            isTheatreCopy: isTheatreRelease(named: name))
     }
 }

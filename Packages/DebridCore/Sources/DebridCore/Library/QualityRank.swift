@@ -65,25 +65,29 @@ func isTheatreSource(_ source: String?) -> Bool {
 }
 
 /// The same question asked of a raw release name, for the tags `FilenameParser` does not name:
-/// `TS`, `TC`, `HDTC`, `SCR`, `DVDSCR`, `HQCAM`, `PDVD`. Only what follows the year (or the
-/// episode) is read, so a film called "Cam" is not a camcorder copy, and a `.ts` extension is a
-/// container, not a telesync.
+/// `TS`, `TC`, `HDTC`, `SCR`, `DVDSCR`, `HQCAM`, `PDVD`, and their `…Rip` forms.
+///
+/// - Only what follows the year is read, so a film called "Cam" is not a camcorder copy.
+/// - A TV name never is one: series are not filmed in cinemas, and an episode's title ("Hidden
+///   Cam") or a show's name would otherwise be read as a tag.
+/// - The two-letter tags must be upper-case, as scene names write them — a lower-case `.ts` is an
+///   MPEG-TS file, including mid-way through a multi-line addon title.
 func isTheatreRelease(named name: String) -> Bool {
-    let stem = FilenameParser.stripExtension(name)
-    let ns = stem as NSString
+    let ns = name as NSString
     let whole = NSRange(location: 0, length: ns.length)
-    let start = TheatreTags.titleEnd.firstMatch(in: stem, range: whole).map { $0.range.upperBound } ?? 0
-    let tail = NSRange(location: start, length: ns.length - start)
-    return TheatreTags.tag.firstMatch(in: stem, range: tail) != nil
+    if TheatreTags.tvMarker.firstMatch(in: name, range: whole) != nil { return false }
+    let start = TheatreTags.year.firstMatch(in: name, range: whole).map { $0.range.upperBound } ?? 0
+    return TheatreTags.tag.firstMatch(in: name, range: NSRange(location: start, length: ns.length - start)) != nil
 }
 
 private enum TheatreTags {
-    /// The end of the title: the first year or episode marker. Tags come after it.
-    static let titleEnd = try! NSRegularExpression(
-        pattern: #"(?<![0-9])(?:19|20)[0-9]{2}(?![0-9])|(?<![A-Za-z0-9])S[0-9]{1,2}E[0-9]{1,3}"#,
+    static let year = try! NSRegularExpression(pattern: #"(?<![0-9])(?:19|20)[0-9]{2}(?![0-9])"#)
+
+    static let tvMarker = try! NSRegularExpression(
+        pattern: #"(?<![A-Za-z0-9])(?:S[0-9]{1,2}(?:E[0-9]{1,3})?|Season)(?![A-Za-z0-9])"#,
         options: [.caseInsensitive])
 
     static let tag = try! NSRegularExpression(
-        pattern: #"(?<![A-Za-z0-9])(?:cam|cam-?rip|hd-?cam|hq-?cam|ts|hd-?ts|telesync|pdvd|pre-?dvd|tc|hd-?tc|telecine|scr|screener|dvd-?scr|bd-?scr|web-?scr)(?![A-Za-z0-9])"#,
+        pattern: #"(?<![A-Za-z0-9])(?:(?-i:TS|TC|SCR)|cam|hd-?cam|hq-?cam|hd-?ts|telesync|pdvd|pre-?dvd|hd-?tc|telecine|screener|dvd-?scr|bd-?scr|web-?scr)(?:-?rip)?(?![A-Za-z0-9])"#,
         options: [.caseInsensitive])
 }

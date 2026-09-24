@@ -16,7 +16,12 @@ import Testing
         "Movie.2023.SCR.x264-GRP",
         "Movie.2023.TC.x264-GRP",
         "Movie.2023.CAMRip.x264",
-        "Show.S01E02.720p.HDTS.x264",
+        "Movie.2023.HDTSRip.x264",
+        "Movie.2023.TSRip.XviD",
+        "Movie.2023.HDCAMRip.x264",
+        "Movie.2023.PreDVDRip.x264",
+        "Movie.2023.TCRip.x264",
+        "Movie.2023.1080p.TS",                         // a tag, not an MPEG-TS extension
     ])
     func aTheatreTagIsRecognised(_ name: String) {
         #expect(isTheatreRelease(named: name))
@@ -30,6 +35,9 @@ import Testing
         "Tsotsi.2005.1080p.BluRay.x264",
         "Movie.2023.1080p.HDTV.x264",
         "Movie.2023.1080p.WEB-DL.HebSubs",
+        "Show.S02E05.Hidden.Cam.1080p.WEB-DL.x264",     // an episode's title — TV is not filmed in cinemas
+        "Cam.Girl.S01.1080p.WEB-DL.x264",               // a season pack of a show called that
+        "Movie.2023.1080p.WEB-DL.x264.ts",
     ])
     func anOrdinaryReleaseIsNot(_ name: String) {
         #expect(!isTheatreRelease(named: name))

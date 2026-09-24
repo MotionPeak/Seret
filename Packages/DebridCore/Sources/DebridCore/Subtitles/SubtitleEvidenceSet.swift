@@ -45,7 +45,7 @@ public extension SubtitleEvidenceSet {
             }
             byVersion[stream.infoHash] = SubtitleEvidence(
                 hebrew: level, audioLanguages: stream.languages.isEmpty ? nil : stream.languages,
-                isTheatreCopy: isTheatreRelease(named: stream.rawTitle))
+                isTheatreCopy: stream.isTheatreCopy || isTheatreRelease(named: stream.rawTitle))
         }
         return SubtitleEvidenceSet(byVersion: byVersion,
                                    originalLanguage: LanguageCode.normalize(originalLanguage))
