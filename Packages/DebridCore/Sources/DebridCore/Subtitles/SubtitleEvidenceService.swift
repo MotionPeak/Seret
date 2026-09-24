@@ -46,6 +46,9 @@ public actor SubtitleEvidenceService: SubtitleEvidenceProviding {
     /// How long an old answer is kept as the fallback. Past it, a title not opened in a month
     /// drops out of the file, which every search rewrites whole.
     static let searchKeep: TimeInterval = 30 * 24 * 60 * 60
+    /// Every episode's Versions screen writes one, and only films' are read back (by Home and the
+    /// web); a year bounds the file. A dropped entry is written again on the next visit.
+    static let languageKeep: TimeInterval = 365 * 24 * 60 * 60
     /// Stands in for "forever" — a file's tracks do not change.
     static let recordTTL: TimeInterval = 10 * 365 * 24 * 60 * 60
     /// Each read is an unrestrict plus up to two ranged requests, and a title can hold a dozen.
@@ -78,7 +81,7 @@ public actor SubtitleEvidenceService: SubtitleEvidenceProviding {
         self.recordCache = TTLFileCache(directory: directory, fileName: "version-subtitles.json",
                                         ttl: Self.recordTTL, now: now)
         self.languages = TTLFileCache(directory: directory, fileName: "title-languages.json",
-                                      ttl: Self.recordTTL, now: now)
+                                      ttl: Self.recordTTL, keepFor: Self.languageKeep, now: now)
         self.search = search
         self.resolve = resolve
         self.probe = probe
@@ -235,11 +238,13 @@ public actor SubtitleEvidenceService: SubtitleEvidenceProviding {
         await withCheckedContinuation { readSlotQueue.append($0) }   // handed a slot on release
     }
 
+    /// The newest waiter first: the screen the viewer is on now asked last, and a page they have
+    /// left may have queued a dozen reads nobody is waiting for any more.
     private func releaseReadSlot() {
         if readSlotQueue.isEmpty {
             readSlotsTaken -= 1
         } else {
-            readSlotQueue.removeFirst().resume()
+            readSlotQueue.removeLast().resume()
         }
     }
 }

@@ -83,6 +83,31 @@ import DebridCore
         try? await Task.sleep(for: .milliseconds(50))
         #expect(recorded.all.allSatisfy { $0.0 == first })
         await gate.open()
+
+        // The positive control: once E2 is on screen, its own tracks ARE reported — so the silence
+        // above was the gate, not a slow pipeline.
+        await m.waitForIdleForTesting()
+        engine.emit(.state(.playing))
+        await m.waitForIdleForTesting()
+        #expect(await hebrewEventually { recorded.all.contains { $0.0 != first } })
+    }
+
+    /// Loaded but not yet on screen: VLCKit is still discovering the file's streams, and a list
+    /// read then can be partial. The census waits for the first frame.
+    @Test func theCensusWaitsForTheFirstFrame() async {
+        let engine = FakeVideoPlayerEngine()
+        engine.audioTracks = [MediaTrack(id: "audio/1", kind: .audio, name: "English", language: "en", codec: "a52 ")]
+        let recorded = Recorded()
+        let m = model(engine, recorded: recorded)
+        m.start()
+        await m.waitForIdleForTesting()                  // loaded: the engine holds this source
+        engine.emit(.tracksChanged)
+        await m.waitForIdleForTesting()
+        try? await Task.sleep(for: .milliseconds(50))
+        #expect(recorded.all.isEmpty)
+        engine.emit(.state(.playing))
+        await m.waitForIdleForTesting()
+        #expect(await hebrewEventually { recorded.all.count == 1 })
     }
 
     /// Opens once and stays open; only the swap's load is held.

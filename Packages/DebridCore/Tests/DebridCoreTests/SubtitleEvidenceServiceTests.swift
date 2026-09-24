@@ -351,6 +351,38 @@ import Foundation
         #expect(await reading.value.count == 3)
     }
 
+    /// Leave a film with several unread versions for another film, and the new page's reads go
+    /// next — not after every read the old page queued.
+    @Test func theNewestReadIsServedFirst() async {
+        let probed = Probed(), first = Gate(), rest = Gate()
+        let svc = SubtitleEvidenceService(
+            directory: tempDir(), search: nil,
+            resolve: { link in ResolvedLink(url: URL(string: "https://cdn.example/\(link.dropFirst(5))")!, fileName: nil) },
+            probe: { url in
+                let name = url.lastPathComponent
+                probed.add(name)
+                if name == "A" { await first.wait() } else if name != "X" { await rest.wait() }
+                return .tracks([])
+            })
+        let oldPage = Task { await svc.records(for: ["A", "B", "C"].map(source)) }   // A and B read; C queues
+        #expect(await eventually { probed.all.count == 2 })
+        let newPage = Task { await svc.records(for: [source("X")]) }                  // X queues after C
+        try? await Task.sleep(for: .milliseconds(50))
+        first.open()                                                                  // one slot frees
+        #expect(await eventually { probed.all.contains("X") })                         // …and X takes it
+        let order = probed.all
+        #expect((order.firstIndex(of: "X") ?? .max) < (order.firstIndex(of: "C") ?? .max))
+        rest.open()
+        _ = await (oldPage.value, newPage.value)
+    }
+
+    final class Probed: @unchecked Sendable {
+        private let lock = NSLock()
+        private var names: [String] = []
+        func add(_ name: String) { lock.lock(); names.append(name); lock.unlock() }
+        var all: [String] { lock.lock(); defer { lock.unlock() }; return names }
+    }
+
     // MARK: playback + stored
 
     @Test func playbackNeverChangesAHeaderRead() async {

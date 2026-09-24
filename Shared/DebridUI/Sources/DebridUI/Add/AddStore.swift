@@ -39,7 +39,7 @@ public final class AddStore {
     private let maxAddAttempts: Int
     private let subtitleEvidence: SubtitleEvidenceProviding?
     private let subtitleTarget: SubtitleTarget?
-    /// How long the lists wait for the Hebrew search, counted from when it starts — ONE wait per
+    /// How long the lists wait for the Hebrew search once the versions are in — ONE wait per
     /// store, however many lists it ranks. Past it, a list shows; a late answer adds badges but
     /// moves nothing.
     private let hebrewWait: Duration
@@ -147,7 +147,6 @@ public final class AddStore {
                                          originalLanguage: language)
         }
         hebrewSearch = search
-        hebrewDeadline = ContinuousClock.now + hebrewWait
         Task { [weak self] in
             let answer = await search.value
             self?.hebrewAnswer = answer ?? []
@@ -162,6 +161,9 @@ public final class AddStore {
                       hebrew: Task<[SubtitleResult]?, Never>?) async -> [CachedStream] {
         var results: [SubtitleResult] = []
         if let hebrew {
+            // Counted from the first list's versions arriving: the search starts alongside the
+            // version search, and a slow version search would otherwise use up the whole wait.
+            if hebrewDeadline == nil { hebrewDeadline = ContinuousClock.now + hebrewWait }
             if let hebrewAnswer {
                 results = hebrewAnswer
             } else if candidates.count > 1, let wait = remainingHebrewWait,

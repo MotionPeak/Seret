@@ -49,6 +49,34 @@ import DebridCore
         await gate.release()
     }
 
+    private final class SlowSource: StreamSource {
+        let found: [CachedStream]
+        let delay: Duration
+        init(_ found: [CachedStream], delay: Duration) { self.found = found; self.delay = delay }
+        func streams(for query: StreamQuery) async throws -> [CachedStream] {
+            try? await Task.sleep(for: delay)
+            return found
+        }
+    }
+
+    /// The wait is counted from when the versions are in, as the spec has it — not from when the
+    /// search started. A slow version search used every second of it, and the list ranked blind.
+    @Test func theWaitCountsFromTheVersionsNotTheSearch() async {
+        let gate = HebrewGate()
+        let s = AddStore(imdbID: "tt15398776", kind: .movie, originalLanguage: "en",
+                         streamSource: SlowSource([uhd, sparks], delay: .seconds(1)), add: NoAdd(),
+                         title: "Oppenheimer", year: 2023,
+                         subtitleEvidence: FakeSubtitleEvidence(results: [sparksHebrew], gate: gate),
+                         subtitleTarget: .movie(tmdbID: 872585, title: "Oppenheimer", year: 2023),
+                         hebrewWait: .seconds(1))
+        Task {
+            try? await Task.sleep(for: .milliseconds(1500))    // the search answers 0.5 s after the versions
+            await gate.release()
+        }
+        await s.loadStreams()
+        #expect(s.best?.infoHash == "c")
+    }
+
     /// With nothing to put in order there is nothing to wait for.
     @Test func aSingleVersionIsNotHeldForTheSearch() async {
         let gate = HebrewGate()
