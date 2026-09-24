@@ -7,10 +7,12 @@ struct HTTPRequestHead: Equatable {
     /// The `Range:` header's value, if any (the name is matched case-insensitively).
     let range: String?
 
-    /// The session a `/s/<uuid>` path names.
+    /// The session a `/s/<uuid>/<file name>` path names. The file name is only for people and
+    /// libvlc (the log, the extension hint); the ID alone finds the session.
     var sessionID: UUID? {
         guard path.hasPrefix("/s/") else { return nil }
-        return UUID(uuidString: String(path.dropFirst(3)))
+        let id = path.dropFirst(3).prefix { $0 != "/" }
+        return UUID(uuidString: String(id))
     }
 
     /// nil until the whole head (up to the blank line) has arrived.

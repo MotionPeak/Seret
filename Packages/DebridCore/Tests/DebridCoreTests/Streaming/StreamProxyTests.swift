@@ -27,6 +27,7 @@ extension StreamingNetworkTests {
             let handle = await p.open(upstream: URL(string: "https://rd.test/f.mkv")!, fileKey: "t#1",
                                       refreshUpstream: { URL(string: "https://rd.test/f.mkv")! })
             #expect(handle.url.host == "127.0.0.1")
+            #expect(handle.url.lastPathComponent == "f.mkv")         // what the engine logs
             let (data, status) = try await get(handle.url, "bytes=0-65535")
             #expect(status == 206)
             #expect(data == RangeFileURLProtocol.bytes(0..<65536))

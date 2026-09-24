@@ -80,8 +80,11 @@ public actor StreamProxy: StreamProxying {
                                      refreshUpstream: refreshUpstream, budget: budget, index: index,
                                      makeConfiguration: makeConfiguration, log: log)
         log("session \(id.uuidString.prefix(8)) opened for \(fileKey)")
-        return StreamHandle(url: URL(string: "http://127.0.0.1:\(port)/s/\(id.uuidString)")!,
-                            sessionID: id)
+        // Ends in the film's file name: the player's log names the film again (not a UUID), and
+        // libvlc gets the same extension hint it had from the RD link.
+        let url = URL(string: "http://127.0.0.1:\(port)/s/\(id.uuidString)")!
+            .appendingPathComponent(upstream.lastPathComponent)
+        return StreamHandle(url: url, sessionID: id)
         #else
         return StreamHandle(direct: upstream)
         #endif

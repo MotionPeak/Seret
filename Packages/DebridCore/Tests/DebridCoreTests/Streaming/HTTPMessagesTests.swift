@@ -15,6 +15,13 @@ import Testing
         #expect(head.range == "bytes=1048576-")                 // header name matched case-insensitively
     }
 
+    @Test func theFileNameAfterTheSessionIsIgnored() throws {
+        // The loopback URL ends in the film's file name, for the log and libvlc's extension hint.
+        let id = UUID()
+        let raw = "GET /s/\(id.uuidString)/Goodfellas%201990.mkv HTTP/1.1\r\nHost: a\r\n\r\n"
+        #expect(try #require(HTTPRequestHead(Data(raw.utf8))).sessionID == id)
+    }
+
     @Test func anIncompleteHeadIsNotParsed() {
         #expect(HTTPRequestHead(Data("GET /s/x HTTP/1.1\r\nHost: a\r\n".utf8)) == nil)
     }
