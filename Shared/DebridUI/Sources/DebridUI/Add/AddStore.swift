@@ -39,11 +39,15 @@ public final class AddStore {
     private let maxAddAttempts: Int
     private let subtitleEvidence: SubtitleEvidenceProviding?
     private let subtitleTarget: SubtitleTarget?
-    /// How long the list waits for the Hebrew search once the versions are in. Past it, the list
-    /// shows; a late answer adds badges but moves nothing.
+    /// How long the lists wait for the Hebrew search, counted from when it starts — ONE wait per
+    /// store, however many lists it ranks. Past it, a list shows; a late answer adds badges but
+    /// moves nothing.
     private let hebrewWait: Duration
     /// One search per store, shared by the list and "Get best".
     private var hebrewSearch: Task<[SubtitleResult]?, Never>?
+    private var hebrewDeadline: ContinuousClock.Instant?
+    /// The search's answer once it is in, so a list ranked after the deadline still uses it.
+    private var hebrewAnswer: [SubtitleResult]?
 
     public init(imdbID: String, kind: StreamQuery.Kind, originalLanguage: String?,
                 streamSource: StreamSource, add: AddProviding, seasonPack: Int? = nil,
@@ -143,6 +147,11 @@ public final class AddStore {
                                          originalLanguage: language)
         }
         hebrewSearch = search
+        hebrewDeadline = ContinuousClock.now + hebrewWait
+        Task { [weak self] in
+            let answer = await search.value
+            self?.hebrewAnswer = answer ?? []
+        }
         return search
     }
 
@@ -153,9 +162,13 @@ public final class AddStore {
                       hebrew: Task<[SubtitleResult]?, Never>?) async -> [CachedStream] {
         var results: [SubtitleResult] = []
         if let hebrew {
-            if let arrived = await valueIfReady(of: hebrew, within: hebrewWait) {
+            if let hebrewAnswer {
+                results = hebrewAnswer
+            } else if candidates.count > 1, let wait = remainingHebrewWait,
+                      let arrived = await valueIfReady(of: hebrew, within: wait) {
                 results = arrived ?? []
             } else {
+                // One version has no order to change, and past the deadline the list shows as it is.
                 Task { [weak self] in
                     let late = await hebrew.value
                     self?.addLateBadges(for: candidates, results: late ?? [])
@@ -166,6 +179,13 @@ public final class AddStore {
                                                       originalLanguage: originalLanguage)
         subtitles = subtitles.merging(evidence)
         return candidates.rankedFor(originalLanguage: originalLanguage, subtitles: evidence)
+    }
+
+    /// What is left of this store's one wait; nil once it has passed.
+    private var remainingHebrewWait: Duration? {
+        guard let hebrewDeadline else { return nil }
+        let left = hebrewDeadline - ContinuousClock.now
+        return left > .zero ? left : nil
     }
 
     private func addLateBadges(for candidates: [CachedStream], results: [SubtitleResult]) {

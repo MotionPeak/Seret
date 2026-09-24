@@ -35,6 +35,32 @@ import DebridCore
                  hebrewWait: wait)
     }
 
+    /// The wait is the store's, paid once. The movie Versions screen ranks twice — the cached list
+    /// on open, then the full list — and a slow search cost the full wait each time.
+    @Test func theHebrewWaitIsPaidOncePerStore() async {
+        let gate = HebrewGate()
+        let s = store([uhd, sparks], evidence: FakeSubtitleEvidence(results: [sparksHebrew], gate: gate),
+                      wait: .seconds(2))
+        await s.loadStreams()                      // pays the wait: the search is held open
+        let clock = ContinuousClock()
+        let started = clock.now
+        await s.loadAllVersions()
+        #expect(clock.now - started < .seconds(1))
+        await gate.release()
+    }
+
+    /// With nothing to put in order there is nothing to wait for.
+    @Test func aSingleVersionIsNotHeldForTheSearch() async {
+        let gate = HebrewGate()
+        let s = store([uhd], evidence: FakeSubtitleEvidence(results: [], gate: gate), wait: .seconds(2))
+        let clock = ContinuousClock()
+        let started = clock.now
+        await s.loadStreams()
+        #expect(clock.now - started < .seconds(1))
+        #expect(s.best?.infoHash == "a")
+        await gate.release()
+    }
+
     @Test func getBestTakesTheHebrewVersionEvenAt720p() async {
         let s = store([uhd, tagged720], evidence: FakeSubtitleEvidence(results: []))
         await s.loadStreams()
