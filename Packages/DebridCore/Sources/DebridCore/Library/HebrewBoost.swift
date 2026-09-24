@@ -13,7 +13,7 @@ func hebrewBoostTier(_ evidence: SubtitleEvidence?, parsed: ParsedRelease,
     guard let evidence, evidence.hebrew != .none else { return unboosted }
     let original = LanguageCode.normalize(originalLanguage)
     if original == "he" { return unboosted }
-    if isTheatreSource(parsed.source) { return unboosted }
+    if evidence.isTheatreCopy || isTheatreSource(parsed.source) { return unboosted }
     if let original, let audio = evidence.audioLanguages, !audio.contains(original) { return unboosted }
     return evidence.hebrew.rawValue
 }

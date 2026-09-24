@@ -1,3 +1,5 @@
+import Foundation
+
 /// Quality score for a parsed release. Higher is better: resolution dominates, then source tier,
 /// then video codec. Releases whose audio can't be decoded on-device (TrueHD) are pushed below
 /// every playable release with a large penalty — so the default "Play" picks a version that will
@@ -60,4 +62,28 @@ func isTheatreSource(_ source: String?) -> Bool {
     guard let source else { return false }
     return ["CAM", "CAMRIP", "HDCAM", "HD-CAM", "HDTS", "HD-TS", "TELESYNC", "TELECINE", "SCREENER"]
         .contains(source.uppercased())
+}
+
+/// The same question asked of a raw release name, for the tags `FilenameParser` does not name:
+/// `TS`, `TC`, `HDTC`, `SCR`, `DVDSCR`, `HQCAM`, `PDVD`. Only what follows the year (or the
+/// episode) is read, so a film called "Cam" is not a camcorder copy, and a `.ts` extension is a
+/// container, not a telesync.
+func isTheatreRelease(named name: String) -> Bool {
+    let stem = FilenameParser.stripExtension(name)
+    let ns = stem as NSString
+    let whole = NSRange(location: 0, length: ns.length)
+    let start = TheatreTags.titleEnd.firstMatch(in: stem, range: whole).map { $0.range.upperBound } ?? 0
+    let tail = NSRange(location: start, length: ns.length - start)
+    return TheatreTags.tag.firstMatch(in: stem, range: tail) != nil
+}
+
+private enum TheatreTags {
+    /// The end of the title: the first year or episode marker. Tags come after it.
+    static let titleEnd = try! NSRegularExpression(
+        pattern: #"(?<![0-9])(?:19|20)[0-9]{2}(?![0-9])|(?<![A-Za-z0-9])S[0-9]{1,2}E[0-9]{1,3}"#,
+        options: [.caseInsensitive])
+
+    static let tag = try! NSRegularExpression(
+        pattern: #"(?<![A-Za-z0-9])(?:cam|cam-?rip|hd-?cam|hq-?cam|ts|hd-?ts|telesync|pdvd|pre-?dvd|tc|hd-?tc|telecine|scr|screener|dvd-?scr|bd-?scr|web-?scr)(?![A-Za-z0-9])"#,
+        options: [.caseInsensitive])
 }

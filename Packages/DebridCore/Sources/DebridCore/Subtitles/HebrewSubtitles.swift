@@ -30,10 +30,14 @@ public struct SubtitleEvidence: Sendable, Equatable {
     public var hebrew: HebrewSubtitles
     /// Audio languages the version is known to carry (ISO 639-1); nil when nothing says.
     public var audioLanguages: [String]?
+    /// Its release name marks a cinema recording or a screener (`TS`, `TC`, `SCR`…) — tags the
+    /// parser's `source` does not name.
+    public var isTheatreCopy: Bool
 
-    public init(hebrew: HebrewSubtitles, audioLanguages: [String]? = nil) {
+    public init(hebrew: HebrewSubtitles, audioLanguages: [String]? = nil, isTheatreCopy: Bool = false) {
         self.hebrew = hebrew
         self.audioLanguages = audioLanguages
+        self.isTheatreCopy = isTheatreCopy
     }
 }
 

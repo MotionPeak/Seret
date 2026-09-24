@@ -43,7 +43,8 @@ public extension SubtitleEvidenceSet {
                 level = .none
             }
             byVersion[stream.infoHash] = SubtitleEvidence(
-                hebrew: level, audioLanguages: stream.languages.isEmpty ? nil : stream.languages)
+                hebrew: level, audioLanguages: stream.languages.isEmpty ? nil : stream.languages,
+                isTheatreCopy: isTheatreRelease(named: stream.rawTitle))
         }
         return SubtitleEvidenceSet(byVersion: byVersion,
                                    originalLanguage: LanguageCode.normalize(originalLanguage))
@@ -64,7 +65,8 @@ public extension SubtitleEvidenceSet {
                                       videoFPS: record?.frameRate) {
                 level = .matched
             }
-            byVersion[key] = SubtitleEvidence(hebrew: level, audioLanguages: record?.audioLanguages)
+            byVersion[key] = SubtitleEvidence(hebrew: level, audioLanguages: record?.audioLanguages,
+                                              isTheatreCopy: record?.fileName.map { isTheatreRelease(named: $0) } ?? false)
         }
         return SubtitleEvidenceSet(byVersion: byVersion,
                                    originalLanguage: LanguageCode.normalize(originalLanguage))
