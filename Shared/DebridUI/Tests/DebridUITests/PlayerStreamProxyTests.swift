@@ -66,6 +66,21 @@ import DebridCore
         #expect(await proxy.closed == [local1])
     }
 
+    /// Found in review: a teardown that lands while the cache is still opening finds no handle to
+    /// close, and the handle arrives after it — that session stayed open until sign-out.
+    @Test func aStreamStillOpeningAtTeardownIsClosed() async {
+        let proxy = FakeStreamProxy(), engine = FakeVideoPlayerEngine()
+        let release = await proxy.holdOpens()
+        let m = model(proxy, engine)
+        m.start()
+        await eventually { await !proxy.opened.isEmpty }           // the open is in flight
+        await m.teardown()
+        release.finish()
+        await eventually { await proxy.closed == [local1] }
+        #expect(await proxy.closed == [local1])
+        #expect(engine.loadedURL == nil)                           // and nothing played it
+    }
+
     @Test func theCacheCanAskForAFreshLink() async throws {
         let proxy = FakeStreamProxy(), engine = FakeVideoPlayerEngine(), count = Counter()
         let m = model(proxy, engine, unrestricts: count)

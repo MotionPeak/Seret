@@ -274,12 +274,22 @@ actor FakeStreamProxy: StreamProxying {
     private(set) var closed: [URL] = []
     private(set) var marked: [URL] = []
     private var refresh: (@Sendable () async throws -> URL)?
+    private var gate: AsyncStream<Void>?
+
+    /// Hold every `open` in flight until the returned continuation is finished.
+    func holdOpens() -> AsyncStream<Void>.Continuation {
+        let (stream, continuation) = AsyncStream.makeStream(of: Void.self)
+        gate = stream
+        return continuation
+    }
 
     func open(upstream: URL, fileKey: String,
               refreshUpstream: @escaping @Sendable () async throws -> URL) async -> StreamHandle {
         opened.append((upstream, fileKey))
         refresh = refreshUpstream
-        return StreamHandle(direct: URL(string: "http://127.0.0.1:9/s/\(opened.count)")!)
+        let handle = StreamHandle(direct: URL(string: "http://127.0.0.1:9/s/\(opened.count)")!)
+        if let gate { for await _ in gate {} }
+        return handle
     }
     func markPlaybackStarted(_ handle: StreamHandle) async { marked.append(handle.url) }
     func close(_ handle: StreamHandle) async { closed.append(handle.url) }

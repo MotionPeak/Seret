@@ -21,6 +21,12 @@ extension PlayerModel {
                 guard let self else { throw CancellationError() }
                 return try await self.freshLink(link)
             })
+        // Superseded or torn down during the open: whoever cancelled this load looked for a handle
+        // to close before this one existed, so it is ours to close.
+        guard !Task.isCancelled else {
+            Task { await streamProxy.close(handle) }
+            return upstream
+        }
         streamHandle = handle
         return handle.url
     }
