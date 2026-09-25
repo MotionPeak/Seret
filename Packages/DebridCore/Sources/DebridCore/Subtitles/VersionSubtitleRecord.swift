@@ -54,6 +54,22 @@ public struct VersionSubtitleRecord: Sendable, Equatable, Codable {
     /// Whether reading the header could still teach anything.
     public var isFinal: Bool { origin != .playback }
 
+    /// What a header read leaves stored over `existing`; nil leaves `existing` as it is.
+    ///
+    /// A read that found a header replaces a report from the player — the file's own index is the
+    /// better account. One that found none keeps what the player saw and records the read as done,
+    /// with the file's name (release tags live there). It never downgrades a header record, nor
+    /// wipes tracks an earlier read carried over, whichever order two reads land in.
+    public static func afterRead(_ found: VersionSubtitleRecord,
+                                 over existing: VersionSubtitleRecord?) -> VersionSubtitleRecord? {
+        guard let existing else { return found }
+        if existing.origin == .header { return nil }
+        if found.origin == .header { return found }
+        let kept = VersionSubtitleRecord(origin: .unreadable, fileName: found.fileName ?? existing.fileName,
+                                         tracks: existing.tracks)
+        return kept == existing ? nil : kept
+    }
+
     /// This record with what the player saw folded in.
     ///
     /// A header read is the file's own index and is kept exactly as read: the player reports the

@@ -457,6 +457,22 @@ import Foundation
         #expect(calls.count("probe") == 1)          // a header read is final: never read again
     }
 
+    /// A re-read that fails changes nothing: the player's report still counts, so the title page's
+    /// badge, chip and Play pick do not vanish because Real-Debrid answered 503 once.
+    @Test func aFailedReadKeepsWhatThePlayerReported() async {
+        let calls = Calls()
+        let svc = SubtitleEvidenceService(
+            directory: tempDir(), search: nil,
+            resolve: { _ in calls.hit("resolve"); throw Boom.offline },
+            probe: { _ in .notMatroska })
+        await svc.recordPlayback([MediaTrack(id: "spu/3", kind: .subtitle, name: "Hebrew",
+                                             language: "he", codec: "subt")], for: source("A"))
+        let record = await svc.records(for: [source("A")]).first?.value
+        #expect(calls.count("resolve") == 1)
+        #expect(record?.origin == .playback)
+        #expect(record?.hebrewLevel == .builtIn)
+    }
+
     /// An MP4 the player reported first: the read finds no Matroska header, keeps what the player
     /// saw, and still records the file's own name — the only place a HebSubs or TS tag lives.
     @Test func anMP4ThePlayerReportedFirstKeepsItsTracksAndGainsItsName() async {

@@ -91,6 +91,23 @@ import Testing
         #expect(VersionSubtitleRecord(origin: .unreadable).isFinal)
     }
 
+    /// What a header read leaves stored, for every state it can land on. It must never downgrade
+    /// a header record, nor wipe tracks an earlier read carried over from the player.
+    @Test func whatAReadLeavesStored() {
+        let player = [hebrewText]
+        let header = VersionSubtitleRecord(origin: .header, fileName: "F.mkv", tracks: [hebrewPictures])
+        let noHeader = VersionSubtitleRecord(origin: .unreadable, fileName: "F.mp4")
+        let played = VersionSubtitleRecord(origin: .playback, tracks: player)
+        let carried = VersionSubtitleRecord(origin: .unreadable, fileName: "F.mp4", tracks: player)
+
+        #expect(VersionSubtitleRecord.afterRead(header, over: nil) == header)
+        #expect(VersionSubtitleRecord.afterRead(header, over: played) == header)          // the index wins
+        #expect(VersionSubtitleRecord.afterRead(noHeader, over: played) == carried)       // keeps what was seen
+        #expect(VersionSubtitleRecord.afterRead(noHeader, over: carried) == nil)          // nothing to change
+        #expect(VersionSubtitleRecord.afterRead(noHeader, over: header) == nil)           // never a downgrade
+        #expect(VersionSubtitleRecord.afterRead(header, over: header) == nil)
+    }
+
     @Test func playbackReportsAddUp() {
         // The player announces tracks one at a time; a partial report must not erase an earlier one.
         let first = VersionSubtitleRecord(origin: .playback, tracks: [hebrewText])

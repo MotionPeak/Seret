@@ -198,21 +198,19 @@ public actor SubtitleEvidenceService: SubtitleEvidenceProviding {
         await takeReadSlot()
         let found = await Self.readHeader(of: source, resolve: resolve, probe: probe)
         releaseReadSlot()
-        var kept: VersionSubtitleRecord?
-        if let found {                                 // nil is transient: not kept, tried next visit
-            kept = await recordCache.update(key) { existing in
-                // The header is the file's own index and replaces what playback reported. A read
-                // that found no header keeps what playback saw, and records the read as done, with
-                // the name Real-Debrid gives the file: release tags (HebSubs, TS) live there.
-                guard found.origin == .unreadable, let existing, existing.origin == .playback else { return found }
-                return VersionSubtitleRecord(origin: .unreadable, fileName: found.fileName ?? existing.fileName,
-                                             tracks: existing.tracks)
-            }
+        let kept: VersionSubtitleRecord?
+        if let found {
+            kept = await recordCache.update(key) { VersionSubtitleRecord.afterRead(found, over: $0) }
+        } else {
+            // Transient: nothing is kept, and the next visit tries again — but whatever was known
+            // (the player's report) still counts meanwhile, or a single 503 would take the badge,
+            // the chip and Play's pick away.
+            kept = await recordCache.stored(key)
         }
         // Only once the answer is stored: cleared any sooner, a caller arriving in between would
         // find neither a record nor a flight, and read the file again. (A caller already past its
         // flight check and waiting on the cache can still start a second read in that instant —
-        // harmless: the same answer, written atomically.)
+        // harmless: `afterRead` lands either order on the same record.)
         readsInFlight[key] = nil
         return kept
     }
