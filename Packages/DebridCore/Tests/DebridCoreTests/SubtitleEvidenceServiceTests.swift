@@ -253,6 +253,21 @@ import Foundation
         #expect(await svc.storedEvidence(for: [source("A")], contentKey: "k").originalLanguage == "he")
     }
 
+    /// Entries are dropped a year after they were written, so a title that keeps being visited
+    /// has to keep being written — an unchanged language was never rewritten, and a film opened
+    /// every month lost it a year after its first visit.
+    @Test func aTitleStillVisitedKeepsItsLanguage() async {
+        let clock = Clock()
+        let svc = service(tempDir(), calls: Calls(), clock: clock)
+        let day: TimeInterval = 24 * 60 * 60
+        _ = await svc.hebrewResults(contentKey: "k", query: query, originalLanguage: "fr")
+        clock.advance(200 * day)
+        _ = await svc.hebrewResults(contentKey: "k", query: query, originalLanguage: "fr")    // visited again
+        clock.advance(200 * day)
+        _ = await svc.hebrewResults(contentKey: "other", query: query, originalLanguage: "en") // any write prunes
+        #expect(await svc.storedEvidence(for: [source("A")], contentKey: "k").originalLanguage == "fr")
+    }
+
     @Test func theFilmsLanguageIsKeptWhenTheSearchFails() async {
         let svc = service(tempDir(), calls: Calls(), search: { _, _ in throw Boom.offline })
         _ = await svc.hebrewResults(contentKey: "k", query: query, originalLanguage: "iw")
@@ -374,6 +389,34 @@ import Foundation
         #expect((order.firstIndex(of: "X") ?? .max) < (order.firstIndex(of: "C") ?? .max))
         rest.open()
         _ = await (oldPage.value, newPage.value)
+    }
+
+    /// Return to a page whose reads are still queued and they become the newest again — not left
+    /// behind the pages visited in between.
+    @Test func aPageYouReturnToGoesBeforeTheOnesInBetween() async {
+        let probed = Probed(), firstHolder = Gate(), otherHolder = Gate()
+        let svc = SubtitleEvidenceService(
+            directory: tempDir(), search: nil,
+            resolve: { link in ResolvedLink(url: URL(string: "https://cdn.example/\(link.dropFirst(5))")!, fileName: nil) },
+            probe: { url in
+                let name = url.lastPathComponent
+                probed.add(name)
+                if name == "H1" { await firstHolder.wait() }
+                if name == "H2" { await otherHolder.wait() }
+                return .tracks([])
+            })
+        let filmA = Task { await svc.records(for: ["H1", "H2", "A1"].map(source)) }  // H1, H2 read; A1 queues
+        #expect(await eventually { probed.all.count == 2 })
+        let filmB = Task { await svc.records(for: [source("B1")]) }                 // B1 queues after A1
+        try? await Task.sleep(for: .milliseconds(50))
+        let backToA = Task { await svc.records(for: [source("A1")]) }               // A1 is wanted again
+        try? await Task.sleep(for: .milliseconds(50))
+        firstHolder.open()                                                          // one slot frees
+        #expect(await eventually { probed.all.contains("A1") && probed.all.contains("B1") })
+        let order = probed.all
+        #expect((order.firstIndex(of: "A1") ?? .max) < (order.firstIndex(of: "B1") ?? .max))
+        otherHolder.open()
+        _ = await (filmA.value, filmB.value, backToA.value)
     }
 
     final class Probed: @unchecked Sendable {

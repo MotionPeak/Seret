@@ -49,6 +49,9 @@ public actor SubtitleEvidenceService: SubtitleEvidenceProviding {
     /// Every episode's Versions screen writes one, and only films' are read back (by Home and the
     /// web); a year bounds the file. A dropped entry is written again on the next visit.
     static let languageKeep: TimeInterval = 365 * 24 * 60 * 60
+    /// An entry is rewritten when a visit finds it older than this, so a title still being visited
+    /// never ages out of `languageKeep`.
+    static let languageRefresh: TimeInterval = 30 * 24 * 60 * 60
     /// Stands in for "forever" — a file's tracks do not change.
     static let recordTTL: TimeInterval = 10 * 365 * 24 * 60 * 60
     /// Each read is an unrestrict plus up to two ranged requests, and a title can hold a dozen.
@@ -71,7 +74,8 @@ public actor SubtitleEvidenceService: SubtitleEvidenceProviding {
     private var searchesInFlight: [String: Task<[SubtitleResult]?, Never>] = [:]
     private var readsInFlight: [String: Task<VersionSubtitleRecord?, Never>] = [:]
     private var readSlotsTaken = 0
-    private var readSlotQueue: [CheckedContinuation<Void, Never>] = []
+    /// Waiting reads, oldest first, each with the file it is for.
+    private var readSlotQueue: [(key: String, continuation: CheckedContinuation<Void, Never>)] = []
 
     public init(directory: URL, search: Search?, resolve: @escaping Resolve,
                 probe: @escaping Probe = { await ContainerProbe().tracks(at: $0) },
@@ -81,7 +85,7 @@ public actor SubtitleEvidenceService: SubtitleEvidenceProviding {
         self.recordCache = TTLFileCache(directory: directory, fileName: "version-subtitles.json",
                                         ttl: Self.recordTTL, now: now)
         self.languages = TTLFileCache(directory: directory, fileName: "title-languages.json",
-                                      ttl: Self.recordTTL, keepFor: Self.languageKeep, now: now)
+                                      ttl: Self.languageRefresh, keepFor: Self.languageKeep, now: now)
         self.search = search
         self.resolve = resolve
         self.probe = probe
@@ -95,8 +99,9 @@ public actor SubtitleEvidenceService: SubtitleEvidenceProviding {
 
     public func hebrewResults(contentKey: String, query: SubtitleQuery,
                               originalLanguage: String?) async -> [SubtitleResult]? {
-        if let language = LanguageCode.normalize(originalLanguage) {
-            await languages.update(contentKey) { $0 == language ? nil : language }
+        // New, changed or a month old: written, so the year-long keep counts from the last visit.
+        if let language = LanguageCode.normalize(originalLanguage), await languages.cached(contentKey) != language {
+            await languages.store(language, key: contentKey)
         }
         if let fresh = await searches.cached(contentKey) { return fresh.results }
         let stale = await searches.stored(contentKey)?.results
@@ -125,6 +130,7 @@ public actor SubtitleEvidenceService: SubtitleEvidenceProviding {
             // A flight first — checked before the await below, so a read that stores its answer
             // and clears its flight meanwhile cannot be started a second time from here.
             if let flight = readsInFlight[key] {
+                promoteQueuedRead(key)       // wanted again, by the screen the viewer is on now
                 flights.append((key, flight))
             } else if let record = await recordCache.stored(key), record.isFinal {
                 known[key] = record
@@ -195,7 +201,7 @@ public actor SubtitleEvidenceService: SubtitleEvidenceProviding {
     }
 
     private func read(_ source: MediaSource, key: String) async -> VersionSubtitleRecord? {
-        await takeReadSlot()
+        await takeReadSlot(for: key)
         let found = await Self.readHeader(of: source, resolve: resolve, probe: probe)
         releaseReadSlot()
         let kept: VersionSubtitleRecord?
@@ -228,12 +234,20 @@ public actor SubtitleEvidenceService: SubtitleEvidenceProviding {
         }
     }
 
-    private func takeReadSlot() async {
+    private func takeReadSlot(for key: String) async {
         if readSlotsTaken < Self.readsAtOnce {
             readSlotsTaken += 1
             return
         }
-        await withCheckedContinuation { readSlotQueue.append($0) }   // handed a slot on release
+        await withCheckedContinuation { readSlotQueue.append((key, $0)) }   // handed a slot on release
+    }
+
+    /// A read still waiting that a screen asks for again becomes the newest: return to a page and
+    /// its reads go before those of the pages visited in between.
+    private func promoteQueuedRead(_ key: String) {
+        guard let index = readSlotQueue.firstIndex(where: { $0.key == key }),
+              index != readSlotQueue.count - 1 else { return }
+        readSlotQueue.append(readSlotQueue.remove(at: index))
     }
 
     /// The newest waiter first: the screen the viewer is on now asked last, and a page they have
@@ -242,7 +256,7 @@ public actor SubtitleEvidenceService: SubtitleEvidenceProviding {
         if readSlotQueue.isEmpty {
             readSlotsTaken -= 1
         } else {
-            readSlotQueue.removeLast().resume()
+            readSlotQueue.removeLast().continuation.resume()
         }
     }
 }
