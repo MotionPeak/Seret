@@ -101,6 +101,19 @@ struct MainShell: View {
             model.select(section)
             ScrollBench.run(after: UserDefaults.standard.object(forKey: "scrollBenchDelay") as? Double ?? Double(UserDefaults.standard.string(forKey: "scrollBenchDelay") ?? "") ?? 9)
         }
+        .task {
+            // `-typeSearch <text>`: type it into Search a letter at a time, the way the field does.
+            let args = ProcessInfo.processInfo.arguments
+            guard let i = args.firstIndex(of: "-typeSearch"), i + 1 < args.count else { return }
+            try? await Task.sleep(for: .seconds(6))
+            model.requestSearchFocus()
+            var typed = ""
+            for character in args[i + 1] {
+                typed.append(character)
+                model.setSearchQuery(typed)
+                try? await Task.sleep(for: .milliseconds(140))
+            }
+        }
         #endif
         .task {
             guard let session else { return }
@@ -126,24 +139,30 @@ struct MainShell: View {
             // state — every visit re-fetched and re-laid-out from scratch, and lost its scroll.
             // Sections (and Search) in their own ZStack: the one on screen is ordered above the
             // hidden ones, and every page is opaque, so a hidden page can never show through.
-            ZStack {
-                ForEach(SidebarSection.allCases.filter { visitedSections.contains($0) || $0 == model.selection }) { section in
-                    let isShown = section == model.selection && !model.isSearching
-                    SectionStack(section: section, model: model)
-                        .environment(\.isPageShown, isShown)
-                        .opacity(isShown ? 1 : 0)
-                        .allowsHitTesting(isShown)
-                        .accessibilityHidden(!isShown)
-                        .zIndex(isShown ? 1 : 0)
+            // Laid over a window-sized clear base, which an overlay can never resize: a page that
+            // fails to fit (Search's results once had no scroll view) only overflows its own area,
+            // instead of growing the whole window's content — which centred everything on the
+            // oversized page and pushed the sidebar, the search field and Back off screen.
+            Color.clear.overlay(alignment: .top) {
+                ZStack {
+                    ForEach(SidebarSection.allCases.filter { visitedSections.contains($0) || $0 == model.selection }) { section in
+                        let isShown = section == model.selection && !model.isSearching
+                        SectionStack(section: section, model: model)
+                            .environment(\.isPageShown, isShown)
+                            .opacity(isShown ? 1 : 0)
+                            .allowsHitTesting(isShown)
+                            .accessibilityHidden(!isShown)
+                            .zIndex(isShown ? 1 : 0)
+                    }
+                    // Search: its own stack over the section, built fresh each time Search opens.
+                    if model.isSearching {
+                        SearchStack(model: model)
+                            .transition(.opacity)
+                            .zIndex(2)
+                    }
                 }
-                // Search: its own stack over the section, built fresh each time Search opens.
-                if model.isSearching {
-                    SearchStack(model: model)
-                        .transition(.opacity)
-                        .zIndex(2)
-                }
+                .animation(Theme.Motion.fade, value: model.selection)
             }
-            .animation(Theme.Motion.fade, value: model.selection)
             .onChange(of: model.selection, initial: true) { _, section in visitedSections.insert(section) }
             if let flight = model.flight {
                 HeroFlightDriver(flight: flight, progressOverride: previewFlightProgressOverride,

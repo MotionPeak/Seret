@@ -28,11 +28,14 @@ Thread.sleep(forTimeInterval: 0.5)
 
 let process = Process()
 process.executableURL = URL(fileURLWithPath: appPath + "/Contents/MacOS/Seret")
-process.arguments = (previewCase == "live" ? [] : ["-uiPreview", previewCase]) + extra
+// Never restore (or save) window state: the preview shares the real app's bundle id, so it would
+// reopen the owner's FULL-SCREEN window — on a Space of its own, where `screencapture` gets nothing.
+process.arguments = ["-ApplePersistenceIgnoreState", "YES"]
+    + (previewCase == "live" ? [] : ["-uiPreview", previewCase]) + extra
 try process.run()
 
-// The app's main window is its LARGEST normal-layer (0) window. The first match can be a small
-// auxiliary window (a 500×500 helper), so never take the first one. `.optionAll`, not on-screen
+// The app's main window is its LARGEST window on the normal layer (0, or 3 once floated). The first
+// match can be a small auxiliary window (a 500×500 helper), so never take the first one. `.optionAll`, not on-screen
 // only, so this still works while the owner is in another (e.g. full-screen) Space and the app is
 // neither frontmost nor visible: `screencapture -l` renders a window by id wherever it is.
 func windowID(owner pid: Int32) -> CGWindowID? {
@@ -44,7 +47,9 @@ func windowID(owner pid: Int32) -> CGWindowID? {
         return rect.width * rect.height
     }
     return windows
-        .filter { ($0[kCGWindowOwnerPID as String] as? Int32) == pid && ($0[kCGWindowLayer as String] as? Int) == 0 }
+        // Layer 0, or 3 once a DEBUG run floats its window in front (`ScrollBench.bringWindowForward`).
+        .filter { ($0[kCGWindowOwnerPID as String] as? Int32) == pid
+            && [0, 3].contains($0[kCGWindowLayer as String] as? Int ?? -1) }
         .filter { area($0) >= 300 * 300 }
         .max { area($0) < area($1) }
         .flatMap { $0[kCGWindowNumber as String] as? CGWindowID }

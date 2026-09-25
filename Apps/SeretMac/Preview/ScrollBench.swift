@@ -29,13 +29,18 @@ final class ScrollBench: NSObject {
 
     /// A window on another Space — the usual case when the owner's own Seret is full screen — is
     /// never drawn, so SwiftUI never even runs the page's tasks and the bench would wait forever.
-    /// Benchmark runs only: bring the window onto the active Space, floating in front, for the run.
+    /// Benchmark, `-uiPreview` and `-typeSearch` runs only: float the window in front, on whatever
+    /// Space is showing — `.canJoinAllSpaces`, since a window already placed on the desktop Space does
+    /// not follow `.moveToActiveSpace` into a full-screen one, and `screencapture` then gets nothing.
     static func bringWindowForward() {
-        guard requestedSection() != nil else { return }
+        let args = ProcessInfo.processInfo.arguments
+        guard requestedSection() != nil || args.contains("-uiPreview") || args.contains("-typeSearch")
+        else { return }
         for delay in [0.3, 1.0, 2.0, 4.0] {
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
                 for window in NSApp.windows where window.frame.height > 200 {
-                    window.collectionBehavior.insert([.moveToActiveSpace, .fullScreenAuxiliary])
+                    window.collectionBehavior.remove(.moveToActiveSpace)
+                    window.collectionBehavior.insert([.canJoinAllSpaces, .fullScreenAuxiliary])
                     window.level = .floating
                     window.orderFrontRegardless()
                 }
@@ -155,6 +160,37 @@ final class ScrollBench: NSObject {
         }
         Self.report("[scrollBench] hitches by second: \(perSecond.map(String.init).joined(separator: " "))")
         NSApp.terminate(nil)
+    }
+}
+
+/// `-dumpViews [seconds=12]` — after the delay, appends the main window's AppKit view tree to
+/// `Caches/scrollbench.txt`: each view's class, frame in window coordinates, hidden/alpha, and every
+/// scroll view's offset and document size. It is how the Search overflow was found — the window's
+/// SwiftUI root laid out 1684 pt tall inside an 828 pt window, the sidebar's rows above its top edge.
+@MainActor
+enum ViewDump {
+    static func scheduleIfRequested() {
+        let args = ProcessInfo.processInfo.arguments
+        guard let i = args.firstIndex(of: "-dumpViews") else { return }
+        let delay = i + 1 < args.count ? Double(args[i + 1]) ?? 12 : 12
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            guard let window = NSApp.windows.max(by: { $0.frame.width < $1.frame.width }),
+                  let root = window.contentView?.superview ?? window.contentView else { return }
+            var lines = ["window \(window.frame.integral) key=\(window.isKeyWindow)"]
+            func walk(_ view: NSView, _ depth: Int) {
+                let frame = view.convert(view.bounds, to: nil).integral
+                var extra = ""
+                if let scroll = view as? NSScrollView {
+                    extra = " scroll-origin=\(scroll.contentView.bounds.origin) doc=\(scroll.documentView?.frame.size ?? .zero)"
+                }
+                lines.append(String(repeating: "  ", count: depth)
+                    + "\(type(of: view)) \(frame) hidden=\(view.isHidden) alpha=\(view.alphaValue) subs=\(view.subviews.count)" + extra)
+                guard depth < 9 else { return }
+                for sub in view.subviews { walk(sub, depth + 1) }
+            }
+            walk(root, 0)
+            ScrollBench.report(lines.joined(separator: "\n"))
+        }
     }
 }
 #endif

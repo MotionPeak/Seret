@@ -2,9 +2,9 @@ import DebridCore
 import DebridUI
 import SwiftUI
 
-/// The `.search` route: the query in quotes, an All/Movies/Shows scope, and the per-window
-/// `SearchStore`'s results — debounced 350 ms after the last keystroke so a fast typist doesn't
-/// fire a request per character.
+/// The root of Search's own stack: the query in quotes, an All/Movies/Shows scope, and the
+/// per-window `SearchStore`'s results — debounced 350 ms after the last keystroke so a fast typist
+/// doesn't fire a request per character.
 struct SearchPage: View {
     @Environment(ShellModel.self) private var shell: ShellModel?
     @Environment(\.searchStore) private var store: SearchStore?
@@ -32,7 +32,6 @@ struct SearchPage: View {
             }
             content
         }
-        .padding(.bottom, 40)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .task(id: requestKey) { await debouncedSearch() }
     }
@@ -64,13 +63,15 @@ struct SearchPage: View {
             case .idle:
                 idleState
             case .searching:
-                loadingGrid
+                scrolling(loadingGrid)
             case .results:
-                PosterGrid(items: store.results,
-                           prefetchURL: { TMDBClient.imageURL(path: $0.result.posterPath, size: "w342") }) { hit in tile(hit) }
-                    .padding(.leading, pageLeadingInset)
-                    .padding(.trailing, 28)
-                    .task(id: store.results.map(\.id)) { await marks?.load(store.results) }
+                scrolling(
+                    PosterGrid(items: store.results,
+                               prefetchURL: { TMDBClient.imageURL(path: $0.result.posterPath, size: "w342") }) { hit in tile(hit) }
+                        .padding(.leading, pageLeadingInset)
+                        .padding(.trailing, 28)
+                )
+                .task(id: store.results.map(\.id)) { await marks?.load(store.results) }
             case .empty:
                 emptyState
             case .failed(let message):
@@ -79,6 +80,17 @@ struct SearchPage: View {
         } else {
             idleState
         }
+    }
+
+    /// The results scroll under the fixed title and scope switch, the way My Library's grid does.
+    /// The page used to have no scroll view at all, so a long result list made it — and with it the
+    /// whole window's content — taller than the window: the sidebar, the search field and Back were
+    /// pushed off the top, and nothing could be scrolled.
+    private func scrolling(_ grid: some View) -> some View {
+        ScrollView {
+            grid.padding(.bottom, 40)
+        }
+        .scrollIndicators(.hidden)
     }
 
     private var loadingGrid: some View {

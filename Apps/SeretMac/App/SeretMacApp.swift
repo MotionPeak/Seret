@@ -21,6 +21,7 @@ struct SeretMacApp: App {
             DispatchQueue.main.async { TileBench.run() }
         }
         ScrollBench.bringWindowForward()
+        ViewDump.scheduleIfRequested()
         #endif
     }
 
