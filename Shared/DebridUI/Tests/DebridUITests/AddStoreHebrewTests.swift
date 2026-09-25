@@ -77,6 +77,39 @@ import DebridCore
         #expect(s.best?.infoHash == "c")
     }
 
+    /// Cached list: one version, at once. The full list: two, a while later.
+    private final class NewRelease: StreamSource {
+        let cached: [CachedStream], all: [CachedStream], allDelay: Duration
+        init(cached: [CachedStream], all: [CachedStream], allDelay: Duration) {
+            self.cached = cached; self.all = all; self.allDelay = allDelay
+        }
+        func streams(for query: StreamQuery) async throws -> [CachedStream] { cached }
+        func streams(for query: StreamQuery, includeUncached: Bool) async throws -> [CachedStream] {
+            guard includeUncached else { return cached }
+            try? await Task.sleep(for: allDelay)
+            return all
+        }
+    }
+
+    /// A new release's cached list is often one version, which waits for nothing — and must not
+    /// start the one wait either, or the full list arriving later finds it spent and ranks blind.
+    @Test func aListWithNothingToOrderDoesNotSpendTheWait() async {
+        let gate = HebrewGate()
+        let s = AddStore(imdbID: "tt15398776", kind: .movie, originalLanguage: "en",
+                         streamSource: NewRelease(cached: [uhd], all: [uhd, sparks], allDelay: .milliseconds(1500)),
+                         add: NoAdd(), title: "Oppenheimer", year: 2023,
+                         subtitleEvidence: FakeSubtitleEvidence(results: [sparksHebrew], gate: gate),
+                         subtitleTarget: .movie(tmdbID: 872585, title: "Oppenheimer", year: 2023),
+                         hebrewWait: .seconds(1))
+        Task {
+            try? await Task.sleep(for: .milliseconds(2000))    // 0.5 s after the full list
+            await gate.release()
+        }
+        await s.loadStreams()
+        await s.loadAllVersions()
+        #expect(s.allVersions.map(\.infoHash) == ["c", "a"])
+    }
+
     /// With nothing to put in order there is nothing to wait for.
     @Test func aSingleVersionIsNotHeldForTheSearch() async {
         let gate = HebrewGate()

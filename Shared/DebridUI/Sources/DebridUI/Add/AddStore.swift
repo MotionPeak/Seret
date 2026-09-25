@@ -161,9 +161,10 @@ public final class AddStore {
                       hebrew: Task<[SubtitleResult]?, Never>?) async -> [CachedStream] {
         var results: [SubtitleResult] = []
         if let hebrew {
-            // Counted from the first list's versions arriving: the search starts alongside the
-            // version search, and a slow version search would otherwise use up the whole wait.
-            if hebrewDeadline == nil { hebrewDeadline = ContinuousClock.now + hebrewWait }
+            // Counted from the first list that has an order to change: the search starts alongside
+            // the version search, which would otherwise use up the wait — and so would a one-version
+            // cached list, leaving nothing for the full list that arrives after it.
+            if hebrewDeadline == nil, candidates.count > 1 { hebrewDeadline = ContinuousClock.now + hebrewWait }
             if let hebrewAnswer {
                 results = hebrewAnswer
             } else if candidates.count > 1, let wait = remainingHebrewWait,
