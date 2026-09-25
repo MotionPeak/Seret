@@ -14,7 +14,9 @@ func hebrewBoostTier(_ evidence: SubtitleEvidence?, parsed: ParsedRelease,
     let unboosted = HebrewSubtitles.none.rawValue
     guard let evidence, evidence.hebrew != .none else { return unboosted }
     guard let original = LanguageCode.normalize(originalLanguage), original != "he" else { return unboosted }
-    if evidence.isTheatreCopy || isTheatreSource(parsed.source) { return unboosted }
+    // TV is never recorded in a cinema — and the parser, which matches a source anywhere in a
+    // name, reads a show called "Cam Girl" as a CAM copy.
+    if evidence.isTheatreCopy || (!parsed.isTV && isTheatreSource(parsed.source)) { return unboosted }
     if let audio = evidence.audioLanguages,
        !audio.contains(where: { LanguageCode.sameLanguage($0, original) }) { return unboosted }
     return evidence.hebrew.rawValue

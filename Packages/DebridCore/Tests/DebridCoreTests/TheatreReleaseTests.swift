@@ -22,6 +22,10 @@ import Testing
         "Movie.2023.PreDVDRip.x264",
         "Movie.2023.TCRip.x264",
         "Movie.2023.1080p.TS",                         // a tag, not an MPEG-TS extension
+        "Season.of.the.Witch.2011.TS.x264",            // "Season" in a film's title is not TV
+        "Open.Season.2006.TSRip",
+        "Killing.Season.2013.HDTSRip.x264",
+        "Wedding.Season.2022.SCR.x264",
     ])
     func aTheatreTagIsRecognised(_ name: String) {
         #expect(isTheatreRelease(named: name))
@@ -38,6 +42,8 @@ import Testing
         "Show.S02E05.Hidden.Cam.1080p.WEB-DL.x264",     // an episode's title — TV is not filmed in cinemas
         "Cam.Girl.S01.1080p.WEB-DL.x264",               // a season pack of a show called that
         "Movie.2023.1080p.WEB-DL.x264.ts",
+        "Show.Season.1.Hidden.Cam.1080p.WEB-DL",
+        "Show Season 01 1080p WEB-DL Cam",
     ])
     func anOrdinaryReleaseIsNot(_ name: String) {
         #expect(!isTheatreRelease(named: name))
@@ -54,6 +60,19 @@ import Testing
         let evidence = SubtitleEvidenceSet.candidates([ts, web], hebrewResults: [], originalLanguage: "en")
         #expect(evidence.hebrew(forVersion: "ts") == .builtIn)       // the badge still shows
         #expect([ts, web].rankedFor(originalLanguage: "en", subtitles: evidence).first?.infoHash == "web")
+    }
+
+    /// The parser's `source` matches anywhere in a name, so a show called "Cam Girl" parses as a
+    /// CAM source. TV is never a theatre copy, and that misparse must not unboost its Hebrew episode.
+    @Test func aShowNamedCamStillTakesTheBoost() {
+        let tagged = CachedStream(infoHash: "he", fileIdx: nil, rawTitle: "Cam.Girl.S01E01.720p.WEB-DL.HebSubs",
+                                  parsed: FilenameParser().parse("Cam.Girl.S01E01.720p.WEB-DL.HebSubs"),
+                                  languages: [], sizeBytes: nil, sourceName: nil, subtitleLanguages: ["he"])
+        let plain = CachedStream(infoHash: "hd", fileIdx: nil, rawTitle: "Cam.Girl.S01E01.1080p.WEB-DL",
+                                 parsed: FilenameParser().parse("Cam.Girl.S01E01.1080p.WEB-DL"),
+                                 languages: [], sizeBytes: nil, sourceName: nil)
+        let evidence = SubtitleEvidenceSet.candidates([tagged, plain], hebrewResults: [], originalLanguage: "en")
+        #expect([tagged, plain].rankedFor(originalLanguage: "en", subtitles: evidence).first?.infoHash == "he")
     }
 
     @Test func anOwnedTelesyncIsKnownByItsFileName() {

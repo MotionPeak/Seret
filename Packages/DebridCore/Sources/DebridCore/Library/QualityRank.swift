@@ -84,7 +84,8 @@ private enum TheatreTags {
     static let year = try! NSRegularExpression(pattern: #"(?<![0-9])(?:19|20)[0-9]{2}(?![0-9])"#)
 
     static let tvMarker = try! NSRegularExpression(
-        pattern: #"(?<![A-Za-z0-9])(?:S[0-9]{1,2}(?:E[0-9]{1,3})?|Season)(?![A-Za-z0-9])"#,
+        // "Season" only with its number: films are called "Season of the Witch" and "Open Season".
+        pattern: #"(?<![A-Za-z0-9])(?:S[0-9]{1,2}(?:E[0-9]{1,3})?|Seasons?[ ._-]?[0-9]{1,2})(?![A-Za-z0-9])"#,
         options: [.caseInsensitive])
 
     static let tag = try! NSRegularExpression(
