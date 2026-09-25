@@ -124,21 +124,27 @@ struct MainShell: View {
             // Every section visited so far stays alive underneath; switching only reveals one.
             // Rebuilding the stack per switch (`.id(selection)`) threw away each page's loaded
             // state — every visit re-fetched and re-laid-out from scratch, and lost its scroll.
-            ForEach(SidebarSection.allCases.filter { visitedSections.contains($0) || $0 == model.selection }) { section in
-                let isShown = section == model.selection && !model.isSearching
-                SectionStack(section: section, model: model)
-                    .environment(\.isPageShown, isShown)
-                    .opacity(isShown ? 1 : 0)
-                    .allowsHitTesting(isShown)
-                    .accessibilityHidden(!isShown)
+            // Sections (and Search) in their own ZStack: the one on screen is ordered above the
+            // hidden ones, and every page is opaque, so a hidden page can never show through.
+            ZStack {
+                ForEach(SidebarSection.allCases.filter { visitedSections.contains($0) || $0 == model.selection }) { section in
+                    let isShown = section == model.selection && !model.isSearching
+                    SectionStack(section: section, model: model)
+                        .environment(\.isPageShown, isShown)
+                        .opacity(isShown ? 1 : 0)
+                        .allowsHitTesting(isShown)
+                        .accessibilityHidden(!isShown)
+                        .zIndex(isShown ? 1 : 0)
+                }
+                // Search: its own stack over the section, built fresh each time Search opens.
+                if model.isSearching {
+                    SearchStack(model: model)
+                        .transition(.opacity)
+                        .zIndex(2)
+                }
             }
             .animation(Theme.Motion.fade, value: model.selection)
             .onChange(of: model.selection, initial: true) { _, section in visitedSections.insert(section) }
-            // Search: its own stack over the section, built fresh each time Search opens.
-            if model.isSearching {
-                SearchStack(model: model)
-                    .transition(.opacity)
-            }
             if let flight = model.flight {
                 HeroFlightDriver(flight: flight, progressOverride: previewFlightProgressOverride,
                                  onLand: { model.landFlight($0) })

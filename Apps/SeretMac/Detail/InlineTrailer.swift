@@ -35,6 +35,10 @@ struct InlineTrailer: NSViewRepresentable {
             wantsLayer = true
             layer = playerLayer
             playerLayer.videoGravity = .resizeAspectFill
+            // Aspect-fill draws the video larger than the view; without a mask it spilled out of
+            // the hero onto the page below (owner's screenshot). SwiftUI's `.clipped()` does not
+            // reach an AppKit view's layer, so the layer clips itself.
+            playerLayer.masksToBounds = true
         }
 
         required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }

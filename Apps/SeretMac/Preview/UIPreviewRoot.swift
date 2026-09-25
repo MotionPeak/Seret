@@ -120,6 +120,8 @@ struct UIPreviewRoot: View {
                 titleRailsPreview()
             case "titlerailsloading":
                 titleRailsLoadingPreview()
+            case "pushtitle":
+                PushPreviewHost()
             case "person":
                 personPreview(mode: .loaded)
             case "personloading":
@@ -964,6 +966,42 @@ private struct SurprisePreviewHost: View {
         let winner = Fixture.films.first { $0.tmdbID == spin.winner.tmdbID }
         SurpriseReel(spin: spin, onWatch: { _ in }, onSpinAgain: {}, onClose: {},
                      artOverride: (backdropPath: winner?.backdropPath, logoPath: nil))
+    }
+}
+#endif
+
+#if DEBUG
+/// `-uiPreview pushtitle` — My Library on screen first, then a title opened two seconds later with
+/// NO hero flight (as a Watchlist tile or a search result opens one), so the NavigationStack's own
+/// push transition runs. The screenshot must show the title page alone — never the grid through it.
+private struct PushPreviewHost: View {
+    @State private var model: ShellModel = {
+        let model = ShellModel(defaults: UserDefaults(suiteName: "seret.preview.push.\(UUID().uuidString)")!)
+        model.select(.library)
+        return model
+    }()
+    private let library = LibraryStore(library: PreviewLibrary(mode: .items(Fixture.films + Fixture.shows)),
+                                       watch: PreviewWatch(Fixture.watch), profileID: { "" })
+    private let store = DetailStore(item: Fixture.films[0], details: PreviewDetails(),
+                                    watch: PreviewWatch(Fixture.watch), profileID: "")
+
+    var body: some View {
+        MainShell(model: model)
+            .environment(library)
+            .environment(store)
+            // The owner's case had the inline trailer playing on the pushed page.
+            .environment(makePreviewTrailerModel())
+            .environment(\.previewTrailerDelay, .milliseconds(1))
+            .task {
+                try? await Task.sleep(for: .seconds(2))
+                // `-visitHome`: open a second section first, so one stays alive hidden behind the
+                // page the title is pushed on.
+                if ProcessInfo.processInfo.arguments.contains("-visitHome") {
+                    model.select(.home)
+                    try? await Task.sleep(for: .seconds(2))
+                }
+                model.open(.title(Fixture.films[0]))
+            }
     }
 }
 #endif

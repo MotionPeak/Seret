@@ -25,11 +25,11 @@ struct SectionStack: View {
 
     var body: some View {
         NavigationStack(path: path) {
-            // The section root. M2 swaps the rest in (My Library landed in Task 4); every other
-            // section stays this placeholder until its own phase.
             root
+                .opaquePage()
                 .navigationDestination(for: AppRoute.self) { route in
                     RouteView(route: route)
+                        .opaquePage()
                         .navigationBarBackButtonHidden(true)
                 }
         }
@@ -63,11 +63,26 @@ struct SearchStack: View {
     var body: some View {
         NavigationStack(path: path) {
             SearchPage()
+                .opaquePage()
                 .navigationDestination(for: AppRoute.self) { route in
                     RouteView(route: route)
+                        .opaquePage()
                         .navigationBarBackButtonHidden(true)
                 }
         }
+    }
+}
+
+extension View {
+    /// Pages paint their own canvas. They were transparent, relying on the window's background —
+    /// so anything still drawn underneath (the stack's root under a pushed title, a section kept
+    /// alive behind the current one) showed straight through: the owner saw the Watchlist grid
+    /// through the Raw page. With every page opaque, only the top one can ever be seen.
+    /// Centred, as the stack placed them: a page that doesn't fill (a spinner, an empty state)
+    /// stays where it was.
+    func opaquePage() -> some View {
+        frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(CanvasBackground())
     }
 }
 
