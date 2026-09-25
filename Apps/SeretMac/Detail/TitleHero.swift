@@ -29,15 +29,28 @@ struct HeroBackdrop: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .modifier(KenBurnsDrift(active: kenBurns, size: size))
                 .clipped()
-            LinearGradient(
-                stops: [.init(color: .clear, location: 0.45), .init(color: Theme.Palette.canvas, location: 1)],
-                startPoint: .top, endPoint: .bottom)
-            LinearGradient(
-                stops: [.init(color: .black.opacity(0.55), location: 0), .init(color: .clear, location: 0.6)],
-                startPoint: .leading, endPoint: .trailing)
+            HeroShading()
         }
         .onGeometryChange(for: CGSize.self) { $0.size } action: { size = $0 }
         .onScrollVisibilityChange(threshold: 0.05) { onScreen = $0 }
+    }
+}
+
+/// The still's shading: down to the canvas at the bottom, and darker on the left where the copy
+/// sits. `heavy` is the trailer's — a little stronger, since a trailer is often brighter than a still.
+struct HeroShading: View {
+    var heavy = false
+
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                stops: [.init(color: .clear, location: heavy ? 0.4 : 0.45), .init(color: Theme.Palette.canvas, location: 1)],
+                startPoint: .top, endPoint: .bottom)
+            LinearGradient(
+                stops: [.init(color: .black.opacity(heavy ? 0.7 : 0.55), location: 0),
+                        .init(color: .clear, location: heavy ? 0.65 : 0.6)],
+                startPoint: .leading, endPoint: .trailing)
+        }
     }
 }
 
@@ -132,19 +145,30 @@ struct TitleHero: View {
 
     @Environment(\.pageLeadingInset) private var pageLeadingInset
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.isPageShown) private var isPageShown
     @Environment(ShellModel.self) private var shell: ShellModel?
     @State private var width: CGFloat = 1200
     @State private var showVideo = false
+    /// The inline trailer has its first picture and is fading in over the still.
+    @State private var videoShowing = false
+    /// The backdrop's decoded art, for the trailer to draw until its video has a picture. Loaded
+    /// here rather than borrowed from `HeroBackdrop`, which leaves the screen once the trailer starts.
+    @State private var still: CGImage?
     @State private var muted = true
     @State private var heroVisible = true
 
     private var height: CGFloat { TitlePageLayout.heroHeight(width: width) }
 
+    private var backdropURL: URL? {
+        TMDBClient.imageURL(path: store.backdropPath ?? store.item.posterPath, size: "w1280")
+    }
 
     /// The inline loop only actually renders while every one of these holds — armed, the hero is
-    /// on screen, Reduce Motion is off, and neither the player nor the full trailer is up.
+    /// on screen, its page is the one showing (not a section kept alive behind another, where it
+    /// would go on decoding and, unmuted, be heard), Reduce Motion is off, and neither the player
+    /// nor the full trailer is up.
     private var trailerActive: Bool {
-        showVideo && heroVisible && !reduceMotion && shell?.playback == nil && shell?.trailer == nil
+        showVideo && heroVisible && isPageShown && !reduceMotion && shell?.playback == nil && shell?.trailer == nil
     }
 
     var body: some View {
@@ -156,23 +180,25 @@ struct TitleHero: View {
         .frame(height: height)
         .background {
             ZStack {
-                HeroBackdrop(url: TMDBClient.imageURL(path: store.backdropPath ?? store.item.posterPath, size: "w1280"))
                 if trailerActive, let url = trailer?.streamURL {
-                    // The trailer covers the backdrop's own shading, so it carries its own — a
-                    // little heavier, since a trailer is often brighter than a still.
-                    InlineTrailer(url: url, muted: $muted)
+                    // The trailer draws the still itself, beneath its video: under a SwiftUI image
+                    // the video came out half see-through (see `InlineTrailer`). The swap is
+                    // seamless — the same art, the same shading — and the video fades in over the
+                    // still once it has a picture, the shading handing over to the trailer's.
+                    InlineTrailer(url: url, still: still, muted: $muted,
+                                  onPicture: { withAnimation(.easeInOut(duration: 0.6)) { videoShowing = true } })
                         .overlay {
                             ZStack {
-                                LinearGradient(
-                                    stops: [.init(color: .clear, location: 0.4), .init(color: Theme.Palette.canvas, location: 1)],
-                                    startPoint: .top, endPoint: .bottom)
-                                LinearGradient(
-                                    stops: [.init(color: .black.opacity(0.7), location: 0), .init(color: .clear, location: 0.65)],
-                                    startPoint: .leading, endPoint: .trailing)
+                                HeroShading().opacity(videoShowing ? 0 : 1)
+                                HeroShading(heavy: true).opacity(videoShowing ? 1 : 0)
                             }
                             .allowsHitTesting(false)
                         }
-                        .transition(.opacity)
+                        .onDisappear { videoShowing = false }
+                        .transition(.identity)
+                } else {
+                    HeroBackdrop(url: backdropURL)
+                        .transition(.identity)
                 }
             }
             // Parallax (0.4× the scroll, Reduce Motion: none) and a fade across the hero's own
@@ -197,6 +223,10 @@ struct TitleHero: View {
             shell?.heroFrame = frame
         }
         .onScrollVisibilityChange(threshold: 0.2) { visible in heroVisible = visible }
+        .task(id: backdropURL) {
+            guard let backdropURL else { still = nil; return }
+            still = await ImageMemoryCache.load(backdropURL)?.cgImage
+        }
         .onChange(of: autoplayArmed, initial: true) { _, armed in
             guard armed, !reduceMotion else { return }
             withAnimation(.easeInOut(duration: 0.6)) { showVideo = true }
