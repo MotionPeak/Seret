@@ -282,8 +282,8 @@ private struct PlaybackSettings: View {
     }
 }
 
-/// The subtitle look over a dark still — white semibold with a soft blurred shadow and no box,
-/// the style the owner approved — in the chosen size, font and colour.
+/// The subtitle look over a dark still — white with a soft shadow and no box, the style the owner
+/// approved — in the chosen size, font and colour, drawn in the faces the player will really use.
 struct SubtitlePreview: View {
     let preferences: SubtitlePreferences
 
@@ -292,10 +292,9 @@ struct SubtitlePreview: View {
             LinearGradient(colors: [Color(hex: 0x2A3440), Color(hex: 0x0E1116)],
                            startPoint: .topLeading, endPoint: .bottomTrailing)
             VStack(spacing: 2) {
-                Text("I think we should go back.")
-                Text("אני חושב שכדאי שנחזור.")
+                Text("I think we should go back.").font(font(latin: true))
+                Text("אני חושב שכדאי שנחזור.").font(font(latin: false))
             }
-            .font(font)
             .foregroundStyle(color)
             .shadow(color: .black.opacity(0.85), radius: 3, x: 0, y: 1)
             .shadow(color: .black.opacity(0.5), radius: 8)
@@ -307,12 +306,13 @@ struct SubtitlePreview: View {
         .padding(8)
     }
 
-    private var font: Font {
+    /// The chosen face as libvlc draws it: its own weight (libvlc cannot embolden), and for Default
+    /// libvlc's own pair — Helvetica Neue, with Hebrew from its fallback, Lucida Grande. A system
+    /// font here showed a Hebrew line the player never draws.
+    private func font(latin: Bool) -> Font {
         let size = 18 * preferences.size.scale
-        if let name = preferences.font.freetypeName {
-            return .custom(name, size: size).weight(.semibold)
-        }
-        return .system(size: size, weight: .semibold)
+        let name = preferences.font.freetypeName ?? (latin ? "Helvetica Neue" : "Lucida Grande")
+        return .custom(name, size: size)
     }
 
     private var color: Color {

@@ -27,8 +27,15 @@ struct VLCSmokePreview: View {
         .task {
             // `-vlcOptions "--a=1 --b=2"`: extra libvlc options, for measuring render settings.
             let args = ProcessInfo.processInfo.arguments
-            let extra = args.firstIndex(of: "-vlcOptions").flatMap { i in
+            var extra = args.firstIndex(of: "-vlcOptions").flatMap { i in
                 i + 1 < args.count ? args[i + 1].split(separator: " ").map(String.init) : nil } ?? []
+            // `-subFile <path>` and `-subFont <name>`: a subtitle file and the font to render it in
+            // — whole values, so a family name with spaces survives (`-vlcOptions` splits on them).
+            func value(_ flag: String) -> String? {
+                args.firstIndex(of: flag).flatMap { $0 + 1 < args.count ? args[$0 + 1] : nil }
+            }
+            if let file = value("-subFile") { extra.append("--sub-file=\(file)") }
+            if let font = value("-subFont") { extra.append("--freetype-font=\(font)") }
             let engine = VLCKitVideoPlayerEngine(extraOptions: extra)
             self.engine = engine
             engine.load(url: url, headers: [:], audioLanguage: nil, audioTrackID: nil)
