@@ -55,14 +55,22 @@ struct LibraryShell: View {
     /// engine, which takes synthesized keystrokes unreliably.
     ///
     ///     xcrun simctl launch <udid> com.solomons.seret.tv -openTitle Arrival
+    ///
+    /// `-openVersions <text>` pushes that film's full-screen Versions list instead: the real
+    /// search, ranking and Hebrew evidence, without walking to "Find Other Versions".
     private func openTitleForTesting() {
         let args = ProcessInfo.processInfo.arguments
-        guard !openedTitleForTesting, let i = args.firstIndex(of: "-openTitle"), i + 1 < args.count,
+        let flag = args.contains("-openVersions") ? "-openVersions" : "-openTitle"
+        guard !openedTitleForTesting, let i = args.firstIndex(of: flag), i + 1 < args.count,
               let movies = session.libraryStore?.movies, !movies.isEmpty else { return }
         let needle = args[i + 1].lowercased()
         guard let item = movies.first(where: { $0.title.lowercased().contains(needle) }) else { return }
         openedTitleForTesting = true
-        path.append(item)
+        guard flag == "-openVersions" else { path.append(item); return }
+        guard let tmdb = item.tmdbID else { return }
+        path.append(BrowseDestination.versions(SearchHit(result: TMDBSearchResult(
+            id: tmdb, title: item.title, name: nil, releaseDate: nil, firstAirDate: nil,
+            posterPath: item.posterPath, overview: nil, voteAverage: nil), kind: .movie)))
     }
     #endif
 

@@ -78,7 +78,9 @@ struct VersionList: View {
                 if indicator == .inFile { HebrewBadge(.inFile) }
                 HStack(spacing: Theme.Space.sm) {
                     CacheBadge(isCached: stream.isCached).fixedSize()
-                    chips(stream)
+                    // Offered the row's whole remaining width first — otherwise the Spacer takes
+                    // a share and the chips give up ones they had room for.
+                    chips(stream).layoutPriority(1)
                     Spacer(minLength: 0)
                     if let size = stream.sizeBytes {
                         Text(Self.sizeGB(size)).font(Theme.Typo.caption())

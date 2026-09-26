@@ -23,18 +23,15 @@ struct VersionRow: View {
                     HebrewBadge(.inFile).padding(.bottom, 4)
                 }
                 HStack(spacing: 16) {
-                    CacheBadge(isCached: stream.isCached)
-                    if indicator == .matched { HebrewBadge(.matched) }
-                    if let year = stream.parsed.year {
-                        Text(String(year)).font(.seret(.caption1, .semibold))
-                            .padding(.horizontal, 10).padding(.vertical, 4)
-                            .background(.white.opacity(0.12), in: Capsule())
-                    }
-                    QualityChips(parsed: stream.parsed)
-                    LanguageBadges(codes: stream.languages)
-                    Spacer()
+                    CacheBadge(isCached: stream.isCached).fixedSize()
+                    if indicator == .matched { HebrewBadge(.matched).fixedSize() }
+                    // Offered the row's whole remaining width first — otherwise the Spacer takes a
+                    // share and the chips give up ones they had room for.
+                    chips.layoutPriority(1)
+                    Spacer(minLength: 0)
                     if let size = stream.sizeBytes {
                         Text(Self.sizeGB(size)).font(.seretCallout).foregroundStyle(.secondary)
+                            .fixedSize()
                     }
                     if isPicking {
                         ProgressView()
@@ -47,6 +44,31 @@ struct VersionRow: View {
             }
         }
         .buttonStyle(SeretRowStyle())
+    }
+
+    /// As many whole chips as fit, dropping languages first, then the year. Squeezed below their
+    /// text's width, chips — and the Hebrew pill beside them — broke mid-word ("REMU/X",
+    /// "Hebrew · / Matched") on releases that list four audio languages. The full release name is
+    /// on the line below whatever is dropped here.
+    private var chips: some View {
+        ViewThatFits(in: .horizontal) {
+            chipLine(languages: 4, year: true)
+            chipLine(languages: 2, year: true)
+            chipLine(languages: 0, year: true)
+            chipLine(languages: 0, year: false)
+        }
+    }
+
+    private func chipLine(languages: Int, year: Bool) -> some View {
+        HStack(spacing: 16) {
+            if year, let year = stream.parsed.year {
+                Text(String(year)).font(.seret(.caption1, .semibold))
+                    .padding(.horizontal, 10).padding(.vertical, 4)
+                    .background(.white.opacity(0.12), in: Capsule())
+            }
+            QualityChips(parsed: stream.parsed)
+            if languages > 0 { LanguageBadges(codes: Array(stream.languages.prefix(languages))) }
+        }
     }
 
     static func sizeGB(_ bytes: Int) -> String {
