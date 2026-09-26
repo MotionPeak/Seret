@@ -8,6 +8,6 @@ extension AppSession {
         guard let details = detailsProvider else { return nil }
         return DetailStore(item: item, details: details, watch: watchStore, profileID: activeProfileID,
                            myList: myListStore, ratings: ratingsProvider, versionPrefs: versionPreferences,
-                           letterboxd: letterboxdRatingProvider)
+                           letterboxd: letterboxdRatingProvider, subtitleEvidence: subtitleEvidence)
     }
 }
