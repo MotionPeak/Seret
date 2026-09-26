@@ -100,6 +100,10 @@ struct VersionsSheet: View {
                 .font(.system(size: 13)).foregroundStyle(Theme.Palette.textSecondary)
         case .ready:
             ForEach(model.groups) { group in
+                // A block heading only when there is another block to tell it apart from.
+                if model.groups.count > 1 {
+                    blockHeader(group.availability, first: group.id == model.groups.first?.id)
+                }
                 if !group.larger.isEmpty {
                     sectionHeader("LARGER FILES")
                     ForEach(group.larger) { row($0) }
@@ -112,6 +116,23 @@ struct VersionsSheet: View {
         }
     }
 
+    /// Instant or Download: the block's own heading, a step above the size sections inside it and
+    /// in the colours of the rows' cache badges. The ranking never looks at availability, so
+    /// without the blocks a release that plays at once sat among ones that must download first.
+    private func blockHeader(_ availability: VersionGroup.Availability, first: Bool) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: availability.systemImage)
+                .foregroundStyle(availability == .instant ? Theme.Palette.gold : Theme.Palette.textPrimary)
+            Text(availability.title)
+                .foregroundStyle(Theme.Palette.textPrimary)
+            Text(availability.caption)
+                .font(.system(size: 12))
+                .foregroundStyle(Theme.Palette.textSecondary)
+        }
+        .font(.system(size: 15, weight: .bold))
+        .padding(.top, first ? 0 : 14)
+    }
+
     private func sectionHeader(_ title: String) -> some View {
         Text(title)
             .font(.system(size: 11, weight: .semibold))
@@ -121,24 +142,27 @@ struct VersionsSheet: View {
     }
 
     private func row(_ stream: CachedStream) -> some View {
-        Button { pick(stream) } label: {
-            HStack(alignment: .top, spacing: 12) {
-                badge(stream.isCached)
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 6) {
-                        ForEach(VersionText.chips(stream.parsed), id: \.self) { QualityChip(text: $0) }
-                        if let langs = VersionText.languages(stream.languages) {
-                            Text(langs).font(.system(size: 11)).foregroundStyle(Theme.Palette.textSecondary)
-                        }
+        let hebrew = HebrewIndicator(model.hebrew(for: stream))
+        return Button { pick(stream) } label: {
+            VStack(alignment: .leading, spacing: 8) {
+                // Hebrew inside the file is the one kind that is always in sync: on top, alone.
+                if hebrew == .inFile { HebrewBadge(.inFile) }
+                HStack(alignment: .top, spacing: 12) {
+                    badge(stream.isCached)
+                    VStack(alignment: .leading, spacing: 4) {
+                        chipLine(stream, matched: hebrew == .matched)
+                        Text(stream.rawTitle)
+                            .font(.system(size: 12))
+                            .foregroundStyle(Theme.Palette.textSecondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
                     }
-                    Text(stream.rawTitle)
-                        .font(.system(size: 12))
-                        .foregroundStyle(Theme.Palette.textSecondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
+                    // Offered the row's width before the Spacer, so the chips never give up ones
+                    // they had room for.
+                    .layoutPriority(1)
+                    Spacer(minLength: 8)
+                    trailing(stream)
                 }
-                Spacer(minLength: 8)
-                trailing(stream)
             }
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -147,6 +171,29 @@ struct VersionsSheet: View {
         .buttonStyle(.plain)
         .contextMenu {
             Button(stream.isCached ? "Play Now" : "Download") { pick(stream) }
+        }
+    }
+
+    /// The Matched pill, then as many whole chips as fit: languages go first, then the codecs. The
+    /// pill is never dropped. Squeezed below its text's width a chip broke mid-word ("REMU/X").
+    private func chipLine(_ stream: CachedStream, matched: Bool) -> some View {
+        let chips = VersionText.chips(stream.parsed)
+        let languages = VersionText.languages(stream.languages)
+        return ViewThatFits(in: .horizontal) {
+            chipRow(chips, languages: languages, matched: matched)
+            chipRow(chips, languages: nil, matched: matched)
+            chipRow(Array(chips.prefix(2)), languages: nil, matched: matched)
+        }
+    }
+
+    private func chipRow(_ chips: [String], languages: String?, matched: Bool) -> some View {
+        HStack(spacing: 6) {
+            if matched { HebrewBadge(.matched) }
+            ForEach(chips, id: \.self) { QualityChip(text: $0).fixedSize() }
+            if let languages {
+                Text(languages).font(.system(size: 11)).foregroundStyle(Theme.Palette.textSecondary)
+                    .fixedSize()
+            }
         }
     }
 

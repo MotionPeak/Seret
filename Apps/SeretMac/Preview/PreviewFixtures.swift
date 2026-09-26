@@ -537,6 +537,13 @@ struct PreviewVersionsSource: StreamSource, AddProviding {
                   "1080p", "BluRay", "x264", "DTS", 14_700_000_000, cached: true),
             stream("4", "The.Godfather.1972.1080p.WEB-DL.AAC2.0.H264-EVO",
                   "1080p", "WEB-DL", "H264", "AAC", 6_200_000_000, cached: false),
+            // Hebrew inside the file (the release name says so): the lit mark on its own line.
+            CachedStream(infoHash: String(repeating: "5", count: 40), fileIdx: nil,
+                         rawTitle: "The.Godfather.1972.1080p.BluRay.x264.HebSubs-HDH",
+                         parsed: ParsedRelease(title: "The Godfather", resolution: "1080p",
+                                               source: "BluRay", videoCodec: "x264"),
+                         languages: ["en"], sizeBytes: 9_800_000_000, sourceName: "Preview",
+                         isCached: true, subtitleLanguages: ["he"]),
         ]
     }
 
@@ -554,6 +561,42 @@ struct PreviewVersionsSource: StreamSource, AddProviding {
         if mode == .hangingAdd { try await Task.sleep(for: .seconds(3600)) }
         throw URLError(.badServerResponse)
     }
+}
+
+/// A Hebrew search that answers at once with one subtitle made for the WEB-DL release, so the
+/// Versions sheet draws "Hebrew · Matched" through the real `AddStore` path, not a hand-set badge.
+struct PreviewSubtitleEvidence: SubtitleEvidenceProviding {
+    func hebrewResults(contentKey: String, query: SubtitleQuery,
+                       originalLanguage: String?) async -> [SubtitleResult]? {
+        [SubtitleResult(fileID: 1, language: "he", release: "The.Godfather.1972.1080p.WEB-DL.AAC2.0.H264-EVO")]
+    }
+    func storedHebrewResults(contentKey: String) async -> [SubtitleResult]? { nil }
+    func records(for sources: [MediaSource]) async -> [String: VersionSubtitleRecord] { [:] }
+    func storedEvidence(for sources: [MediaSource], contentKey: String) async -> SubtitleEvidenceSet { .empty }
+    func recordPlayback(_ tracks: [MediaTrack], for source: MediaSource) async {}
+}
+
+/// The `titleversions` film's Hebrew, through `DetailStore`'s real evidence path: the preferred
+/// Blu-ray carries a Hebrew text track in its header (in the file, so the hero and its row get the
+/// lit mark) and OpenSubtitles has a Hebrew subtitle made for the WEB-DL (Matched).
+struct PreviewTitleSubtitleEvidence: SubtitleEvidenceProviding {
+    let inFile: MediaSource
+    let matchedRelease: String
+
+    func hebrewResults(contentKey: String, query: SubtitleQuery,
+                       originalLanguage: String?) async -> [SubtitleResult]? {
+        [SubtitleResult(fileID: 2, language: "he", release: matchedRelease)]
+    }
+    func storedHebrewResults(contentKey: String) async -> [SubtitleResult]? { nil }
+    func records(for sources: [MediaSource]) async -> [String: VersionSubtitleRecord] {
+        [WatchKey.source(inFile): VersionSubtitleRecord(
+            origin: .header, fileName: "The.Godfather.1972.1080p.BluRay.x264.DTS-FGT.mkv",
+            tracks: [ContainerTrack(kind: .video, language: nil, frameRate: 23.976),
+                     ContainerTrack(kind: .audio, language: "en"),
+                     ContainerTrack(kind: .subtitle, language: "he", codec: "S_TEXT/UTF8")])]
+    }
+    func storedEvidence(for sources: [MediaSource], contentKey: String) async -> SubtitleEvidenceSet { .empty }
+    func recordPlayback(_ tracks: [MediaTrack], for source: MediaSource) async {}
 }
 
 /// A canned `TrailerProviding` + `TrailerStreamResolving` pair — always resolves to a real public

@@ -294,6 +294,7 @@ struct TitleHero: View {
         TitlePageText.metaLine(
             year: store.item.year,
             runtimeMinutes: store.item.kind == .movie ? store.runtime : nil,
+            language: store.languageName,
             genres: store.genres,
             seasonCount: store.item.kind == .show ? store.numberOfSeasons : nil)
     }
@@ -340,10 +341,17 @@ struct TitleHero: View {
             || (store.ratings?.hasAny ?? false) || store.letterboxdRating != nil
     }
 
+    /// The Hebrew chip beside the quality chips, films only as on Apple TV and iPhone: about the
+    /// version Play will use, else whether the film has Hebrew at all.
+    private var hebrewChip: HebrewTitleChip? {
+        store.item.kind == .movie ? store.hebrewChip : nil
+    }
+
     private var chipRow: some View {
         HStack(spacing: 6) {
             ForEach(qualityChips, id: \.self) { QualityChip(text: $0) }
-            if !qualityChips.isEmpty, hasAnyRatingChip {
+            if let hebrewChip { HebrewBadge(HebrewIndicator(chip: hebrewChip), prominent: true) }
+            if !qualityChips.isEmpty || hebrewChip != nil, hasAnyRatingChip {
                 Rectangle().fill(Theme.Palette.hairline).frame(width: 1, height: 14)
             }
             RatingChips(store: store)

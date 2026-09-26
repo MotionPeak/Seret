@@ -6,13 +6,17 @@ import Foundation
 /// separate from `DetailStore.PrimaryPlay` (its memberwise init is internal to `DebridUI`) so the
 /// Mac can test the exact strings without building a store.
 enum TitlePageText {
-    /// `"2024 · 2h 46m · Science Fiction · Adventure"`. Runtime under an hour is minutes only; at
+    /// `"2024 · 2h 46m · English · Science Fiction · Adventure"`. Runtime under an hour is minutes only; at
     /// most 3 genres; a show's season count reads "1 Season" / "n Seasons". Missing parts are
     /// skipped rather than leaving a stray separator.
-    static func metaLine(year: Int?, runtimeMinutes: Int?, genres: [String], seasonCount: Int?) -> String {
+    static func metaLine(year: Int?, runtimeMinutes: Int?, language: String? = nil, genres: [String],
+                         seasonCount: Int?) -> String {
         var parts: [String] = []
         if let year { parts.append(String(year)) }
         if let runtimeMinutes, runtimeMinutes > 0 { parts.append(runtimeText(runtimeMinutes)) }
+        // The film's own language, as Apple TV and iPhone show it: whether Hebrew subtitles are
+        // needed at all starts there.
+        if let language { parts.append(language) }
         parts.append(contentsOf: genres.prefix(3))
         if let seasonCount, seasonCount > 0 {
             parts.append(seasonCount == 1 ? "1 Season" : "\(seasonCount) Seasons")

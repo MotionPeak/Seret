@@ -345,7 +345,11 @@ struct UIPreviewRoot: View {
         model.open(.title(item))
         let preferredKey = WatchKey.source(item.sources[1])
         let store = DetailStore(item: item, details: PreviewDetails(), watch: PreviewWatch(Fixture.watch),
-                                profileID: "", versionPrefs: PreviewVersionPrefs(sourceKey: preferredKey))
+                                profileID: "", versionPrefs: PreviewVersionPrefs(sourceKey: preferredKey),
+                                subtitleEvidence: PreviewTitleSubtitleEvidence(
+                                    inFile: item.sources[1],
+                                    // The name the player matches the WEB-DL copy by.
+                                    matchedRelease: "The.Godfather.1080p.WEB-DL.H264.AAC-FGT"))
         return MainShell(model: model).environment(store)
     }
 
@@ -547,7 +551,8 @@ private struct VersionsSheetPreviewHost: View {
             .task {
                 let source = PreviewVersionsSource(mode: mode)
                 let flow = AddFlowStore(hit: Self.hit, details: PreviewDetails(),
-                                        streamSource: source, add: source)
+                                        streamSource: source, add: source,
+                                        subtitleEvidence: PreviewSubtitleEvidence())
                 let m = VersionsModel(hit: Self.hit, target: .movie, flow: flow, downloads: nil, onAdded: {})
                 model = m
                 await m.load()

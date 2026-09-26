@@ -26,6 +26,7 @@ struct VersionsSection: View {
             }
             ForEach(store.versions, id: \.self) { source in
                 VersionRow(source: source, isActive: store.isActive(source),
+                          hebrew: HebrewIndicator(store.hebrew(for: source)),
                           menu: VersionMenu.make(isPreferred: store.isActive(source),
                                                  hasPreference: store.preferredSourceKey != nil),
                           onPlay: { play(source) }, onMenu: { perform($0, source) })
@@ -49,10 +50,12 @@ struct VersionsSection: View {
 }
 
 /// One owned version's row: 44 pt tall, 10 pt corners, a faint white fill that brightens on hover.
-/// Every hover action (the row itself, ▶) is duplicated in the right-click menu.
+/// Every hover action (the row itself, ▶) is duplicated in the right-click menu. A version with
+/// Hebrew inside the file grows a line on top for its mark, as in the Versions sheet.
 private struct VersionRow: View {
     let source: MediaSource
     let isActive: Bool
+    let hebrew: HebrewIndicator?
     let menu: [[VersionMenuItem]]
     let onPlay: () -> Void
     let onMenu: (VersionMenuItem) -> Void
@@ -63,31 +66,13 @@ private struct VersionRow: View {
 
     var body: some View {
         Button(action: onPlay) {
-            HStack(spacing: 12) {
-                Image(systemName: isActive ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(isActive ? Theme.Palette.gold : Theme.Palette.textSecondary)
-                ForEach(parts.chips, id: \.self) { QualityChip(text: $0) }
-                if let group = parts.group {
-                    Text(group)
-                        .font(.system(size: 12))
-                        .foregroundStyle(Theme.Palette.textSecondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-                Spacer(minLength: 8)
-                if let size = parts.size {
-                    Text(size)
-                        .font(.system(size: 12).monospacedDigit())
-                        .foregroundStyle(Theme.Palette.textSecondary)
-                }
-                Image(systemName: "play.fill")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(Theme.Palette.textPrimary)
-                    .frame(width: 28, height: 28)
-                    .glassEffect(.regular.interactive(), in: Circle())
+            VStack(alignment: .leading, spacing: 6) {
+                if hebrew == .inFile { HebrewBadge(.inFile) }
+                line
             }
             .padding(.horizontal, 14)
-            .frame(height: 44)
+            .padding(.vertical, hebrew == .inFile ? 10 : 0)
+            .frame(minHeight: 44)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color.white.opacity(hovering ? 0.06 : 0.04),
                        in: RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -95,6 +80,33 @@ private struct VersionRow: View {
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
         .contextMenu { menuContent }
+    }
+
+    private var line: some View {
+        HStack(spacing: 12) {
+            Image(systemName: isActive ? "checkmark.circle.fill" : "circle")
+                .foregroundStyle(isActive ? Theme.Palette.gold : Theme.Palette.textSecondary)
+            ForEach(parts.chips, id: \.self) { QualityChip(text: $0) }
+            if hebrew == .matched { HebrewBadge(.matched) }
+            if let group = parts.group {
+                Text(group)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.Palette.textSecondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            Spacer(minLength: 8)
+            if let size = parts.size {
+                Text(size)
+                    .font(.system(size: 12).monospacedDigit())
+                    .foregroundStyle(Theme.Palette.textSecondary)
+            }
+            Image(systemName: "play.fill")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(Theme.Palette.textPrimary)
+                .frame(width: 28, height: 28)
+                .glassEffect(.regular.interactive(), in: Circle())
+        }
     }
 
     @ViewBuilder private var menuContent: some View {

@@ -10,6 +10,20 @@ import Testing
         #expect(line == "2024 · 2h 46m · Science Fiction · Adventure")
     }
 
+    @Test func theTitlesLanguageFollowsTheRuntime() {
+        // Where Apple TV and iPhone put it: whether Hebrew subtitles are needed at all starts
+        // with the language the film is in.
+        let line = TitlePageText.metaLine(year: 2016, runtimeMinutes: 116, language: "English",
+                                          genres: ["Drama"], seasonCount: nil)
+        #expect(line == "2016 · 1h 56m · English · Drama")
+    }
+
+    @Test func aShowsLanguageComesBeforeItsGenres() {
+        let line = TitlePageText.metaLine(year: 2022, runtimeMinutes: nil, language: "Hebrew",
+                                          genres: ["Drama"], seasonCount: 2)
+        #expect(line == "2022 · Hebrew · Drama · 2 Seasons")
+    }
+
     @Test func underAnHourIsMinutesOnly() {
         let line = TitlePageText.metaLine(year: nil, runtimeMinutes: 48, genres: [], seasonCount: nil)
         #expect(line == "48m")
