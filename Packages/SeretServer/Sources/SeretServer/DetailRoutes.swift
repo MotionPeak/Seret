@@ -17,6 +17,7 @@ func registerDetailRoutes(_ app: Application) {
         var genres: [String] = []
         var director: String?
         var voteAverage: Double?
+        var originalLanguage: String?
         var ratings: RatingsDTO?
         var cast: [CastDTO] = []
         var similar: [SimilarDTO] = []
@@ -35,6 +36,7 @@ func registerDetailRoutes(_ app: Application) {
                 runtime = d.runtime
                 genres = d.genres.map(\.name)
                 voteAverage = d.voteAverage
+                originalLanguage = d.originalLanguage
                 backdropPath = d.backdropPath ?? backdropPath
                 overview = d.overview ?? overview
             }
@@ -61,15 +63,34 @@ func registerDetailRoutes(_ app: Application) {
             }
         }
 
-        let best = item.sources.best?.parsed
+        // Hebrew subtitles: what each owned file carries (read once, kept for good), and what
+        // OpenSubtitles made for it. Owned versions only — the web has no search → add. A first
+        // visit's header reads and search can take seconds, so the page answers within two from
+        // whatever is ready; the rest finishes behind it for the next load.
+        var subtitles = SubtitleEvidenceSet.empty
+        var hebrewResults: [SubtitleResult]?
+        if let evidence = req.application.subtitleEvidence {
+            let found = await evidence.titleEvidence(
+                for: item.sources, contentKey: item.id,
+                query: item.tmdbID.map { SubtitleQuery(tmdbID: $0, title: item.title, year: item.year) },
+                originalLanguage: originalLanguage, within: .seconds(2))
+            subtitles = found.evidence
+            hebrewResults = found.hebrewResults
+        }
+        let playing = item.sources.preferred(nil, subtitles: subtitles)
+        let chip = HebrewTitleChip.forTitle(playing: playing, subtitles: subtitles, hebrewResults: hebrewResults)
+        let best = playing?.parsed
         let qualityChips = [best?.resolution, best?.source, best?.videoCodec, best?.audioCodec]
             .compactMap { $0 }
-        let versions = VersionDTO.list(for: item)
+        let versions = VersionDTO.list(for: item, subtitles: subtitles)
 
         return DetailDTO(
             id: item.id, title: item.title, year: item.year,
             posterPath: item.posterPath, backdropPath: backdropPath, overview: overview,
-            runtime: runtime, genres: genres, director: director, voteAverage: voteAverage,
+            runtime: runtime, genres: genres,
+            language: LanguageName.forTitle(originalLanguage), hebrew: chip?.text,
+            hebrewDim: chip == .available,
+            director: director, voteAverage: voteAverage,
             qualityChips: qualityChips, bestVersionIndex: versions.first?.index ?? 0,
             versions: versions, ratings: ratings, cast: cast, similar: similar)
     }

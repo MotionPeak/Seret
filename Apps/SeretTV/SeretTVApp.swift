@@ -8,6 +8,8 @@ struct SeretTVApp: App {
         realDebrid: RealDebridSession(store: KeychainTokenStore()))
 
     init() {
+        // The stream cache's lines go into vlc.log beside libvlc's own (see DiagnosticsLog).
+        AppSession.streamDiagnostics = { DiagnosticsLog.shared.write($0) }
         // Generous shared image cache — TMDB posters/backdrops/episode stills are small
         // and reused across launches. AsyncImage uses URLSession.shared which honors this.
         URLCache.shared = URLCache(

@@ -265,3 +265,50 @@ enum Fixture {
                                contentKey: WatchKey.content(forShow: item, episode: playing), episode: playing)
     }
 }
+
+// MARK: - FakeStreamProxy
+
+/// Records what the player asks of the stream cache, and hands back numbered loopback URLs.
+actor FakeStreamProxy: StreamProxying {
+    private(set) var opened: [(upstream: URL, fileKey: String)] = []
+    private(set) var closed: [URL] = []
+    private(set) var marked: [URL] = []
+    private var refresh: (@Sendable () async throws -> URL)?
+    private var gate: AsyncStream<Void>?
+    private var closeGate: AsyncStream<Void>?
+    private var failure: StreamError?
+
+    /// What `upstreamFailure` reports: RD refused the stream.
+    func failWith(_ error: StreamError) { failure = error }
+    func upstreamFailure(_ handle: StreamHandle) async -> StreamError? { failure }
+
+    /// Hold every `close` (the cache's disk write) until the returned continuation is finished.
+    func holdCloses() -> AsyncStream<Void>.Continuation {
+        let (stream, continuation) = AsyncStream.makeStream(of: Void.self)
+        closeGate = stream
+        return continuation
+    }
+
+    /// Hold every `open` in flight until the returned continuation is finished.
+    func holdOpens() -> AsyncStream<Void>.Continuation {
+        let (stream, continuation) = AsyncStream.makeStream(of: Void.self)
+        gate = stream
+        return continuation
+    }
+
+    func open(upstream: URL, fileKey: String,
+              refreshUpstream: @escaping @Sendable () async throws -> URL) async -> StreamHandle {
+        opened.append((upstream, fileKey))
+        refresh = refreshUpstream
+        let handle = StreamHandle(direct: URL(string: "http://127.0.0.1:9/s/\(opened.count)")!)
+        if let gate { for await _ in gate {} }
+        return handle
+    }
+    func markPlaybackStarted(_ handle: StreamHandle) async { marked.append(handle.url) }
+    func close(_ handle: StreamHandle) async {
+        closed.append(handle.url)
+        if let closeGate { for await _ in closeGate {} }
+    }
+    func trimMemory() async {}
+    func callRefresh() async throws -> URL { try await refresh!() }
+}

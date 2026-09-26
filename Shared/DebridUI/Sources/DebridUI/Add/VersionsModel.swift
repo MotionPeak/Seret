@@ -2,8 +2,9 @@ import DebridCore
 import Observation
 
 /// The Versions sheet's load-and-pick engine — every cached and uncached release for one movie or
-/// one episode, split into "larger files" and "recommended" (Decision from `splitOversized`), plus
-/// picking one: an instant release plays right away, anything else becomes a tracked download.
+/// one episode, drawn Instant above Download with each block split into "larger files" and
+/// "recommended" (`groupedByAvailability`), plus picking one: an instant release plays right away,
+/// anything else becomes a tracked download.
 ///
 /// Lifted out of tvOS's (and the iPhone's identical) `VersionsScreen`, which held this same
 /// resolve → select → loadAllVersions → split sequence, and the same instant-first pick, inline in
@@ -14,8 +15,9 @@ public final class VersionsModel {
     public enum Phase: Equatable { case loading, ready, empty, failed }
 
     public private(set) var phase: Phase = .loading
-    public private(set) var larger: [CachedStream] = []
-    public private(set) var rest: [CachedStream] = []
+    /// The list as drawn: Instant above Download, each with its oversized releases first. Nothing
+    /// is dropped, and order inside every part is the ranking's.
+    public private(set) var groups: [VersionGroup] = []
     /// The infoHash currently being picked — nil once it lands (played, downloading, or failed).
     public private(set) var picking: String?
 
@@ -60,7 +62,7 @@ public final class VersionsModel {
     }
 
     /// resolve → (an episode target also selects its season + episode, so the query is per
-    /// `series(s,e)` rather than the whole show) → loadAllVersions → split.
+    /// `series(s,e)` rather than the whole show) → loadAllVersions → group.
     public func load() async {
         guard let flow else { phase = .failed; return }
         await flow.resolve()
@@ -70,8 +72,13 @@ public final class VersionsModel {
         }
         guard let add = flow.add else { phase = .failed; return }
         await add.loadAllVersions()
-        (larger, rest) = add.allVersions.splitOversized(episodesInSeason: nil)
+        groups = add.allVersions.groupedByAvailability(episodesInSeason: nil)
         phase = add.allVersions.isEmpty ? .empty : .ready
+    }
+
+    /// A row's Hebrew level, for its mark: the search's evidence, which the ranking already used.
+    public func hebrew(for stream: CachedStream) -> HebrewSubtitles {
+        flow?.add?.hebrew(for: stream) ?? .none
     }
 
     /// Instant → add & play, refresh the library. Anything else → a tracked download for exactly

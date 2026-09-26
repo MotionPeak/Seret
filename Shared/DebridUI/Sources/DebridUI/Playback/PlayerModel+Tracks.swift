@@ -23,6 +23,29 @@ extension PlayerModel {
         if subtitleDelay != 0 || isCorrectingSubtitleDrift {
             applyEffectiveSubtitleDelay(force: true)   // the engine may have just lost it
         }
+        reconcileSubtitleShift()
+        recordTrackCensusIfChanged()
+    }
+
+    /// Tell the subtitle evidence what this file really carries, once per change in its track set.
+    /// The player is the only thing that ever sees an MP4's tracks. Downloaded subtitles are
+    /// attached by us, not muxed into the file, so they are left out.
+    ///
+    /// Only once THIS source is on screen: across an episode swap or "Try another version" the
+    /// engine still holds the outgoing file while `currentSource` already names the incoming one,
+    /// and a track change in that window would be filed under the wrong file for good.
+    func recordTrackCensusIfChanged() {
+        guard let recordTracks, engineHoldsCurrentMedia, hasRenderedFrame else { return }
+        let attached = Set(subtitleRows.compactMap { attachedTrackID($0) })
+        let muxed = (engine.audioTracks + engine.subtitleTracks)
+            .filter { !$0.isExternal && !attached.contains($0.id) }
+        guard !muxed.isEmpty else { return }
+        let source = currentSource
+        let signature = [WatchKey.source(source)]
+            + muxed.map { "\($0.id)|\($0.language ?? "")|\($0.codec ?? "")" }
+        guard signature != recordedTrackSignature else { return }
+        recordedTrackSignature = signature
+        Task { await recordTracks(source, muxed) }
     }
 
     /// Auto-apply the user's persisted audio/subtitle language as this source's tracks are
@@ -277,6 +300,7 @@ extension PlayerModel {
         engine.selectSubtitleTrack(id: id)
         recordPreferredSubtitle(forTrackID: id)
         restoreSubtitleDelay()      // switching back to a track that was synced restores its offset
+        reconcileSubtitleShift()    // …and a downloaded one must carry it in the file on screen
     }
     public func selectSubtitleOff() {
         subtitlePickedByUser = true

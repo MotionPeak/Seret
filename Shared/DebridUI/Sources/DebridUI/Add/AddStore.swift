@@ -18,6 +18,9 @@ public final class AddStore {
     /// All matching versions — cached AND uncached — for the "Show all versions" browse list.
     /// Empty until `loadAllVersions()` runs.
     public private(set) var allVersions: [CachedStream] = []
+    /// Hebrew-subtitle evidence for this store's versions, by info hash. Drives the badges and the
+    /// Hebrew term of the ranking.
+    public private(set) var subtitles: SubtitleEvidenceSet = .empty
 
     private let imdbID: String
     private let kind: StreamQuery.Kind
@@ -34,17 +37,34 @@ public final class AddStore {
     /// a guarantee a torrent is instant for THIS account, so the top pick sometimes isn't
     /// instantly available — fall through to the next best instead of failing outright.
     private let maxAddAttempts: Int
+    private let subtitleEvidence: SubtitleEvidenceProviding?
+    private let subtitleTarget: SubtitleTarget?
+    /// How long the lists wait for the Hebrew search once the versions are in — ONE wait per
+    /// store, however many lists it ranks. Past it, a list shows; a late answer adds badges but
+    /// moves nothing.
+    private let hebrewWait: Duration
+    /// One search per store, shared by the list and "Get best".
+    private var hebrewSearch: Task<[SubtitleResult]?, Never>?
+    private var hebrewDeadline: ContinuousClock.Instant?
+    /// The search's answer once it is in, so a list ranked after the deadline still uses it.
+    private var hebrewAnswer: [SubtitleResult]?
 
     public init(imdbID: String, kind: StreamQuery.Kind, originalLanguage: String?,
                 streamSource: StreamSource, add: AddProviding, seasonPack: Int? = nil,
-                title: String = "", year: Int? = nil, maxAddAttempts: Int = 6) {
+                title: String = "", year: Int? = nil, maxAddAttempts: Int = 6,
+                subtitleEvidence: SubtitleEvidenceProviding? = nil,
+                subtitleTarget: SubtitleTarget? = nil,
+                hebrewWait: Duration = .seconds(3)) {
         self.imdbID = imdbID; self.kind = kind; self.originalLanguage = originalLanguage
         self.streamSource = streamSource; self.addService = add; self.seasonPack = seasonPack
         self.title = title; self.year = year; self.maxAddAttempts = maxAddAttempts
+        self.subtitleEvidence = subtitleEvidence; self.subtitleTarget = subtitleTarget
+        self.hebrewWait = hebrewWait
     }
 
     public func loadStreams() async {
         state = .loadingStreams
+        let hebrew = startHebrewSearch()
         do {
             let query = StreamQuery(imdbID: imdbID, kind: kind, originalLanguage: originalLanguage,
                                     title: title, year: year)
@@ -52,9 +72,11 @@ public final class AddStore {
             // Season-pack mode narrows the results to full-season releases before ranking; the
             // normal episode/movie path ranks everything.
             let candidates = seasonPack.map { found.seasonPacks(forSeason: $0) } ?? found
-            ranked = candidates.rankedFor(originalLanguage: originalLanguage)
-            if let match = candidates.bestMatch(originalLanguage: originalLanguage) {
-                best = match.stream; isFallback = match.isFallback; state = .streams
+            ranked = await rank(candidates, hebrew: hebrew)
+            if let first = ranked.first {
+                best = first
+                isFallback = first.audioTier(relativeTo: originalLanguage) == 2
+                state = .streams
             } else {
                 best = nil; isFallback = false; state = .noStreams
             }
@@ -97,17 +119,81 @@ public final class AddStore {
     /// "request download" when nothing is instantly cached. Returns [] on error so the caller
     /// surfaces "no version available." The download lifecycle itself lives in `DownloadStore`.
     public func uncachedCandidates() async -> [CachedStream] {
+        let hebrew = startHebrewSearch()
         let query = StreamQuery(imdbID: imdbID, kind: kind, originalLanguage: originalLanguage,
                                 title: title, year: year)
         guard let found = try? await streamSource.streams(for: query, includeUncached: true) else { return [] }
         let candidates = seasonPack.map { found.seasonPacks(forSeason: $0) } ?? found
-        return candidates.rankedFor(originalLanguage: originalLanguage)
+        return await rank(candidates, hebrew: hebrew)
     }
 
     /// Populate `allVersions` with the ranked cached+uncached list for the "Show all versions"
     /// browse UI (one uncached-inclusive query returns both, each tagged `isCached`).
     public func loadAllVersions() async {
         allVersions = await uncachedCandidates()
+    }
+
+    /// The Hebrew level of one version, for its row's badge.
+    public func hebrew(for stream: CachedStream) -> HebrewSubtitles {
+        subtitles.hebrew(forVersion: stream.infoHash)
+    }
+
+    private func startHebrewSearch() -> Task<[SubtitleResult]?, Never>? {
+        if let hebrewSearch { return hebrewSearch }
+        guard let provider = subtitleEvidence, let target = subtitleTarget else { return nil }
+        let language = originalLanguage
+        let search = Task {
+            await provider.hebrewResults(contentKey: target.contentKey, query: target.query,
+                                         originalLanguage: language)
+        }
+        hebrewSearch = search
+        Task { [weak self] in
+            let answer = await search.value
+            self?.hebrewAnswer = answer ?? []
+        }
+        return search
+    }
+
+    /// Rank with whatever Hebrew evidence is in by the deadline. Release-name tags need no search
+    /// and always count. A search answering after the deadline adds its badges but moves nothing:
+    /// a list that re-sorts under the viewer's focus is worse than one that is a moment behind.
+    private func rank(_ candidates: [CachedStream],
+                      hebrew: Task<[SubtitleResult]?, Never>?) async -> [CachedStream] {
+        var results: [SubtitleResult] = []
+        if let hebrew {
+            // Counted from the first list that has an order to change: the search starts alongside
+            // the version search, which would otherwise use up the wait — and so would a one-version
+            // cached list, leaving nothing for the full list that arrives after it.
+            if hebrewDeadline == nil, candidates.count > 1 { hebrewDeadline = ContinuousClock.now + hebrewWait }
+            if let hebrewAnswer {
+                results = hebrewAnswer
+            } else if candidates.count > 1, let wait = remainingHebrewWait,
+                      let arrived = await valueIfReady(of: hebrew, within: wait) {
+                results = arrived ?? []
+            } else {
+                // One version has no order to change, and past the deadline the list shows as it is.
+                Task { [weak self] in
+                    let late = await hebrew.value
+                    self?.addLateBadges(for: candidates, results: late ?? [])
+                }
+            }
+        }
+        let evidence = SubtitleEvidenceSet.candidates(candidates, hebrewResults: results,
+                                                      originalLanguage: originalLanguage)
+        subtitles = subtitles.merging(evidence)
+        return candidates.rankedFor(originalLanguage: originalLanguage, subtitles: evidence)
+    }
+
+    /// What is left of this store's one wait; nil once it has passed.
+    private var remainingHebrewWait: Duration? {
+        guard let hebrewDeadline else { return nil }
+        let left = hebrewDeadline - ContinuousClock.now
+        return left > .zero ? left : nil
+    }
+
+    private func addLateBadges(for candidates: [CachedStream], results: [SubtitleResult]) {
+        subtitles = subtitles.merging(.candidates(candidates, hebrewResults: results,
+                                                  originalLanguage: originalLanguage))
     }
 
     /// Try to add a specific version as an INSTANT (already-cached) torrent and return its info if

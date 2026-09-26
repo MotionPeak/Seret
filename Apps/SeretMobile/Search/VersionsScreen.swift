@@ -77,72 +77,9 @@ struct VersionsScreen: View {
             Label("No other versions found.", systemImage: "square.stack.3d.up.slash")
                 .font(Theme.Typo.body()).foregroundStyle(Theme.Palette.textSecondary)
         case .ready:
-            // Lazy so the (often 30+) rows realise as they scroll in — building every chip and
-            // badge up front made the list stutter on the old Add screen.
-            LazyVStack(alignment: .leading, spacing: Theme.Space.sm) {
-                // Big releases first under their own header. Ranking them last for being oversized
-                // buried them at the bottom of thirty-odd rows; the ranking is unchanged, they are
-                // just no longer out of sight.
-                let larger = model?.larger ?? []
-                let rest = model?.rest ?? []
-                if !larger.isEmpty {
-                    sectionHeader("Larger files",
-                                  "Highest bitrate. Slower to start and heavier to skip.")
-                    ForEach(larger) { row($0) }
-                }
-                if !rest.isEmpty {
-                    if !larger.isEmpty {
-                        sectionHeader("Recommended", "Sized to play smoothly on this hardware.")
-                    }
-                    ForEach(rest) { row($0) }
-                }
-            }
+            VersionList(groups: model?.groups ?? [], picking: model?.picking, onPick: pick,
+                        hebrew: { model?.hebrew(for: $0) ?? .none })
         }
-    }
-
-    private func sectionHeader(_ title: String, _ caption: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title).font(Theme.Typo.headline())
-            Text(caption).font(Theme.Typo.caption())
-                .foregroundStyle(Theme.Palette.textSecondary)
-        }
-        .padding(.top, Theme.Space.sm)
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func row(_ stream: CachedStream) -> some View {
-        Button { pick(stream) } label: {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: Theme.Space.sm) {
-                    CacheBadge(isCached: stream.isCached)
-                    if let year = stream.parsed.year { QualityChip(text: String(year)) }
-                    QualityChipRow(parsed: stream.parsed)
-                    ForEach(stream.languages.prefix(2), id: \.self) {
-                        QualityChip(text: $0.uppercased())
-                    }
-                    Spacer()
-                    if let size = stream.sizeBytes {
-                        Text(Self.sizeGB(size)).font(Theme.Typo.caption())
-                            .foregroundStyle(Theme.Palette.textTertiary)
-                    }
-                    if model?.picking == stream.infoHash {
-                        ProgressView().tint(Theme.Palette.gold)
-                    } else {
-                        Image(systemName: stream.isCached ? "play.circle.fill" : "arrow.down.circle.fill")
-                            .foregroundStyle(Theme.Palette.gold)
-                    }
-                }
-                // The full release name — read the source (CAM/TELESYNC), year, group to confirm
-                // it's the right film/version.
-                Text(stream.rawTitle)
-                    .font(Theme.Typo.caption()).foregroundStyle(Theme.Palette.textTertiary)
-                    .lineLimit(1).truncationMode(.middle)
-            }
-            .padding(Theme.Space.md)
-            .background(Theme.Palette.surface2, in: RoundedRectangle(cornerRadius: Theme.Radius.chip))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
     }
 
     /// Live progress for a version picked here that had to be downloaded.
@@ -180,10 +117,6 @@ struct VersionsScreen: View {
                 break   // downloadStarted / failed / busy — the status line above already reflects it
             }
         }
-    }
-
-    static func sizeGB(_ bytes: Int) -> String {
-        String(format: "%.1f GB", Double(bytes) / 1_000_000_000)
     }
 }
 

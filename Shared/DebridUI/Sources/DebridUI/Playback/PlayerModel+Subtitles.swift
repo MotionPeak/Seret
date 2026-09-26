@@ -201,6 +201,7 @@ extension PlayerModel {
         selectedSubtitleID = id
         setRow(language, .attached(id))
         subtitleTracks = engine.subtitleTracks
+        reconcileSubtitleShift()     // the copy re-selected may not carry the offset now dialled
     }
 
     /// The track a subtitle downloaded for `language` is attached to, while it is still present.
@@ -235,19 +236,7 @@ extension PlayerModel {
     /// already-corrected file again on the next play, and would corrupt it outright for a different
     /// release of the same episode that legitimately shares the subtitle.
     func prepareSubtitle(at url: URL, declaredFPS: Double?) -> URL {
-        // Timestamps are ASCII, so isoLatin1 is a safe fallback decode for non-UTF-8 (e.g.
-        // windows-1255 Hebrew) files — and it is byte-preserving, so writing back in the encoding
-        // it was read in reproduces the original bytes everywhere except the cue lines we mean to
-        // rewrite. Decoding Hebrew as UTF-8 would fail outright, which is why this order matters.
-        var decoded: String?
-        var encoding = String.Encoding.utf8
-        if let text = try? String(contentsOf: url, encoding: .utf8) {
-            decoded = text
-        } else if let text = try? String(contentsOf: url, encoding: .isoLatin1) {
-            decoded = text
-            encoding = .isoLatin1
-        }
-        guard let text = decoded else { return url }
+        guard let (text, encoding) = Self.readSubtitleText(at: url) else { return url }
 
         // The cues tell us when the dialogue ends → drives "Up Next" at content-end rather than at
         // the file end, which on a TV rip is minutes of credits later.
@@ -278,6 +267,18 @@ extension PlayerModel {
         return destination
     }
 
+    /// A subtitle file's text, and the encoding to write a rewritten copy back in.
+    ///
+    /// Timestamps are ASCII, so isoLatin1 is a safe fallback decode for non-UTF-8 (e.g.
+    /// windows-1255 Hebrew) files — and it is byte-preserving, so writing back in the encoding it
+    /// was read in reproduces the original bytes everywhere except the cue lines we mean to
+    /// rewrite. Decoding Hebrew as UTF-8 would fail outright, which is why this order matters.
+    static func readSubtitleText(at url: URL) -> (String, String.Encoding)? {
+        if let text = try? String(contentsOf: url, encoding: .utf8) { return (text, .utf8) }
+        if let text = try? String(contentsOf: url, encoding: .isoLatin1) { return (text, .isoLatin1) }
+        return nil
+    }
+
     func resolveMoviehashIfNeeded() async {
         guard !moviehashResolved else { return }
         moviehashResolved = true
@@ -305,10 +306,11 @@ extension PlayerModel {
         selectedSubtitleID = newID
         setRow(pending.language, .attached(newID))
         attachedSubtitleTracks[pending.url] = newID   // libvlc will not attach this file again
-        restoreSubtitleDelay()      // this file + this subtitle may already have been dialled in
         pendingSubtitleAttach = nil
         subtitleAttachTimeoutTask?.cancel()      // it landed — nothing left to time out
         subtitleAttachTimeoutTask = nil
+        restoreSubtitleDelay()      // this file + this subtitle may already have been dialled in
+        reconcileSubtitleShift()    // …and whatever is dialled now must be in the file on screen
     }
 
     /// Fallback if VLCKit never attaches the slave (e.g. an unreadable file): clear the pending

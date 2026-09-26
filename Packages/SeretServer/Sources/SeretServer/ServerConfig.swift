@@ -9,6 +9,9 @@ struct ServerConfig: Sendable {
     /// Optional OMDb key (omdbapi.com) for IMDb/Rotten Tomatoes/Metacritic ratings on the detail
     /// page. Empty disables the ratings row by design — same graceful-degradation pattern as subs.
     let omdbAPIKey: String
+    /// Optional OpenSubtitles API key. It matches Hebrew subtitles to each version on the title
+    /// page; empty turns matching off (built-in detection still runs).
+    let openSubtitlesAPIKey: String
     let webPassword: String
     let port: Int
     let maxHeight: Int
@@ -28,6 +31,7 @@ struct ServerConfig: Sendable {
             rdToken: try require("RD_TOKEN"),
             tmdbAPIKey: try require("TMDB_API_KEY"),
             omdbAPIKey: env["OMDB_API_KEY"] ?? "",
+            openSubtitlesAPIKey: env["OPENSUBTITLES_API_KEY"] ?? "",
             webPassword: env["SERET_WEB_PASSWORD"] ?? "",
             port: Int(env["SERET_PORT"] ?? "") ?? 8080,
             maxHeight: Int(env["SERET_TRANSCODE_MAX_HEIGHT"] ?? "") ?? 1080,

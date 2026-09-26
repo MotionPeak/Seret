@@ -81,8 +81,8 @@ struct VersionsScreen: View {
         case .ready:
             // Lazy so the (often 30+) rows realise as they scroll in — building every chip and
             // badge up front made the list stutter on the Add screen.
-            VersionList(larger: model?.larger ?? [], rest: model?.rest ?? [],
-                       picking: model?.picking, onPick: pick)
+            VersionList(groups: model?.groups ?? [], picking: model?.picking, onPick: pick,
+                        hebrew: { model?.hebrew(for: $0) ?? .none })
                 .frame(maxWidth: 1400, alignment: .leading)
         }
     }

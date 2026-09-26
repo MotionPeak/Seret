@@ -37,6 +37,12 @@ struct DetailDTO: Content, Equatable {
     let overview: String?
     let runtime: Int?
     let genres: [String]
+    /// The film's original language, named ("English"); nil leaves it off the meta line.
+    let language: String?
+    /// The hero's Hebrew chip text, nil for none.
+    let hebrew: String?
+    /// True for "Available": Hebrew exists for the film but not made for the version Play uses.
+    let hebrewDim: Bool
     let director: String?
     let voteAverage: Double?
     let qualityChips: [String]      // best version's resolution · source · videoCodec · audioCodec

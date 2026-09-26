@@ -1,3 +1,5 @@
+import Foundation
+
 /// Quality score for a parsed release. Higher is better: resolution dominates, then source tier,
 /// then video codec. Releases whose audio can't be decoded on-device (TrueHD) are pushed below
 /// every playable release with a large penalty — so the default "Play" picks a version that will
@@ -49,4 +51,44 @@ func codecTier(_ c: String?) -> Int {
     case "AVC", "x264", "h264": return 1
     default: return 0
     }
+}
+
+/// A recording made in a cinema, or a pre-release screener, as `FilenameParser` names them.
+///
+/// These never take the Hebrew-subtitle boost. Hebrew subtitles are routinely made for exactly
+/// these copies of a new release, and "Hebrew always on top" would otherwise put a camcorder
+/// recording at the head of the list.
+func isTheatreSource(_ source: String?) -> Bool {
+    guard let source else { return false }
+    return ["CAM", "CAMRIP", "HDCAM", "HD-CAM", "HDTS", "HD-TS", "TELESYNC", "TELECINE", "SCREENER"]
+        .contains(source.uppercased())
+}
+
+/// The same question asked of a raw release name, for the tags `FilenameParser` does not name:
+/// `TS`, `TC`, `HDTC`, `SCR`, `DVDSCR`, `HQCAM`, `PDVD`, and their `…Rip` forms.
+///
+/// - Only what follows the year is read, so a film called "Cam" is not a camcorder copy.
+/// - A TV name never is one: series are not filmed in cinemas, and an episode's title ("Hidden
+///   Cam") or a show's name would otherwise be read as a tag.
+/// - The two-letter tags must be upper-case, as scene names write them — a lower-case `.ts` is an
+///   MPEG-TS file, including mid-way through a multi-line addon title.
+func isTheatreRelease(named name: String) -> Bool {
+    let ns = name as NSString
+    let whole = NSRange(location: 0, length: ns.length)
+    if TheatreTags.tvMarker.firstMatch(in: name, range: whole) != nil { return false }
+    let start = TheatreTags.year.firstMatch(in: name, range: whole).map { $0.range.location + $0.range.length } ?? 0
+    return TheatreTags.tag.firstMatch(in: name, range: NSRange(location: start, length: ns.length - start)) != nil
+}
+
+private enum TheatreTags {
+    static let year = try! NSRegularExpression(pattern: #"(?<![0-9])(?:19|20)[0-9]{2}(?![0-9])"#)
+
+    static let tvMarker = try! NSRegularExpression(
+        // "Season" only with its number: films are called "Season of the Witch" and "Open Season".
+        pattern: #"(?<![A-Za-z0-9])(?:S[0-9]{1,2}(?:E[0-9]{1,3})?|Seasons?[ ._-]?[0-9]{1,2})(?![A-Za-z0-9])"#,
+        options: [.caseInsensitive])
+
+    static let tag = try! NSRegularExpression(
+        pattern: #"(?<![A-Za-z0-9])(?:(?-i:TS|TC|SCR)|cam|hd-?cam|hq-?cam|hd-?ts|telesync|pdvd|pre-?dvd|hd-?tc|telecine|screener|dvd-?scr|bd-?scr|web-?scr)(?:-?rip)?(?![A-Za-z0-9])"#,
+        options: [.caseInsensitive])
 }

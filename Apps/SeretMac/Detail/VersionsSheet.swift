@@ -99,13 +99,15 @@ struct VersionsSheet: View {
             Text("No other versions found.")
                 .font(.system(size: 13)).foregroundStyle(Theme.Palette.textSecondary)
         case .ready:
-            if !model.larger.isEmpty {
-                sectionHeader("LARGER FILES")
-                ForEach(model.larger) { row($0) }
-            }
-            if !model.rest.isEmpty {
-                sectionHeader("RECOMMENDED")
-                ForEach(model.rest) { row($0) }
+            ForEach(model.groups) { group in
+                if !group.larger.isEmpty {
+                    sectionHeader("LARGER FILES")
+                    ForEach(group.larger) { row($0) }
+                }
+                if !group.rest.isEmpty {
+                    sectionHeader("RECOMMENDED")
+                    ForEach(group.rest) { row($0) }
+                }
             }
         }
     }

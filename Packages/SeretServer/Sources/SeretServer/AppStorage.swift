@@ -66,3 +66,13 @@ extension Application {
         set { storage[TranscodeManagerKey.self] = newValue }
     }
 }
+
+private struct SubtitleEvidenceKey: StorageKey { typealias Value = SubtitleEvidenceService }
+
+extension Application {
+    /// Hebrew-subtitle evidence for the title page and the version lists.
+    var subtitleEvidence: SubtitleEvidenceService? {
+        get { storage[SubtitleEvidenceKey.self] }
+        set { storage[SubtitleEvidenceKey.self] = newValue }
+    }
+}

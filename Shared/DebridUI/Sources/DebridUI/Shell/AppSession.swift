@@ -2,6 +2,9 @@ import DebridCore
 import Foundation
 import Observation
 import SwiftData
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// Owns the one shared `RealDebridSession` and the app's coarse auth state. It is the
 /// `AccessTokenProviding` source that 7b's library + 7c's playback will consume.
@@ -57,6 +60,10 @@ public final class AppSession {
     /// On-demand OpenSubtitles provider (nil while signed out or if no key+account configured).
     public private(set) var subtitlesProvider: SubtitleProvider?
 
+    /// Hebrew-subtitle evidence for the title page, the Versions screen, Home and the player
+    /// (nil while signed out).
+    public private(set) var subtitleEvidence: SubtitleEvidenceService?
+
     /// Global subtitle appearance (size · font · color), persisted and applied to every playback.
     /// Survives sign-out (it's a device preference, not session state).
     public let subtitleSettings = SubtitleSettingsModel()
@@ -104,6 +111,21 @@ public final class AppSession {
     /// Short-TTL, one-shot cache of unrestricted URLs so Detail can warm the RD `unrestrict`
     /// call before Play is tapped (and the player can warm the next episode at Up Next).
     private var linkCache: PlayableLinkCache?
+    /// The stream cache in front of RD for every player. One per signed-in session.
+    private var streamProxy: StreamProxy?
+    private var memoryWarningObserver: (any NSObjectProtocol)?
+
+    /// Where the stream cache writes its diagnostics. The apps point it at `vlc.log` (SeretPlayer's
+    /// DiagnosticsLog), which DebridUI cannot import.
+    public static var streamDiagnostics: (@Sendable (String) -> Void)?
+
+    private static var streamBudget: StreamCacheBudget {
+        #if os(tvOS)
+        .tvOS
+        #else
+        .iOS
+        #endif
+    }
     /// Single, app-lifetime observer that rebuilds Home when CloudKit imports remote changes.
     private var remoteChangeObserver: NSObjectProtocol?
     /// The pending coalesced refresh for those changes — see `scheduleRemoteChangeRefresh`.
@@ -197,6 +219,7 @@ public final class AppSession {
         home = nil
         torrents = nil
         linkCache = nil
+        streamProxy = nil
         trailerResolver = nil
         streamSource = nil
         addService = nil
@@ -205,6 +228,7 @@ public final class AppSession {
         downloadMonitor = nil
         downloadStore = nil
         subtitlesProvider = nil
+        subtitleEvidence = nil
         // The SwiftData-backed stores too. Every one of these holds the same CloudKit-mirrored
         // `ModelContainer`, and sign-in unconditionally builds a NEW one — so leaving them alive
         // meant signing out and back in left two containers open over the same store file, each
@@ -394,6 +418,25 @@ public final class AppSession {
             guard let url = URL(string: unrestricted.download) else { throw URLError(.badURL) }
             return url
         }
+        let diagnostics = Self.streamDiagnostics
+        let proxyLog: @Sendable (String) -> Void = { line in diagnostics?("[proxy] \(line)") }
+        streamProxy = StreamProxy(
+            budget: Self.streamBudget,
+            indexDirectory: Self.cachesDirectory.appending(path: "SeretStreamIndex", directoryHint: .isDirectory),
+            log: proxyLog)
+        #if canImport(UIKit)
+        if memoryWarningObserver == nil {
+            memoryWarningObserver = NotificationCenter.default.addObserver(
+                forName: UIApplication.didReceiveMemoryWarningNotification, object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    let proxy = self?.streamProxy
+                    Task { await proxy?.trimMemory() }
+                }
+            }
+        }
+        #endif
+        subtitleEvidence = Self.makeSubtitleEvidence(torrents: torrents, linkCache: linkCache)
         let service = LibraryService(
             torrents: torrents,
             builder: LibraryBuilder(),
@@ -479,7 +522,9 @@ public final class AppSession {
         letterboxdRatingProvider = Self.makeLetterboxdRatingProvider()
         // Home resumes playback directly, so it needs the same version preference the title page's
         // Play button uses — otherwise Continue Watching quietly plays a different file.
-        home = watchStore.map { HomeStore(watch: $0, versionPrefs: versionPreferences) }
+        home = watchStore.map {
+            HomeStore(watch: $0, versionPrefs: versionPreferences, subtitleEvidence: subtitleEvidence)
+        }
         // Recompute the Home rails the moment a removal changes the library, so a deleted title
         // doesn't linger in Continue Watching / Recently Added until the Home tab is revisited.
         if let home {
@@ -678,7 +723,24 @@ public final class AppSession {
             // scrubber, Control Center, Siri, HDMI-CEC TV remotes — and on the Mac the media keys,
             // Control Center and AirPods controls.
             nowPlaying: Self.makeNowPlayingCenter(),
+            // The stream cache in front of RD: rewinds from RAM, reopening from disk.
+            streamProxy: streamProxy,
+            // What the player sees fills in a file the header reader cannot read (an MP4); a
+            // header read is final and is never changed by it.
+            recordTracks: { [subtitleEvidence] source, tracks in
+                await subtitleEvidence?.recordPlayback(tracks, for: source)
+            },
             audioProbe: audioProbe)
+    }
+
+    /// The Hebrew-subtitle evidence service. Search needs only the API key, so badges work before
+    /// an OpenSubtitles account is added; with no key, matching is off and built-in detection
+    /// still runs.
+    private static func makeSubtitleEvidence(torrents: TorrentsClient,
+                                             linkCache: PlayableLinkCache?) -> SubtitleEvidenceService {
+        // Play would unrestrict the same links the header reads do. Hand it their answers instead.
+        .live(torrents: torrents, openSubtitlesKey: Secrets.openSubtitlesAPIKey,
+              resolved: { link, url in await linkCache?.seed(link, url: url) })
     }
 
     /// The system Now Playing surface wherever MediaPlayer and a UI framework exist — iOS, tvOS and
@@ -712,10 +774,12 @@ public final class AppSession {
     /// `AddStore` is per-title (it carries the imdbID/kind/originalLanguage), so it is built
     /// on demand rather than held on the session like `searchStore`.
     public func makeAddStore(imdbID: String, kind: StreamQuery.Kind,
-                             originalLanguage: String?) -> AddStore? {
+                             originalLanguage: String?,
+                             subtitleTarget: SubtitleTarget? = nil) -> AddStore? {
         guard let streamSource, let addService else { return nil }
         return AddStore(imdbID: imdbID, kind: kind, originalLanguage: originalLanguage,
-                        streamSource: streamSource, add: addService)
+                        streamSource: streamSource, add: addService,
+                        subtitleEvidence: subtitleEvidence, subtitleTarget: subtitleTarget)
     }
 
     /// Vend a whole-season download engine (nil while signed out / Stage 2 unavailable). Used by the
@@ -732,7 +796,8 @@ public final class AppSession {
     public func makeAddFlow(for hit: SearchHit) -> AddFlowStore? {
         guard let detailsProvider, let streamSource, let addService else { return nil }
         return AddFlowStore(hit: hit, details: detailsProvider,
-                            streamSource: streamSource, add: addService)
+                            streamSource: streamSource, add: addService,
+                            subtitleEvidence: subtitleEvidence)
     }
 
     /// The acquire-and-play engine for one title — what makes Play work on something you have not
@@ -742,7 +807,9 @@ public final class AppSession {
                                 originalLanguage: String?) -> AcquisitionStore {
         AcquisitionStore(item: item) { [weak self] kind in
             guard let self, let imdbID else { return nil }
-            return self.makeAddStore(imdbID: imdbID, kind: kind, originalLanguage: originalLanguage)
+            return self.makeAddStore(
+                imdbID: imdbID, kind: kind, originalLanguage: originalLanguage,
+                subtitleTarget: item.tmdbID.map { .forKind(kind, tmdbID: $0, title: item.title, year: item.year) })
         }
     }
 

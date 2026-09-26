@@ -69,19 +69,24 @@ struct PlayerUIPreview: View {
 
 // MARK: - Version list
 
-/// The real `VersionList` on fabricated streams, so the "Larger files" / "Recommended" split can be
-/// screenshot-verified without a session, a search round-trip, or the focus engine.
+/// The real `VersionList` on fabricated streams, so the Instant / Download blocks, the "Larger
+/// files" / "Recommended" split inside each, and both Hebrew marks can be screenshot-verified
+/// without a session, a search round-trip, or the focus engine.
 ///
-/// The fixture is deliberately the shape that prompted the change: a handful of oversized REMUXes
-/// that the ranking pushes to the bottom, mixed with sensible releases. It also proves the split
-/// itself, since the sections are computed by `splitOversized` here exactly as in the screen.
+/// The fixture is deliberately the shape that prompted each change: oversized REMUXes the ranking
+/// pushes to the bottom, and instant releases the ranking interleaves with downloads. It also
+/// proves the grouping itself, since the blocks are computed by `groupedByAvailability` here
+/// exactly as in the screen.
 private struct VersionListPreview: View {
     private static func stream(_ name: String, _ gb: Double, _ res: String,
-                               _ source: String, cached: Bool) -> CachedStream {
+                               _ source: String, cached: Bool, subs: [String] = [],
+                               languages: [String] = ["en"], video: String? = nil,
+                               audio: String? = nil) -> CachedStream {
         CachedStream(infoHash: name, fileIdx: nil, rawTitle: name,
-                     parsed: ParsedRelease(title: "Sherlock", resolution: res, source: source),
-                     languages: ["en"], sizeBytes: Int(gb * 1_000_000_000),
-                     sourceName: "RD", isCached: cached)
+                     parsed: ParsedRelease(title: "Sherlock", year: 2010, resolution: res, source: source,
+                                           videoCodec: video, audioCodec: audio),
+                     languages: languages, sizeBytes: Int(gb * 1_000_000_000),
+                     sourceName: "RD", isCached: cached, subtitleLanguages: subs)
     }
 
     private static let all: [CachedStream] = [
@@ -90,14 +95,29 @@ private struct VersionListPreview: View {
         stream("Sherlock.2160p.BluRay.x265", 41, "2160p", "BluRay", cached: true),
         stream("Sherlock.2160p.WEB-DL.x265", 22, "2160p", "WEB-DL", cached: true),
         stream("Sherlock.1080p.BluRay.x264", 12, "1080p", "BluRay", cached: true),
+        stream("Sherlock.2160p.WEB-DL.DV.x265", 18, "2160p", "WEB-DL", cached: false),
         stream("Sherlock.1080p.WEB-DL.x265", 6, "1080p", "WEB-DL", cached: false),
-        stream("Sherlock.720p.BluRay.x264", 3, "720p", "BluRay", cached: true),
+        stream("Sherlock.720p.BluRay.x264.HebSubs", 3, "720p", "BluRay", cached: true, subs: ["he"]),
+        // The shape that squeezed every chip mid-word on the real list: four languages, four
+        // quality chips and the Matched pill on one row.
+        stream("Sherlock.2010.Eng.Fre.Spa.Ita.1080p.BluRay.Remux.AVC.DTS-HD.MA-SGF", 30, "1080p", "REMUX",
+               cached: true, languages: ["en", "fr", "es", "it"], video: "AVC", audio: "DTS-HD"),
     ]
 
+    /// Two releases matched by a Hebrew subtitle (a download, and the crowded instant REMUX) and one
+    /// tagged HebSubs (instant): the HebSubs one sits under the in-file mark, the others carry the pill.
+    private static let evidence = SubtitleEvidenceSet.candidates(
+        all, hebrewResults: [SubtitleResult(fileID: 1, language: "he", release: "Sherlock.1080p.WEB-DL.x265"),
+                        SubtitleResult(fileID: 2, language: "he",
+                                       release: "Sherlock.2010.Eng.Fre.Spa.Ita.1080p.BluRay.Remux.AVC.DTS-HD.MA-SGF")],
+        originalLanguage: "en")
+
     var body: some View {
-        let split = Self.all.splitOversized(episodesInSeason: nil)
+        let groups = Self.all.rankedFor(originalLanguage: "en", subtitles: Self.evidence)
+            .groupedByAvailability(episodesInSeason: nil)
         ScrollView {
-            VersionList(larger: split.larger, rest: split.rest, picking: nil, onPick: { _ in })
+            VersionList(groups: groups, picking: nil, onPick: { _ in },
+                        hebrew: { Self.evidence.hebrew(forVersion: $0.infoHash) })
                 .padding(.horizontal, 60).padding(.vertical, 40)
                 .frame(maxWidth: 1400, alignment: .leading)
         }

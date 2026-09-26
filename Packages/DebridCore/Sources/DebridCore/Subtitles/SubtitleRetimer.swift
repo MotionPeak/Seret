@@ -53,6 +53,26 @@ public enum SubtitleRetimer {
     /// dialogue and WebVTT cue settings untouched.
     public static func rescale(_ text: String, by factor: Double) -> String {
         guard factor > 0, abs(factor - 1) > .ulpOfOne else { return text }
+        return mapCueTimes(text) { $0 * factor }
+    }
+
+    /// Add `seconds` to every cue timestamp — positive shows each line later, negative earlier.
+    /// A time pushed before zero is clamped to zero, so a line wholly before the start becomes an
+    /// empty cue that is never shown.
+    ///
+    /// This is how a downloaded subtitle is moved EARLIER. libvlc's own subtitle delay cannot do
+    /// it: it reads a subtitle file only as far ahead as it has read the film, so a line asked to
+    /// appear more than a few seconds early has already ended by the time it is read, and libvlc
+    /// drops it. Measured on the Apple TV and in the simulator: −3s still drew every line, −6s drew
+    /// none. Moving the cues in the file itself has no such limit.
+    public static func shift(_ text: String, by seconds: Double) -> String {
+        guard seconds != 0 else { return text }
+        return mapCueTimes(text) { $0 + seconds }
+    }
+
+    /// Replace both timestamps of every cue line with `transform` of it, leaving cue indices,
+    /// dialogue and WebVTT cue settings untouched.
+    private static func mapCueTimes(_ text: String, _ transform: (Double) -> Double) -> String {
         let ns = text as NSString
         var out = ""
         var cursor = 0
@@ -63,9 +83,9 @@ public enum SubtitleRetimer {
             guard let from = seconds(start), let to = seconds(end) else { continue }
             out += ns.substring(with: NSRange(location: cursor,
                                              length: match.range.location - cursor))
-            out += stamp(from * factor, separator: separator(in: start))
+            out += stamp(transform(from), separator: separator(in: start))
             out += arrow
-            out += stamp(to * factor, separator: separator(in: end))
+            out += stamp(transform(to), separator: separator(in: end))
             cursor = match.range.location + match.range.length
         }
         out += ns.substring(from: cursor)

@@ -210,6 +210,7 @@ extension PlayerModel {
     }
 
     func reload() {
+        closeStream()                     // the old session must not outlive its media
         phase = .preparing
         position = 0
         duration = 0
@@ -270,6 +271,8 @@ extension PlayerModel {
         subtitleSearchLanguage = nil
         pendingSubtitleAttach = nil
         attachedSubtitleTracks = [:]   // …and where each attached FILE landed is just as positional
+        subtitleShiftCopies = [:]      // …and every shifted copy of a file this media no longer has
+        cancelSubtitleShift()
         subtitleRows = Self.freshSubtitleRows(hasAccount: subtitles != nil)
         lastSavedPosition = -.infinity
         loadTask?.cancel()
@@ -286,7 +289,9 @@ extension PlayerModel {
             }
             let url = try await unrestrict(currentSource.restrictedLink)
             guard !Task.isCancelled else { return }   // superseded by a newer reload()
-            engine.load(url: url, headers: [:], audioLanguage: preferredAudioLanguageOption,
+            let playURL = await openStream(for: url)
+            guard !Task.isCancelled else { return }
+            engine.load(url: playURL, headers: [:], audioLanguage: preferredAudioLanguageOption,
                         audioTrackID: rememberedAudioTrackID)
             engineHoldsCurrentMedia = true   // from here, time events describe THIS source
             engine.play()
@@ -321,7 +326,10 @@ extension PlayerModel {
         // the length of the film — and `@Observable` notifies on every set regardless of whether
         // the value differs, so writing all four unconditionally invalidated every view observing
         // them once a second, forever, having changed nothing.
-        if !hasRenderedFrame { hasRenderedFrame = true }
+        if !hasRenderedFrame {
+            hasRenderedFrame = true
+            markStreamPlaybackStarted()
+        }
         if isBuffering { isBuffering = false }
         if loadWatchdog != nil {
             loadWatchdog?.cancel()  // the load succeeded — disarm the timeout
@@ -365,6 +373,13 @@ extension PlayerModel {
             phase = .failed("The stream stopped before it started. The Real-Debrid link may have expired.")
             return
         }
+        // …and one the stream cache saw RD refuse did not end either. With the file's index on
+        // disk the first frames play before RD is asked, so a refusal can come after them — and it
+        // reaches libvlc as a closed connection, which it reports as the end of the file.
+        if let refusal = await streamRefusal() {
+            phase = .failed(refusal)
+            return
+        }
         // Binge: a finished episode records its tail, then auto-advances to the next one in-place
         // (same player/engine) — unless the viewer dismissed the Up Next bar to watch the credits,
         // in which case the real file end exits. A movie or last episode records and dismisses.
@@ -399,6 +414,7 @@ extension PlayerModel {
         loadWatchdog?.cancel()
         subtitleFallbackTask?.cancel()          // else it spends OpenSubtitles quota on a dead engine
         subtitleAttachTimeoutTask?.cancel()
+        cancelSubtitleShift()
         // A sync outliving the player would keep pulling a stream nobody is watching, for minutes.
         autoSyncTask?.cancel()
         autoSyncProgressTask?.cancel()
@@ -417,6 +433,12 @@ extension PlayerModel {
         // reads only model state (`position`/`duration`), never the engine, so stopping first
         // records exactly the same values.
         engine.stop()
+        // Progress before the stream cache: its close writes the resume region to flash (up to
+        // 56 MiB), and the Detail page reloads "Resume · …" as soon as the player is gone.
         await recordCurrentProgress()
+        if let handle = streamHandle, let streamProxy {
+            streamHandle = nil
+            await streamProxy.close(handle)          // keep the resume region for next time
+        }
     }
 }

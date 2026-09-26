@@ -113,4 +113,56 @@ import Testing
         let srt = "1\n00:00:10,000 --> 00:00:12,000\nLine."
         #expect(SubtitleRetimer.rescale(srt, by: 1) == srt)
     }
+
+    // MARK: - shift
+
+    @Test func shiftMovesBothEndsOfEveryCueByTheSameAmount() {
+        // The case that made subtitles vanish: a line 11.5s late, pulled earlier. libvlc drops a
+        // line asked to appear more than a few seconds before it has read it, so the offset has
+        // to be in the file itself.
+        let srt = """
+        1
+        00:00:20,000 --> 00:00:22,500
+        First line.
+
+        2
+        01:00:00,000 --> 01:00:01,000
+        After the hour.
+        """
+        let out = SubtitleRetimer.shift(srt, by: -11.5)
+        #expect(out.contains("00:00:08,500 --> 00:00:11,000"))
+        #expect(out.contains("00:59:48,500 --> 00:59:49,500"))
+        #expect(out.contains("First line.") && out.hasPrefix("1\n"))
+    }
+
+    @Test func aPositiveShiftShowsEveryLineLater() {
+        let out = SubtitleRetimer.shift("00:00:10,000 --> 00:00:12,000\nLine.", by: 2.25)
+        #expect(out.contains("00:00:12,250 --> 00:00:14,250"))
+    }
+
+    @Test func aCueShiftedPastTheStartIsClampedToZeroNeverNegative() {
+        // A timestamp cannot be negative. A line wholly before zero collapses to an empty cue that
+        // is never shown; one straddling zero keeps the part that is still on the timeline.
+        let srt = """
+        00:00:05,000 --> 00:00:07,000
+        Gone.
+
+        00:00:08,000 --> 00:00:12,000
+        Partly kept.
+        """
+        let out = SubtitleRetimer.shift(srt, by: -10)
+        #expect(out.contains("00:00:00,000 --> 00:00:00,000\nGone."))
+        #expect(out.contains("00:00:00,000 --> 00:00:02,000\nPartly kept."))
+    }
+
+    @Test func shiftKeepsWebVTTDotsAndCueSettings() {
+        let vtt = "WEBVTT\n\n00:00:10.000 --> 00:00:12.000 line:90%\nA line."
+        #expect(SubtitleRetimer.shift(vtt, by: -1)
+            .contains("00:00:09.000 --> 00:00:11.000 line:90%"))
+    }
+
+    @Test func shiftingByZeroChangesNothing() {
+        let srt = "1\n00:00:10,000 --> 00:00:12,000\nLine."
+        #expect(SubtitleRetimer.shift(srt, by: 0) == srt)
+    }
 }

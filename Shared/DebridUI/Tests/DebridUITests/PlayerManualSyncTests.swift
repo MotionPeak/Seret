@@ -112,7 +112,8 @@ import DebridCore
         subs.downloadedText = srt
         let m = PlayerModel(request: Fixture.request(sources: [Fixture.movieSource()]),
                             engine: engine, unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
-                            recordProgress: { _, _, _, _, _ in }, subtitles: subs)
+                            recordProgress: { _, _, _, _, _ in }, subtitles: subs,
+                            subtitleShiftDebounce: 0.01)
         m.start()
         await m.waitForIdleForTesting()
         await m.requestSubtitle(language: "he")
@@ -166,7 +167,12 @@ import DebridCore
         m.markSyncMoment()
 
         #expect(abs(m.subtitleDelay - 2.4) < 0.0001)
-        #expect(engine.subtitleDelays.last.map { abs($0 - 2.4) < 0.0001 } == true)
+        // A downloaded subtitle carries the offset in the file on screen, not as a libvlc delay.
+        try? await Task.sleep(for: .milliseconds(100))
+        await m.waitForIdleForTesting()
+        let shifted = engine.addedSubtitles.last.flatMap { try? String(contentsOf: $0, encoding: .utf8) }
+        #expect(shifted?.contains("00:00:12,400 --> 00:00:14,400") == true)
+        #expect(!engine.subtitleDelays.contains { abs($0 - 2.4) < 0.0001 })
     }
 
     @Test func theLineNearestThePlayheadIsSelectedFirst() async {

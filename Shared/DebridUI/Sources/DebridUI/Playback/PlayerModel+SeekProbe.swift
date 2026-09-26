@@ -125,8 +125,9 @@ extension PlayerModel {
 
     /// `-autoSkips "10,-10,30,10x4,@1965"`: the skips a viewer actually makes, in order. `10` is one
     /// tap forward, `-10` one back, `10x4` four taps 0.28s apart (the cadence on the iPad's log),
-    /// and `@1965` a scrub straight to 32:45 — how a run reaches the stretch of a file a report
-    /// was about.
+    /// `@1965` a scrub straight to 32:45 — how a run reaches the stretch of a file a report was
+    /// about — and `p90` a 90s pause, then play: the viewer who takes a phone call, long enough for
+    /// the idle connection to RD to time out under the stream cache.
     ///
     /// Exists to A/B libvlc's read-ahead (`-prefetchKiB` / `-prefetchThreshold`) on the same file
     /// with the same inputs. The latency printed here is coarse — landing is only noticed on a
@@ -137,6 +138,7 @@ extension PlayerModel {
         guard let i = args.firstIndex(of: "-autoSkips"), i + 1 < args.count else { return nil }
         let steps = args[i + 1].split(separator: ",").compactMap { token -> (Double, Int, Bool)? in
             if token.hasPrefix("@") { return Double(token.dropFirst()).map { ($0, 1, true) } }
+            if token.hasPrefix("p") { return Double(token.dropFirst()).map { ($0, 0, false) } }  // no taps
             let parts = token.split(separator: "x")
             guard let delta = Double(parts[0]) else { return nil }
             return (delta, parts.count > 1 ? Int(parts[1]) ?? 1 : 1, false)
@@ -149,10 +151,15 @@ extension PlayerModel {
             try? await Task.sleep(for: .seconds(10))      // a settled stream, as a viewer would have
             for step in steps {
                 guard let self else { return }
-                let label = step.absolute ? "@\(Int(step.delta))"
+                let label = step.absolute ? "@\(Int(step.delta))" : step.taps == 0 ? "p\(Int(step.delta))"
                     : step.taps > 1 ? "\(Int(step.delta))x\(step.taps)" : "\(Int(step.delta))"
                 print("[skips] \(label) from \(Self.t(self.position))")
                 if step.absolute { self.scrub(to: step.delta) }
+                if step.taps == 0, !step.absolute {                  // a pause: "landed" = playing again
+                    self.pause()
+                    try? await Task.sleep(for: .seconds(step.delta))
+                    self.play()
+                }
                 for tap in 0..<(step.absolute ? 0 : step.taps) {
                     if tap > 0 { try? await Task.sleep(for: .milliseconds(280)) }
                     self.skip(step.delta)

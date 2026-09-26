@@ -4,40 +4,62 @@ import Foundation
 /// Recognizes regional-indicator flag emoji (mapped country→primary language) and
 /// common English language words. Flags are read first (left→right); words are then
 /// added in their order of appearance in the text. Duplicates removed.
+/// Subtitle tags ("Heb.Sub") are not audio — see `ReleaseSubtitleTags`.
 public struct LanguageDetector: Sendable {
     public init() {}
 
     public func detect(in text: String) -> [String] {
+        // Subtitle tags come out first. "Heb.Sub" names the SUBTITLES; read as audio, it sank the
+        // very releases a Hebrew-reading viewer wants, as if an English film were a Hebrew dub.
+        let tags = ReleaseSubtitleTags().scan(text)
+        var flags = Self.flagLanguages(in: text)
+        let words = Self.wordLanguages(in: tags.remainder)
+        // An addon's flag is its guess from the same name. When the name mentions a language only
+        // as subtitles, the flag is the subtitles talking, not the audio.
+        for code in tags.languages where !words.contains(code) {
+            flags.removeAll { $0 == code }
+        }
         var result: [String] = []
-        func add(_ code: String) { if !result.contains(code) { result.append(code) } }
+        for code in flags + words where !result.contains(code) { result.append(code) }
+        return result
+    }
 
-        // 1) Flag emoji: consecutive regional indicator pairs → country code → language.
+    /// Flag emoji, left to right: consecutive regional-indicator pairs → country → language.
+    private static func flagLanguages(in text: String) -> [String] {
+        var result: [String] = []
         let scalars = Array(text.unicodeScalars)
         var i = 0
         while i < scalars.count {
-            if let c0 = Self.regionalLetter(scalars[i]), i + 1 < scalars.count,
-               let c1 = Self.regionalLetter(scalars[i + 1]) {
-                let country = String([c0, c1])
-                if let lang = Self.countryToLanguage[country] { add(lang) }
+            if let c0 = regionalLetter(scalars[i]), i + 1 < scalars.count,
+               let c1 = regionalLetter(scalars[i + 1]) {
+                if let lang = countryToLanguage[String([c0, c1])], !result.contains(lang) {
+                    result.append(lang)
+                }
                 i += 2
             } else {
                 i += 1
             }
         }
+        return result
+    }
 
-        // 2) Whole-word language names, in order of appearance.
+    /// Whole-word language names and scene abbreviations, in order of appearance.
+    private static func wordLanguages(in text: String) -> [String] {
         let lowered = text.lowercased()
-        var wordMatches: [(offset: Int, code: String)] = []
+        var matches: [(offset: Int, code: String)] = []
         // Full language names AND 3-letter scene abbreviations ("ITA"/"GER"/"ENG"/"FRE"…).
         // Release names use the abbreviations far more than full words, so without these a
         // dual-audio dub like "Ger.Eng.Dubbed" reads as having no languages and slips past
         // the original-language ranking.
-        for (word, code) in Self.wordToLanguage.merging(Self.abbrevToLanguage, uniquingKeysWith: { a, _ in a }) {
-            if let range = Self.rangeOfWord(word, in: lowered) {
-                wordMatches.append((lowered.distance(from: lowered.startIndex, to: range.lowerBound), code))
+        for (word, code) in wordToLanguage.merging(abbrevToLanguage, uniquingKeysWith: { a, _ in a }) {
+            if let range = rangeOfWord(word, in: lowered) {
+                matches.append((lowered.distance(from: lowered.startIndex, to: range.lowerBound), code))
             }
         }
-        for match in wordMatches.sorted(by: { $0.offset < $1.offset }) { add(match.code) }
+        var result: [String] = []
+        for match in matches.sorted(by: { $0.offset < $1.offset }) where !result.contains(match.code) {
+            result.append(match.code)
+        }
         return result
     }
 

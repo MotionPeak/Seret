@@ -8,6 +8,11 @@ struct SeretMobileApp: App {
     @State private var session = AppSession(
         realDebrid: RealDebridSession(store: KeychainTokenStore()))
 
+    init() {
+        // The stream cache's lines go into vlc.log beside libvlc's own (see DiagnosticsLog).
+        AppSession.streamDiagnostics = { DiagnosticsLog.shared.write($0) }
+    }
+
     var body: some Scene {
         WindowGroup {
             if Self.isRunningTests {
@@ -15,7 +20,9 @@ struct SeretMobileApp: App {
                 Color.clear
             } else if let preview = Self.uiPreview {
                 #if DEBUG
-                if preview.hasPrefix("magnet") {
+                if preview == "versions" {
+                    VersionsUIPreview()                // -uiPreview versions
+                } else if preview.hasPrefix("magnet") {
                     MagnetUIPreview(target: preview)   // -uiPreview <magnetidle|magnetready|…>
                 } else {
                     PlayerUIPreview(target: preview)   // -uiPreview <playbacksheet|subtitlebrowser>

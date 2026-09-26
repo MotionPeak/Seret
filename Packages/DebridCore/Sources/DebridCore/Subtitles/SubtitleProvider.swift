@@ -34,7 +34,7 @@ public struct SubtitleQuery: Sendable, Equatable {
 
 /// One subtitle search hit. `fileID` is what `download` needs; the rest feeds `SubtitleMatch`
 /// ranking and the browser's badges.
-public struct SubtitleResult: Sendable, Equatable {
+public struct SubtitleResult: Sendable, Equatable, Codable {
     public let fileID: Int
     public let language: String
     public let release: String?

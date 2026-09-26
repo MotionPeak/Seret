@@ -40,6 +40,14 @@ public actor PlayableLinkCache {
         }
     }
 
+    /// Record a URL resolved elsewhere — the subtitle probe unrestricts these same links — so Play
+    /// reuses it instead of paying for a second `unrestrict`. Never displaces a fresh entry or a
+    /// resolve already in flight: either is at least as good.
+    public func seed(_ link: String, url: URL) {
+        guard inFlight[link] == nil, freshURL(link) == nil else { return }
+        ready[link] = (url, now())
+    }
+
     /// The playable URL for `link`: a fresh prefetched entry (consumed — one-shot), an
     /// in-flight prefetch (awaited and consumed, its error surfacing here), or a direct resolve.
     public func consume(_ link: String) async throws -> URL {

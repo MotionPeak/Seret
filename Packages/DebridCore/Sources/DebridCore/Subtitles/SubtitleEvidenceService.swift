@@ -1,0 +1,262 @@
+import Foundation
+
+/// A link resolved for reading: its direct URL and the file name Real-Debrid gives it.
+public struct ResolvedLink: Sendable, Equatable {
+    public let url: URL
+    public let fileName: String?
+    public init(url: URL, fileName: String?) {
+        self.url = url
+        self.fileName = fileName
+    }
+}
+
+/// Where every screen gets Hebrew-subtitle evidence. The title page and the Versions screen ask
+/// with the network allowed; Home and the player ask for stored knowledge only.
+public protocol SubtitleEvidenceProviding: Sendable {
+    /// Hebrew subtitles OpenSubtitles has for a movie or an episode. Asked once a day: an older
+    /// answer comes back at once and is refreshed behind it, and a failed search falls back to the
+    /// last answer whatever its age. nil when nothing is known.
+    func hebrewResults(contentKey: String, query: SubtitleQuery,
+                       originalLanguage: String?) async -> [SubtitleResult]?
+    /// The last search answer for a title, whatever its age, without touching the network.
+    func storedHebrewResults(contentKey: String) async -> [SubtitleResult]?
+    /// What each owned file carries, keyed by `WatchKey.source`. Reads the header of any file not
+    /// seen before, a couple at a time.
+    func records(for sources: [MediaSource]) async -> [String: VersionSubtitleRecord]
+    /// Stored knowledge only, never the network. For surfaces that must not wait.
+    func storedEvidence(for sources: [MediaSource], contentKey: String) async -> SubtitleEvidenceSet
+    /// What the player saw while this version played.
+    func recordPlayback(_ tracks: [MediaTrack], for source: MediaSource) async
+}
+
+/// Hebrew-subtitle evidence, fetched on demand and kept.
+///
+/// - A file's own tracks are read once, from its first bytes, and kept for good: a file never
+///   changes. A transient failure is not kept, so the next visit tries again.
+/// - OpenSubtitles is asked once a day per movie or episode: new subtitles appear all the time,
+///   but not so fast that every visit needs to ask.
+/// - What the player sees while a file plays fills in a file the header could not read — the only
+///   way an MP4's tracks are ever known. A header read is final and playback never changes it.
+public actor SubtitleEvidenceService: SubtitleEvidenceProviding {
+    public typealias Search = @Sendable (SubtitleQuery, [String]) async throws -> [SubtitleResult]
+    public typealias Resolve = @Sendable (String) async throws -> ResolvedLink
+    public typealias Probe = @Sendable (URL) async -> ContainerProbe.Outcome?
+
+    public static let searchTTL: TimeInterval = 24 * 60 * 60
+    /// How long an old answer is kept as the fallback. Past it, a title not opened in a month
+    /// drops out of the file, which every search rewrites whole.
+    static let searchKeep: TimeInterval = 30 * 24 * 60 * 60
+    /// Every episode's Versions screen writes one, and only films' are read back (by Home and the
+    /// web); a year bounds the file. A dropped entry is written again on the next visit.
+    static let languageKeep: TimeInterval = 365 * 24 * 60 * 60
+    /// An entry is rewritten when a visit finds it older than this, so a title still being visited
+    /// never ages out of `languageKeep`.
+    static let languageRefresh: TimeInterval = 30 * 24 * 60 * 60
+    /// Stands in for "forever" — a file's tracks do not change.
+    static let recordTTL: TimeInterval = 10 * 365 * 24 * 60 * 60
+    /// Each read is an unrestrict plus up to two ranged requests, and a title can hold a dozen.
+    /// The limit is the service's: two screens (or two web requests) share the same slots.
+    static let readsAtOnce = 2
+
+    struct SearchEntry: Codable, Sendable {
+        let results: [SubtitleResult]
+    }
+
+    private let searches: TTLFileCache<SearchEntry>
+    private let recordCache: TTLFileCache<VersionSubtitleRecord>
+    /// Each title's original language, kept apart from the search: Home and the web read it back
+    /// to apply the title page's guards (a Hebrew film takes no boost; a dub that lost the film's
+    /// language takes none) even when the search failed or there is no key to search with.
+    private let languages: TTLFileCache<String>
+    private let search: Search?
+    private let resolve: Resolve
+    private let probe: Probe
+    private var searchesInFlight: [String: Task<[SubtitleResult]?, Never>] = [:]
+    private var readsInFlight: [String: Task<VersionSubtitleRecord?, Never>] = [:]
+    private var readSlotsTaken = 0
+    /// Waiting reads, oldest first, each with the file it is for.
+    private var readSlotQueue: [(key: String, continuation: CheckedContinuation<Void, Never>)] = []
+
+    public init(directory: URL, search: Search?, resolve: @escaping Resolve,
+                probe: @escaping Probe = { await ContainerProbe().tracks(at: $0) },
+                now: @escaping @Sendable () -> Date = { Date() }) {
+        self.searches = TTLFileCache(directory: directory, fileName: "hebrew-searches.json",
+                                     ttl: Self.searchTTL, keepFor: Self.searchKeep, now: now)
+        self.recordCache = TTLFileCache(directory: directory, fileName: "version-subtitles.json",
+                                        ttl: Self.recordTTL, now: now)
+        self.languages = TTLFileCache(directory: directory, fileName: "title-languages.json",
+                                      ttl: Self.languageRefresh, keepFor: Self.languageKeep, now: now)
+        self.search = search
+        self.resolve = resolve
+        self.probe = probe
+    }
+
+    /// Where the apps and the server keep it: Application Support where it exists, Caches on tvOS.
+    public static var defaultDirectory: URL {
+        WritableStorage.directory(named: "SeretSubtitleEvidence")
+            ?? FileManager.default.temporaryDirectory.appending(path: "SeretSubtitleEvidence")
+    }
+
+    public func hebrewResults(contentKey: String, query: SubtitleQuery,
+                              originalLanguage: String?) async -> [SubtitleResult]? {
+        // New, changed or a month old: written, so the year-long keep counts from the last visit.
+        if let language = LanguageCode.normalize(originalLanguage), await languages.cached(contentKey) != language {
+            await languages.store(language, key: contentKey)
+        }
+        if let fresh = await searches.cached(contentKey) { return fresh.results }
+        let stale = await searches.stored(contentKey)?.results
+        guard let search else { return stale }
+        let flight = searchFlight(for: contentKey, query: query, search: search)
+        // Yesterday's answer now beats today's in a minute: new Hebrew subtitles for a title
+        // appear over days, and the refresh keeps running behind this answer.
+        if let stale { return stale }
+        return await flight.value
+    }
+
+    public func storedHebrewResults(contentKey: String) async -> [SubtitleResult]? {
+        await searches.stored(contentKey)?.results
+    }
+
+    /// The title's language as last stored, for a caller that could not learn it this time.
+    func storedLanguage(for contentKey: String) async -> String? {
+        await languages.stored(contentKey)
+    }
+
+    public func records(for sources: [MediaSource]) async -> [String: VersionSubtitleRecord] {
+        var known: [String: VersionSubtitleRecord] = [:]
+        var flights: [(key: String, flight: Task<VersionSubtitleRecord?, Never>)] = []
+        for source in sources {
+            let key = WatchKey.source(source)
+            // A flight first — checked before the await below, so a read that stores its answer
+            // and clears its flight meanwhile cannot be started a second time from here.
+            if let flight = readsInFlight[key] {
+                promoteQueuedRead(key)       // wanted again, by the screen the viewer is on now
+                flights.append((key, flight))
+            } else if let record = await recordCache.stored(key), record.isFinal {
+                known[key] = record
+            } else {
+                // Unknown, or only reported by the player: the header is still to be read.
+                flights.append((key, readFlight(for: source)))
+            }
+        }
+        // Every read is queued at once and takes a slot as one frees up, so a slow file holds up
+        // nothing but itself.
+        for (key, flight) in flights {
+            if let record = await flight.value { known[key] = record }
+        }
+        return known
+    }
+
+    public func storedEvidence(for sources: [MediaSource], contentKey: String) async -> SubtitleEvidenceSet {
+        var records: [String: VersionSubtitleRecord] = [:]
+        for source in sources {
+            let key = WatchKey.source(source)
+            if let record = await recordCache.stored(key) { records[key] = record }
+        }
+        return .owned(sources, records: records,
+                      hebrewResults: await searches.stored(contentKey)?.results ?? [],
+                      originalLanguage: await languages.stored(contentKey))
+    }
+
+    public func recordPlayback(_ tracks: [MediaTrack], for source: MediaSource) async {
+        // A downloaded subtitle is attached by the player but is not in the file.
+        let observed = tracks.filter { !$0.isExternal }.map { ContainerTrack($0) }
+        guard !observed.isEmpty else { return }
+        await recordCache.update(WatchKey.source(source)) { existing in
+            let merged = (existing ?? VersionSubtitleRecord(origin: .playback)).merging(playback: observed)
+            return merged == existing ? nil : merged
+        }
+    }
+
+    /// One search per title, however many screens ask: a second caller joins the first's flight.
+    private func searchFlight(for contentKey: String, query: SubtitleQuery,
+                              search: @escaping Search) -> Task<[SubtitleResult]?, Never> {
+        if let flight = searchesInFlight[contentKey] { return flight }
+        let flight = Task { await self.runSearch(contentKey, query: query, search: search) }
+        searchesInFlight[contentKey] = flight
+        return flight
+    }
+
+    private func runSearch(_ contentKey: String, query: SubtitleQuery,
+                           search: Search) async -> [SubtitleResult]? {
+        var results: [SubtitleResult]?
+        do {
+            let found = try await search(query, ["he"]).filter { LanguageCode.normalize($0.language) == "he" }
+            await searches.store(SearchEntry(results: found), key: contentKey)
+            results = found
+        } catch {
+            results = await searches.stored(contentKey)?.results     // a stale answer beats none
+        }
+        searchesInFlight[contentKey] = nil                             // once the answer is stored
+        return results
+    }
+
+    /// One read per file, however many screens ask: a second caller joins the first's flight.
+    private func readFlight(for source: MediaSource) -> Task<VersionSubtitleRecord?, Never> {
+        let key = WatchKey.source(source)
+        if let flight = readsInFlight[key] { return flight }
+        let flight = Task { await self.read(source, key: key) }
+        readsInFlight[key] = flight
+        return flight
+    }
+
+    private func read(_ source: MediaSource, key: String) async -> VersionSubtitleRecord? {
+        await takeReadSlot(for: key)
+        let found = await Self.readHeader(of: source, resolve: resolve, probe: probe)
+        releaseReadSlot()
+        let kept: VersionSubtitleRecord?
+        if let found {
+            kept = await recordCache.update(key) { VersionSubtitleRecord.afterRead(found, over: $0) }
+        } else {
+            // Transient: nothing is kept, and the next visit tries again — but whatever was known
+            // (the player's report) still counts meanwhile, or a single 503 would take the badge,
+            // the chip and Play's pick away.
+            kept = await recordCache.stored(key)
+        }
+        // Only once the answer is stored: cleared any sooner, a caller arriving in between would
+        // find neither a record nor a flight, and read the file again. (A caller already past its
+        // flight check and waiting on the cache can still start a second read in that instant —
+        // harmless: `afterRead` lands either order on the same record.)
+        readsInFlight[key] = nil
+        return kept
+    }
+
+    /// Off the actor: an unrestrict and up to two ranged requests.
+    private static func readHeader(of source: MediaSource, resolve: Resolve,
+                                   probe: Probe) async -> VersionSubtitleRecord? {
+        guard let link = try? await resolve(source.restrictedLink),
+              let outcome = await probe(link.url) else { return nil }
+        switch outcome {
+        case .tracks(let tracks):
+            return VersionSubtitleRecord(origin: .header, fileName: link.fileName, tracks: tracks)
+        case .notMatroska, .unreadable:
+            return VersionSubtitleRecord(origin: .unreadable, fileName: link.fileName)
+        }
+    }
+
+    private func takeReadSlot(for key: String) async {
+        if readSlotsTaken < Self.readsAtOnce {
+            readSlotsTaken += 1
+            return
+        }
+        await withCheckedContinuation { readSlotQueue.append((key, $0)) }   // handed a slot on release
+    }
+
+    /// A read still waiting that a screen asks for again becomes the newest: return to a page and
+    /// its reads go before those of the pages visited in between.
+    private func promoteQueuedRead(_ key: String) {
+        guard let index = readSlotQueue.firstIndex(where: { $0.key == key }),
+              index != readSlotQueue.count - 1 else { return }
+        readSlotQueue.append(readSlotQueue.remove(at: index))
+    }
+
+    /// The newest waiter first: the screen the viewer is on now asked last, and a page they have
+    /// left may have queued a dozen reads nobody is waiting for any more.
+    private func releaseReadSlot() {
+        if readSlotQueue.isEmpty {
+            readSlotsTaken -= 1
+        } else {
+            readSlotQueue.removeLast().continuation.resume()
+        }
+    }
+}

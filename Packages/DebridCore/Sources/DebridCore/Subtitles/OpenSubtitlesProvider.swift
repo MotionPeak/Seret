@@ -1,7 +1,8 @@
 import Foundation
 
 /// OpenSubtitles (api/v1) subtitle provider. An `actor` because it caches the login JWT.
-/// `search` needs only the Api-Key; `download` (Task 4) needs a logged-in Bearer token.
+/// `search` needs only the Api-Key (so a provider may be built with no account); `download` needs
+/// a logged-in Bearer token.
 public actor OpenSubtitlesProvider: SubtitleProvider {
     public struct Credentials: Sendable {
         public let username: String
@@ -15,7 +16,7 @@ public actor OpenSubtitlesProvider: SubtitleProvider {
     public static let base = URL(string: "https://api.opensubtitles.com/api/v1")!
 
     private let apiKey: String
-    private let credentials: Credentials
+    private let credentials: Credentials?
     private let http: HTTPClient
     private let userAgent: String
     private let cacheDirectory: URL
@@ -37,7 +38,7 @@ public actor OpenSubtitlesProvider: SubtitleProvider {
             ?? FileManager.default.temporaryDirectory.appending(path: "SeretSubtitles")
     }
 
-    public init(apiKey: String, credentials: Credentials,
+    public init(apiKey: String, credentials: Credentials?,
                 http: HTTPClient = HTTPClient(), userAgent: String = "Seret v1",
                 cacheDirectory: URL = OpenSubtitlesProvider.defaultCacheDirectory) {
         self.apiKey = apiKey
@@ -151,6 +152,9 @@ public actor OpenSubtitlesProvider: SubtitleProvider {
     /// Returns the cached login token, logging in (once) if there isn't one.
     private func ensureToken() async throws -> String {
         if let token { return token }
+        // Search needs only the API key. A provider built without an account can still search —
+        // it is what the Hebrew-subtitle badges run on — but it cannot download.
+        guard let credentials else { throw SubtitleError.notAuthenticated }
         do {
             let response: OSLoginResponse = try await http.post(
                 Self.base.appending(path: "login"),

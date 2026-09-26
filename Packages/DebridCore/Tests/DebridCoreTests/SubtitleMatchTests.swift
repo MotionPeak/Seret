@@ -62,6 +62,17 @@ import Foundation
         #expect(SubtitleMatch.rank(all, against: fileName, videoFPS: nil).count == 7)
     }
 
+    /// Preparing results once is only an optimisation: it must rank exactly as before.
+    @Test func preparedResultsRankExactlyAsRawOnes() {
+        let all = [result("Oppenheimer.2023.1080p.BluRay.x264-SPARKS.srt", downloads: 50, id: 1),
+                   result("Oppenheimer.2023.2160p.WEB-DL.DDP5.1.x265-FLUX", downloads: 10, id: 2),
+                   result("oppenheimer.2023.720p.bluray", downloads: 0, id: 3)]
+        for name in [fileName, "Oppenheimer.2023.2160p.WEB-DL.x265-FLUX.mkv", "Other.Film.2020.mp4"] {
+            #expect(SubtitleMatch.rank(prepared: SubtitleMatch.prepare(all), against: name, videoFPS: 23.976)
+                    == SubtitleMatch.rank(all, against: name, videoFPS: 23.976))
+        }
+    }
+
     @Test func anEmptyListRanksToNothing() {
         #expect(SubtitleMatch.rank([], against: fileName, videoFPS: nil).isEmpty)
     }
@@ -93,5 +104,16 @@ import Foundation
                                   release: "Some.Film.2024.1080p.WEB-DL.x264-NTb")
         let ranked = SubtitleMatch.rank([same], against: video, videoFPS: nil)
         #expect(ranked.first?.reasons.contains(.sameGroup) == true)
+    }
+
+    /// A release named both "BluRay" and "REMUX" carries two source tokens. The match took `.first`
+    /// of a Set of them, and a Set's order changes from launch to launch, so the same file matched a
+    /// BluRay subtitle on one launch and not the next. Seen live on Arrival's Versions screen.
+    @Test func aReleaseNamedBothBluRayAndREMUXMatchesABluRaySubtitleEveryTime() {
+        let sub = SubtitleResult(fileID: 1, language: "he",
+                                 release: "Arrival.2016.2160p.UHD.BluRay.x265-CtrlHD")
+        let ranked = SubtitleMatch.rank([sub], against: "Arrival.2016.2160p.BluRay.REMUX.HEVC-FGT",
+                                        videoFPS: nil)
+        #expect(ranked.first?.reasons.contains(.sameSource) == true)
     }
 }

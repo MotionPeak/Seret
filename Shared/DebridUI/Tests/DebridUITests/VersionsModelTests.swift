@@ -59,6 +59,13 @@ private func cachedStream(_ hash: String, res: String = "1080p", size: Int = 5_0
                 sizeBytes: size, sourceName: nil, isCached: true)
 }
 
+/// A release Real-Debrid does not have yet: it downloads first, so it belongs under Download.
+private func uncachedStream(_ hash: String) -> CachedStream {
+    CachedStream(infoHash: hash, fileIdx: nil, rawTitle: "Movie.2024.1080p.WEB",
+                parsed: ParsedRelease(title: "Movie", resolution: "1080p"), languages: ["en"],
+                sizeBytes: 5_000_000_000, sourceName: nil, isCached: false)
+}
+
 /// An oversized 2160p release — over the 35 GB band, so `splitOversized` puts it in "larger".
 private func oversizedStream(_ hash: String) -> CachedStream {
     CachedStream(infoHash: hash, fileIdx: nil, rawTitle: "Movie.2024.2160p.REMUX",
@@ -131,16 +138,36 @@ private func downloadStore(req: any DownloadRequesting = FakeReq()) -> DownloadS
 
     // MARK: load
 
-    @Test func loadsAndPutsOversizedFirst() async {
+    @Test func loadsInstantAboveDownloadWithOversizedFirstInEach() async throws {
         let m = VersionsModel(hit: movieHit(), target: .movie,
                               flow: flow(hit: movieHit(), details: FakeDetails(movie: .success(movieDetails(imdb: "tt1"))),
                                         streams: FakeStreamSource(.success([
-                                            cachedStream("small"), oversizedStream("big")]))),
+                                            uncachedStream("fetch"), cachedStream("small"),
+                                            oversizedStream("big")]))),
                               downloads: nil, onAdded: {})
         await m.load()
         #expect(m.phase == .ready)
-        #expect(m.larger.map(\.infoHash) == ["big"])
-        #expect(m.rest.map(\.infoHash) == ["small"])
+        try #require(m.groups.map(\.availability) == [.instant, .download])
+        #expect(m.groups[0].larger.map(\.infoHash) == ["big"])
+        #expect(m.groups[0].rest.map(\.infoHash) == ["small"])
+        #expect(m.groups[1].rest.map(\.infoHash) == ["fetch"])
+    }
+
+    @Test func eachRowReadsItsHebrewFromTheSearch() async {
+        // A HebSubs release name is in-file Hebrew with no search at all; the badge must reach the
+        // row through the model, as the ranking already sees it.
+        let heb = CachedStream(infoHash: "heb", fileIdx: nil, rawTitle: "Movie.2024.1080p.HebSubs",
+                               parsed: ParsedRelease(title: "Movie", resolution: "1080p"), languages: ["en"],
+                               sizeBytes: 5_000_000_000, sourceName: nil, isCached: true,
+                               subtitleLanguages: ["he"])
+        let plain = cachedStream("plain")
+        let m = VersionsModel(hit: movieHit(), target: .movie,
+                              flow: flow(hit: movieHit(), details: FakeDetails(movie: .success(movieDetails(imdb: "tt1"))),
+                                        streams: FakeStreamSource(.success([plain, heb]))),
+                              downloads: nil, onAdded: {})
+        await m.load()
+        #expect(m.hebrew(for: heb) == .builtIn)
+        #expect(m.hebrew(for: plain) == HebrewSubtitles.none)
     }
 
     @Test func anEpisodeListsThatEpisodesVersions() async {

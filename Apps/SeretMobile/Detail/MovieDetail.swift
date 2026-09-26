@@ -42,6 +42,11 @@ struct MovieDetail: View {
                         .font(Theme.Typo.body()).foregroundStyle(Theme.Palette.gold)
                 }
                 if let best = store.bestSource { QualityChipRow(parsed: best.parsed) }
+                // Its own line: four quality chips already fill an iPhone's width, and anything
+                // beside them — even an invisible placeholder — squeezed them.
+                if let chip = store.hebrewChip {
+                    HebrewBadge(HebrewIndicator(chip: chip), prominent: true)
+                }
                 RatingsRow(ratings: store.ratings, letterboxd: store.letterboxdRating)
                 actions
                 UserRatingRow(store: store)
@@ -123,6 +128,7 @@ struct MovieDetail: View {
         var parts: [String] = []
         if let y = item.year { parts.append(String(y)) }
         if let r = store.runtime { parts.append("\(r) min") }
+        if let language = store.languageName { parts.append(language) }
         if !store.genres.isEmpty { parts.append(store.genres.prefix(3).joined(separator: " · ")) }
         // The director is NOT folded in here any more — it is its own row of tappable names.
         return parts.joined(separator: "  ·  ")
@@ -253,7 +259,16 @@ struct MovieDetail: View {
                     Image(systemName: store.isActive(src) ? "checkmark.circle.fill" : "circle")
                         .foregroundStyle(store.isActive(src)
                                          ? Theme.Palette.gold : Theme.Palette.textSecondary)
-                    QualityChipRow(parsed: src.parsed)
+                    // The marks on lines of their own: an iPhone row has no room beside four
+                    // chips, and this is the one fact about a version that must never be truncated
+                    // away. Hebrew inside the file is always in sync, so it goes on top, as in the
+                    // Versions list.
+                    VStack(alignment: .leading, spacing: 4) {
+                        let hebrew = HebrewIndicator(store.hebrew(for: src))
+                        if hebrew == .inFile { HebrewBadge(.inFile) }
+                        QualityChipRow(parsed: src.parsed)
+                        if hebrew == .matched { HebrewBadge(.matched) }
+                    }
                     Spacer()
                     Image(systemName: "play.circle.fill").foregroundStyle(Theme.Palette.gold)
                 }
@@ -359,7 +374,9 @@ private struct MovieDownloadSection: View {
                 requesting = true
                 var candidates: [CachedStream] = []
                 if let imdbID, let add = session.makeAddStore(imdbID: imdbID, kind: .movie,
-                                                              originalLanguage: originalLanguage) {
+                                                              originalLanguage: originalLanguage,
+                                                              subtitleTarget: .movie(tmdbID: tmdbID, title: title,
+                                                                                     year: nil)) {
                     candidates = await add.uncachedCandidates()
                 }
                 await session.downloadStore?.request(contentKey: DownloadKey.movie(tmdbID: tmdbID),

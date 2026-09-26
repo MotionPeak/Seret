@@ -45,6 +45,35 @@ struct LibraryShell: View {
     /// Search needs a kind and the menu has none — take the section the user is browsing.
     private var searchKind: MediaKind { tab == .shows ? .show : .movie }
 
+    #if DEBUG
+    /// Whether `-openTitle` has already pushed its page, so a later library refresh does not
+    /// push it again.
+    @State private var openedTitleForTesting = false
+
+    /// DEBUG-only: `-openTitle <text>` pushes the title page of the first library film whose title
+    /// contains the text. It checks a title page against the real account without walking the focus
+    /// engine, which takes synthesized keystrokes unreliably.
+    ///
+    ///     xcrun simctl launch <udid> com.solomons.seret.tv -openTitle Arrival
+    ///
+    /// `-openVersions <text>` pushes that film's full-screen Versions list instead: the real
+    /// search, ranking and Hebrew evidence, without walking to "Find Other Versions".
+    private func openTitleForTesting() {
+        let args = ProcessInfo.processInfo.arguments
+        let flag = args.contains("-openVersions") ? "-openVersions" : "-openTitle"
+        guard !openedTitleForTesting, let i = args.firstIndex(of: flag), i + 1 < args.count,
+              let movies = session.libraryStore?.movies, !movies.isEmpty else { return }
+        let needle = args[i + 1].lowercased()
+        guard let item = movies.first(where: { $0.title.lowercased().contains(needle) }) else { return }
+        openedTitleForTesting = true
+        guard flag == "-openVersions" else { path.append(item); return }
+        guard let tmdb = item.tmdbID else { return }
+        path.append(BrowseDestination.versions(SearchHit(result: TMDBSearchResult(
+            id: tmdb, title: item.title, name: nil, releaseDate: nil, firstAirDate: nil,
+            posterPath: item.posterPath, overview: nil, voteAverage: nil), kind: .movie)))
+    }
+    #endif
+
     var body: some View {
         ZStack(alignment: .leading) {
             NavigationStack(path: $path) {
@@ -123,6 +152,9 @@ struct LibraryShell: View {
         .task(id: session.libraryStore?.attempt ?? -1) {
             await session.libraryStore?.load()
         }
+        #if DEBUG
+        .task(id: session.libraryStore?.movies.count ?? 0) { openTitleForTesting() }
+        #endif
         .task { if tileMarks == nil { tileMarks = session.makeTileWatchMarks() } }
         .environment(tileMarks ?? .placeholder)
         .task {
@@ -157,7 +189,8 @@ struct LibraryShell: View {
                        myList: session.myListStore,
                        ratings: session.ratingsProvider,
                        versionPrefs: session.versionPreferences,
-                       letterboxd: session.letterboxdRatingProvider)
+                       letterboxd: session.letterboxdRatingProvider,
+                       subtitleEvidence: session.subtitleEvidence)
         }
     }
 

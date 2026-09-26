@@ -61,7 +61,8 @@ import DebridCore
         let audio = probe ?? FakeAudioProbe.speaking(at: cueTimes.map { $0 - shiftSeconds })
         let m = PlayerModel(request: Fixture.request(), engine: engine,
                             unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
-                            recordProgress: { _, _, _, _, _ in }, subtitles: subs, audioProbe: audio,
+                            recordProgress: { _, _, _, _, _ in }, subtitles: subs,
+                            subtitleShiftDebounce: 0.01, audioProbe: audio,
                             autoSyncWindow: 90, autoSyncMaxLag: 5, autoSyncMinimumHalf: 25)
         return (m, engine, audio)
     }
@@ -83,7 +84,12 @@ import DebridCore
 
         #expect(m.autoSyncState == .synced)
         #expect(abs(m.subtitleDelay - (-4.0)) < 0.35)
-        #expect(engine.subtitleDelays.last.map { abs($0 - (-4.0)) < 0.35 } == true)
+        // −4s is past what libvlc can show, so it must reach the screen in the file, not as a
+        // delay: a shifted copy is attached, and libvlc is never asked to move anything earlier.
+        try? await Task.sleep(for: .milliseconds(100))
+        await m.waitForIdleForTesting()
+        #expect(engine.addedSubtitles.last?.lastPathComponent.hasPrefix("shiftm") == true)
+        #expect(engine.subtitleDelays.allSatisfy { $0 >= 0 })
         // It listened inside the film, not over the opening titles.
         #expect(probe.requests.first.map { $0.from > 60 } == true)
     }

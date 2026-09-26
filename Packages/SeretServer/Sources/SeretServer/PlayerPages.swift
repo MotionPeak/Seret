@@ -298,6 +298,8 @@ private func detailPage(itemID: String) -> String {
     .staticcard{flex:0 0 132px}
     .staticcard .poster{width:100%;aspect-ratio:2/3;border-radius:var(--r-card);
       background:var(--surface2) center/cover no-repeat;border:1px solid var(--hairline)}
+    .chip.heb{background:var(--gold);color:#1A1400;font-weight:700}
+    .chip.heb.dim{opacity:.6}
     </style>
     <div class=stick id=stick><div class=circ onclick="history.length>1?history.back():location.href='/'">‹</div>
       <div class=st id=stitle></div></div>
@@ -334,6 +336,7 @@ private func detailPage(itemID: String) -> String {
       const m = [];
       if (i.year) m.push(i.year);
       if (i.runtime) m.push(runtime(i.runtime));
+      if (i.language) m.push(i.language);
       if (i.genres && i.genres.length) m.push(i.genres.slice(0,3).join(' · '));
       if (i.director) m.push('Dir. ' + i.director);
       document.getElementById('meta').textContent = m.join('  ·  ');
@@ -345,9 +348,10 @@ private func detailPage(itemID: String) -> String {
         if (r.metacritic!=null) parts.push(`<span class=rate><span class=mc>${r.metacritic}</span> <span class=lbl>Metacritic</span></span>`);
         document.getElementById('rates').innerHTML = parts.join('');
       }
-      // quality chips
+      // Hebrew subtitles first — the first thing this household asks of a version — then quality
+      const heb = i.hebrew ? `<span class="chip heb${i.hebrewDim ? ' dim' : ''}">${esc(i.hebrew)}</span>` : '';
       document.getElementById('chips').innerHTML =
-        (i.qualityChips||[]).map(c=>`<span class=chip>${esc(c)}</span>`).join('');
+        heb + (i.qualityChips||[]).map(c=>`<span class=chip>${esc(c)}</span>`).join('');
       // actions
       document.getElementById('actions').innerHTML =
         `<a class=btn-gold href="/watch?item=${encodeURIComponent(i.id)}&version=${i.bestVersionIndex}">▶ Play</a>`;
@@ -357,7 +361,7 @@ private func detailPage(itemID: String) -> String {
         document.getElementById('vsect').style.display = 'block';
         document.getElementById('versions').innerHTML = i.versions.map((v,n)=>
           `<div class=ver onclick="location.href='/watch?item=${encodeURIComponent(i.id)}&version=${v.index}'">
-             <div><div class=vlabel>${esc(v.label)}</div>
+             <div><div class=vlabel>${esc(v.label)} ${v.hebrew ? `<span class="chip heb">${esc(v.hebrew)}</span>` : ''}</div>
                   <div class="muted" style=font-size:12px>Version ${n+1}</div></div>
              <div class=go>▶</div></div>`).join('');
       }

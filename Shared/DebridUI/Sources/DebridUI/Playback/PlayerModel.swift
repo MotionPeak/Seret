@@ -155,6 +155,16 @@ public final class PlayerModel {
     /// Cleared with the rest of the per-file subtitle state on a source change.
     var attachedSubtitleTracks: [URL: String] = [:]
 
+    /// Shifted copies of downloaded subtitles: each copy → the file it was made from and how far
+    /// it moves that file's lines. See `PlayerModel+SubtitleShift`.
+    var subtitleShiftCopies: [URL: (base: URL, seconds: Double)] = [:]
+    /// The debounced re-attach of a shifted copy, and the offset it will land.
+    var subtitleShiftTask: Task<Void, Never>?
+    var scheduledSubtitleShift: Double?
+    /// How long the offset must stay still before a shifted copy is attached — long enough that a
+    /// held nudge button is one re-attach, short enough to read as a response to the last press.
+    let subtitleShiftDebounce: Double
+
     /// Cue lists for downloaded subtitles, keyed by the file that was attached to the engine.
     ///
     /// Parsed on the way in, where the text has already been decoded for the rate check — so asking
@@ -174,9 +184,12 @@ public final class PlayerModel {
         return subtitleTracks.filter { !downloaded.contains($0.id) }
     }
 
-    /// Track ids that came from an on-demand subtitle download (one per `.attached` row).
+    /// Track ids that came from an on-demand subtitle download: every one a language row owns, and
+    /// every file ever attached this session. The second half matters because libvlc cannot drop a
+    /// slave once attached, so each offset a downloaded subtitle has been shifted to leaves its old
+    /// copy behind in the track list — unowned, and otherwise shown as a loose "Track N" pill.
     private var downloadedTrackIDs: Set<String> {
-        Set(subtitleRows.compactMap { attachedTrackID($0) })
+        Set(subtitleRows.compactMap { attachedTrackID($0) }).union(attachedSubtitleTracks.values)
     }
 
     /// The downloaded track id backing a language row, if it has been downloaded.
@@ -201,14 +214,8 @@ public final class PlayerModel {
     /// current-locale name would put "עברית" directly beneath "Hebrew" and read as two different
     /// things.
     public static func languageName(_ code: String) -> String {
-        // Some containers write a full name where a code belongs ("English", "Brazilian
-        // Portuguese"). Resolving that yields nothing, and the fallback would SHOUT it.
-        guard code.count <= 3 else { return code.capitalized }
-        return Self.englishNames.localizedString(forLanguageCode: code)?.capitalized
-            ?? code.uppercased()
+        LanguageName.english(code)
     }
-
-    private static let englishNames = Locale(identifier: "en_US")
 
     /// Continuous swipe-scrub (Step 2). While `isScrubbing`, the transport shows a preview marker at
     /// `scrubTarget` instead of the live playhead; the seek only happens on `commitScrub()`.
@@ -248,6 +255,10 @@ public final class PlayerModel {
     public internal(set) var contentKey: String
     let engine: VideoPlayerEngine
     let unrestrict: (String) async throws -> URL
+    /// The stream cache in front of Real-Debrid, or nil to play RD's links directly.
+    let streamProxy: StreamProxying?
+    /// The cache session for the source playing now.
+    var streamHandle: StreamHandle?
     /// Authoritative resume lookup (contentKey → saved seconds, nil/0 = start). Resolved at LOAD
     /// time so playback always resumes from the store's truth — the screen's watch state can be
     /// not-yet-loaded (tap Play right after Detail opens) or stale (immediate re-play) when the
@@ -256,6 +267,11 @@ public final class PlayerModel {
     /// Fire-and-forget unrestrict warm-up (PlayableLinkCache.prefetch) — called for the next
     /// episode's link when the Up Next bar appears, so a binge auto-advance starts instantly.
     let prefetchLink: ((String) -> Void)?
+    /// Reports the file's own tracks to the subtitle evidence. nil when nobody is listening.
+    let recordTracks: (@Sendable (MediaSource, [MediaTrack]) async -> Void)?
+    /// The last track set reported (source key first), so each file is reported once per change
+    /// rather than on every `.tracksChanged`.
+    var recordedTrackSignature: [String] = []
     /// "Start over" was explicitly chosen for the initial request — never resume it. Cleared on
     /// an episode switch (the provider decides for the new episode).
     var fromStart: Bool
@@ -546,6 +562,8 @@ public final class PlayerModel {
          resolveResume: ((String) async -> Double?)? = nil,
          prefetchLink: ((String) -> Void)? = nil,
          nowPlaying: NowPlayingControlling? = nil,
+         streamProxy: StreamProxying? = nil,
+         recordTracks: (@Sendable (MediaSource, [MediaTrack]) async -> Void)? = nil,
          autoHideDelay: Double = 4,
          loadTimeout: Double = 30,
          seekCoalesceWindow: Double = 0.35,
@@ -553,11 +571,13 @@ public final class PlayerModel {
          scanSeekInterval: Double = 1.5,
          scanMaxDuration: Double = 15,
          subtitleFallbackDelay: Double = 2,
+         subtitleShiftDebounce: Double = 0.5,
          audioProbe: AudioLoudnessProbing? = nil,
          autoSyncWindow: Double = 300,
          autoSyncMaxLag: Double = 120,
          autoSyncMinimumHalf: Double = SubtitleSync.minimumHalfSeconds) {
         self.subtitleFallbackDelay = subtitleFallbackDelay
+        self.subtitleShiftDebounce = subtitleShiftDebounce
         self.audioProbe = audioProbe
         self.autoSyncWindow = autoSyncWindow
         self.autoSyncMaxLag = autoSyncMaxLag
@@ -572,6 +592,7 @@ public final class PlayerModel {
         self.trackPreferences = trackPreferences
         self.resolveResume = resolveResume
         self.prefetchLink = prefetchLink
+        self.streamProxy = streamProxy
         self.fromStart = request.fromStart
         self.item = request.item
         // Preferred source first, then remaining sources in quality order (deduped).
@@ -589,6 +610,7 @@ public final class PlayerModel {
         self.recordProgress = recordProgress
         self.subtitles = subtitles
         self.nowPlaying = nowPlaying
+        self.recordTracks = recordTracks
         self.subtitleRows = Self.freshSubtitleRows(hasAccount: subtitles != nil)
     }
 
@@ -742,6 +764,7 @@ public final class PlayerModel {
         subtitleDelay = min(max(seconds, -Self.maxSubtitleDelay), Self.maxSubtitleDelay)
         applyEffectiveSubtitleDelay(force: true)
         rememberSubtitleDelay()
+        reconcileSubtitleShift()
     }
 
     /// Keep the offset for this exact file and subtitle, so resuming tomorrow does not mean
@@ -841,7 +864,12 @@ public final class PlayerModel {
     static let subtitleDelayEpsilon = 0.2
 
     func applyEffectiveSubtitleDelay(force: Bool = false) {
-        let value = subtitleDelay + subtitleDriftDelay
+        // A downloaded subtitle carries the hand-dialled offset in the file itself (see
+        // `reconcileSubtitleShift`), because libvlc drops any line it is asked to show more than a
+        // few seconds early. Sending it here as well would apply it twice.
+        let manual = selectedDownloadedSubtitleFile == nil || Self.subtitleShiftDisabled
+            ? subtitleDelay : 0
+        let value = manual + subtitleDriftDelay
         if !force, let pushed = pushedSubtitleDelay,
            abs(value - pushed) < Self.subtitleDelayEpsilon { return }
         pushedSubtitleDelay = value

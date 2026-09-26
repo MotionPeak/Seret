@@ -27,11 +27,13 @@ struct DetailView: View {
     init(item: MediaItem, details: MediaDetailsProviding, watch: WatchProgressProviding?,
          profileID: String? = nil, myList: MyListProviding? = nil, ratings: RatingsProviding? = nil,
          versionPrefs: VersionPreferring? = nil,
-         letterboxd: LetterboxdRatingProviding? = nil) {
+         letterboxd: LetterboxdRatingProviding? = nil,
+         subtitleEvidence: SubtitleEvidenceProviding? = nil) {
         _store = State(initialValue: DetailStore(item: item, details: details, watch: watch,
                                                  profileID: profileID, myList: myList, ratings: ratings,
                                                  versionPrefs: versionPrefs,
-                                                 letterboxd: letterboxd))
+                                                 letterboxd: letterboxd,
+                                                 subtitleEvidence: subtitleEvidence))
     }
 
     var body: some View {
@@ -61,6 +63,12 @@ struct DetailView: View {
             // show's next-up episode) — tapping Play then skips the network round-trip.
             let source = store.item.kind == .movie ? store.bestSource : store.nextEpisode()?.source
             if let source { session.prefetchPlayback(for: source) }
+        }
+        // A movie's Play target can change while the page is open — Hebrew evidence or a chosen
+        // default lands — so a change warms the new target. Never the first value: that is only the
+        // pick before the page knows better, and warming it cost an extra unrestrict per visit.
+        .onChange(of: store.bestSource) { _, source in
+            if store.item.kind == .movie, let source { session.prefetchPlayback(for: source) }
         }
         .task { await store.loadMyList(contentKey: store.item.id) }
         // Movies only — Letterboxd has no watchlist a show can go on — so a show page does not pay
