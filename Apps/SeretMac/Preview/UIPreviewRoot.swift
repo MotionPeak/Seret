@@ -120,6 +120,8 @@ struct UIPreviewRoot: View {
                 titleRailsLoadingPreview()
             case "pushtitle":
                 PushPreviewHost()
+            case "subtitlefonts":
+                SubtitleFontsPreview()
             case "person":
                 personPreview(mode: .loaded)
             case "personloading":
@@ -995,6 +997,24 @@ private struct PushPreviewHost: View {
                     scrollView.reflectScrolledClipView(clip)
                 }
             }
+    }
+}
+#endif
+
+#if DEBUG
+/// `-uiPreview subtitlefonts` — Settings' subtitle preview in every font choice, top to bottom, to
+/// hold against the player's own renders (`vlcsmoke -subFile … -subFont …`).
+private struct SubtitleFontsPreview: View {
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(SubtitlePreferences.Font.allCases, id: \.self) { font in
+                    Text(font.label).font(.caption).foregroundStyle(.secondary).padding(.leading, 12)
+                    SubtitlePreview(preferences: SubtitlePreferences(font: font))
+                }
+            }
+            .frame(width: 560)
+        }
     }
 }
 #endif

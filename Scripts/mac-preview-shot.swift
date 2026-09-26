@@ -32,6 +32,10 @@ process.executableURL = URL(fileURLWithPath: appPath + "/Contents/MacOS/Seret")
 // reopen the owner's FULL-SCREEN window — on a Space of its own, where `screencapture` gets nothing.
 process.arguments = ["-ApplePersistenceIgnoreState", "YES"]
     + (previewCase == "live" ? [] : ["-uiPreview", previewCase]) + extra
+// The app's own output stays out of this script's: a caller piping it (`| tail -1`) would otherwise
+// wait on the app, not on the capture.
+process.standardOutput = FileHandle.nullDevice
+process.standardError = FileHandle.nullDevice
 try process.run()
 
 // The app's main window is its LARGEST window on the normal layer (0, or 3 once floated). The first
@@ -74,4 +78,9 @@ capture.arguments = ["-x", "-o", "-l\(id)", out]
 try capture.run()
 capture.waitUntilExit()
 process.terminate()
+// A preview playing video can ignore SIGTERM (seen with libvlc mid-play, minutes later still up) —
+// it must never outlive its capture.
+let deadline = Date().addingTimeInterval(3)
+while process.isRunning && Date() < deadline { Thread.sleep(forTimeInterval: 0.1) }
+if process.isRunning { kill(process.processIdentifier, SIGKILL) }
 print("wrote \(out) (window \(id), case \(previewCase))")
