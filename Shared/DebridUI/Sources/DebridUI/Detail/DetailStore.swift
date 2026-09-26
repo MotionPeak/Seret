@@ -29,6 +29,7 @@ public final class DetailStore {
 
     public private(set) var richState: RichState = .idle
     public private(set) var backdropPath: String?
+    public private(set) var logoPath: String?
     public private(set) var runtime: Int?
     public private(set) var genres: [String] = []
     public private(set) var overview: String?
@@ -179,6 +180,11 @@ public final class DetailStore {
         /// dropped `alternates`, so every other copy you own was discarded on the way to the
         /// player and "Try another version" stayed unavailable even once the library kept them.
         public let ownedEpisode: Episode?
+
+        public init(season: Int, number: Int, meta: TMDBEpisodeDetails?, ownedEpisode: Episode?) {
+            self.season = season; self.number = number; self.meta = meta; self.ownedEpisode = ownedEpisode
+        }
+
         public var id: String { "s\(season)e\(number)" }
         public var isDownloaded: Bool { ownedEpisode != nil }
         /// The copy that plays by default.
@@ -220,6 +226,7 @@ public final class DetailStore {
             case .movie:
                 let d = try await details.movieDetails(tmdbID: tmdbID)
                 backdropPath = d.preferredBackdropPath ?? backdropPath
+                logoPath = d.logoPath
                 runtime = d.runtime
                 genres = d.genres.map(\.name)
                 overview = d.overview ?? overview
@@ -233,6 +240,7 @@ public final class DetailStore {
             case .show:
                 let d = try await details.tvDetails(tmdbID: tmdbID)
                 backdropPath = d.preferredBackdropPath ?? backdropPath
+                logoPath = d.logoPath
                 genres = d.genres.map(\.name)
                 overview = d.overview ?? overview
                 imdbID = d.imdbID

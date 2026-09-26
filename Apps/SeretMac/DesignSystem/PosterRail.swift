@@ -1,0 +1,190 @@
+import SwiftUI
+
+/// Horizontal paging for a rail: a page is 85% of the viewport, clamped to the content. Pure so the
+/// maths is unit-tested without a real `ScrollView`.
+enum RailPager {
+    enum Direction { case back, forward }
+
+    static func target(offset: CGFloat, viewport: CGFloat, content: CGFloat, _ direction: Direction) -> CGFloat {
+        let page = viewport * 0.85
+        let maxOffset = max(0, content - viewport)
+        switch direction {
+        case .forward: return min(maxOffset, offset + page)
+        case .back: return max(0, offset - page)
+        }
+    }
+
+    /// 1 pt slack so a rail that has landed exactly at an end does not keep offering to page
+    /// further in that direction.
+    static func canPage(offset: CGFloat, viewport: CGFloat, content: CGFloat, _ direction: Direction) -> Bool {
+        let maxOffset = max(0, content - viewport)
+        switch direction {
+        case .forward: return offset < maxOffset - 1
+        case .back: return offset > 1
+        }
+    }
+}
+
+/// What a rail's `ScrollView` reports right now, so the pager buttons know whether — and how far —
+/// to page. Measured from the START of the scrollable range: `ScrollGeometry.contentOffset` sits
+/// at `-leadingInset` when a rail is at rest (its `.contentMargins` are insets), while
+/// `ScrollPosition.scrollTo(x:)` takes 0 as that start — so the raw reading is shifted by the
+/// leading inset and the content widened by both insets, or the first page falls short by the
+/// inset and the last page can never be reached (a forward ‹ › that stays up and does nothing).
+struct RailGeometry: Equatable {
+    var offset: CGFloat = 0
+    var viewport: CGFloat = 0
+    var content: CGFloat = 0
+
+    init(offset: CGFloat = 0, viewport: CGFloat = 0, content: CGFloat = 0) {
+        self.offset = offset
+        self.viewport = viewport
+        self.content = content
+    }
+
+    init(contentOffset: CGFloat, leadingInset: CGFloat, trailingInset: CGFloat,
+         contentSize: CGFloat, containerSize: CGFloat) {
+        offset = contentOffset + leadingInset
+        viewport = containerSize
+        content = contentSize + leadingInset + trailingInset
+    }
+}
+
+/// A full-bleed horizontal rail: a gold label, then cards a mouse wheel cannot scroll sideways, so
+/// glass ‹ › pager buttons appear on hover. `.contentMargins`/`.scrollClipDisabled()` and 20 pt
+/// vertical inner padding keep a tilted, lifted, glowing card from ever being clipped.
+struct PosterRail<Item: Identifiable, Card: View>: View {
+    let title: String
+    let items: [Item]
+    var cardHeight: CGFloat = PosterCard.posterSize.height
+    /// Harness-only: forces the pager chevrons on so they can be screenshotted without a pointer.
+    var previewShowsPager = false
+    @ViewBuilder let card: (Item) -> Card
+
+    @Environment(\.pageLeadingInset) private var pageLeadingInset
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// Where the rail is scrolled, kept OUT of observation: it changes on every scroll frame and
+    /// only a pager click reads it. As `@State` it re-evaluated the whole rail — every visible
+    /// card — 120 times a second while it scrolled.
+    @State private var liveGeometry = RailGeometryBox()
+    /// What the pager shows. Changes only when a chevron should appear or disappear.
+    @State private var pager = RailPagerState()
+    @State private var position: ScrollPosition = ScrollPosition()
+    @State private var isHovered = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title.uppercased())
+                .font(Theme.Typo.label())
+                .tracking(1.5)
+                .foregroundStyle(Theme.Palette.gold)
+                .padding(.leading, pageLeadingInset)
+            ZStack {
+                ScrollView(.horizontal) {
+                    LazyHStack(alignment: .top, spacing: PosterGridLayout.spacing) {
+                        ForEach(items) { card($0) }
+                    }
+                    .padding(.vertical, 20)
+                }
+                .contentMargins(.leading, pageLeadingInset, for: .scrollContent)
+                .contentMargins(.trailing, 28, for: .scrollContent)
+                .scrollClipDisabled()
+                .scrollIndicators(.hidden)
+                .scrollPosition($position)
+                .onScrollGeometryChange(for: RailGeometry.self) { geo in
+                    RailGeometry(contentOffset: geo.contentOffset.x, leadingInset: geo.contentInsets.leading,
+                                 trailingInset: geo.contentInsets.trailing, contentSize: geo.contentSize.width,
+                                 containerSize: geo.containerSize.width)
+                } action: { _, new in
+                    liveGeometry.value = new
+                    let state = RailPagerState(
+                        canBack: RailPager.canPage(offset: new.offset, viewport: new.viewport,
+                                                   content: new.content, .back),
+                        canForward: RailPager.canPage(offset: new.offset, viewport: new.viewport,
+                                                      content: new.content, .forward))
+                    if state != pager { pager = state }
+                }
+                pagerOverlay
+            }
+        }
+        .onHover { isHovered = $0 }
+    }
+
+    private var showsPager: Bool { isHovered || previewShowsPager }
+
+    private var pagerOverlay: some View {
+        HStack {
+            pagerButton(.back, symbol: "chevron.left")
+                .padding(.leading, max(0, pageLeadingInset - 18))
+            Spacer(minLength: 0)
+            pagerButton(.forward, symbol: "chevron.right")
+                .padding(.trailing, 10)
+        }
+        .allowsHitTesting(showsPager)
+    }
+
+    @ViewBuilder private func pagerButton(_ direction: RailPager.Direction, symbol: String) -> some View {
+        let canPage = direction == .back ? pager.canBack : pager.canForward
+        if canPage {
+            Button {
+                let geometry = liveGeometry.value
+                let target = RailPager.target(offset: geometry.offset, viewport: geometry.viewport,
+                                              content: geometry.content, direction)
+                if reduceMotion {
+                    position.scrollTo(x: target)
+                } else {
+                    withAnimation(Theme.Motion.standard) { position.scrollTo(x: target) }
+                }
+            } label: {
+                Image(systemName: symbol)
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(Theme.Palette.textPrimary)
+                    .frame(width: 36, height: 36)
+                    .glassEffect(.regular.interactive(), in: Circle())
+            }
+            .buttonStyle(.plain)
+            .opacity(showsPager ? 1 : 0)
+            .animation(Theme.Motion.quick, value: showsPager)
+        }
+    }
+}
+
+/// A rail's loading state: a shimmer title bar, then `count` card-sized shimmers — same paddings
+/// as `PosterRail`, so a rail's height never changes between skeleton and content.
+struct RailSkeleton: View {
+    var cardSize: CGSize = PosterCard.posterSize
+    var count: Int = 7
+
+    @Environment(\.pageLeadingInset) private var pageLeadingInset
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ShimmerView(cornerRadius: 4).frame(width: 160, height: 12)
+                .padding(.leading, pageLeadingInset)
+            ScrollView(.horizontal) {
+                HStack(alignment: .top, spacing: PosterGridLayout.spacing) {
+                    ForEach(0..<count, id: \.self) { _ in CardSkeleton(artSize: cardSize) }
+                }
+                .padding(.vertical, 20)
+            }
+            .contentMargins(.leading, pageLeadingInset, for: .scrollContent)
+            .contentMargins(.trailing, 28, for: .scrollContent)
+            .scrollClipDisabled()
+            .scrollIndicators(.hidden)
+            .scrollDisabled(true)
+        }
+    }
+}
+
+/// The rail's live scroll geometry, held by reference so writing it never invalidates a view.
+@MainActor
+final class RailGeometryBox {
+    var value = RailGeometry()
+}
+
+/// Which pager chevrons a rail offers right now.
+struct RailPagerState: Equatable {
+    var canBack = false
+    var canForward = false
+}

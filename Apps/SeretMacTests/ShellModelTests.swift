@@ -1,0 +1,473 @@
+import CoreGraphics
+import DebridCore
+import DebridUI
+import Foundation
+import Testing
+@testable import Seret
+
+@MainActor
+@Suite struct ShellModelTests {
+    private func freshDefaults() -> UserDefaults { UserDefaults(suiteName: "seret.tests.\(UUID().uuidString)")! }
+
+    @Test func startsOnHomeWithTheSidebarOpen() {
+        let model = ShellModel(defaults: freshDefaults())
+        #expect(model.selection == .home)
+        #expect(model.isSidebarCollapsed == false)
+    }
+
+    @Test func collapsingIsRememberedAcrossLaunches() {
+        let defaults = freshDefaults()
+        let first = ShellModel(defaults: defaults)
+        first.toggleSidebar()
+        #expect(first.isSidebarCollapsed)
+        #expect(ShellModel(defaults: defaults).isSidebarCollapsed)
+    }
+
+    @Test func commandDigitsSelectSectionsInSidebarOrder() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.select(shortcut: 3)
+        #expect(model.selection == .shows)
+        model.select(shortcut: 5)
+        #expect(model.selection == .library)
+        model.select(shortcut: 9)                       // no such section: nothing changes
+        #expect(model.selection == .library)
+    }
+
+    @Test func theSidebarIsGroupedBrowseThenYours() {
+        #expect(SidebarSection.allCases.filter { $0.group == .browse } == [.home, .movies, .shows])
+        #expect(SidebarSection.allCases.filter { $0.group == .yours } == [.watchlist, .library])
+        #expect(SidebarSection.allCases.map(\.shortcutDigit) == [1, 2, 3, 4, 5])
+    }
+
+    // The literal RHS is cast to CGFloat explicitly: `#expect(cgFloat == 8 + 250 + 14)` mistypes the
+    // right operand under this toolchain's Swift Testing macro expansion and fails even though the
+    // values are equal (confirmed with a plain `==` outside the macro) — CGFloat(...) sidesteps it.
+    @Test func contentStartsBesideTheSidebarInBothStates() {
+        #expect(SidebarMetrics.contentLeading(collapsed: false) == CGFloat(8 + 250 + 14))
+        #expect(SidebarMetrics.contentLeading(collapsed: true) == CGFloat(8 + 76 + 14))
+    }
+
+    // MARK: - Navigation
+
+    private func item(_ id: String) -> MediaItem {
+        MediaItem(id: id, kind: .movie, title: "Title \(id)", year: 2024, sources: [], seasons: [])
+    }
+    private func route(_ id: String) -> AppRoute { .title(item(id)) }
+
+    @Test func eachSectionKeepsItsOwnPath() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.select(.movies)
+        model.open(route("a"))
+        model.select(.shows)
+        model.open(route("b"))
+
+        #expect(model.history(for: .movies).path == [route("a")])
+        #expect(model.history(for: .shows).path == [route("b")])
+    }
+
+    @Test func reselectingTheCurrentSectionPopsToRoot() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.select(.library)
+        model.open(route("a"))
+        #expect(model.history(for: .library).path == [route("a")])
+
+        model.select(.library)                     // already selected: pop to root
+        #expect(model.selection == .library)
+        #expect(model.history(for: .library).path.isEmpty)
+    }
+
+    @Test func openPushesOnTheSelectedSection() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.select(.library)
+        model.open(route("a"))
+        #expect(model.history(for: .library).path == [route("a")])
+        #expect(model.canGoBack)
+    }
+
+    // MARK: - Playback slot
+
+    private func request(_ id: String) -> PlaybackRequest {
+        let source = MediaSource(torrentID: id, fileID: nil, restrictedLink: "rd://\(id)",
+                                 parsed: ParsedRelease(title: "t"))
+        return PlaybackRequest(item: item(id), source: source, resumeAt: nil, label: "t", contentKey: id)
+    }
+
+    @Test func endingPlaybackClearsTheSlotAndOnlyTeardownSignalsPages() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.present(request("a"))
+        #expect(model.playback != nil)
+
+        model.endPlayback()
+        #expect(model.playback == nil)
+        // Pages must not re-read watch state yet: the final position is still being written.
+        #expect(model.playbackEndedCount == 0)
+
+        model.playerDidTearDown()
+        #expect(model.playbackEndedCount == 1)
+    }
+
+    @Test func presentingReplacesAnEarlierPresentation() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.present(request("a"))
+        let firstID = model.playback?.id
+        model.present(request("a"))
+        #expect(model.playback?.id != firstID)
+    }
+
+    // MARK: - Toast
+
+    @Test func aNewToastReplacesTheOld() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.showToast("First")
+        let firstID = model.toast?.id
+        model.showToast("Second", isFailure: true)
+
+        #expect(model.toast?.id != firstID)
+        #expect(model.toast?.message == "Second")
+        #expect(model.toast?.isFailure == true)
+    }
+
+    @Test func dismissingAStaleToastKeepsTheNewOne() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.showToast("First")
+        let staleID = model.toast!.id
+        model.showToast("Second")
+
+        model.dismissToast(staleID)
+
+        #expect(model.toast?.message == "Second")
+    }
+
+    // MARK: - Browse genre
+
+    @Test func eachKindRemembersItsGenre() {
+        let model = ShellModel(defaults: freshDefaults())
+        let drama = DiscoverStore.Genre(name: "Drama", tmdbID: 18)
+        let action = DiscoverStore.Genre(name: "Action & Adventure", tmdbID: 10759)
+
+        model.setBrowseGenre(drama, for: .movie)
+        model.setBrowseGenre(action, for: .show)
+
+        #expect(model.browseGenre[.movie] == drama)
+        #expect(model.browseGenre[.show] == action)
+    }
+
+    @Test func allClearsTheGenre() {
+        let model = ShellModel(defaults: freshDefaults())
+        let drama = DiscoverStore.Genre(name: "Drama", tmdbID: 18)
+        model.setBrowseGenre(drama, for: .movie)
+
+        model.setBrowseGenre(nil, for: .movie)
+
+        #expect(model.browseGenre[.movie] == nil)
+    }
+
+    // MARK: - Search — its own stack over the selected section; typing never navigates
+
+    @Test func typingShowsSearchWithoutTouchingTheSection() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.select(.library)
+        model.open(route("a"))
+        model.setSearchQuery("d")
+        model.setSearchQuery("du")
+        #expect(model.isSearching)
+        #expect(model.searchHistory.path.isEmpty)                    // on the results
+        #expect(model.history(for: .library).path == [route("a")])    // untouched underneath
+    }
+
+    /// The owner's bug: opening a result made the field re-send "raw" as it lost focus, which
+    /// pushed a second search page on top of the title — mid-animation, stacking the pages.
+    @Test func theFieldResendingItsTextNeverNavigates() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.setSearchQuery("raw")
+        model.open(route("a"))
+        model.setSearchQuery("raw")
+        #expect(model.isSearching)
+        #expect(model.searchHistory.path == [route("a")])
+    }
+
+    @Test func aTitleOpenedFromResultsComesBackToResults() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.setSearchQuery("dune")
+        model.open(route("a"))
+        #expect(model.searchHistory.path == [route("a")])
+        #expect(model.history(for: .home).path.isEmpty)
+
+        model.goBack()
+
+        #expect(model.isSearching)
+        #expect(model.searchHistory.path.isEmpty)
+    }
+
+    @Test func backFromTheResultsLeavesSearchForTheSectionAsItWas() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.select(.library)
+        model.open(route("a"))
+        model.setSearchQuery("dune")
+        #expect(model.canGoBack)
+
+        model.goBack()
+
+        #expect(!model.isSearching)
+        #expect(model.searchQuery.isEmpty)
+        #expect(model.history(for: .library).path == [route("a")])
+    }
+
+    @Test func aNewQueryOnAPageOpenedFromSearchReturnsToTheResults() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.setSearchQuery("dune")
+        model.open(route("a"))
+        model.setSearchQuery("dune 2")
+        #expect(model.isSearching)
+        #expect(model.searchHistory.path.isEmpty)
+    }
+
+    @Test func clearingTheFieldOnTheResultsLeavesSearch() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.setSearchQuery("dune")
+        model.setSearchQuery("")
+        #expect(!model.isSearching)
+    }
+
+    @Test func clearingTheFieldOnAPageOpenedFromSearchKeepsThePage() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.setSearchQuery("dune")
+        model.open(route("a"))
+        model.setSearchQuery("")
+        #expect(model.isSearching)
+        #expect(model.searchHistory.path == [route("a")])
+    }
+
+    @Test func choosingASectionLeavesSearch() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.setSearchQuery("dune")
+        model.select(.movies)
+        #expect(!model.isSearching)
+        #expect(model.searchQuery.isEmpty)
+        #expect(model.selection == .movies)
+    }
+
+    @Test func choosingTheSameSectionLeavesSearchWithoutPoppingIt() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.select(.library)
+        model.open(route("a"))
+        model.setSearchQuery("x")
+        model.select(.library)
+        #expect(!model.isSearching)
+        #expect(model.history(for: .library).path == [route("a")])
+    }
+
+    @Test func exitSearchClearsItAll() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.setSearchQuery("dune")
+        model.open(route("a"))
+        model.exitSearch()
+        #expect(!model.isSearching)
+        #expect(model.searchQuery.isEmpty)
+        #expect(model.searchHistory.path.isEmpty)
+    }
+
+    /// The title page's 1–0 rating keys must reach the page, not the query.
+    @Test func openingAResultAsksTheFieldToLetGoOfTheKeyboard() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.setSearchQuery("dune")
+        let before = model.searchBlurRequest
+        model.open(route("a"))
+        #expect(model.searchBlurRequest == before + 1)
+    }
+
+    @Test func focusRequestsCount() {
+        let model = ShellModel(defaults: freshDefaults())
+        #expect(model.searchFocusRequest == 0)
+        model.requestSearchFocus()
+        model.requestSearchFocus()
+        #expect(model.searchFocusRequest == 2)
+    }
+
+    // MARK: - Title removal pop
+
+    @Test func aRemovedTitleOnTopIsPopped() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.select(.library)
+        model.open(route("a"))
+        model.popTitleIfShowing("a")
+        #expect(model.history(for: .library).path.isEmpty)
+    }
+
+    @Test func aRemovedTitleNotOnTopIsLeftAlone() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.select(.library)
+        model.open(route("a"))
+        model.popTitleIfShowing("b")               // some other title's removal
+        #expect(model.history(for: .library).path == [route("a")])
+    }
+
+    // MARK: - Trailer overlay
+
+    @Test func presentingATrailerThenPlaybackClosesTheTrailer() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.presentTrailer(URL(string: "https://example.invalid/t")!, title: "Dune")
+        #expect(model.trailer != nil)
+
+        model.present(request("a"))
+
+        #expect(model.trailer == nil)
+        #expect(model.playback != nil)
+    }
+
+    @Test func noTrailerWhilePlaying() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.present(request("a"))
+        model.presentTrailer(URL(string: "https://example.invalid/t")!, title: "Dune")
+        #expect(model.trailer == nil)
+    }
+
+    // MARK: - Add by Magnet
+
+    @Test func magnetRequestsCount() {
+        let model = ShellModel(defaults: freshDefaults())
+        #expect(model.magnetRequest == 0)
+        model.requestMagnet()
+        model.requestMagnet()
+        #expect(model.magnetRequest == 2)
+    }
+
+    @Test func titleOnTopReadsTheSelectedSection() {
+        let model = ShellModel(defaults: freshDefaults())
+        #expect(model.titleOnTop == nil)                // Home's root: no title showing
+
+        model.select(.library)
+        model.open(route("a"))
+        #expect(model.titleOnTop?.id == "a")
+
+        model.setSearchQuery("dune")                    // Search shows its results over "a"
+        #expect(model.titleOnTop == nil)                 // the results are not a title
+
+        model.open(route("b"))                           // a title opened from the results
+        #expect(model.titleOnTop?.id == "b")
+    }
+
+    // MARK: - Hero flight
+
+    private func sourceFrame() -> CGRect { CGRect(x: 100, y: 200, width: 150, height: 225) }
+    private func heroFrame() -> CGRect { CGRect(x: 0, y: 0, width: 1440, height: 533) }
+
+    @Test func openingATitleFromATileFliesForward() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.windowSize = CGSize(width: 1440, height: 900)
+        model.select(.library)
+        let tileID = UUID()
+        model.pendingFlightSource = FlightSource(tileID: tileID, frame: sourceFrame(), posterURL: nil)
+
+        model.open(route("a"))
+
+        #expect(model.flight?.direction == .forward)
+        #expect(model.flight?.routeID == "a")
+        #expect(model.flight?.from == sourceFrame())
+        #expect(model.flight?.tileID == tileID)
+        #expect(model.isFlightLanding(for: "a"))
+    }
+
+    @Test func aForwardLandingEndsTheFlight() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.windowSize = CGSize(width: 1440, height: 900)
+        model.select(.library)
+        model.pendingFlightSource = FlightSource(tileID: UUID(), frame: sourceFrame(), posterURL: nil)
+        model.open(route("a"))
+
+        model.landFlight(model.flight!.id)
+
+        // Nothing is left to draw over the page (the flyer used to stay, pinned over the hero while
+        // the page scrolled under it), the page shows, and the source tile is no longer hidden.
+        #expect(model.flight == nil)
+        #expect(!model.isFlightLanding(for: "a"))
+    }
+
+    @Test func openingWithoutASourceDoesNotFly() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.windowSize = CGSize(width: 1440, height: 900)
+        model.select(.library)
+
+        model.open(route("a"))
+
+        #expect(model.flight == nil)
+    }
+
+    @Test func thePendingSourceIsConsumedEvenWhenNotFlying() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.select(.library)
+        // `windowSize` is left at `.zero` — the plan always cross-fades — but the pending source
+        // must still be cleared, or a LATER open (once the window has a size) would wrongly fly
+        // from this stale tile.
+        model.pendingFlightSource = FlightSource(tileID: UUID(), frame: sourceFrame(), posterURL: nil)
+
+        model.open(route("a"))
+
+        #expect(model.pendingFlightSource == nil)
+        #expect(model.flight == nil)
+    }
+
+    @Test func goingBackFliesToTheTilesLatestFrame() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.windowSize = CGSize(width: 1440, height: 900)
+        model.select(.library)
+        let tileID = UUID()
+        model.pendingFlightSource = FlightSource(tileID: tileID, frame: sourceFrame(), posterURL: nil)
+        model.open(route("a"))
+        model.heroFrame = heroFrame()
+        // The grid scrolled while the title page was up: the tile now reports a different frame.
+        let movedFrame = CGRect(x: 100, y: 40, width: 150, height: 225)
+        model.tileFrames[tileID] = movedFrame
+
+        model.goBack()
+
+        #expect(model.flight?.direction == .back)
+        #expect(model.flight?.from == movedFrame)
+        #expect(model.flight?.to == heroFrame())
+    }
+
+    @Test func goingBackWithTheTileGoneCrossFades() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.windowSize = CGSize(width: 1440, height: 900)
+        model.select(.library)
+        let tileID = UUID()
+        model.pendingFlightSource = FlightSource(tileID: tileID, frame: sourceFrame(), posterURL: nil)
+        model.open(route("a"))
+        model.heroFrame = heroFrame()
+        model.tileFrames[tileID] = nil          // the tile scrolled out of the grid / was recycled
+
+        model.goBack()
+
+        #expect(model.flight == nil)
+        #expect(model.history(for: .library).path.isEmpty)
+    }
+
+    @Test func aStaleLandingIsIgnored() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.windowSize = CGSize(width: 1440, height: 900)
+        model.select(.library)
+        model.pendingFlightSource = FlightSource(tileID: UUID(), frame: sourceFrame(), posterURL: nil)
+        model.open(route("a"))
+        let realID = model.flight!.id
+
+        model.landFlight(UUID())                // some other, already-replaced flight's id
+
+        #expect(model.flight?.id == realID)
+        #expect(model.isFlightLanding(for: "a"))
+    }
+
+    @Test func aSecondOpenMidFlightReplacesTheFlight() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.windowSize = CGSize(width: 1440, height: 900)
+        model.select(.library)
+        model.pendingFlightSource = FlightSource(tileID: UUID(), frame: sourceFrame(), posterURL: nil)
+        model.open(route("a"))
+        let firstID = model.flight?.id
+
+        model.pendingFlightSource = FlightSource(tileID: UUID(), frame: sourceFrame(), posterURL: nil)
+        model.open(route("b"))
+
+        #expect(model.flight?.id != firstID)
+        #expect(model.flight?.routeID == "b")
+    }
+}

@@ -188,15 +188,20 @@ public struct TMDBImageRef: Decodable, Sendable, Equatable {
 /// The `images` block appended to a details call.
 public struct TMDBImageSet: Decodable, Sendable, Equatable {
     public let backdrops: [TMDBImageRef]
+    public let logos: [TMDBImageRef]
 
-    public init(backdrops: [TMDBImageRef]) { self.backdrops = backdrops }
+    public init(backdrops: [TMDBImageRef], logos: [TMDBImageRef] = []) {
+        self.backdrops = backdrops
+        self.logos = logos
+    }
 
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         backdrops = try c.decodeIfPresent([TMDBImageRef].self, forKey: .backdrops) ?? []
+        logos = try c.decodeIfPresent([TMDBImageRef].self, forKey: .logos) ?? []
     }
 
-    enum CodingKeys: String, CodingKey { case backdrops }
+    enum CodingKeys: String, CodingKey { case backdrops, logos }
 
     /// The best plate with no burned-in text, or nil when every backdrop is titled.
     ///
@@ -205,6 +210,24 @@ public struct TMDBImageSet: Decodable, Sendable, Equatable {
     public var textlessBackdropPath: String? {
         backdrops
             .filter { $0.languageCode == nil }
+            .max { a, b in
+                let (av, bv) = (a.voteAverage ?? 0, b.voteAverage ?? 0)
+                return av == bv ? (a.width ?? 0) < (b.width ?? 0) : av < bv
+            }?
+            .filePath
+    }
+
+    /// The title's own artwork: English title treatment first (a logo *is* the title, so an
+    /// English one reads correctly even for a foreign-language film), then untagged — never
+    /// another language's logo, which would show the wrong alphabet as "the title". Within that,
+    /// best-rated, then widest. `.svg` is skipped — ImageIO cannot decode it, so a logo entry
+    /// that is only an SVG must lose to a rasterizable one, or fall through to nil.
+    public var bestLogoPath: String? {
+        let candidates = logos.filter { $0.languageCode == "en" }.isEmpty
+            ? logos.filter { $0.languageCode == nil }
+            : logos.filter { $0.languageCode == "en" }
+        return candidates
+            .filter { !$0.filePath.lowercased().hasSuffix(".svg") }
             .max { a, b in
                 let (av, bv) = (a.voteAverage ?? 0, b.voteAverage ?? 0)
                 return av == bv ? (a.width ?? 0) < (b.width ?? 0) : av < bv
@@ -246,6 +269,10 @@ public struct TMDBMovieDetails: Decodable, Sendable, Equatable, Identifiable {
     public var preferredBackdropPath: String? {
         images?.textlessBackdropPath ?? backdropPath
     }
+
+    /// The film's own title artwork, when TMDB has one. Rides the same `images` payload as
+    /// `preferredBackdropPath` — no extra request.
+    public var logoPath: String? { images?.bestLogoPath }
 
     enum CodingKeys: String, CodingKey {
         case id, title, overview, runtime, genres, credits, images
@@ -363,6 +390,10 @@ public struct TMDBTVDetails: Decodable, Sendable, Equatable, Identifiable {
     public var preferredBackdropPath: String? {
         images?.textlessBackdropPath ?? backdropPath
     }
+
+    /// The show's own title artwork, when TMDB has one. Rides the same `images` payload as
+    /// `preferredBackdropPath` — no extra request.
+    public var logoPath: String? { images?.bestLogoPath }
 
     enum CodingKeys: String, CodingKey {
         case id, name, overview, genres, images

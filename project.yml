@@ -4,6 +4,7 @@ options:
   createIntermediateGroups: true
   deploymentTarget:
     tvOS: "18.0"
+    macOS: "26.0"
 packages:
   DebridCore:
     path: Packages/DebridCore
@@ -181,4 +182,74 @@ targets:
         SWIFT_STRICT_CONCURRENCY: complete
         GENERATE_INFOPLIST_FILE: YES
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Seret.app/Seret"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+  SeretMac:
+    type: application
+    platform: macOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: Apps/SeretMac
+      - path: Shared/SeretPlayer
+      - path: Shared/Fonts
+    dependencies:
+      - package: DebridCore
+      - package: DebridUI
+      - framework: Frameworks/VLCKit.xcframework
+        embed: true
+        codeSign: true
+    info:
+      path: Apps/SeretMac/Info.plist
+      properties:
+        CFBundleDisplayName: Seret
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        LSMinimumSystemVersion: "$(MACOSX_DEPLOYMENT_TARGET)"
+        LSApplicationCategoryType: public.app-category.entertainment
+        TMDBAPIKey: "$(TMDB_API_KEY)"
+        OpenSubtitlesAPIKey: "$(OPENSUBTITLES_API_KEY)"
+        OMDBAPIKey: "$(OMDB_API_KEY)"
+        # The Seret server (Letterboxd writes) is plain HTTP on the LAN. macOS 15+ applies local
+        # network privacy too: without the usage string the system denies access instead of asking.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+        NSLocalNetworkUsageDescription: Seret uses your local network to reach your Seret server.
+        # Rubik is a subtitle option; VLC resolves it by family name, so it must be registered.
+        ATSApplicationFontsPath: "."
+    settings:
+      base:
+        PRODUCT_NAME: Seret
+        PRODUCT_BUNDLE_IDENTIFIER: com.solomons.seret.mac
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_ENTITLEMENTS: Apps/SeretMac/SeretMac.entitlements
+        DEVELOPMENT_TEAM: ML9HDN3QZS
+        ENABLE_HARDENED_RUNTIME: NO
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        COMBINE_HIDPI_IMAGES: YES
+        SWIFT_OBJC_BRIDGING_HEADER: Shared/SeretPlayer/SeretVLCBridge.h
+        LD_RUNPATH_SEARCH_PATHS:
+          - "$(inherited)"
+          - "@executable_path/../Frameworks"
+    configFiles:
+      Debug: Secrets.xcconfig
+      Release: Secrets.xcconfig
+    scheme:
+      testTargets:
+        - SeretMacTests
+  SeretMacTests:
+    type: bundle.unit-test
+    platform: macOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: Apps/SeretMacTests
+    dependencies:
+      - target: SeretMac
+      - package: DebridCore
+      - package: DebridUI
+    settings:
+      base:
+        SWIFT_VERSION: "6.0"
+        SWIFT_STRICT_CONCURRENCY: complete
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Seret.app/Contents/MacOS/Seret"
         BUNDLE_LOADER: "$(TEST_HOST)"

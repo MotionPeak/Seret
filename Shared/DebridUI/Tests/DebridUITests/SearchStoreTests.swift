@@ -16,6 +16,16 @@ private final class FakeSearch: SearchProviding {
     func searchTV(query: String, firstAirYear: Int?) async throws -> [TMDBSearchResult] { try tv.get() }
 }
 
+/// Waits for its task to be cancelled, then throws what URLSession throws then.
+private final class HangingSearch: SearchProviding {
+    private func hang() async throws -> [TMDBSearchResult] {
+        while !Task.isCancelled { await Task.yield() }
+        throw URLError(.cancelled)
+    }
+    func searchMovie(query: String, year: Int?) async throws -> [TMDBSearchResult] { try await hang() }
+    func searchTV(query: String, firstAirYear: Int?) async throws -> [TMDBSearchResult] { try await hang() }
+}
+
 @MainActor
 @Suite struct SearchStoreTests {
     func result(_ id: Int, _ title: String, vote: Double) -> TMDBSearchResult {
@@ -65,6 +75,17 @@ private final class FakeSearch: SearchProviding {
         let store = SearchStore(search: FakeSearch())
         await store.search(query: "zzz")
         #expect(store.state == .empty)
+    }
+
+    /// A superseded search is cancelled mid-request; URLSession then throws `URLError(.cancelled)`,
+    /// which must not read as a failed search.
+    @Test func aCancelledRequestIsNotAFailure() async {
+        let store = SearchStore(search: HangingSearch())
+        let task = Task { await store.search(query: "dune") }
+        while store.state != .searching { await Task.yield() }
+        task.cancel()
+        await task.value
+        #expect(store.state == .searching)
     }
 
     @Test func failureSurfacesFailed() async {

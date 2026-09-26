@@ -17,19 +17,15 @@ public struct KeychainTokenStore: TokenStore {
         self.account = account
     }
 
-    private var baseQuery: [String: Any] {
-        [kSecClass as String: kSecClassGenericPassword,
-         kSecAttrService as String: service,
-         kSecAttrAccount as String: account]
-    }
-
     public func load() throws -> StoredCredentials? {
-        var query = baseQuery
-        query[kSecReturnData as String] = true
-        query[kSecMatchLimit as String] = kSecMatchLimitOne
-
         var item: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        let status = KeychainQuery.perform(service: service, account: account) { base in
+            var query = base
+            query[kSecReturnData as String] = true
+            query[kSecMatchLimit as String] = kSecMatchLimitOne
+            item = nil
+            return SecItemCopyMatching(query as CFDictionary, &item)
+        }
         if status == errSecItemNotFound { return nil }
         guard status == errSecSuccess, let data = item as? Data else {
             throw KeychainError.unexpectedStatus(status)
@@ -39,21 +35,22 @@ public struct KeychainTokenStore: TokenStore {
 
     public func save(_ credentials: StoredCredentials) throws {
         let data = try JSONEncoder().encode(credentials)
-        let updateStatus = SecItemUpdate(baseQuery as CFDictionary,
-                                         [kSecValueData as String: data] as CFDictionary)
-        if updateStatus == errSecItemNotFound {
-            var addQuery = baseQuery
+        let status = KeychainQuery.perform(service: service, account: account) { base in
+            let updateStatus = SecItemUpdate(base as CFDictionary,
+                                             [kSecValueData as String: data] as CFDictionary)
+            guard updateStatus == errSecItemNotFound else { return updateStatus }
+            var addQuery = base
             addQuery[kSecValueData as String] = data
             addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-            let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
-            guard addStatus == errSecSuccess else { throw KeychainError.unexpectedStatus(addStatus) }
-        } else {
-            guard updateStatus == errSecSuccess else { throw KeychainError.unexpectedStatus(updateStatus) }
+            return SecItemAdd(addQuery as CFDictionary, nil)
         }
+        guard status == errSecSuccess else { throw KeychainError.unexpectedStatus(status) }
     }
 
     public func clear() throws {
-        let status = SecItemDelete(baseQuery as CFDictionary)
+        let status = KeychainQuery.perform(service: service, account: account) {
+            SecItemDelete($0 as CFDictionary)
+        }
         guard status == errSecSuccess || status == errSecItemNotFound else {
             throw KeychainError.unexpectedStatus(status)
         }

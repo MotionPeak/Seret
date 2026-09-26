@@ -1,0 +1,320 @@
+import DebridCore
+import DebridUI
+import SwiftUI
+
+/// The `.home` section's root: resolves `HomeStore`/`LibraryStore`/`DownloadStore` from the
+/// environment (the harness injects fixtures this way) or the live session, and shows the real
+/// screen — or a skeleton while no `HomeStore` exists yet (very early in launch, before sign-in
+/// resolves).
+struct HomeRoot: View {
+    @Environment(HomeStore.self) private var injectedHome: HomeStore?
+    @Environment(LibraryStore.self) private var injectedLibrary: LibraryStore?
+    @Environment(DownloadStore.self) private var injectedDownloads: DownloadStore?
+    @Environment(AppSession.self) private var session: AppSession?
+
+    private var home: HomeStore? { injectedHome ?? session?.home }
+    private var library: LibraryStore? { injectedLibrary ?? session?.libraryStore }
+    private var downloads: DownloadStore? { injectedDownloads ?? session?.downloadStore }
+
+    var body: some View {
+        if let home {
+            HomeScreen(home: home, library: library, downloads: downloads)
+        } else {
+            ScrollView { HomeSkeleton() }
+                .scrollIndicators(.hidden)
+        }
+    }
+}
+
+/// Home: a full-bleed Continue hero, a Downloading rail, a Continue Watching rail of landscape
+/// cards, the Recently Added grid, and loading/empty/failed states — all over the shared
+/// `HomeStore`.
+struct HomeScreen: View {
+    let home: HomeStore
+    let library: LibraryStore?
+    let downloads: DownloadStore?
+
+    @Environment(AppSession.self) private var session: AppSession?
+    @Environment(ShellModel.self) private var shell: ShellModel?
+    @Environment(TileWatchMarks.self) private var marks: TileWatchMarks?
+    @Environment(WatchlistMarks.self) private var watchlist: WatchlistMarks?
+    /// Cards mid-mark (id → marked watched?): they show the ✓ / ↺ flourish for a beat before the
+    /// store takes them off the rail, so a mark reads as done rather than as a card vanishing.
+    @State private var marking: [HomeItem.ID: Bool] = [:]
+    @Environment(\.pageLeadingInset) private var pageLeadingInset
+
+    private var performer: PosterActionPerformer {
+        PosterActionPerformer(session: session, shell: shell, library: library, marks: marks, watchlist: watchlist)
+    }
+
+    private var content: HomePageContent {
+        HomePageContent.make(library: library?.state, continueWatching: home.continueWatching.count,
+                             recentlyAdded: home.recentlyAdded.count,
+                             downloading: downloads?.activeTiles.count ?? 0)
+    }
+
+    var body: some View {
+        Group {
+            switch content {
+            case .skeleton:
+                ScrollView { HomeSkeleton() }.scrollIndicators(.hidden)
+            case .empty:
+                emptyState
+            case .failed(let message):
+                failedState(message)
+            case .content:
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 30) {
+                        heroOrHeader
+                        downloadingRail
+                        continueWatchingRail
+                        recentlyAddedSection
+                    }
+                    .padding(.bottom, 40)
+                }
+                .scrollIndicators(.hidden)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .task { await rebuild() }
+        .onChange(of: library?.movies) { _, _ in Task { await rebuild() } }
+        .onChange(of: library?.shows) { _, _ in Task { await rebuild() } }
+        .onChange(of: session?.activeProfileID) { _, _ in Task { await rebuild() } }
+        .onChange(of: shell?.playbackEndedCount) { _, _ in
+            Task {
+                await library?.reloadWatchStates()
+                await rebuild()
+            }
+        }
+    }
+
+    private func rebuild() async {
+        await home.rebuild(movies: library?.movies ?? [], shows: library?.shows ?? [])
+    }
+
+    @ViewBuilder private var heroOrHeader: some View {
+        if let featured = home.featured {
+            HomeHero(entry: featured)
+        } else {
+            Text("Home")
+                .font(Theme.Typo.titleXL())
+                .foregroundStyle(Theme.Palette.textPrimary)
+                .padding(.leading, pageLeadingInset)
+                .padding(.top, 54)
+        }
+    }
+
+    @ViewBuilder private var downloadingRail: some View {
+        let tiles = downloads?.activeTiles ?? []
+        if !tiles.isEmpty {
+            PosterRail(title: "Downloading", items: tiles) { tile in
+                DownloadingCard(tile: tile, library: library) { item in shell?.open(.title(item)) }
+            }
+        }
+    }
+
+    @ViewBuilder private var continueWatchingRail: some View {
+        if !home.continueWatching.isEmpty {
+            PosterRail(title: "Continue Watching", items: home.continueWatching,
+                       cardHeight: LandscapeCard.artSize.height) { entry in
+                LandscapeCard(title: entry.item.title,
+                             caption: ContinueCaption.caption(kind: entry.item.kind, subtitle: entry.subtitle,
+                                                              resumeAt: entry.resumeAt, fraction: entry.fraction),
+                             imageURL: TMDBClient.imageURL(path: entry.item.backdropPath ?? entry.item.posterPath, size: "w780"),
+                             fraction: entry.fraction)
+                    .overlay(alignment: .top) {
+                        if let watched = marking[entry.id] {
+                            MarkFlourish(watched: watched)
+                                .frame(width: LandscapeCard.artSize.width, height: LandscapeCard.artSize.height)
+                                .transition(.opacity)
+                        }
+                    }
+                    .transition(.asymmetric(insertion: .opacity,
+                                            removal: .scale(scale: 0.7).combined(with: .opacity)))
+                    .contentShape(Rectangle())
+                    .onTapGesture { resume(entry) }
+                    .contextMenu {
+                        Button("Resume") { resume(entry) }
+                        Button("Open \u{201C}\(entry.item.title)\u{201D}") { shell?.open(.title(entry.item)) }
+                        Divider()
+                        continueWatchingMarks(entry)
+                    }
+            }
+            // The rail closes the gap a marked card leaves instead of snapping shut.
+            .animation(Theme.Motion.standard, value: home.continueWatching.map(\.id))
+        }
+    }
+
+    /// Both marks take the card off the rail (the rail is exactly the unfinished rows that carry a
+    /// position): watched keeps the position and leaves a ✓, unwatched throws the resume point
+    /// away. A show's card stands for one episode, so its first pair says so.
+    /// Same calls as `feat/mobile-parity`'s shared `ContinueWatchingActions`; switch to that view
+    /// once it reaches main.
+    @ViewBuilder private func continueWatchingMarks(_ entry: HomeItem) -> some View {
+        let scope = entry.item.kind == .show ? "Episode " : ""
+        Button("Mark \(scope)Watched") { markEntry(true, entry) }
+        Button("Mark \(scope)Unwatched") { markEntry(false, entry) }
+        if entry.item.kind == .show {
+            Button("Mark Show Watched") { markShow(true, entry) }
+            Button("Mark Show Unwatched") { markShow(false, entry) }
+        }
+    }
+
+    /// The flourish, then the write: long enough to read the ✓, short enough not to feel slow.
+    private func flourish(_ watched: Bool, _ entry: HomeItem) async {
+        withAnimation(Theme.Motion.pop) { marking[entry.id] = watched }
+        try? await Task.sleep(for: .milliseconds(650))
+    }
+
+    private func markEntry(_ watched: Bool, _ entry: HomeItem) {
+        let home = home, library = library
+        Task {
+            await flourish(watched, entry)
+            await home.setWatched(watched, entry: entry)
+            marking[entry.id] = nil
+            await Self.refresh(home: home, library: library)
+        }
+    }
+
+    private func markShow(_ watched: Bool, _ entry: HomeItem) {
+        // An unresolved profile would write rows keyed to "" that nothing ever adopts.
+        guard let session, let profileID = session.activeProfileID,
+              let marker = session.makeShowWatchMarker() else { return }
+        let home = home, library = library, show = entry.item
+        Task {
+            await flourish(watched, entry)
+            await marker.mark(watched, show: show, profileID: profileID)
+            marking[entry.id] = nil
+            await Self.refresh(home: home, library: library)
+        }
+    }
+
+    private static func refresh(home: HomeStore, library: LibraryStore?) async {
+        guard let library else { return }
+        await library.reloadWatchStates()
+        await home.rebuild(movies: library.movies, shows: library.shows)
+    }
+
+    private func resume(_ entry: HomeItem) {
+        if let request = entry.playbackRequest() {
+            shell?.present(request)
+        } else {
+            shell?.open(.title(entry.item))
+        }
+    }
+
+    @ViewBuilder private var recentlyAddedSection: some View {
+        if !home.recentlyAdded.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("RECENTLY ADDED")
+                    .font(Theme.Typo.label())
+                    .tracking(1.5)
+                    .foregroundStyle(Theme.Palette.gold)
+                    .padding(.leading, pageLeadingInset)
+                PosterGrid(items: home.recentlyAdded,
+                           prefetchURL: { TMDBClient.imageURL(path: $0.posterPath, size: "w342") }) { item in
+                    recentlyAddedTile(item)
+                }
+                .padding(.leading, pageLeadingInset)
+                .padding(.trailing, 28)
+            }
+        }
+    }
+
+    private func recentlyAddedTile(_ item: MediaItem) -> some View {
+        let model = PosterTileModel.library(item)
+        let watchState = library?.watchState(for: item)
+        let onWatchlist = model.watchlistFilm.map { watchlist?.contains(tmdbID: $0.tmdbID) ?? false } ?? false
+        return PosterTile(model: model,
+                          state: PosterTileState(badge: WatchBadge(watchState), decor: PosterDecor(dimsWatched: true)),
+                          actions: .make(kind: item.kind, owned: true, watched: watchState?.finished ?? false, onWatchlist: onWatchlist),
+                          perform: performer.perform)
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 12) {
+            SeretMark(glow: false)
+                .frame(width: 90, height: 90)
+                .opacity(0.5)
+            Text("Nothing here yet")
+                .font(Theme.Typo.headline())
+                .foregroundStyle(Theme.Palette.textPrimary)
+            Text("Add something to your Real\u{2011}Debrid account, or play something, and it shows up here.")
+                .font(Theme.Typo.body())
+                .foregroundStyle(Theme.Palette.textSecondary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: 420)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func failedState(_ message: String) -> some View {
+        VStack(spacing: 12) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 42, weight: .regular))
+                .foregroundStyle(Theme.Palette.gold)
+            Text(message)
+                .font(Theme.Typo.headline())
+                .foregroundStyle(Theme.Palette.textPrimary)
+                .multilineTextAlignment(.center)
+            Button("Try Again") { library?.retry() }
+                .buttonStyle(GlassButtonStyle())
+                .padding(.top, 4)
+        }
+        .frame(maxWidth: 420)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// Home's loading state: a hero-height shimmer, a landscape rail skeleton and a three-row poster
+/// grid skeleton — same shapes as the content that replaces them, so nothing jumps when it lands.
+/// Also what `HomeRoot` shows before a `HomeStore` exists at all.
+struct HomeSkeleton: View {
+    @Environment(\.pageLeadingInset) private var pageLeadingInset
+    /// Measured like `HomeHero` measures its own — a fixed 1200 pt made the shimmer 89 pt shorter
+    /// than the hero in a 1440 pt window, so everything below jumped when Home landed.
+    @State private var width: CGFloat = 1200
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 30) {
+            ShimmerView(cornerRadius: 0)
+                .frame(maxWidth: .infinity)
+                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+                .frame(height: TitlePageLayout.heroHeight(width: width))
+            RailSkeleton(cardSize: LandscapeCard.artSize, count: 5)
+            PosterGrid(items: [MediaItem](), isLoading: true) { (_: MediaItem) in EmptyView() }
+                .padding(.leading, pageLeadingInset)
+                .padding(.trailing, 28)
+        }
+        .padding(.bottom, 40)
+    }
+}
+
+/// The beat a Continue Watching card holds when it's marked: a gold ✓ (watched) or ↺ (unwatched)
+/// popping onto a dimmed card, before the card shrinks off the rail.
+private struct MarkFlourish: View {
+    let watched: Bool
+    @State private var shown = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
+                .fill(.black.opacity(0.6))
+            VStack(spacing: 6) {
+                Image(systemName: watched ? "checkmark.circle.fill" : "arrow.counterclockwise.circle.fill")
+                    .font(.system(size: 40, weight: .semibold))
+                    .foregroundStyle(Theme.Palette.goldGradient)
+                    .shadow(color: Theme.Palette.gold.opacity(0.6), radius: 12)
+                    .scaleEffect(shown || reduceMotion ? 1 : 0.4)
+                    .symbolEffect(.bounce, value: shown)
+                Text(watched ? "Watched" : "Unwatched")
+                    .font(Theme.Typo.label()).tracking(1.2)
+                    .foregroundStyle(Theme.Palette.textPrimary)
+                    .opacity(shown ? 1 : 0)
+            }
+        }
+        .onAppear { withAnimation(Theme.Motion.pop) { shown = true } }
+        .allowsHitTesting(false)
+    }
+}

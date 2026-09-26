@@ -12,7 +12,7 @@ struct DetailView: View {
     @State private var episodePlayback: EpisodePlayback?
     @State private var episodeError: String?
     /// Finds, adds and plays an episode you do not have — the same engine the movie page uses.
-    @State private var acquisition: AcquisitionStore?
+    @State private var acquirer: TitleAcquirer?
     /// Owned by this page rather than read from the shell: Detail is reached by a push AND from
     /// inside covers, and an object that does not cross one of those boundaries is a trap. The
     /// syncer underneath is shared, so the mirror stays consistent with every other surface.
@@ -55,8 +55,7 @@ struct DetailView: View {
             }
         }
         .task(id: store.imdbID) {
-            acquisition = session.makeAcquisition(for: store.item, imdbID: store.imdbID,
-                                                  originalLanguage: store.originalLanguage)
+            acquirer = session.makeTitleAcquirer(for: store, onAdded: { session.libraryStore?.retry() })
         }
         .task {
             await store.load()
@@ -102,8 +101,8 @@ struct DetailView: View {
             Button("Cancel", role: .cancel) { pendingVersionRemoval = nil }
         } message: { source in
             Text(store.versions.count > 1
-                 ? "\(Self.describe(source)) is deleted from your Real\u{2011}Debrid account. Your other versions of \u{201C}\(store.item.title)\u{201D} stay."
-                 : "\(Self.describe(source)) is the only version you have, so \u{201C}\(store.item.title)\u{201D} leaves your library.")
+                 ? "\(source.versionSummary) is deleted from your Real\u{2011}Debrid account. Your other versions of \u{201C}\(store.item.title)\u{201D} stay."
+                 : "\(source.versionSummary) is the only version you have, so \u{201C}\(store.item.title)\u{201D} leaves your library.")
         }
         .alert("Couldn\u{2019}t Remove", isPresented: Binding(
             get: { removeError != nil }, set: { if !$0 { removeError = nil } })) {
@@ -137,26 +136,19 @@ struct DetailView: View {
     /// open with that row gone.
     private func performVersionRemove(_ source: MediaSource) {
         guard let library = session.libraryStore else { return }
-        let wasLast = store.versions.count <= 1
         pendingVersionRemoval = nil
         Task {
-            await library.removeVersion(store.item, source: source)
-            if case .failed(let message) = library.removal {
+            switch await library.removeVersionReportingFailure(store.item, source: source) {
+            case let .removed(wasLast):
+                if wasLast {
+                    dismiss()
+                } else {
+                    await store.forgetVersion(source)
+                }
+            case let .failed(message):
                 removeError = message
-                library.clearRemovalError()
-            } else if wasLast {
-                dismiss()
-            } else {
-                await store.forgetVersion(source)
             }
         }
-    }
-
-    /// A version in words, for the delete confirmation — "1080p · TELESYNC · x264".
-    private static func describe(_ source: MediaSource) -> String {
-        let parts = [source.parsed.resolution, source.parsed.source, source.parsed.videoCodec]
-            .compactMap { $0 }
-        return parts.isEmpty ? "This version" : parts.joined(separator: " · ")
     }
 
     /// A not-downloaded episode was selected → find it, add it, play it.
@@ -167,40 +159,19 @@ struct DetailView: View {
     /// Acquire and play one episode, addressed by number so it works for a show you have not added
     /// at all. Falls through to a tracked download when Real-Debrid has nothing instant.
     private func playEpisode(season: Int, number: Int, id: String) {
-        guard let acquisition else { return }
+        guard let acquirer else { return }
         downloadingEpisodeID = id
         Task {
-            await acquisition.playBest(.episode(season: season, number: number))
+            let outcome = await acquirer.play(.episode(season: season, number: number))
             downloadingEpisodeID = nil
-            switch acquisition.phase {
-            case let .ready(request):
-                session.libraryStore?.retry()      // a new torrent landed in RD
+            switch outcome {
+            case let .play(request):
                 episodePlayback = EpisodePlayback(request: request)
-            case .noneCached:
-                await startEpisodeDownload(season: season, number: number, using: acquisition)
-            case let .failed(message):
+            case let .failed(message) where !message.isEmpty:
                 episodeError = message
             default:
                 break
             }
-            acquisition.reset()
         }
-    }
-
-    /// Nothing cached for this episode — start a tracked Real-Debrid download instead of giving
-    /// up. It cannot play now (it is still downloading), so progress surfaces on the episode row
-    /// and the Home "Downloading" rail rather than opening the player.
-    private func startEpisodeDownload(season: Int, number: Int,
-                                      using acquisition: AcquisitionStore) async {
-        let candidates = await acquisition.uncachedCandidates(.episode(season: season, number: number))
-        guard !candidates.isEmpty, let tmdb = store.item.tmdbID else {
-            episodeError = "No version of this episode is available to download."
-            return
-        }
-        await session.downloadStore?.request(
-            contentKey: DownloadKey.episode(showTmdbID: tmdb, season: season, number: number),
-            tmdbID: tmdb,
-            title: "\(store.item.title) S\(season)E\(number)",
-            kind: .show, candidates: candidates, posterPath: store.item.posterPath)
     }
 }

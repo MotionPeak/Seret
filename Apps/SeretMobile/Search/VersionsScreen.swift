@@ -9,8 +9,8 @@ import SwiftUI
 /// the list appeared. This loads the list immediately and shows nothing else.
 ///
 /// Picking: a version Real-Debrid already has plays at once; anything else starts a download and
-/// reports progress in place. Cache flags lag, so it tries the instant add rather than trusting the
-/// badge.
+/// reports progress in place. Cache flags lag, so `VersionsModel.pick` tries the instant add
+/// rather than trusting the badge.
 struct VersionsScreen: View {
     let hit: SearchHit
     /// When set, the list is for ONE episode of a show rather than the whole title. Episodes had
@@ -23,15 +23,7 @@ struct VersionsScreen: View {
 
     @Environment(AppSession.self) private var session
     @Environment(\.dismiss) private var dismiss
-    @State private var flow: AddFlowStore?
-    @State private var versions: [CachedStream] = []
-    /// The list as drawn: Instant above Download, each with its oversized releases first in a
-    /// section of their own. Nothing is dropped — this only decides where a row is drawn.
-    @State private var groups: [VersionGroup] = []
-    @State private var phase: Phase = .loading
-    @State private var picking: String?
-
-    private enum Phase { case loading, ready, empty, failed }
+    @State private var model: VersionsModel?
 
     var body: some View {
         NavigationStack {
@@ -56,40 +48,20 @@ struct VersionsScreen: View {
             }
         }
         .task {
-            guard flow == nil else { return }
-            let f = session.makeAddFlow(for: hit)
-            flow = f
-            await f?.resolve()
-            // An episode needs its own target: Comet/Torrentio queries are per `series(s,e)`, so
-            // without this the list would be the show's, not this episode's.
-            if let episode {
-                await f?.selectSeason(episode.season)
-                await f?.selectEpisode(episode.number)
-            }
-            guard let add = f?.add else { phase = .failed; return }
-            await add.loadAllVersions()
-            versions = add.allVersions
-            groups = versions.groupedByAvailability(episodesInSeason: nil)
-            phase = versions.isEmpty ? .empty : .ready
+            guard model == nil else { return }
+            let target: AcquisitionStore.Target = episode.map { .episode(season: $0.season, number: $0.number) } ?? .movie
+            // `MediaItem.placeholder(for:)` always carries the hit's TMDB id, so this only returns
+            // nil the same way the rest of `AppSession`'s `make…` seams do: no session at all.
+            guard let m = session.makeVersionsModel(for: MediaItem.placeholder(for: hit), target: target) else { return }
+            model = m
+            await m.load()
         }
     }
 
-    private var title: String {
-        let base = flow?.title ?? hit.result.displayTitle
-        guard let episode else { return base }
-        return "\(base) — S\(episode.season)·E\(episode.number)"
-    }
-
-    /// What a download started here is filed under. Was hardcoded to the movie key, which would
-    /// have reported an episode's progress against the whole show.
-    private func downloadKey(_ flow: AddFlowStore) -> String {
-        guard let episode else { return DownloadKey.movie(tmdbID: flow.tmdbID) }
-        return DownloadKey.episode(showTmdbID: flow.tmdbID,
-                                   season: episode.season, number: episode.number)
-    }
+    private var title: String { model?.title ?? hit.result.displayTitle }
 
     @ViewBuilder private var content: some View {
-        switch phase {
+        switch model?.phase ?? .loading {
         case .loading:
             HStack(spacing: Theme.Space.sm) {
                 ProgressView().tint(Theme.Palette.gold)
@@ -105,15 +77,14 @@ struct VersionsScreen: View {
             Label("No other versions found.", systemImage: "square.stack.3d.up.slash")
                 .font(Theme.Typo.body()).foregroundStyle(Theme.Palette.textSecondary)
         case .ready:
-            VersionList(groups: groups, picking: picking, onPick: pick,
-                        hebrew: { flow?.add?.hebrew(for: $0) ?? .none })
+            VersionList(groups: model?.groups ?? [], picking: model?.picking, onPick: pick,
+                        hebrew: { model?.hebrew(for: $0) ?? .none })
         }
     }
 
     /// Live progress for a version picked here that had to be downloaded.
     @ViewBuilder private var downloadStatus: some View {
-        if let flow, let status = session.downloadStore?
-            .status(forContentKey: downloadKey(flow)) {
+        if let status = model?.downloadStatus {
             switch status.phase {
             case .queued:
                 ProgressView("Starting download…").tint(Theme.Palette.gold)
@@ -136,20 +107,15 @@ struct VersionsScreen: View {
     }
 
     private func pick(_ stream: CachedStream) {
-        guard picking == nil, let flow else { return }
+        guard let model, model.picking == nil else { return }
         Task {
-            picking = stream.infoHash
-            if let request = await flow.instantPlay(stream) {
-                session.libraryStore?.retry()      // a new torrent landed in RD
+            switch await model.pick(stream) {
+            case let .play(request):
                 dismiss()
                 onPlay(request)
-            } else {
-                await session.downloadStore?.request(
-                    contentKey: downloadKey(flow),
-                    tmdbID: flow.tmdbID, title: flow.title, kind: flow.mediaKind,
-                    candidates: [stream], posterPath: flow.posterPath)
+            default:
+                break   // downloadStarted / failed / busy — the status line above already reflects it
             }
-            picking = nil
         }
     }
 }

@@ -269,8 +269,9 @@ public final class AppSession {
                              WatchProgress.self])
         // Only ask for CloudKit when an iCloud account is actually signed in (a CloudKit store fails
         // silently on a sim / no-account device). Otherwise local-only — sync engages on real
-        // iCloud devices.
-        let useCloudKit = FileManager.default.ubiquityIdentityToken != nil
+        // iCloud devices. And only when this binary is entitled to CloudKit: a locally signed Mac
+        // build is not.
+        let useCloudKit = FileManager.default.ubiquityIdentityToken != nil && CloudKitEntitlement.isPresent
         let mode = useCloudKit ? "cloud" : "local"
 
         if let container = makeContainer(schema: schema, cloudKit: useCloudKit), storeHealthy(container) {
@@ -719,8 +720,8 @@ public final class AppSession {
                 Task { await cache.prefetch(link) }
             },
             // Declares our transport to the system: the iPhone Remote app's ±10s buttons and
-            // scrubber, Control Center, Siri and HDMI-CEC TV remotes. Unavailable on macOS, where
-            // this package only builds to run `swift test`.
+            // scrubber, Control Center, Siri, HDMI-CEC TV remotes — and on the Mac the media keys,
+            // Control Center and AirPods controls.
             nowPlaying: Self.makeNowPlayingCenter(),
             // The stream cache in front of RD: rewinds from RAM, reopening from disk.
             streamProxy: streamProxy,
@@ -742,10 +743,10 @@ public final class AppSession {
               resolved: { link, url in await linkCache?.seed(link, url: url) })
     }
 
-    /// The system Now Playing surface, when the platform has MediaPlayer + UIKit (iOS/tvOS).
-    /// nil on macOS so `swift test` keeps building.
+    /// The system Now Playing surface wherever MediaPlayer and a UI framework exist — iOS, tvOS and
+    /// macOS. (No test builds a player through `AppSession`, so `swift test` never touches it.)
     private static func makeNowPlayingCenter() -> NowPlayingControlling? {
-        #if canImport(MediaPlayer) && canImport(UIKit)
+        #if canImport(MediaPlayer) && (canImport(UIKit) || canImport(AppKit))
         return NowPlayingCenter()
         #else
         return nil

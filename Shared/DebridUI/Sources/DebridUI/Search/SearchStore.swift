@@ -55,6 +55,10 @@ public final class SearchStore {
         } catch is CancellationError {
             // superseded
         } catch {
+            // A superseded search's cancelled request throws `URLError(.cancelled)` (or the HTTP
+            // layer's wrapper of it), not `CancellationError` — that is not a failure either, or
+            // typing on after the debounce flashes "Search failed" until the next search starts.
+            guard !Task.isCancelled else { return }
             state = .failed("Search failed. Check your connection and try again.")
         }
     }

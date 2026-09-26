@@ -30,6 +30,22 @@ public struct SubtitlePreferences: Codable, Sendable, Equatable {
         case system, sans, serif, rounded, monospace, rubik
         /// VLCKit `--freetype-font` value; nil = leave VLCKit's bundled default.
         public var freetypeName: String? {
+            #if os(macOS)
+            // Every choice must carry HEBREW glyphs. libvlc draws letters a face lacks in its
+            // fallback, Lucida Grande, so a Latin-only face changed nothing for Hebrew subtitles:
+            // the owner picked Sans and saw no difference at all. (Helvetica Neue IS libvlc's Mac
+            // default, so Sans didn't even change Latin; Georgia, Arial Rounded and Menlo have no
+            // Hebrew.) The Rubik faces go by PostScript name: by family, libvlc picks the bundled
+            // Rubik-Regular, which is Latin-only. Each checked by rendering through libvlc.
+            switch self {
+            case .system: nil
+            case .sans: "Arial"
+            case .serif: "Times New Roman"
+            case .rounded: "Rubik-SemiBold"
+            case .monospace: "Courier New"
+            case .rubik: "Rubik-Medium"
+            }
+            #else
             switch self {
             case .system: nil
             case .sans: "Helvetica Neue"
@@ -38,6 +54,7 @@ public struct SubtitlePreferences: Codable, Sendable, Equatable {
             case .monospace: "Menlo"
             case .rubik: "Rubik"               // bundled (Rubik-Regular.ttf, registered via UIAppFonts)
             }
+            #endif
         }
         public var label: String {
             switch self {

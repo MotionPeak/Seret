@@ -31,7 +31,7 @@ struct PlayerView: View {
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
-            VLCVideoView(videoView: engine.videoView).ignoresSafeArea()
+            VideoSurface(videoView: engine.videoView).ignoresSafeArea()
 
             switch model.phase {
             case .preparing:
