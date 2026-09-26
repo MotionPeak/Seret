@@ -2,18 +2,19 @@ import DebridCore
 import DebridUI
 import SwiftUI
 
-/// The sectioned version list: oversized releases first under their own heading, then the rest.
+/// The sectioned version list: everything that plays at once above everything that downloads
+/// first, and inside each block the oversized releases under their own heading, then the rest.
 ///
 /// Nothing is filtered. Ranking a 70–80GB REMUX last for being oversized left it at the bottom of
 /// thirty-odd rows — present, but effectively invisible, which reads as "the big ones aren't
-/// there". Giving them a section of their own at the top puts them one glance away while leaving
-/// the ranking, and therefore what "best" picks, exactly as it was.
+/// there". Giving them a section of their own at the top of their block puts them one glance away
+/// while leaving the ranking, and therefore what "best" picks, exactly as it was. The ranking
+/// never looks at availability, so on its own it also buried instant releases among downloads.
 ///
 /// Split out from `VersionsScreen` so it can be screenshot-verified with `-uiPreview versions`,
 /// without a session, a search round-trip, or the focus engine.
 struct VersionList: View {
-    let larger: [CachedStream]
-    let rest: [CachedStream]
+    let groups: [VersionGroup]
     let picking: String?
     let onPick: (CachedStream) -> Void
     /// Each release's Hebrew subtitles, for its badge. The order already reflects them.
@@ -23,16 +24,22 @@ struct VersionList: View {
         // Lazy so the (often 30+) rows realise as they scroll in — building every chip and badge
         // up front made the list stutter.
         LazyVStack(alignment: .leading, spacing: 14) {
-            if !larger.isEmpty {
-                header("LARGER FILES", "Highest bitrate. Slower to start and heavier to skip.")
-                ForEach(larger) { row($0) }
-            }
-            if !rest.isEmpty {
-                // Only worth a heading when there is another section to tell it apart from.
-                if !larger.isEmpty {
-                    header("RECOMMENDED", "Sized to play smoothly on this hardware.")
+            ForEach(groups) { group in
+                // A block heading only when there is another block to tell it apart from.
+                if groups.count > 1 {
+                    blockHeader(group.availability, first: group.id == groups.first?.id)
                 }
-                ForEach(rest) { row($0) }
+                if !group.larger.isEmpty {
+                    header("LARGER FILES", "Highest bitrate. Slower to start and heavier to skip.")
+                    ForEach(group.larger) { row($0) }
+                }
+                if !group.rest.isEmpty {
+                    // Only worth a heading when there is another section to tell it apart from.
+                    if !group.larger.isEmpty {
+                        header("RECOMMENDED", "Sized to play smoothly on this hardware.")
+                    }
+                    ForEach(group.rest) { row($0) }
+                }
             }
         }
     }
@@ -41,6 +48,21 @@ struct VersionList: View {
         VersionRow(stream: stream, isPicking: picking == stream.infoHash, hebrew: hebrew(stream)) {
             onPick(stream)
         }
+    }
+
+    /// Instant or Download: the block's own heading, a step above the size sections inside it and
+    /// in the colours of the rows' cache badges. Plain text, so it takes no focus.
+    private func blockHeader(_ availability: VersionGroup.Availability, first: Bool) -> some View {
+        HStack(spacing: 14) {
+            Image(systemName: availability.systemImage)
+                .foregroundStyle(availability == .instant ? Color.green : .yellow)
+            Text(availability.title)
+            Text(availability.caption).font(.seretCallout)
+                .foregroundStyle(Theme.Palette.textSecondary)
+        }
+        .font(.seret(.title3, .bold))
+        .padding(.top, first ? 4 : 30)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// A group heading. Plain text, so it takes no focus and the d-pad travels straight from the

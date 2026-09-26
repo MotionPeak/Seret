@@ -45,7 +45,7 @@ struct MovieDetail: View {
                 // Its own line: four quality chips already fill an iPhone's width, and anything
                 // beside them — even an invisible placeholder — squeezed them.
                 if let chip = store.hebrewChip {
-                    HebrewBadge(text: chip.text, dimmed: chip == .available, prominent: true)
+                    HebrewBadge(HebrewIndicator(chip: chip), prominent: true)
                 }
                 RatingsRow(ratings: store.ratings, letterboxd: store.letterboxdRating)
                 actions
@@ -259,11 +259,15 @@ struct MovieDetail: View {
                     Image(systemName: store.isActive(src) ? "checkmark.circle.fill" : "circle")
                         .foregroundStyle(store.isActive(src)
                                          ? Theme.Palette.gold : Theme.Palette.textSecondary)
-                    // The badge on its own line: an iPhone row has no room beside four chips, and
-                    // this is the one fact about a version that must never be truncated away.
+                    // The marks on lines of their own: an iPhone row has no room beside four
+                    // chips, and this is the one fact about a version that must never be truncated
+                    // away. Hebrew inside the file is always in sync, so it goes on top, as in the
+                    // Versions list.
                     VStack(alignment: .leading, spacing: 4) {
+                        let hebrew = HebrewIndicator(store.hebrew(for: src))
+                        if hebrew == .inFile { HebrewBadge(.inFile) }
                         QualityChipRow(parsed: src.parsed)
-                        if let badge = store.hebrew(for: src).badgeText { HebrewBadge(text: badge) }
+                        if hebrew == .matched { HebrewBadge(.matched) }
                     }
                     Spacer()
                     Image(systemName: "play.circle.fill").foregroundStyle(Theme.Palette.gold)

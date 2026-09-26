@@ -92,11 +92,11 @@ struct MovieDetailView: View {
                 HStack(spacing: 16) {
                     if let best = store.bestSource { QualityChips(parsed: best.parsed) }
                     if let chip = store.hebrewChip {
-                        HebrewBadge(text: chip.text, dimmed: chip == .available, prominent: true)
+                        HebrewBadge(HebrewIndicator(chip: chip), prominent: true)
                     } else {
                         // Holds the row at the badge's height, so the chip landing does not push
                         // the page — and the Play button focus was just placed on — down.
-                        HebrewBadge(text: HebrewTitleChip.builtIn.text, prominent: true).hidden()
+                        HebrewBadge(.inFile, prominent: true).hidden()
                     }
                 }
             }
@@ -279,15 +279,21 @@ struct MovieDetailView: View {
             // you do not own too (this section only renders once you own something).
             Text("Versions").sectionTitle().frame(maxWidth: 1100, alignment: .leading)
             ForEach(store.versions, id: \.self) { src in
+                let hebrew = HebrewIndicator(store.hebrew(for: src))
                 NavigationLink(value: store.playRequest(source: src, episode: nil, label: item.title)) {
-                    HStack(spacing: 16) {
-                        Image(systemName: store.isActive(src) ? "checkmark.circle.fill" : "circle")
-                            .foregroundStyle(store.isActive(src)
-                                             ? Theme.Palette.gold : Theme.Palette.textSecondary)
-                        QualityChips(parsed: src.parsed)
-                        if let badge = store.hebrew(for: src).badgeText { HebrewBadge(text: badge) }
-                        Spacer()
-                        Image(systemName: "play.fill")
+                    VStack(alignment: .leading, spacing: 10) {
+                        // Hebrew inside the file is always in sync: a line of its own, on top, as
+                        // in the Versions list.
+                        if hebrew == .inFile { HebrewBadge(.inFile) }
+                        HStack(spacing: 16) {
+                            Image(systemName: store.isActive(src) ? "checkmark.circle.fill" : "circle")
+                                .foregroundStyle(store.isActive(src)
+                                                 ? Theme.Palette.gold : Theme.Palette.textSecondary)
+                            QualityChips(parsed: src.parsed)
+                            if hebrew == .matched { HebrewBadge(.matched) }
+                            Spacer()
+                            Image(systemName: "play.fill")
+                        }
                     }
                 }
                 .buttonStyle(SeretRowStyle())

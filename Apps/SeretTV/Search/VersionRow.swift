@@ -9,17 +9,22 @@ struct VersionRow: View {
     let stream: CachedStream
     /// True while this row's pick is being resolved (instant-add probe / download start).
     let isPicking: Bool
-    /// Hebrew subtitles for this release — the first thing this household asks of a version, so
-    /// the badge sits right after the cache mark.
+    /// Hebrew subtitles for this release — the first thing this household asks of a version. A
+    /// track inside the file gets a line of its own at the top of the row, since it is the one
+    /// kind that is always in sync; Matched sits right after the cache mark.
     var hebrew: HebrewSubtitles = .none
     let action: () -> Void
 
     var body: some View {
+        let indicator = HebrewIndicator(hebrew)
         Button(action: action) {
             VStack(alignment: .leading, spacing: 6) {
+                if indicator == .inFile {
+                    HebrewBadge(.inFile).padding(.bottom, 4)
+                }
                 HStack(spacing: 16) {
                     CacheBadge(isCached: stream.isCached)
-                    if let badge = hebrew.badgeText { HebrewBadge(text: badge) }
+                    if indicator == .matched { HebrewBadge(.matched) }
                     if let year = stream.parsed.year {
                         Text(String(year)).font(.seret(.caption1, .semibold))
                             .padding(.horizontal, 10).padding(.vertical, 4)

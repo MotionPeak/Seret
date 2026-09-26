@@ -22,11 +22,10 @@ struct VersionsScreen: View {
     @Environment(AppSession.self) private var session
     @State private var flow: AddFlowStore?
     @State private var versions: [CachedStream] = []
-    /// The list split for display: oversized releases first, in a section of their own. Nothing is
-    /// dropped — the split is only about where a row is drawn. Computed once when the list loads
-    /// rather than in `body`, which SwiftUI re-runs freely.
-    @State private var larger: [CachedStream] = []
-    @State private var rest: [CachedStream] = []
+    /// The list as drawn: Instant above Download, each with its oversized releases first in a
+    /// section of their own. Nothing is dropped — this only decides where a row is drawn. Computed
+    /// once when the list loads rather than in `body`, which SwiftUI re-runs freely.
+    @State private var groups: [VersionGroup] = []
     @State private var phase: Phase = .loading
     @State private var picking: String?
     @State private var player: PlayerPresentation?
@@ -58,7 +57,7 @@ struct VersionsScreen: View {
             guard let add = f?.add else { phase = .failed; return }
             await add.loadAllVersions()
             versions = add.allVersions
-            (larger, rest) = versions.splitOversized(episodesInSeason: nil)
+            groups = versions.groupedByAvailability(episodesInSeason: nil)
             phase = versions.isEmpty ? .empty : .ready
         }
         .fullScreenCover(item: $player) { presented in
@@ -106,7 +105,7 @@ struct VersionsScreen: View {
         case .ready:
             // Lazy so the (often 30+) rows realise as they scroll in — building every chip and
             // badge up front made the list stutter on the Add screen.
-            VersionList(larger: larger, rest: rest, picking: picking, onPick: pick,
+            VersionList(groups: groups, picking: picking, onPick: pick,
                         hebrew: { flow?.add?.hebrew(for: $0) ?? .none })
                 .frame(maxWidth: 1400, alignment: .leading)
         }
