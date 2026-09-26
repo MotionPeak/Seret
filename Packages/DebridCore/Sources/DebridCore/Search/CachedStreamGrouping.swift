@@ -25,4 +25,43 @@ public extension Array where Element == CachedStream {
         }
         return (larger, rest)
     }
+
+    /// The list as it is drawn: every release Real-Debrid can play at once above every one that
+    /// has to download first, and each block split into its oversized releases and the rest.
+    ///
+    /// The ranking judges quality, size and Hebrew, never availability, so on its own it
+    /// interleaves the two. This only regroups: order inside every part is the ranking's, and a
+    /// block with nothing in it is left out rather than drawn as a heading over no rows.
+    func groupedByAvailability(episodesInSeason: Int?) -> [VersionGroup] {
+        let instant = filter(\.isCached).splitOversized(episodesInSeason: episodesInSeason)
+        let download = filter { !$0.isCached }.splitOversized(episodesInSeason: episodesInSeason)
+        return [VersionGroup(availability: .instant, larger: instant.larger, rest: instant.rest),
+                VersionGroup(availability: .download, larger: download.larger, rest: download.rest)]
+            .filter { !$0.larger.isEmpty || !$0.rest.isEmpty }
+    }
+}
+
+/// One block of a version list: the releases that play right away, or the ones that download to
+/// Real-Debrid first.
+public struct VersionGroup: Sendable, Equatable, Identifiable {
+    public enum Availability: Sendable, Equatable, Hashable {
+        /// Real-Debrid already has it: it plays at once.
+        case instant
+        /// Real-Debrid has to fetch it first.
+        case download
+    }
+
+    public let availability: Availability
+    /// Oversized releases, in ranking order.
+    public let larger: [CachedStream]
+    /// Everything else, in ranking order.
+    public let rest: [CachedStream]
+
+    public var id: Availability { availability }
+
+    public init(availability: Availability, larger: [CachedStream], rest: [CachedStream]) {
+        self.availability = availability
+        self.larger = larger
+        self.rest = rest
+    }
 }
