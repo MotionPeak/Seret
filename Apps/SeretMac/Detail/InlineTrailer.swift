@@ -61,6 +61,9 @@ struct InlineTrailer: NSViewRepresentable {
             super.init(frame: frame)
             let root = CALayer()
             root.masksToBounds = true
+            // The hero's scroll fade must fade the finished picture — without this it reached the
+            // still and the video separately, and the still showed through the video mid-scroll.
+            root.allowsGroupOpacity = true
             layer = root                    // set before `wantsLayer`: this view hosts the tree
             wantsLayer = true
             stillLayer.contentsGravity = .resizeAspectFill
@@ -95,6 +98,12 @@ struct InlineTrailer: NSViewRepresentable {
             playerLayer.opacity = 1
             playerLayer.add(fade, forKey: "reveal")
             onPicture()
+            // Once the video fully covers it, the still has nothing left to do.
+            let covered = fade.duration + 0.1
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(covered))
+                self?.stillLayer.isHidden = true
+            }
         }
     }
 }
