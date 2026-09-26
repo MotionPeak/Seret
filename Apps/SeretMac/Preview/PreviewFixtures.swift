@@ -544,6 +544,13 @@ struct PreviewVersionsSource: StreamSource, AddProviding {
                                                source: "BluRay", videoCodec: "x264"),
                          languages: ["en"], sizeBytes: 9_800_000_000, sourceName: "Preview",
                          isCached: true, subtitleLanguages: ["he"]),
+            // A long multi-language release name: it must truncate, never squeeze the badge or size.
+            CachedStream(infoHash: String(repeating: "6", count: 40), fileIdx: nil,
+                         rawTitle: "The.Godfather.1972.Eng.Fre.Ger.Ita.Spa.Cze.Pol.Hun.1080p.BluRay.Remux.AVC.DTS-HD.MA.5.1-SGF",
+                         parsed: ParsedRelease(title: "The Godfather", resolution: "1080p", source: "REMUX",
+                                               videoCodec: "AVC", audioCodec: "DTS-HD"),
+                         languages: ["en", "fr", "de", "it"], sizeBytes: 31_200_000_000,
+                         sourceName: "Preview", isCached: false),
         ]
     }
 

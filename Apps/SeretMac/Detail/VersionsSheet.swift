@@ -148,7 +148,9 @@ struct VersionsSheet: View {
                 // Hebrew inside the file is the one kind that is always in sync: on top, alone.
                 if hebrew == .inFile { HebrewBadge(.inFile) }
                 HStack(alignment: .top, spacing: 12) {
-                    badge(stream.isCached)
+                    // Pinned: the chips beside them take the row's width first, and a long release
+                    // name must truncate rather than squeeze the badge or the size to "…".
+                    badge(stream.isCached).fixedSize()
                     VStack(alignment: .leading, spacing: 4) {
                         chipLine(stream, matched: hebrew == .matched)
                         Text(stream.rawTitle)
@@ -161,7 +163,7 @@ struct VersionsSheet: View {
                     // they had room for.
                     .layoutPriority(1)
                     Spacer(minLength: 8)
-                    trailing(stream)
+                    trailing(stream).fixedSize()
                 }
             }
             .padding(12)
