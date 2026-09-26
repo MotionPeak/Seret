@@ -86,7 +86,7 @@ struct HeroFlight: Identifiable, Equatable {
 
     let id = UUID()
     let direction: Direction
-    /// The title's `item.id` — what a page checks to know a flight is (or was) headed for it.
+    /// The title's `item.id` — what a page checks to know a flight is headed for it.
     let routeID: String
     let from: CGRect
     let to: CGRect
@@ -96,5 +96,4 @@ struct HeroFlight: Identifiable, Equatable {
     /// `goBack()` can look up that tile's LATEST reported frame. `nil` for a source with no tile
     /// (Home hero, Continue Watching, a Person credit — Decision 10), which never flies at all.
     let tileID: UUID?
-    var landed = false
 }

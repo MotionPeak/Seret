@@ -114,8 +114,6 @@ struct UIPreviewRoot: View {
                 heroFlightPreview(back: false)
             case "flightback":
                 heroFlightPreview(back: true)
-            case "flightlanded":
-                heroFlightLandedPreview()
             case "titlerails":
                 titleRailsPreview()
             case "titlerailsloading":
@@ -400,30 +398,6 @@ struct UIPreviewRoot: View {
     /// settle rather than guessed.
     private func heroFlightPreview(back: Bool) -> some View {
         HeroFlightPreviewHost(back: back)
-    }
-
-    /// `-uiPreview flightlanded` — the owned Dune page (`titlemovie`'s own fixture) with a forward
-    /// flight pinned already `landed`, at `progressOverride: 1` — the flyer's final frame is exactly
-    /// the real hero's band, so this must render pixel-identical to `titlemovie` itself.
-    private func heroFlightLandedPreview() -> some View {
-        let item = Fixture.films[0]
-        let suite = "seret.preview.flightlanded.\(UUID().uuidString)"
-        let model = ShellModel(defaults: UserDefaults(suiteName: suite)!)
-        model.select(.library)
-        model.open(.title(item))
-        let store = DetailStore(item: item, details: PreviewDetails(), watch: PreviewWatch(Fixture.watch), profileID: "")
-        let windowSize = CGSize(width: 1440, height: 900)
-        model.windowSize = windowSize
-        var landed = HeroFlight(direction: .forward, routeID: item.id, from: .zero,
-                                to: HeroFlightGeometry.backdropFrame(window: windowSize),
-                                posterURL: TMDBClient.imageURL(path: item.posterPath, size: "w342"),
-                                backdropURL: TMDBClient.imageURL(path: item.backdropPath ?? item.posterPath, size: "w1280"),
-                                tileID: nil)
-        landed.landed = true
-        model.previewPinFlight(landed)
-        return MainShell(model: model)
-            .environment(store)
-            .environment(\.previewFlightProgressOverride, 1)
     }
 
     /// `-uiPreview person` / `personloading` / `personempty` / `personfailed` — a `PersonRoute`
@@ -974,6 +948,8 @@ private struct SurprisePreviewHost: View {
 /// `-uiPreview pushtitle` — My Library on screen first, then a title opened two seconds later with
 /// NO hero flight (as a Watchlist tile or a search result opens one), so the NavigationStack's own
 /// push transition runs. The screenshot must show the title page alone — never the grid through it.
+/// `-withFlight YES` opens it the way a poster tile does, so the hero flight runs; `-scrollBy <pt>`
+/// then scrolls the page part-way down once the trailer is playing.
 private struct PushPreviewHost: View {
     @State private var model: ShellModel = {
         let model = ShellModel(defaults: UserDefaults(suiteName: "seret.preview.push.\(UUID().uuidString)")!)
@@ -1000,7 +976,24 @@ private struct PushPreviewHost: View {
                     model.select(.home)
                     try? await Task.sleep(for: .seconds(2))
                 }
+                if ProcessInfo.processInfo.arguments.contains("-withFlight") {
+                    // What a poster tile records on click: its frame and art, so the flight runs.
+                    model.pendingFlightSource = FlightSource(
+                        tileID: UUID(), frame: CGRect(x: 320, y: 260, width: 150, height: 225),
+                        posterURL: TMDBClient.imageURL(path: Fixture.films[0].posterPath, size: "w342"))
+                }
                 model.open(.title(Fixture.films[0]))
+                // `-scrollBy <pt>`: once the trailer is playing, scroll the page part-way down,
+                // through the real NSScrollView, the way a trackpad does.
+                let args = ProcessInfo.processInfo.arguments
+                if let i = args.firstIndex(of: "-scrollBy"), i + 1 < args.count, let points = Double(args[i + 1]) {
+                    try? await Task.sleep(for: .seconds(5))
+                    guard let content = NSApp.windows.max(by: { $0.frame.width < $1.frame.width })?.contentView,
+                          let scrollView = ScrollBench.largestVerticalScrollView(in: content) else { return }
+                    let clip = scrollView.contentView
+                    clip.scroll(to: NSPoint(x: clip.bounds.origin.x, y: clip.bounds.origin.y + points))
+                    scrollView.reflectScrolledClipView(clip)
+                }
             }
     }
 }

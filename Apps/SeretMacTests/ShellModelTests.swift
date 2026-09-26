@@ -365,7 +365,22 @@ import Testing
         #expect(model.flight?.routeID == "a")
         #expect(model.flight?.from == sourceFrame())
         #expect(model.flight?.tileID == tileID)
-        #expect(model.flight?.landed == false)
+        #expect(model.isFlightLanding(for: "a"))
+    }
+
+    @Test func aForwardLandingEndsTheFlight() {
+        let model = ShellModel(defaults: freshDefaults())
+        model.windowSize = CGSize(width: 1440, height: 900)
+        model.select(.library)
+        model.pendingFlightSource = FlightSource(tileID: UUID(), frame: sourceFrame(), posterURL: nil)
+        model.open(route("a"))
+
+        model.landFlight(model.flight!.id)
+
+        // Nothing is left to draw over the page (the flyer used to stay, pinned over the hero while
+        // the page scrolled under it), the page shows, and the source tile is no longer hidden.
+        #expect(model.flight == nil)
+        #expect(!model.isFlightLanding(for: "a"))
     }
 
     @Test func openingWithoutASourceDoesNotFly() {
@@ -438,7 +453,7 @@ import Testing
         model.landFlight(UUID())                // some other, already-replaced flight's id
 
         #expect(model.flight?.id == realID)
-        #expect(model.flight?.landed == false)
+        #expect(model.isFlightLanding(for: "a"))
     }
 
     @Test func aSecondOpenMidFlightReplacesTheFlight() {

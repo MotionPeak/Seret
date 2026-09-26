@@ -90,7 +90,7 @@ final class ShellModel {
                                        tileID: source.tileID)
             }
         }
-        // Explicitly replaces (or clears) any old flight — a stale landed flight from an earlier
+        // Explicitly replaces (or clears) any old flight — one still in the air for an earlier
         // title must never leak into a push it has nothing to do with (e.g. opening a Person page).
         flight = newFlight
         // A NavigationStack push animates its own slide by default — while a flight runs, only the
@@ -177,19 +177,18 @@ final class ShellModel {
     /// brought THEM here lands — `false` the instant it lands, and just as `false` when there was
     /// never a flight at all (a direct push, or a cross-fade), so the page shows normally either way.
     func isFlightLanding(for routeID: String) -> Bool {
-        guard let flight, flight.routeID == routeID, flight.direction == .forward else { return false }
-        return !flight.landed
+        flight?.routeID == routeID && flight?.direction == .forward
     }
 
     /// `HeroFlightLayer`'s completion callback: a stale id (a flight since replaced) is ignored.
-    /// Forward marks `landed` so the real hero can take over while the flyer's final frame still
-    /// matches it exactly; back simply clears the flight — the real tile underneath is what shows.
+    /// Either way the flight simply ends. Forward, the real hero is exactly where the flyer came to
+    /// rest and takes over in the same frame; back, the real tile underneath is what shows.
+    /// A landed forward flight used to be KEPT: its flyer, drawn by the shell above the page, went
+    /// on covering the hero's title and buttons, stayed pinned at the top while the page scrolled
+    /// under it, and kept its source tile hidden in the grid.
     func landFlight(_ id: UUID) {
         guard flight?.id == id else { return }
-        switch flight?.direction {
-        case .forward: flight?.landed = true
-        case .back, nil: flight = nil
-        }
+        flight = nil
     }
 
     // MARK: - Playback slot (Task 4 on)

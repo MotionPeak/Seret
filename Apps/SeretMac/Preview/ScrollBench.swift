@@ -42,9 +42,8 @@ final class ScrollBench: NSObject {
                     window.collectionBehavior.remove(.moveToActiveSpace)
                     window.collectionBehavior.insert([.canJoinAllSpaces, .fullScreenAuxiliary])
                     window.level = .floating
-                    window.orderFrontRegardless()
-                }
-                NSApp.activate()
+                    window.orderFrontRegardless()   // in front, but never activated: the owner's
+                }                                   // typing must stay in whatever they are using
             }
         }
     }
@@ -92,7 +91,7 @@ final class ScrollBench: NSObject {
         }
     }
 
-    private static func largestVerticalScrollView(in root: NSView) -> NSScrollView? {
+    static func largestVerticalScrollView(in root: NSView) -> NSScrollView? {
         var best: NSScrollView?
         var bestHeight: CGFloat = 0
         func walk(_ view: NSView) {
