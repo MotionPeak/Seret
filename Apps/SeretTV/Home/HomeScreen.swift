@@ -65,7 +65,8 @@ struct HomeScreen: View {
                         HomeRail(title: "Continue Watching") {
                             ForEach(home.continueWatching) { hi in
                                 NavigationLink(value: resumeDestination(hi)) {
-                                    LandscapeProgressCard(title: hi.item.title, subtitle: hi.subtitle,
+                                    LandscapeProgressCard(title: hi.item.title,
+                                                          subtitle: hi.isUpNext ? "Next · \(hi.subtitle)" : hi.subtitle,
                                                           imageURL: backdropURL(hi.item), fraction: hi.fraction)
                                 }.buttonStyle(.card)
                                     // Press-and-hold to clear it: the rail had no way to remove a
@@ -130,7 +131,8 @@ struct HomeScreen: View {
                     .init(color: Theme.Palette.canvas, location: 1.0),
                 ], startPoint: .top, endPoint: .bottom)
                 VStack(alignment: .leading, spacing: 14) {
-                    Text(f.subtitle.isEmpty ? "Continue Watching" : "Continue · \(f.subtitle)")
+                    Text(f.isUpNext ? "Up Next · \(f.subtitle)"
+                         : f.subtitle.isEmpty ? "Continue Watching" : "Continue · \(f.subtitle)")
                         .eyebrow().foregroundStyle(Theme.Palette.gold)
                     Text(f.item.title).heroTitle()
                         .foregroundStyle(Theme.Palette.textPrimary).lineLimit(2)
@@ -160,6 +162,7 @@ struct HomeScreen: View {
     /// "Resume 34:16" when the saved position is known — the same words the title page uses, so the
     /// two screens never disagree about what the button will do.
     private func resumeLabel(_ f: HomeItem) -> String {
+        if f.isUpNext { return "Play" }          // the next episode, from its start
         guard let at = f.resumeAt, at > 0 else { return "Resume" }
         return "Resume \(Timecode.format(at))"
     }

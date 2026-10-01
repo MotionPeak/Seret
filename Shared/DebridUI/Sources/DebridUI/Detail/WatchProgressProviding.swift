@@ -13,12 +13,18 @@ public protocol WatchProgressProviding: Sendable {
                 durationSeconds: Double, finished: Bool, profileID: String) async throws
     /// Continue-Watching feed for one profile: unfinished rows with progress, newest first.
     func recentlyWatched(limit: Int, profileID: String) async throws -> [WatchState]
+    /// Titles finished most recently, newest first — what says which episode of a show is up next.
+    func recentlyFinished(limit: Int, profileID: String) async throws -> [WatchState]
     /// Delete progress rows for the given content keys across all profiles (item removed from the
     /// shared library).
     func deleteProgress(forContentKeys keys: [String]) async throws
 }
 
 extension WatchProgressProviding {
+    /// Default: nothing finished is known, so a show's card is its part-way episode only. The local
+    /// store, the one real implementation, answers properly.
+    public func recentlyFinished(limit: Int, profileID: String) async throws -> [WatchState] { [] }
+
     /// Default batched read: one `progress(forContentKey:)` call per key. Correct everywhere;
     /// stores with a real batch fetch override it for one round-trip.
     public func progress(forContentKeys keys: [String], profileID: String) async throws -> [String: WatchState] {

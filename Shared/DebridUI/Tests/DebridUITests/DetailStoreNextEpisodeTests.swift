@@ -118,6 +118,69 @@ import DebridCore
         #expect(await spy.requested.isSuperset(of: expected))
     }
 
+    /// TMDB details that succeed, so the show's load runs to the end — with the series' real length.
+    private struct Details: MediaDetailsProviding {
+        let seasons: Int
+        func movieDetails(tmdbID: Int) async throws -> TMDBMovieDetails { throw Boom.noDetails }
+        func tvDetails(tmdbID: Int) async throws -> TMDBTVDetails {
+            TMDBTVDetails(id: 200, name: "Show", firstAirDate: "2020-01-01", overview: "o",
+                          posterPath: nil, backdropPath: nil, numberOfSeasons: seasons,
+                          genres: [], voteAverage: 8)
+        }
+        func seasonEpisodes(tvID: Int, season: Int) async throws -> [TMDBEpisodeDetails] {
+            (1...2).map { TMDBEpisodeDetails(episodeNumber: $0, name: "E\($0)", overview: "o",
+                                              stillPath: nil, runtime: 30, airDate: "2020-01-01") }
+        }
+    }
+
+    private func state(_ key: String, finished: Bool, at t: TimeInterval) -> WatchState {
+        WatchState(contentKey: key, sourceKey: "s", positionSeconds: finished ? 100 : 300,
+                   durationSeconds: finished ? 100 : 3000, finished: finished,
+                   updatedAt: Date(timeIntervalSince1970: t))
+    }
+
+    /// The FIRST part-way episode in series order used to win, so one abandoned at 89% weeks ago
+    /// outranked the one being watched tonight — and Play dropped the viewer into its credits.
+    @Test func theEpisodeWatchedMostRecentlyWinsOverAnOlderAbandonedOne() async {
+        let item = threeSeasonShow()
+        let old = WatchKey.content(forShow: item, season: 1, number: 2)
+        let tonight = WatchKey.content(forShow: item, season: 3, number: 1)
+        let store = DetailStore(item: item, details: NoDetails(),
+                                watch: WatchSpy([old: state(old, finished: false, at: 1),
+                                                 tonight: state(tonight, finished: false, at: 5)]))
+        await store.load()
+        #expect(store.nextEpisode()?.season == 3)
+        #expect(store.nextEpisode()?.number == 1)
+    }
+
+    /// Only what you own was ever considered, so finishing the last episode you had offered
+    /// "Play S1·E1" — though the next season was a press away.
+    @Test func afterTheLastEpisodeYouOwnTheNextSeasonIsOffered() async {
+        let s1 = (1...2).map { Episode(season: 1, number: $0, source: src("t1-\($0)")) }
+        let item = MediaItem(id: "show:tmdb:200", kind: .show, title: "Show", year: 2020,
+                             sources: [], seasons: [Season(number: 1, episodes: s1)], tmdbID: 200)
+        let e1 = WatchKey.content(forShow: item, season: 1, number: 1)
+        let e2 = WatchKey.content(forShow: item, season: 1, number: 2)
+        let store = DetailStore(item: item, details: Details(seasons: 2),
+                                watch: WatchSpy([e1: state(e1, finished: true, at: 1),
+                                                 e2: state(e2, finished: true, at: 2)]))
+        await store.load()
+        #expect(store.nextEpisode() == nil)                       // not yours: Play fetches it…
+        #expect(store.nextEpisodeTarget()?.season == 2)           // …and it is S2·E1, not S1·E1
+        #expect(store.nextEpisodeTarget()?.number == 1)
+    }
+
+    /// The page opened on the first season you own, wherever you were.
+    @Test func thePageOpensOnTheSeasonBeingWatched() async {
+        let item = threeSeasonShow()
+        let key = WatchKey.content(forShow: item, season: 3, number: 1)
+        let store = DetailStore(item: item, details: Details(seasons: 3),
+                                watch: WatchSpy([key: state(key, finished: false, at: 5)]))
+        #expect(store.selectedSeason == 1)
+        await store.load()
+        #expect(store.selectedSeason == 3)
+    }
+
     /// A show with nothing watched still starts at the beginning.
     @Test func anUnwatchedShowStartsAtTheFirstEpisode() async {
         let item = threeSeasonShow()

@@ -103,7 +103,8 @@ struct HomeScreen: View {
                             Rail(title: "Continue Watching") {
                                 ForEach(home.continueWatching) { hi in
                                     Button { resume(hi) } label: {
-                                        LandscapeProgressCard(title: hi.item.title, subtitle: hi.subtitle,
+                                        LandscapeProgressCard(title: hi.item.title,
+                                                              subtitle: hi.isUpNext ? "Next · \(hi.subtitle)" : hi.subtitle,
                                                               imageURL: backdropURL(hi.item),
                                                               fraction: hi.fraction, width: landW)
                                     }.pressable()
@@ -142,13 +143,14 @@ struct HomeScreen: View {
         if let f = home.featured {
             HeroBackdrop(imageURL: backdropURL(f.item), height: heroH) {
                 VStack(alignment: .leading, spacing: Theme.Space.sm) {
-                    Text(f.subtitle.isEmpty ? "Continue Watching" : "Continue · \(f.subtitle)")
+                    Text(f.isUpNext ? "Up Next · \(f.subtitle)"
+                         : f.subtitle.isEmpty ? "Continue Watching" : "Continue · \(f.subtitle)")
                         .font(Theme.Typo.label()).tracking(1.5).foregroundStyle(Theme.Palette.gold)
                     Text(f.item.title).font(Theme.Typo.titleXL())
                         .foregroundStyle(Theme.Palette.textPrimary).lineLimit(2)
                     // The pill resumes playback directly; tapping the hero art (below) opens Detail.
                     Button { resume(f) } label: {
-                        HStack(spacing: 6) { Image(systemName: "play.fill"); Text("Resume") }
+                        HStack(spacing: 6) { Image(systemName: "play.fill"); Text(f.isUpNext ? "Play" : "Resume") }
                             .font(Theme.Typo.headline()).foregroundStyle(Theme.Palette.onGold)
                             .padding(.vertical, 9).padding(.horizontal, Theme.Space.xl)
                             .background(Theme.Palette.goldGradient, in: Capsule())

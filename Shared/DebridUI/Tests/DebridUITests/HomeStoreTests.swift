@@ -5,8 +5,12 @@ import DebridCore
 
 private struct FakeWatch: WatchProgressProviding {
     var states: [WatchState]
+    var finished: [WatchState] = []
     func recentlyWatched(limit: Int, profileID: String) async throws -> [WatchState] {
         Array(states.prefix(limit))
+    }
+    func recentlyFinished(limit: Int, profileID: String) async throws -> [WatchState] {
+        Array(finished.prefix(limit))
     }
     func progress(forContentKey key: String, profileID: String) async throws -> WatchState? { nil }
     func record(contentKey: String, sourceKey: String, positionSeconds: Double,
@@ -15,6 +19,76 @@ private struct FakeWatch: WatchProgressProviding {
 }
 
 @Suite struct HomeStoreTests {
+    // MARK: - One card per show, and the next episode once one is finished
+
+    private static func ep(_ s: Int, _ n: Int) -> Episode {
+        Episode(season: s, number: n, source: MediaSource(torrentID: "t\(s)\(n)", fileID: nil,
+                                                          restrictedLink: "rd://\(s)\(n)",
+                                                          parsed: ParsedRelease(title: "S")))
+    }
+    private static let show = MediaItem(id: "show:tmdb:1", kind: .show, title: "The Show", year: 2020,
+                                        sources: [],
+                                        seasons: [Season(number: 1, episodes: [ep(1, 1), ep(1, 2), ep(1, 3)]),
+                                                  Season(number: 0, episodes: [ep(0, 1)])])
+    private static func state(_ key: String, at t: TimeInterval, finished: Bool,
+                              position: Double = 600) -> WatchState {
+        WatchState(contentKey: key, sourceKey: "s", positionSeconds: finished ? 1300 : position,
+                   durationSeconds: 1320, finished: finished, updatedAt: Date(timeIntervalSince1970: t))
+    }
+
+    /// Finishing an episode dropped the show from Continue Watching — the row only ever held
+    /// unfinished episodes, and nothing offered the next one.
+    @MainActor @Test func finishingAnEpisodeOffersTheNextOne() async {
+        let store = HomeStore(watch: FakeWatch(states: [],
+                                               finished: [Self.state("show:tmdb:1:s1e2", at: 10, finished: true)]))
+        store.activeProfileID = "p1"
+        await store.rebuild(movies: [], shows: [Self.show])
+        #expect(store.continueWatching.count == 1)
+        let card = store.continueWatching.first
+        #expect(card?.isUpNext == true)
+        #expect(card?.subtitle == "S1 · E3")
+        #expect(card?.contentKey == "show:tmdb:1:s1e3")
+        #expect(card?.fraction == 0)
+        #expect(card?.playbackRequest()?.episode?.number == 3)
+    }
+
+    /// Two episodes left part-way gave one show two cards.
+    @MainActor @Test func aShowIsOneCardForItsNewestEpisode() async {
+        let store = HomeStore(watch: FakeWatch(states: [Self.state("show:tmdb:1:s1e3", at: 20, finished: false),
+                                                        Self.state("show:tmdb:1:s1e1", at: 10, finished: false)]))
+        store.activeProfileID = "p1"
+        await store.rebuild(movies: [], shows: [Self.show])
+        #expect(store.continueWatching.map(\.contentKey) == ["show:tmdb:1:s1e3"])
+    }
+
+    /// An episode abandoned part-way, then a later one watched to the end: the viewer moved on.
+    @MainActor @Test func aNewerFinishedEpisodeOutranksAnOlderUnfinishedOne() async {
+        let store = HomeStore(watch: FakeWatch(states: [Self.state("show:tmdb:1:s1e1", at: 10, finished: false)],
+                                               finished: [Self.state("show:tmdb:1:s1e2", at: 20, finished: true)]))
+        store.activeProfileID = "p1"
+        await store.rebuild(movies: [], shows: [Self.show])
+        #expect(store.continueWatching.map(\.contentKey) == ["show:tmdb:1:s1e3"])
+    }
+
+    /// After the finale the next thing in viewing order is the Specials — not "next".
+    @MainActor @Test func theFinaleLeadsNowhereNotIntoTheSpecials() async {
+        let store = HomeStore(watch: FakeWatch(states: [],
+                                               finished: [Self.state("show:tmdb:1:s1e3", at: 10, finished: true)]))
+        store.activeProfileID = "p1"
+        await store.rebuild(movies: [], shows: [Self.show])
+        #expect(store.continueWatching.isEmpty)
+    }
+
+    /// A finished FILM is done — no card.
+    @MainActor @Test func aFinishedFilmIsNotOffered() async {
+        let film = MediaItem(id: "movie:tmdb:9", kind: .movie, title: "F", year: 2020, sources: [], seasons: [])
+        let store = HomeStore(watch: FakeWatch(states: [],
+                                               finished: [Self.state("movie:tmdb:9", at: 10, finished: true)]))
+        store.activeProfileID = "p1"
+        await store.rebuild(movies: [film], shows: [])
+        #expect(store.continueWatching.isEmpty)
+    }
+
     @MainActor @Test func resolvesMovieAndShowProgress() async {
         let movie = MediaItem(id: "movie:dune:2021", kind: .movie, title: "Dune", year: 2021, sources: [], seasons: [])
         let show  = MediaItem(id: "show:bb", kind: .show, title: "Breaking Bad", year: 2008, sources: [], seasons: [])

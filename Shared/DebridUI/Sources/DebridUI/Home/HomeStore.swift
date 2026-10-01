@@ -14,6 +14,9 @@ public struct HomeItem: Identifiable, Sendable, Equatable {
     public let source: MediaSource?     // the file to play (nil = unresolved → not directly resumable)
     public let contentKey: String       // WatchKey the player records progress under
     public let resumeAt: Double?        // saved position hint (nil = start from 0 / finished)
+    /// The episode AFTER one just finished — what Netflix puts in the row when you finish an episode,
+    /// rather than dropping the show from it.
+    public var isUpNext = false
     public var id: String { item.id + "|" + subtitle }
 
     /// True when Home can start playback directly (the file resolved).
@@ -88,16 +91,25 @@ public final class HomeStore {
             recentlyAdded = added
             return
         }
-        let states = (try? await watch.recentlyWatched(limit: 20, profileID: profileID)) ?? []
+        let inProgress = (try? await watch.recentlyWatched(limit: 20, profileID: profileID)) ?? []
+        let finished = (try? await watch.recentlyFinished(limit: 30, profileID: profileID)) ?? []
+        let entries = Self.entries(inProgress: inProgress, finished: finished, shows: shows, limit: 20)
+        let states = entries.compactMap { if case let .resume(s) = $0 { s } else { nil } }
         // One batched read for every entry's chosen version. Asking per key meant twenty sequential
         // round-trips into the preference actor on every rebuild — and Home rebuilds on the screen
         // appearing, on movies and shows landing separately, on the profile resolving, on the player
         // closing, and on every CloudKit import.
         let chosen = await versionPrefs?.preferred(forContentKeys: states.map(\.contentKey)) ?? [:]
         let subtitles = await storedSubtitles(for: states, movies: movies)
-        let resumable = states.compactMap {
-            Self.resolve($0, movies: movies, shows: shows, preferredSourceKey: chosen[$0.contentKey],
-                         subtitles: subtitles[$0.contentKey] ?? .empty)
+        let resumable = entries.compactMap { entry -> HomeItem? in
+            switch entry {
+            case let .resume(s):
+                return Self.resolve(s, movies: movies, shows: shows,
+                                    preferredSourceKey: chosen[s.contentKey],
+                                    subtitles: subtitles[s.contentKey] ?? .empty)
+            case let .upNext(after: s):
+                return Self.resolveUpNext(after: s, shows: shows)
+            }
         }
         guard generation == rebuildGeneration else { return }   // a newer rebuild owns the rails
         continueWatching = resumable
@@ -147,6 +159,59 @@ public final class HomeStore {
         await watch.setWatched(watched, contentKey: entry.contentKey, sourceKey: sourceKey,
                                profileID: profileID)
         continueWatching.removeAll { $0.contentKey == entry.contentKey }
+    }
+
+    /// What one Continue Watching card stands for.
+    enum Entry: Equatable {
+        case resume(WatchState)          // a film or an episode part-way through
+        case upNext(after: WatchState)   // the episode after one just finished
+    }
+
+    /// The rows, newest first, one card per TITLE.
+    ///
+    /// A film appears while it is part-way through. A show appears ONCE, for the episode touched
+    /// most recently: part-way through means resume it, finished means the one after it. It used to
+    /// be one card per in-progress EPISODE, so finishing an episode dropped the show from the row
+    /// (the next one was never offered), and two episodes left part-way gave one show two cards.
+    static func entries(inProgress: [WatchState], finished: [WatchState],
+                        shows: [MediaItem], limit: Int) -> [Entry] {
+        // Interleaved by date, each list keeping its own (newest-first) order.
+        var merged: [(WatchState, Bool)] = []
+        var i = 0, j = 0
+        while i < inProgress.count || j < finished.count {
+            if j == finished.count || (i < inProgress.count && inProgress[i].updatedAt >= finished[j].updatedAt) {
+                merged.append((inProgress[i], false)); i += 1
+            } else {
+                merged.append((finished[j], true)); j += 1
+            }
+        }
+        var seenKeys = Set<String>(), seenShows = Set<String>()
+        var out: [Entry] = []
+        for (state, isFinished) in merged where seenKeys.insert(state.contentKey).inserted {
+            if let show = shows.first(where: { state.contentKey.hasPrefix($0.id + ":") }) {
+                guard seenShows.insert(show.id).inserted else { continue }   // older episodes of it
+                out.append(isFinished ? .upNext(after: state) : .resume(state))
+            } else if !isFinished {
+                out.append(.resume(state))                                    // a finished film is done
+            }
+            if out.count == limit { break }
+        }
+        return out
+    }
+
+    /// The card for the episode after `s`, if you own it — from its start (the player still picks up
+    /// a place it was left at). None after a finale: the next thing in viewing order there is the
+    /// Specials, which sort last for exactly that reason.
+    static func resolveUpNext(after s: WatchState, shows: [MediaItem]) -> HomeItem? {
+        guard let show = shows.first(where: { s.contentKey.hasPrefix($0.id + ":") }) else { return nil }
+        let epID = String(s.contentKey.dropFirst(show.id.count + 1))
+        let ordered = show.seasons.sortedBySeason().flatMap { $0.episodes.sorted { $0.number < $1.number } }
+        guard let i = ordered.firstIndex(where: { $0.id == epID }), i + 1 < ordered.count else { return nil }
+        let next = ordered[i + 1]
+        guard next.season != 0 || ordered[i].season == 0 else { return nil }
+        return HomeItem(item: show, fraction: 0, subtitle: formatEpisodeKey(next.id), episode: next,
+                        source: next.source, contentKey: WatchKey.content(forShow: show, episode: next),
+                        resumeAt: nil, isUpNext: true)
     }
 
     /// `preferredSourceKey` is the viewer's chosen version for this title, if any — resuming must

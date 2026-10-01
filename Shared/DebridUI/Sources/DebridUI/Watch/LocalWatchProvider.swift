@@ -86,6 +86,10 @@ public struct LocalWatchProvider: WatchProgressProviding, Sendable {
         try await store.recent(limit: limit, profileID: profileID)
     }
 
+    public func recentlyFinished(limit: Int, profileID: String) async throws -> [WatchState] {
+        try await store.recentlyFinished(limit: limit, profileID: profileID)
+    }
+
     public func deleteProgress(forContentKeys keys: [String]) async throws {
         try await store.delete(contentKeys: keys)
     }

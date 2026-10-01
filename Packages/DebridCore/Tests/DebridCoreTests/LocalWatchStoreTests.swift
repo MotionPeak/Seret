@@ -320,6 +320,40 @@ extension SwiftDataSuite {
             #expect(recent.first?.positionSeconds == 900)     // the newer row wins
         }
 
+        /// Continue Watching filtered BEFORE de-duplicating: the newer row — finished, on another
+        /// device — never reached the de-duplication, so the older unfinished one stood in for it
+        /// and the rail offered "Resume" on a film the title page showed as watched.
+        @Test func aTitleFinishedSinceDoesNotComeBackFromAnOlderDuplicate() async throws {
+            let s = try store()
+            try await s.seedRow(contentKey: "movie:tmdb:7", profileID: "p1", sourceKey: "T1#1",
+                                positionSeconds: 3000, durationSeconds: 6000, finished: false,
+                                plays: 0, rating: nil,
+                                updatedAt: Date(timeIntervalSince1970: 10), lastWatchedAt: nil)
+            try await s.seedRow(contentKey: "movie:tmdb:7", profileID: "p1", sourceKey: "T1#1",
+                                positionSeconds: 5800, durationSeconds: 6000, finished: true,
+                                plays: 1, rating: nil,
+                                updatedAt: Date(timeIntervalSince1970: 20), lastWatchedAt: nil)
+            #expect(try await s.recent(limit: 10, profileID: "p1").isEmpty)
+        }
+
+        /// What a show's NEXT episode is worked out from: the titles finished most recently, newest
+        /// first, once each.
+        @Test func recentlyFinishedListsFinishedTitlesNewestFirstOnce() async throws {
+            let s = try store()
+            try await s.write(contentKey: "show:tmdb:1:s1e2", sourceKey: "A#1", positionSeconds: 1300,
+                              durationSeconds: 1320, finished: true, profileID: "p1",
+                              at: Date(timeIntervalSince1970: 10))
+            try await s.write(contentKey: "show:tmdb:1:s1e3", sourceKey: "B#1", positionSeconds: 1310,
+                              durationSeconds: 1320, finished: true, profileID: "p1",
+                              at: Date(timeIntervalSince1970: 30))
+            try await s.write(contentKey: "movie:tmdb:7", sourceKey: "C#1", positionSeconds: 600,
+                              durationSeconds: 6000, finished: false, profileID: "p1",
+                              at: Date(timeIntervalSince1970: 40))
+            let finished = try await s.recentlyFinished(limit: 10, profileID: "p1")
+            #expect(finished.map(\.contentKey) == ["show:tmdb:1:s1e3", "show:tmdb:1:s1e2"])
+            #expect(try await s.recentlyFinished(limit: 10, profileID: "p2").isEmpty)
+        }
+
         /// …and the rail still fills to its limit rather than coming up short because a title
         /// happened to be duplicated.
         @Test func continueWatchingStillFillsTheRequestedLimit() async throws {

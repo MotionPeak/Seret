@@ -285,6 +285,7 @@ public final class DetailStore {
                 await loadSeason(selectedSeason, tvID: tmdbID)
             }
             await watchLoad
+            if item.kind == .show { await openOnTheSeasonBeingWatched(tvID: tmdbID) }
             richState = .loaded
             // Overlapped, not sequential. Both add a row to the hero ABOVE the Play CTA, and run
             // one after the other they landed a network round-trip apart — so the page shifted
@@ -519,32 +520,48 @@ public final class DetailStore {
                            label: "\(item.title) — S\(season)·E\(number)", fromStart: true)
     }
 
-    /// Best-effort "what to play next" for a show's hero: first in-progress episode (series
-    /// order), else the first not-known-finished episode, else the very first. Uses whatever
-    /// watch state is currently loaded.
+    /// What a show's Play starts, among the episodes you own. The episode touched most recently
+    /// decides — the rule Continue Watching uses, so the page and Home agree: part-way through,
+    /// resume it; finished, the one after it — nil when the series has a next one you don't own
+    /// (`nextEpisodeTarget` fetches it). Nothing watched yet, or the series run out: the first
+    /// episode not finished, regular seasons before the Specials. Uses whatever watch state is loaded.
+    ///
+    /// It used to take the FIRST part-way episode in series order, so an episode abandoned at 89%
+    /// weeks ago outranked the one being watched tonight and Play dropped the viewer into its
+    /// credits. And it only ever looked at what you own: finishing the last episode you had offered
+    /// "Play S1·E1" although the next season was a press away.
     public func nextEpisode() -> Episode? {
         // Specials last: "what to play next" returning a show's unaired pilot is exactly the
         // bug that filing that pilot as S1E0 caused.
         let all = item.seasons.sortedBySeason()
             .flatMap { $0.episodes.sorted { $0.number < $1.number } }
-        if let inProgress = all.first(where: {
-            let w = watchByKey[WatchKey.content(forShow: item, episode: $0)]
-            return w.map { !$0.finished && $0.positionSeconds > 0 } ?? false
-        }) { return inProgress }
-        if let unfinished = all.first(where: {
-            watchByKey[WatchKey.content(forShow: item, episode: $0)]?.finished != true
-        }) { return unfinished }
-        return all.first
+        guard !all.isEmpty else { return nil }
+        func owned(_ s: Int, _ n: Int) -> Episode? { all.first { $0.season == s && $0.number == n } }
+        if let latest = latestTouchedEpisode() {
+            if !latest.state.finished, let episode = owned(latest.season, latest.number) { return episode }
+            if latest.state.finished, let next = successor(ofSeason: latest.season, number: latest.number) {
+                return owned(next.season, next.number)   // nil → not yours yet: Play fetches it
+            }
+        }
+        let regular = all.filter { $0.season != 0 }
+        let pool = regular.isEmpty ? all : regular
+        return pool.first { watchByKey[WatchKey.content(forShow: item, episode: $0)]?.finished != true }
+            ?? pool.first
     }
 
     /// What Play should start for a show, addressed by NUMBERS so it works whether or not the
-    /// episode is downloaded: the owned next episode when there is one, otherwise the first episode
-    /// of the selected season that is not already finished.
+    /// episode is downloaded: the owned next episode when there is one; else the episode after the
+    /// one finished last (or the one left part-way, if its file has gone); otherwise the first
+    /// episode of the selected season that is not already finished.
     ///
     /// A show you have not added has no owned episode, and without this its page would have no Play
     /// button — which on tvOS also means `.defaultFocus` has nothing to focus and the remote dies.
     public func nextEpisodeTarget() -> (season: Int, number: Int)? {
         if let owned = nextEpisode() { return (owned.season, owned.number) }
+        if let latest = latestTouchedEpisode() {
+            if !latest.state.finished { return (latest.season, latest.number) }
+            if let next = successor(ofSeason: latest.season, number: latest.number) { return next }
+        }
         let rows = episodes(forSeason: selectedSeason)
         guard !rows.isEmpty else { return nil }
         let unwatched = rows.first {
@@ -555,6 +572,61 @@ public final class DetailStore {
     }
 
     // MARK: - Private
+
+    /// A show page opened on the first season you own, wherever you were — season 1 of a show you
+    /// are halfway through season 3. It now opens where Play would take you. The season last
+    /// touched is listed first, so "what comes after it" can see where that season ends.
+    private func openOnTheSeasonBeingWatched(tvID: Int) async {
+        if let latest = latestTouchedEpisode(), latest.season != 0, episodeMeta[latest.season] == nil {
+            await loadSeason(latest.season, tvID: tvID)
+        }
+        guard let target = nextEpisodeTarget(), target.season != selectedSeason,
+              allSeasons.contains(target.season) else { return }
+        await selectSeason(target.season)
+    }
+
+    /// The episode of this show played or marked most recently, from the watch state loaded — owned
+    /// or not, since an episode can be watched and its file later removed.
+    private func latestTouchedEpisode() -> (season: Int, number: Int, state: WatchState)? {
+        let prefix = item.id + ":"
+        var latest: (season: Int, number: Int, state: WatchState)?
+        for (key, state) in watchByKey where key.hasPrefix(prefix) {
+            guard state.finished || state.positionSeconds > 0,
+                  let (season, number) = Self.episodeNumbers(String(key.dropFirst(prefix.count)))
+            else { continue }
+            // A tie — a whole season marked at once — goes to the episode latest in the series.
+            if latest.map({ (state.updatedAt, season, number) > ($0.state.updatedAt, $0.season, $0.number) })
+                ?? true {
+                latest = (season, number, state)
+            }
+        }
+        return latest
+    }
+
+    /// "s2e5" → (2, 5).
+    static func episodeNumbers(_ id: String) -> (Int, Int)? {
+        let lower = id.lowercased()
+        guard lower.hasPrefix("s"), let e = lower.firstIndex(of: "e"),
+              let season = Int(lower[lower.index(after: lower.startIndex)..<e]),
+              let number = Int(lower[lower.index(after: e)...]) else { return nil }
+        return (season, number)
+    }
+
+    /// The episode after (season, number), from what you own and what TMDB lists. Never from a
+    /// regular season into the Specials, and nil once the series has nothing later.
+    private func successor(ofSeason s: Int, number n: Int) -> (season: Int, number: Int)? {
+        guard s != 0 else { return nil }
+        let ownedHere = Set(item.seasons.first { $0.number == s }?.episodes.map(\.number) ?? [])
+        if ownedHere.contains(n + 1) { return (s, n + 1) }
+        if let listed = episodeMeta[s] {
+            if listed[n + 1] != nil { return (s, n + 1) }
+        } else if ownedHere.contains(where: { $0 > n }) {
+            return (s, n + 1)          // a gap in what you own, in a season TMDB has not listed yet
+        }
+        let nextSeasonOwned = item.seasons.contains { $0.number == s + 1 && !$0.episodes.isEmpty }
+        if nextSeasonOwned || (numberOfSeasons.map { s + 1 <= $0 } ?? false) { return (s + 1, 1) }
+        return nil
+    }
 
     private func loadSeason(_ n: Int, tvID: Int) async {
         do {

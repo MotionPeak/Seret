@@ -209,6 +209,37 @@ public actor LocalWatchStore {
             sortBy: [SortDescriptor(\.updatedAt, order: .reverse)])
         descriptor.fetchLimit = limit * 2 + 8
         var seen = Set<String>()
+        var candidates: [WatchProgress] = []
+        for row in try modelContext.fetch(descriptor) where seen.insert(row.contentKey).inserted {
+            candidates.append(row)
+        }
+        // The predicate above filters BEFORE anything is de-duplicated, so a title finished since —
+        // on another device, its row newer — never reached the de-duplication, and this older
+        // unfinished row stood in for it: "Resume" on a film the title page showed as watched.
+        let keys = candidates.map(\.contentKey)
+        let finishedRows = try modelContext.fetch(FetchDescriptor<WatchProgress>(
+            predicate: #Predicate { $0.profileID == profileID && $0.finished && keys.contains($0.contentKey) }))
+        let finishedAt = Dictionary(finishedRows.map { ($0.contentKey, $0.updatedAt) },
+                                    uniquingKeysWith: { max($0, $1) })
+        var out: [WatchState] = []
+        for row in candidates where finishedAt[row.contentKey].map({ $0 <= row.updatedAt }) ?? true {
+            out.append(state(row))
+            if out.count == limit { break }
+        }
+        return out
+    }
+
+    /// Titles finished most recently for one profile, newest first, once each. A show's Continue
+    /// Watching card is worked out from these: the episode finished last is what says which one is
+    /// up next. Bounded on purpose — "Mark Show Watched" writes a row per episode at once, and only
+    /// the newest of a show's rows matters to anyone reading this.
+    public func recentlyFinished(limit: Int, profileID: String) throws -> [WatchState] {
+        guard limit > 0 else { return [] }
+        var descriptor = FetchDescriptor<WatchProgress>(
+            predicate: #Predicate { $0.profileID == profileID && $0.finished },
+            sortBy: [SortDescriptor(\.updatedAt, order: .reverse)])
+        descriptor.fetchLimit = limit * 2 + 8
+        var seen = Set<String>()
         var out: [WatchState] = []
         for row in try modelContext.fetch(descriptor) where seen.insert(row.contentKey).inserted {
             out.append(state(row))
