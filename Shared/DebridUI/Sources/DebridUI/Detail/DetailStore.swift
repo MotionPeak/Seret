@@ -596,11 +596,11 @@ public final class DetailStore {
                 switch continuation(after: latest.season, latest.number) {
                 case let .episode(season, number):
                     return owned(season, number)         // nil → not yours yet: Play fetches it
-                case .caughtUp:
+                case let .caughtUp(last):
                     // The next one is listed but not out. "From the top" — the run-out answer —
                     // offered S1·E1 and opened the page on season 1, a season away from where the
-                    // viewer is and from the date the next one airs.
-                    return owned(latest.season, latest.number)
+                    // viewer is and from the date the next one airs. The last one WATCHED, again.
+                    return owned(last.season, last.number)
                 case .end:
                     break                                // the series has run out: from the top
                 }
@@ -626,7 +626,7 @@ public final class DetailStore {
             if !latest.state.finished { return (latest.season, latest.number) }
             switch continuation(after: latest.season, latest.number) {
             case let .episode(season, number): return (season, number)
-            case .caughtUp: return (latest.season, latest.number)
+            case let .caughtUp(last): return last
             case .end: break
             }
         }
@@ -652,6 +652,17 @@ public final class DetailStore {
     private func openOnTheSeasonBeingWatched(tvID: Int) async {
         if let latest = latestTouchedEpisode(), latest.season != 0, episodeMeta[latest.season] == nil {
             await loadSeason(latest.season, tvID: tvID)
+        }
+        // A walk that runs out in a season TMDB has not listed yet — every episode of it watched,
+        // as when an earlier season is marked after a later one was watched — cannot tell "the
+        // series has ended" from "the next one airs next week", and took the series for ended:
+        // the page opened on season 1. List the season it ran out in, then judge again.
+        for _ in 0..<3 {
+            guard let latest = latestTouchedEpisode(), latest.state.finished,
+                  let last = continuation(after: latest.season, latest.number).walkedTo,
+                  last.season != 0, episodeMeta[last.season] == nil else { break }
+            await loadSeason(last.season, tvID: tvID)
+            if episodeMeta[last.season] == nil { break }     // TMDB failed: nothing more to learn
         }
         // The season after the last one touched is looked at BEFORE moving to it: a renewal TMDB
         // already counts, with nothing aired, otherwise opened the page on an empty season.
@@ -730,10 +741,20 @@ public final class DetailStore {
         /// The first episode after it not already finished.
         case episode(season: Int, number: Int)
         /// The next one is listed but has not aired, or the next season has not started: caught up
-        /// on a show that is still going. Not the same as `end` — see `nextEpisode`.
-        case caughtUp
-        /// The series has nothing later.
-        case end
+        /// on a show that is still going. Not the same as `end` — see `nextEpisode`. Carries the
+        /// furthest episode the walk found finished: where the viewer actually is, which a mark
+        /// made later on an EARLIER season is not.
+        case caughtUp(lastWatched: (season: Int, number: Int))
+        /// The series has nothing later — as far as the lists loaded can tell (see `walkedTo`).
+        case end(lastWatched: (season: Int, number: Int))
+
+        /// Where the walk stopped, when it ran out rather than finding an episode.
+        var walkedTo: (season: Int, number: Int)? {
+            switch self {
+            case .episode: nil
+            case let .caughtUp(last), let .end(last): last
+            }
+        }
     }
 
     /// What follows (s, n), walking PAST finished episodes.
@@ -747,9 +768,9 @@ public final class DetailStore {
         for _ in 0..<2000 {                 // bounded: a long-running series, never a loop
             switch successor(ofSeason: cursor.season, number: cursor.number) {
             case .end:
-                return .end
+                return .end(lastWatched: cursor)
             case .seasonNotStarted:
-                return .caughtUp
+                return .caughtUp(lastWatched: cursor)
             case let .episode(season, number):
                 if watchByKey[WatchKey.content(forShow: item, season: season, number: number)]?
                     .finished == true {
@@ -757,10 +778,21 @@ public final class DetailStore {
                     continue
                 }
                 return hasNotAired(season: season, number: number)
-                    ? .caughtUp : .episode(season: season, number: number)
+                    ? .caughtUp(lastWatched: cursor) : .episode(season: season, number: number)
             }
         }
-        return .end
+        return .end(lastWatched: cursor)
+    }
+
+    /// Whether `nextEpisode()` knows where the viewer is. A walk that runs out in a season TMDB has
+    /// not listed — the Mac's poster Play reads local state only — cannot tell a series that has
+    /// ended (Play starts it over) from one whose next episode is not out yet (Play replays the
+    /// last), so the two disagreed: the poster started S1·E1 while the page offered S2·E2.
+    /// Unsettled, a caller should open the page, which asks TMDB.
+    public var nextEpisodeIsSettled: Bool {
+        guard item.kind == .show, let latest = latestTouchedEpisode(), latest.state.finished,
+              case let .end(last) = continuation(after: latest.season, latest.number) else { return true }
+        return last.season == 0 || (episodeMeta[last.season] != nil && numberOfSeasons != nil)
     }
 
     /// When the selected season's next episode airs, if TMDB lists one in the future — what a show

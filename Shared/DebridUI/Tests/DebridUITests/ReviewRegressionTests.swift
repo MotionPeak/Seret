@@ -263,6 +263,23 @@ private struct AiringTV: MediaDetailsProviding {
     }
 }
 
+/// TMDB lists `listed[s]` episodes for season s; the episodes named in `unaired` ("s2e3") air in 2099.
+private struct ListedTV: MediaDetailsProviding {
+    var listed: [Int: Int]
+    var unaired: Set<String> = []
+    func movieDetails(tmdbID: Int) async throws -> TMDBMovieDetails { throw Boom.nope }
+    func tvDetails(tmdbID: Int) async throws -> TMDBTVDetails {
+        TMDBTVDetails(id: tmdbID, name: "S", firstAirDate: nil, overview: nil, posterPath: nil,
+                      backdropPath: nil, numberOfSeasons: listed.keys.max() ?? 1, genres: [], voteAverage: nil)
+    }
+    func seasonEpisodes(tvID: Int, season: Int) async throws -> [TMDBEpisodeDetails] {
+        (1...(listed[season] ?? 1)).map { k in
+            TMDBEpisodeDetails(episodeNumber: k, name: "E\(k)", overview: nil, stillPath: nil, runtime: 22,
+                               airDate: unaired.contains("s\(season)e\(k)") ? "2099-01-01" : "2020-01-01")
+        }
+    }
+}
+
 /// A show's details fail `failures` times, then answer: three seasons of three aired episodes.
 private final class FlakyTV: MediaDetailsProviding, @unchecked Sendable {
     private let lock = NSLock()
@@ -385,6 +402,60 @@ extension SwiftDataSuite {
 
             #expect(store.richState == .loaded)
             #expect(store.selectedSeason == 2)
+        }
+
+        /// Caught up — but the episode touched LAST is a mark made afterwards on an EARLIER season.
+        /// "Caught up" answered with that mark (S1·E2), and the walk to where the viewer really is
+        /// ran out in season 2, whose list was never loaded: the page took the series for ended and
+        /// opened on season 1.
+        @MainActor @Test func caughtUpAfterMarkingAnEarlierSeasonStaysWhereTheViewerIs() async throws {
+            let p = try provider()
+            try await finish(["show:tmdb:1:s2e1", "show:tmdb:1:s2e2",       // watched
+                              "show:tmdb:1:s1e1", "show:tmdb:1:s1e2"],      // marked afterwards
+                             in: p)
+            let store = DetailStore(item: show(1, seasons: [1: 2, 2: 2]),
+                                    details: ListedTV(listed: [1: 2, 2: 3], unaired: ["s2e3"]),
+                                    watch: p, profileID: "p1")
+            await store.load()
+
+            #expect(store.selectedSeason == 2, "opened on season \(store.selectedSeason)")
+            #expect(store.nextEpisode()?.id == "s2e2")
+        }
+
+        /// The Mac's poster Play reads local state only. For a show watched to its last OWNED
+        /// episode it cannot tell "ended" (start over) from "caught up" (the page: replay the last),
+        /// and started S1·E1 while the page offered S2·E2. It now says it cannot tell, and the
+        /// poster opens the page instead.
+        @MainActor @Test func thePosterPlayDefersWhenLocalStateCannotTell() async throws {
+            let p = try provider()
+            try await finish(["show:tmdb:1:s1e1", "show:tmdb:1:s1e2", "show:tmdb:1:s2e1",
+                              "show:tmdb:1:s2e2"], in: p)
+            let details = ListedTV(listed: [1: 2, 2: 3], unaired: ["s2e3"])
+            let page = DetailStore(item: show(1, seasons: [1: 2, 2: 2]), details: details,
+                                   watch: p, profileID: "p1")
+            await page.load()
+            let poster = DetailStore(item: show(1, seasons: [1: 2, 2: 2]), details: details,
+                                     watch: p, profileID: "p1")
+            await poster.loadPreferredVersion()          // exactly QuickPlay.request's sequence
+            await poster.reloadWatch()
+
+            #expect(page.nextEpisodeIsSettled)
+            #expect(page.primaryPlay()?.episode?.id == "s2e2")
+            #expect(!poster.nextEpisodeIsSettled)
+        }
+
+        /// …while a poster for a show part-way through an episode still plays it straight away.
+        @MainActor @Test func thePosterPlayStillResumesAnEpisodePartWay() async throws {
+            let p = try provider()
+            try await p.record(contentKey: "show:tmdb:1:s2e1", sourceKey: "a", positionSeconds: 300,
+                               durationSeconds: 1320, finished: false, profileID: "p1")
+            let poster = DetailStore(item: show(1, seasons: [1: 2, 2: 2]),
+                                     details: ListedTV(listed: [1: 2, 2: 2]), watch: p, profileID: "p1")
+            await poster.loadPreferredVersion()
+            await poster.reloadWatch()
+
+            #expect(poster.nextEpisodeIsSettled)
+            #expect(poster.primaryPlay()?.episode?.id == "s2e1")
         }
 
         /// The series that HAS run out still starts over from the top.
