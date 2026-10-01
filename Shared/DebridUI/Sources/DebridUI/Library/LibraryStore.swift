@@ -70,6 +70,11 @@ public final class LibraryStore {
     /// the thing being reloaded for — a download that just landed would not appear until something
     /// else happened to reload. The running load finishes, then one more runs.
     private var reloadPending = false
+    /// Torrents deleted from Real-Debrid during this run. A list that still carries one — a
+    /// refresh fetched before the deletion, or Real-Debrid answering from before it — must not put
+    /// the title back on screen, whatever its timing. Ids are never reused, so this cannot hide a
+    /// title added again.
+    private var deletedTorrentIDs: Set<String> = []
 
     public func load() async {
         // A joiner only waits. It must NOT consume `reloadPending`: both it and the owner resume
@@ -167,6 +172,8 @@ public final class LibraryStore {
         do {
             try await library.remove(item)
             contentGeneration += 1     // outrank any refresh fetched before this deletion
+            deletedTorrentIDs.formUnion(Self.torrentIDs(of: item))
+            requestFollowUpIfLoading()
             try? await watch?.deleteProgress(forContentKeys: Self.contentKeys(for: item))
             movies.removeAll { $0.id == item.id }
             shows.removeAll { $0.id == item.id }
@@ -179,6 +186,15 @@ public final class LibraryStore {
         }
     }
 
+    /// A refresh that was already out when something was deleted is discarded on screen
+    /// (`contentGeneration`) — but it still SAVES its snapshot, deleted title included, after the
+    /// removal saved its own. With nothing refreshing again, the title came back on the next
+    /// launch, and stayed for as long as the app launched offline. One more load after it rewrites
+    /// the snapshot from what Real-Debrid actually holds now.
+    private func requestFollowUpIfLoading() {
+        if loadTask != nil { reloadPending = true }
+    }
+
     /// Remove ONE version (a `MediaSource`) from a movie. If it was the last source the whole
     /// item is dropped; otherwise the item stays with that one source removed. On failure the
     /// library is untouched and `removal` becomes `.failed`.
@@ -187,6 +203,8 @@ public final class LibraryStore {
         do {
             try await library.removeVersion(item, source: source)
             contentGeneration += 1     // …same for a single version
+            deletedTorrentIDs.insert(source.torrentID)
+            requestFollowUpIfLoading()
             let remaining = item.sources.filter { $0 != source }
             if remaining.isEmpty {
                 movies.removeAll { $0.id == item.id }
@@ -287,11 +305,34 @@ public final class LibraryStore {
         await onContentChanged?()
     }
 
-    private func apply(_ items: [MediaItem]) {
+    private func apply(_ incoming: [MediaItem]) {
+        let items = deletedTorrentIDs.isEmpty ? incoming : incoming.compactMap(withoutDeleted)
         movies = items.filter { $0.kind == .movie }
         shows = items.filter { $0.kind == .show }
         reindexOwned()
         state = (movies.isEmpty && shows.isEmpty) ? .empty : .loaded
+    }
+
+    /// The item as it stands once this run's deletions are taken out of it: gone when every torrent
+    /// behind it was deleted, a movie without the versions that were.
+    private func withoutDeleted(_ item: MediaItem) -> MediaItem? {
+        let ids = Self.torrentIDs(of: item)
+        if !ids.isEmpty, ids.isSubset(of: deletedTorrentIDs) { return nil }
+        guard item.kind == .movie,
+              item.sources.contains(where: { deletedTorrentIDs.contains($0.torrentID) }) else { return item }
+        let kept = item.sources.filter { !deletedTorrentIDs.contains($0.torrentID) }
+        guard !kept.isEmpty else { return nil }
+        return MediaItem(id: item.id, kind: item.kind, title: item.title, year: item.year,
+                         sources: kept, seasons: item.seasons,
+                         tmdbID: item.tmdbID, posterPath: item.posterPath,
+                         backdropPath: item.backdropPath, overview: item.overview,
+                         addedAt: item.addedAt)
+    }
+
+    /// Every torrent behind an item: a movie's versions, and every copy of every episode.
+    static func torrentIDs(of item: MediaItem) -> Set<String> {
+        Set(item.sources.map(\.torrentID)
+            + item.seasons.flatMap { $0.episodes.flatMap { $0.sources.map(\.torrentID) } })
     }
 
     /// Rebuild the ownership index from the current arrays. Must run after EVERY mutation of

@@ -3,8 +3,13 @@ import Foundation
 import DebridCore
 @testable import DebridUI
 
+/// One torrent each, as every real library title has — the service refuses to "remove" a title
+/// with none (`LibraryServiceError.nothingToRemove`), so a removal always names torrents.
 private func movie(_ id: String) -> MediaItem {
-    MediaItem(id: id, kind: .movie, title: "Movie \(id)", year: 2024, sources: [], seasons: [])
+    MediaItem(id: id, kind: .movie, title: "Movie \(id)", year: 2024,
+              sources: [MediaSource(torrentID: "t\(id)", fileID: nil, restrictedLink: "rd://\(id)",
+                                    parsed: ParsedRelease(title: "Movie \(id)"))],
+              seasons: [])
 }
 
 /// Opening the library grid starts a refresh, and that refresh spends a second or two inside RD's
@@ -23,6 +28,28 @@ private final class SlowRefreshLibrary: LibraryProviding, @unchecked Sendable {
         return items
     }
     func remove(_ item: MediaItem) async throws {}
+    func removeVersion(_ item: MediaItem, source: MediaSource) async throws {}
+}
+
+/// The first refresh is held at the gate and returns the list as it was; every later one is RD
+/// after the removal.
+private final class CountingSlowLibrary: LibraryProviding, @unchecked Sendable {
+    private let items: [MediaItem]
+    private let gate: Gate
+    private var removed: Set<String> = []
+    private(set) var refreshes = 0
+    init(items: [MediaItem], gate: Gate) { self.items = items; self.gate = gate }
+    func loadCached() -> [MediaItem]? { items }
+    func refresh() async throws -> [MediaItem] {
+        refreshes += 1
+        if refreshes == 1 {
+            let before = items
+            await gate.wait()
+            return before
+        }
+        return items.filter { !removed.contains($0.id) }
+    }
+    func remove(_ item: MediaItem) async throws { removed.insert(item.id) }
     func removeVersion(_ item: MediaItem, source: MediaSource) async throws {}
 }
 
@@ -71,6 +98,27 @@ private actor Gate {
         await gate.open()                         // the stale refresh lands
         await load.value
 
+        #expect(store.movies.map(\.id) == ["2"])
+    }
+
+    /// The grid was safe, but the DISK was not. The stale refresh is discarded on screen — and still
+    /// wrote its snapshot, deleted title included, after the removal had written its own. Nothing
+    /// refreshed again, so the title came back on the next launch (and stayed, offline). A removal
+    /// that lands while a load is out now queues one more, which rewrites the snapshot from what
+    /// Real-Debrid actually holds.
+    @Test func aRemovalDuringARefreshQueuesOneThatSeesIt() async {
+        let gate = Gate()
+        let library = CountingSlowLibrary(items: [movie("1"), movie("2")], gate: gate)
+        let store = LibraryStore(library: library)
+        let load = Task { await store.load() }
+        await awaitCachedRender(store)
+
+        await store.remove(store.movies[0])
+
+        await gate.open()
+        await load.value
+
+        #expect(library.refreshes == 2, "one more refresh, after the stale one")
         #expect(store.movies.map(\.id) == ["2"])
     }
 
