@@ -37,23 +37,39 @@ struct ScrubBar: View {
         expanded ? Theme.Palette.textPrimary : Theme.Palette.textSecondary
     }
 
+    /// The loading hint, shown only once a wait has outlasted `hintDelay`.
+    ///
+    /// Every ±10s skip raises `buffering` the moment it is pressed, and nothing lowers it before the
+    /// next once-a-second tick — so even a skip the stream cache answered in a tenth of a second
+    /// flashed "Loading…" for one to two seconds. A real wait still shows it.
+    @State private var showsLoadingHint = false
+    private static let hintDelay: Duration = .milliseconds(600)
+
     var body: some View {
-        VStack(spacing: 10) {
-            HStack(spacing: 18) {
-                Text(Timecode.format(flankTime))
-                    .font(timeFont).monospacedDigit().foregroundStyle(timeColor)
-                track
-                Text("-" + Timecode.format(max(0, model.duration - flankTime)))
-                    .font(timeFont).monospacedDigit().foregroundStyle(timeColor)
+        HStack(spacing: 18) {
+            Text(Timecode.format(flankTime))
+                .font(timeFont).monospacedDigit().foregroundStyle(timeColor)
+            track
+            Text("-" + Timecode.format(max(0, model.duration - flankTime)))
+                .font(timeFont).monospacedDigit().foregroundStyle(timeColor)
+        }
+        // Floated under the bar rather than stacked into it: inserted into the bar's own stack it
+        // made the bottom-anchored cluster ~40pt taller, so the whole bar jumped up every time the
+        // hint came and went.
+        .overlay(alignment: .bottom) {
+            HStack(spacing: 10) {
+                ProgressView().controlSize(.small).tint(Theme.Palette.gold)
+                Text("Loading…").font(.seretCaption).foregroundStyle(Theme.Palette.textSecondary)
             }
-            if buffering {
-                HStack(spacing: 10) {
-                    ProgressView().controlSize(.small).tint(Theme.Palette.gold)
-                    Text("Loading…").font(.seretCaption).foregroundStyle(Theme.Palette.textSecondary)
-                }
-                .frame(maxWidth: .infinity)
-                .transition(.opacity)
-            }
+            .fixedSize()
+            .offset(y: 44)
+            .opacity(showsLoadingHint ? 1 : 0)
+            .allowsHitTesting(false)
+        }
+        .task(id: buffering) {
+            guard buffering else { showsLoadingHint = false; return }
+            try? await Task.sleep(for: Self.hintDelay)
+            if !Task.isCancelled { showsLoadingHint = true }
         }
         .padding(expanded ? 20 : 0)
         .background {
@@ -67,7 +83,7 @@ struct ScrubBar: View {
                 .opacity(expanded ? 1 : 0)
         }
         .animation(Theme.Anim.heroSpring, value: expanded)
-        .animation(Theme.Anim.focus, value: buffering)
+        .animation(Theme.Anim.focus, value: showsLoadingHint)
     }
 
     private var track: some View {

@@ -230,6 +230,43 @@ import DebridCore
         #expect(engine.loadCount == 1)
     }
 
+    // MARK: - A picture that stops
+
+    /// libvlc says nothing while its input is starved — no `.buffering` until the data comes back —
+    /// so a stream that stalled mid-film froze the picture with no feedback at all: no spinner, a
+    /// bar that stopped, and the viewer left to wonder whether the app had died.
+    @Test func aFrozenPictureShowsLoadingEvenWhenTheEngineSaysNothing() async {
+        let engine = FakeVideoPlayerEngine(), store = Store()
+        let model = PlayerModel(request: Fixture.request(), engine: engine,
+                                unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
+                                recordProgress: { key, _, position, _, _ in
+                                    await MainActor.run { store.record(key, position) }
+                                },
+                                subtitles: nil, stallThreshold: 0.05)
+        model.start(); await model.waitForIdleForTesting()
+        await playTo(100, duration: 6000, model, engine)
+        #expect(model.isBuffering == false)
+        for _ in 0..<200 where !model.isBuffering { try? await Task.sleep(for: .milliseconds(10)) }
+        #expect(model.isBuffering == true)                 // no tick for longer than the threshold
+        engine.emit(.time(.init(position: 101, duration: 6000))); await model.waitForIdleForTesting()
+        #expect(model.isBuffering == false)                // moving again
+    }
+
+    /// …but a paused film is not stalled.
+    @Test func aPausedFilmIsNotStalled() async {
+        let engine = FakeVideoPlayerEngine(), store = Store()
+        let model = PlayerModel(request: Fixture.request(), engine: engine,
+                                unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
+                                recordProgress: { _, _, _, _, _ in }, subtitles: nil,
+                                stallThreshold: 0.05)
+        model.start(); await model.waitForIdleForTesting()
+        await playTo(100, duration: 6000, model, engine)
+        engine.emit(.state(.paused)); await model.waitForIdleForTesting()
+        try? await Task.sleep(for: .milliseconds(300))
+        #expect(model.isBuffering == false)
+        _ = store
+    }
+
     // MARK: - Leaving the app
 
     /// The TV button mid-film: nothing paused or recorded, libvlc kept playing into a suspended

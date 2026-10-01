@@ -19,8 +19,23 @@ extension PlayerModel {
         guard !hasStarted else { return }
         hasStarted = true
         eventTask = Task { await self.consumeEvents() }
+        stallWatchTask = Task { await self.watchForStalls() }
         activateNowPlaying()
         reload()
+    }
+
+    /// See `stallThreshold`. A light poll rather than a timer per tick: it only has to notice the
+    /// ABSENCE of ticks, which no tick can report.
+    func watchForStalls() async {
+        let interval = Duration.seconds(min(0.5, stallThreshold / 2))
+        while !Task.isCancelled {
+            try? await Task.sleep(for: interval)
+            guard !Task.isCancelled else { return }
+            guard phase == .playing, hasRenderedFrame, !isBuffering, pendingSeek == nil,
+                  !isScrubbing, !isScanning, let last = lastAdvanceStamp,
+                  ContinuousClock.now - last > .seconds(stallThreshold) else { continue }
+            isBuffering = true          // the next advancing tick lowers it (`markRendered`)
+        }
     }
 
     func consumeEvents() async {
@@ -207,6 +222,7 @@ extension PlayerModel {
         let advanced = t.position > lastTickPosition + 0.05
         lastTickPosition = t.position
         if advanced {
+            lastAdvanceStamp = .now
             markRendered()
             if phase == .buffering || phase == .preparing {
                 phase = .playing
@@ -246,6 +262,7 @@ extension PlayerModel {
         hasRenderedFrame = false
         isBuffering = true
         lastTickPosition = 0
+        lastAdvanceStamp = nil            // the load watchdog guards a new media until it moves
         engineHoldsCurrentMedia = false   // the engine still holds the OUTGOING media until load()
         // The request's resumeAt is only the FALLBACK — loadCurrentSource() re-resolves the
         // saved position from the store (when a provider is wired) so resume can't race the
@@ -484,6 +501,7 @@ extension PlayerModel {
     public func teardown() async {
         isTornDown = true                       // first: nothing in flight may start a new media now
         eventTask?.cancel()
+        stallWatchTask?.cancel()
         loadTask?.cancel()
         hideControlsTask?.cancel()
         scrubBarHideTask?.cancel()

@@ -455,6 +455,13 @@ public final class PlayerModel {
     /// overlay forever with no Retry.
     let loadTimeout: Double
     var loadWatchdog: Task<Void, Never>?
+    /// How long a PLAYING picture may go without moving before the viewer is told it is loading.
+    /// libvlc reports nothing while its input is starved (no `.buffering` until the data returns),
+    /// so a stream that stalled mid-film froze the frame with no spinner at all.
+    let stallThreshold: Double
+    /// When the playhead last really advanced. Nil until this media's first.
+    var lastAdvanceStamp: ContinuousClock.Instant?
+    var stallWatchTask: Task<Void, Never>?
 
     /// Engine-seek coalescing for skip bursts: the first skip seeks immediately (instant
     /// response); further skips only move the target, each one pushing the window out, and ONE
@@ -587,7 +594,9 @@ public final class PlayerModel {
          audioProbe: AudioLoudnessProbing? = nil,
          autoSyncWindow: Double = 300,
          autoSyncMaxLag: Double = 120,
-         autoSyncMinimumHalf: Double = SubtitleSync.minimumHalfSeconds) {
+         autoSyncMinimumHalf: Double = SubtitleSync.minimumHalfSeconds,
+         stallThreshold: Double = 2.5) {
+        self.stallThreshold = stallThreshold
         self.subtitleFallbackDelay = subtitleFallbackDelay
         self.subtitleShiftDebounce = subtitleShiftDebounce
         self.audioProbe = audioProbe

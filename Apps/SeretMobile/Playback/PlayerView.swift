@@ -10,6 +10,7 @@ struct PlayerView: View {
     @State private var engine: VLCKitVideoPlayerEngine
     @State private var showSettings = false
     @State private var dragOffset: CGFloat = 0          // interactive pull-down-to-dismiss
+    @State private var showsMidPlaySpinner = false      // see `midPlaySpinner`
     @Environment(\.scenePhase) private var scenePhase
     let backdropURL: URL?
     let pushSignal: LetterboxdPushSignal?
@@ -56,8 +57,15 @@ struct PlayerView: View {
                     .transition(.opacity.combined(with: .scale(scale: 0.8)))
                     .allowsHitTesting(false)
             }
+            midPlaySpinner
         }
         .animation(.easeOut(duration: 0.18), value: model.skipFeedback)
+        .animation(.easeOut(duration: 0.2), value: showsMidPlaySpinner)
+        .task(id: model.isBuffering) {
+            guard model.isBuffering else { showsMidPlaySpinner = false; return }
+            try? await Task.sleep(for: .milliseconds(600))
+            if !Task.isCancelled { showsMidPlaySpinner = true }
+        }
         // Pull down to exit: the whole player follows the finger and shrinks slightly, like other
         // fullscreen players. Released past the threshold it dismisses (in pullToDismiss).
         .scaleEffect(1 - min(max(dragOffset, 0), 240) / 1600)
@@ -120,6 +128,31 @@ struct PlayerView: View {
         LoadingOverlay(caption: caption, title: model.label, backdropURL: backdropURL)
             .contentShape(Rectangle())
             .gesture(pullToDismiss)
+            // A visible way out. The overlay replaces the transport (and its chevron), so a link
+            // that never opens left only the undiscoverable pull-down for up to 30 seconds.
+            .overlay(alignment: .topLeading) {
+                Button(action: onExit) {
+                    Image(systemName: "chevron.down").font(.title3.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 44, height: 44)
+                        .background(.black.opacity(0.35), in: Circle())
+                }
+                .padding(.leading, 16).padding(.top, 8)
+                .accessibilityLabel("Close")
+            }
+    }
+
+    /// A small spinner over a picture that has stopped moving mid-film — libvlc's own buffering
+    /// and the stall watch both raise `isBuffering`, and nothing on this player showed it once the
+    /// first frame was up: the picture froze, the button still said pause. Held back a beat so a
+    /// skip the stream cache answers at once never flashes it.
+    @ViewBuilder private var midPlaySpinner: some View {
+        if model.hasRenderedFrame && model.isBuffering && showsMidPlaySpinner {
+            ProgressView().controlSize(.large).tint(Theme.Palette.gold)
+                .padding(18).background(.black.opacity(0.35), in: Circle())
+                .allowsHitTesting(false)
+                .transition(.opacity)
+        }
     }
 
     private var gestureLayer: some View {
