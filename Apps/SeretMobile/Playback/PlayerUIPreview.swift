@@ -15,6 +15,9 @@ import SwiftUI
 ///   - `playbacksheet`   — the playback sheet after Hebrew has been asked for and attached
 ///   - `subtitlebrowser` — the ranked search browser
 ///   - `autosync` / `autosyncdone` / `autosyncfailed` — the subtitle-sync bar over the picture
+///   - `episodeswap` — the real player screen two seconds into S1E1, then S1E2 picked; the stub
+///     engine never answers for E2, so the screen stays on the swap — what it shows there is the
+///     point
 ///   - `letterboxdrating` / `letterboxdrerating` — the post-credits rating prompt, unrated and
 ///     already rated 7. Prints what the tap produced, so a screenshot answers it
 ///
@@ -33,6 +36,7 @@ struct PlayerUIPreview: View {
             case "autosync":        MobileAutoSyncPreview(mood: .measuring)
             case "autosyncdone":    MobileAutoSyncPreview(mood: .synced)
             case "autosyncfailed":  MobileAutoSyncPreview(mood: .failed)
+            case "episodeswap":     MobileEpisodeSwapPreview()
             case "subtitlebrowser":
                 // Tinted here because in the app the browser is pushed INSIDE the settings sheet,
                 // which sets the gold tint — an untinted harness screenshot would show system blue
@@ -171,6 +175,52 @@ final class MobilePreviewEngine: VideoPlayerEngine {
 /// A sync runs for minutes with the film still playing, so this bar is the only thing telling the
 /// viewer it is alive — which makes its legibility over a bright picture, and whether its longest
 /// message fits a narrow phone, the whole question. Only a screenshot settles either.
+/// The real `PlayerView` over a model driven by the stub engine; the VLC engine is there only for
+/// its (black) video surface.
+private struct MobileEpisodeSwapPreview: View {
+    @State private var engine = MobilePreviewEngine()
+    @State private var surface = VLCKitVideoPlayerEngine()
+    @State private var model: PlayerModel?
+
+    var body: some View {
+        Group {
+            if let model {
+                PlayerView(model: model, engine: surface, backdropURL: nil, onExit: {})
+            } else {
+                Color.black
+            }
+        }
+        .task { await run() }
+    }
+
+    private func run() async {
+        let source = { (id: String) in
+            MediaSource(torrentID: id, fileID: nil, restrictedLink: "rd://\(id)",
+                        parsed: ParsedRelease(title: "The Bear", resolution: "1080p"))
+        }
+        let e1 = Episode(season: 1, number: 1, source: source("e1"))
+        let e2 = Episode(season: 1, number: 2, source: source("e2"))
+        let item = MediaItem(id: "show:tmdb:136315", kind: .show, title: "The Bear", year: 2022,
+                             sources: [], seasons: [Season(number: 1, episodes: [e1, e2])], tmdbID: 136315)
+        let request = PlaybackRequest(item: item, source: e1.source, resumeAt: nil,
+                                      label: "The Bear — S1·E1",
+                                      contentKey: WatchKey.content(forShow: item, episode: e1), episode: e1)
+        let m = PlayerModel(request: request, engine: engine,
+                            unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
+                            recordProgress: { _, _, _, _, _ in }, subtitles: nil)
+        model = m
+        m.start()
+        try? await Task.sleep(for: .milliseconds(300))
+        engine.emit(.state(.playing))
+        engine.emit(.time(.init(position: 600, duration: 1320)))
+        engine.emit(.time(.init(position: 601, duration: 1320)))
+        try? await Task.sleep(for: .seconds(2))
+        m.play(e2)                                   // the strip's next episode
+        try? await Task.sleep(for: .milliseconds(300))
+        engine.emit(.state(.buffering))              // what libvlc reports while it opens E2
+    }
+}
+
 private struct MobileAutoSyncPreview: View {
     let mood: PlayerModel.AutoSyncBanner.Mood
 

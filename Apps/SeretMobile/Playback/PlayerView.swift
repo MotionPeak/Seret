@@ -150,8 +150,13 @@ struct PlayerView: View {
     /// and the stall watch both raise `isBuffering`, and nothing on this player showed it once the
     /// first frame was up: the picture froze, the button still said pause. Held back a beat so a
     /// skip the stream cache answers at once never flashes it.
+    ///
+    /// …and over an episode swap. That is not a cold open — the viewer is watching, so the screen
+    /// is not the full overlay's to take — but nothing is moving either, and asking for a rendered
+    /// frame (which the swap's reload clears) left it showing nothing at all: the next episode
+    /// looked like a dead tap. Everything that is not a cold open gets the spinner.
     @ViewBuilder private var midPlaySpinner: some View {
-        if model.hasRenderedFrame && model.isBuffering && showsMidPlaySpinner {
+        if !model.isColdOpen && model.isBuffering && showsMidPlaySpinner {
             ProgressView().controlSize(.large).tint(Theme.Palette.gold)
                 .padding(18).background(.black.opacity(0.35), in: Circle())
                 .allowsHitTesting(false)
