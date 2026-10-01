@@ -85,13 +85,18 @@ public final class DownloadStore {
 
     public func status(forContentKey key: String) -> DownloadStatus? { statuses[key] }
 
-    /// The request names the release already downloading for this title — its first candidate is
-    /// the one asked for. Unknown (no record of the running one) counts as different: the viewer
-    /// asked explicitly, and doing nothing is the outcome that cannot be right.
+    /// The request includes the release already downloading for this title — a second press of the
+    /// same ranked list, which may well have started a LATER candidate than its first (the first
+    /// was dead, or refused for copyright). Judged by the first candidate alone, every such press
+    /// cancelled the running torrent and added it again. An explicit pick — another version, a
+    /// pasted magnet — is a list of one, so a different release still replaces it. Unknown (no
+    /// record of the running one) counts as different: the viewer asked explicitly, and doing
+    /// nothing is the outcome that cannot be right.
     private func isTheReleaseUnderWay(_ status: DownloadStatus?, candidates: [CachedStream]) async -> Bool {
-        guard let status, let wanted = candidates.first?.infoHash.lowercased() else { return true }
-        let running = (try? await records.all())?.first { $0.torrentID == status.torrentID }
-        return running?.infoHash.lowercased() == wanted
+        guard let status, !candidates.isEmpty else { return true }
+        guard let running = (try? await records.all())?
+            .first(where: { $0.torrentID == status.torrentID })?.infoHash.lowercased() else { return false }
+        return candidates.contains { $0.infoHash.lowercased() == running }
     }
 
     /// In-progress downloads (queued/downloading) as poster tiles. Failed and ready ones are

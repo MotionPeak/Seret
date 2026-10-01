@@ -194,6 +194,39 @@ private final class SteppingLibrary: LibraryProviding, @unchecked Sendable {
         #expect(deleter.deleted.isEmpty)
     }
 
+    /// Pressing a "Downloading…" episode again re-runs the SAME ranked list — and when that list's
+    /// first release could not start the first time, the running torrent is a later one. Judged by
+    /// the first candidate alone, the press cancelled the running torrent and added it again.
+    @Test func pressingAgainKeepsADownloadThatStartedFromALaterCandidate() async {
+        let req = ScriptedReq(["h1": [.failure(FakeError.boom)],
+                               "h2": [.success(tv("magnet_conversion", id: "T2")),
+                                      .success(tv("magnet_conversion", id: "T2b"))]])
+        let deleter = FakeDeleter()
+        let s = make(req: req, deleter: deleter)
+        let key = DownloadKey.episode(showTmdbID: 1, season: 1, number: 2)
+        let list = [stream("h1"), stream("h2")]
+        await s.request(contentKey: key, tmdbID: 1, title: "S", kind: .show, candidates: list)
+        #expect(s.status(forContentKey: key)?.torrentID == "T2")
+        await s.request(contentKey: key, tmdbID: 1, title: "S", kind: .show, candidates: list)
+        #expect(deleter.deleted.isEmpty, "deleted \(deleter.deleted)")
+        #expect(s.status(forContentKey: key)?.torrentID == "T2")
+    }
+
+    /// …and the same when the first release is one Real-Debrid refuses for copyright — which the
+    /// store already knows to skip.
+    @Test func pressingAgainKeepsADownloadPastACopyrightRefusal() async {
+        let req = ScriptedReq(["h1": [.failure(RDAddError.blocked)],
+                               "h2": [.success(tv("queued", id: "T2")), .success(tv("queued", id: "T2b"))]])
+        let deleter = FakeDeleter()
+        let s = make(req: req, deleter: deleter)
+        let key = DownloadKey.episode(showTmdbID: 1, season: 1, number: 2)
+        let list = [stream("h1"), stream("h2")]
+        await s.request(contentKey: key, tmdbID: 1, title: "S", kind: .show, candidates: list)
+        await s.request(contentKey: key, tmdbID: 1, title: "S", kind: .show, candidates: list)
+        #expect(deleter.deleted.isEmpty, "deleted \(deleter.deleted)")
+        #expect(s.status(forContentKey: key)?.torrentID == "T2")
+    }
+
     @Test func requestFallsBackThroughCandidates() async {
         // First candidate is a dead magnet; second starts.
         let req = FakeReq(.failure(.boom), perHash: ["h2": .success(tv("downloading", id: "T2"))])
