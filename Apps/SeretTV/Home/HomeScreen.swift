@@ -6,13 +6,8 @@ import SwiftUI
 /// Added grid, composed on the shared `session.home`. Cards push library Detail.
 struct HomeScreen: View {
     @Environment(AppSession.self) private var session
-
-    /// The hero's "Resume" capsule is painted content inside a `.card` link, not a Button, so it had
-    /// no way to know whether the hero held focus — it drew a full gold gradient and a permanent
-    /// glow at all times. On a screen where the Search pill starts focused that reads as two
-    /// focused things at once, and the capsule looks pressable when it is only decoration. Tracking
-    /// the link's focus lets the capsule use the same resting/focused treatment as every real CTA.
-    @FocusState private var heroFocused: Bool
+    /// Pushes a page onto the shell's stack. A no-op outside the shell (previews, the harness).
+    @Environment(\.openBrowseDestination) private var openDestination
 
     /// A title awaiting removal confirmation, and the failure to surface if RD refuses. Home hosts
     /// these itself because a rail is a place you remove from, not only a place you browse.
@@ -75,7 +70,10 @@ struct HomeScreen: View {
                                 }.buttonStyle(.card)
                                     // Press-and-hold to clear it: the rail had no way to remove a
                                     // title you only started, so it kept the top of Home for good.
-                                    .contextMenu { ContinueWatchingActions(entry: hi, home: home, session: session) }
+                                    .contextMenu {
+                                        ContinueWatchingActions(entry: hi, home: home, session: session,
+                                                                openTitle: { openDestination(.detail(hi.item)) })
+                                    }
                             }
                         }
                     }
@@ -114,40 +112,56 @@ struct HomeScreen: View {
         hi.playbackRequest().map { .play($0) } ?? .detail(hi.item)
     }
 
+    /// The billboard: artwork you look at, with real buttons you press — the Netflix / HBO shape.
+    ///
+    /// It used to be ONE full-width `.card` link with a painted "Resume" capsule inside it. Focus
+    /// then belonged to the whole 1600pt-wide card, and tvOS measures a move from the CENTRE of the
+    /// focused view, so pressing DOWN from "Resume" landed on whichever Continue Watching card sat
+    /// under the middle of the screen (the second one) instead of the card right below the button.
+    /// There was also no way from Home to a title's page — every surface here resumed.
     @ViewBuilder private func hero(_ home: HomeStore) -> some View {
         if let f = home.featured {
-            NavigationLink(value: resumeDestination(f)) {
-                ZStack(alignment: .bottomLeading) {
-                    RemoteImage(url: backdropURL(f.item))
-                        .frame(height: 620).frame(maxWidth: .infinity).clipped()
-                    LinearGradient(stops: [
-                        .init(color: .clear, location: 0.0),
-                        .init(color: Theme.Palette.canvas.opacity(0.7), location: 0.6),
-                        .init(color: Theme.Palette.canvas, location: 1.0),
-                    ], startPoint: .top, endPoint: .bottom)
-                    VStack(alignment: .leading, spacing: 14) {
-                        Text(f.subtitle.isEmpty ? "Continue Watching" : "Continue · \(f.subtitle)")
-                            .eyebrow().foregroundStyle(Theme.Palette.gold)
-                        Text(f.item.title).heroTitle()
-                            .foregroundStyle(Theme.Palette.textPrimary).lineLimit(2)
-                        HStack(spacing: 10) { Image(systemName: "play.fill"); Text("Resume") }
-                            .font(.seret(.title3, .semibold)).foregroundStyle(.black)
-                            .padding(.vertical, 14).padding(.horizontal, 40)
-                            .background(heroFocused ? AnyShapeStyle(Theme.Palette.goldGradient)
-                                                    : AnyShapeStyle(Theme.Palette.goldDeep),
-                                        in: Capsule())
-                            .overlay(Capsule().strokeBorder(
-                                heroFocused ? Theme.Palette.goldBright : .white.opacity(0.10),
-                                lineWidth: heroFocused ? 3 : 1))
-                            .goldGlow(heroFocused ? 16 : 0, opacity: 0.4)
-                            .animation(Theme.Anim.focus, value: heroFocused)
+            ZStack(alignment: .bottomLeading) {
+                RemoteImage(url: backdropURL(f.item))
+                    .frame(height: 620).frame(maxWidth: .infinity).clipped()
+                LinearGradient(stops: [
+                    .init(color: .clear, location: 0.0),
+                    .init(color: Theme.Palette.canvas.opacity(0.7), location: 0.6),
+                    .init(color: Theme.Palette.canvas, location: 1.0),
+                ], startPoint: .top, endPoint: .bottom)
+                VStack(alignment: .leading, spacing: 14) {
+                    Text(f.subtitle.isEmpty ? "Continue Watching" : "Continue · \(f.subtitle)")
+                        .eyebrow().foregroundStyle(Theme.Palette.gold)
+                    Text(f.item.title).heroTitle()
+                        .foregroundStyle(Theme.Palette.textPrimary).lineLimit(2)
+                    HStack(spacing: 16) {
+                        // A file that no longer resolves cannot resume — then the page is the
+                        // only honest destination, and it becomes the primary button.
+                        if let request = f.playbackRequest() {
+                            NavigationLink(value: BrowseDestination.play(request)) {
+                                Label(resumeLabel(f), systemImage: "play.fill")
+                            }
+                            .buttonStyle(SeretActionButtonStyle(prominent: true))
+                        }
+                        NavigationLink(value: BrowseDestination.detail(f.item)) {
+                            Label("Details", systemImage: "info.circle")
+                        }
+                        .buttonStyle(SeretActionButtonStyle(prominent: !f.isResumable))
                     }
-                    .padding(60)
+                    .padding(.top, 8)
                 }
+                .padding(60)
             }
-            .buttonStyle(.card)
-            .focused($heroFocused)
+            .frame(maxWidth: .infinity)
+            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         }
+    }
+
+    /// "Resume 34:16" when the saved position is known — the same words the title page uses, so the
+    /// two screens never disagree about what the button will do.
+    private func resumeLabel(_ f: HomeItem) -> String {
+        guard let at = f.resumeAt, at > 0 else { return "Resume" }
+        return "Resume \(Timecode.format(at))"
     }
 
     private var empty: some View {

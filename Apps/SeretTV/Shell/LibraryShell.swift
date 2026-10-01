@@ -39,6 +39,9 @@ struct LibraryShell: View {
     /// The page has held focus at least once. Distinguishes a real navigation INTO the menu from
     /// tvOS parking focus on the rail at launch — see the `menuFocus` change handler.
     @State private var pageHasHeldFocus = false
+    /// Whether the side menu is on screen yet. False only for the first moments after launch — see
+    /// `revealMenuAfterLaunchFocus()`.
+    @State private var menuRevealed = false
 
     private var menuOpen: Bool { menuExpanded }
 
@@ -50,8 +53,8 @@ struct LibraryShell: View {
     /// push it again.
     @State private var openedTitleForTesting = false
 
-    /// DEBUG-only: `-openTitle <text>` pushes the title page of the first library film whose title
-    /// contains the text. It checks a title page against the real account without walking the focus
+    /// DEBUG-only: `-openTitle <text>` pushes the title page of the first library film (or, failing
+    /// that, show) whose title contains the text. It checks a title page against the real account without walking the focus
     /// engine, which takes synthesized keystrokes unreliably.
     ///
     ///     xcrun simctl launch <udid> com.solomons.seret.tv -openTitle Arrival
@@ -62,9 +65,12 @@ struct LibraryShell: View {
         let args = ProcessInfo.processInfo.arguments
         let flag = args.contains("-openVersions") ? "-openVersions" : "-openTitle"
         guard !openedTitleForTesting, let i = args.firstIndex(of: flag), i + 1 < args.count,
-              let movies = session.libraryStore?.movies, !movies.isEmpty else { return }
+              let store = session.libraryStore, !store.movies.isEmpty else { return }
         let needle = args[i + 1].lowercased()
-        guard let item = movies.first(where: { $0.title.lowercased().contains(needle) }) else { return }
+        // Shows too, so a season/episode page can be checked the same way. Versions stays
+        // film-only: it builds a movie search hit below.
+        let candidates = flag == "-openVersions" ? store.movies : store.movies + store.shows
+        guard let item = candidates.first(where: { $0.title.lowercased().contains(needle) }) else { return }
         openedTitleForTesting = true
         guard flag == "-openVersions" else { path.append(item); return }
         guard let tmdb = item.tmdbID else { return }
@@ -105,7 +111,7 @@ struct LibraryShell: View {
                     }
             }
             // The menu hides while a Detail/Player is pushed so those stay full-screen.
-            if path.isEmpty {
+            if path.isEmpty && menuRevealed {
                 SideMenuScrim(visible: menuOpen)
                 SideMenu(selected: tab,
                          profileName: session.activeProfiles?.activeProfile?.name ?? "Profile",
@@ -127,6 +133,7 @@ struct LibraryShell: View {
         // Menu button opens the nav from anywhere; a second press falls through and exits, because
         // the handler is removed while the menu is already open.
         .onExitCommand(perform: menuOpen || !path.isEmpty ? nil : {
+            menuRevealed = true
             menuFocus = tab
             menuExpanded = true
         })
@@ -152,6 +159,7 @@ struct LibraryShell: View {
         .task(id: session.libraryStore?.attempt ?? -1) {
             await session.libraryStore?.load()
         }
+        .task { await revealMenuAfterLaunchFocus() }
         #if DEBUG
         .task(id: session.libraryStore?.movies.count ?? 0) { openTitleForTesting() }
         #endif
@@ -167,6 +175,37 @@ struct LibraryShell: View {
         .fullScreenCover(isPresented: $showingProfiles) {
             WhoIsWatchingScreen(onPicked: { showingProfiles = false }).environment(session)
         }
+    }
+
+    /// Puts the side menu on screen once the page has had its chance at the launch focus.
+    ///
+    /// tvOS gives initial focus to the top-leading focusable on screen, and the menu's first row
+    /// always won it: the app opened with Search focused — one click from the keyboard — and Home's
+    /// Resume a press away. A view that is not in the hierarchy cannot win, so the menu waits until
+    /// Home has something focusable on screen, or ~2.5s at most (an empty Home has nothing to focus,
+    /// and the menu must not stay away). The splash covers this window.
+    ///
+    /// Revealing the menu cannot take focus FROM the page — tvOS parks it on the rail only when
+    /// nothing else holds it — so the rail not holding focus a moment later means the page does.
+    /// That is the `pageHasHeldFocus` fact the expansion logic needs, which it otherwise learns only
+    /// when focus first LEAVES the rail; without it the first LEFT into the menu would leave the
+    /// panel collapsed (the old "swipe left twice").
+    private func revealMenuAfterLaunchFocus() async {
+        guard !menuRevealed else { return }
+        for _ in 0..<25 {
+            if tab != .home || homeHasFocusableContent { break }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        try? await Task.sleep(for: .milliseconds(250))   // let the focus engine settle on the page
+        menuRevealed = true
+        try? await Task.sleep(for: .milliseconds(300))
+        if menuFocus == nil { pageHasHeldFocus = true }
+    }
+
+    /// Mirrors `HomeScreen.homeReady`: the moment Home draws anything focusable.
+    private var homeHasFocusableContent: Bool {
+        guard let home = session.home else { return false }
+        return !(home.continueWatching.isEmpty && home.recentlyAdded.isEmpty)
     }
 
     /// Search pushes, the profile presents, everything else switches the page. Commit-on-press —
@@ -209,6 +248,7 @@ struct LibraryShell: View {
         .focusSection()
         // Removal is offered by posters all over the app; the confirmation lives here once.
         .environment(\.requestLibraryRemoval, { pendingRemoval = $0 })
+        .environment(\.openBrowseDestination, { path.append($0) })
         .libraryRemovalConfirmation(pending: $pendingRemoval,
                                     errorMessage: $removeErrorMessage,
                                     store: session.libraryStore)
@@ -223,3 +263,17 @@ struct LibraryShell: View {
     }
 }
 
+
+/// How a view under the shell opens a page without owning its `NavigationPath` — a long-press menu
+/// item cannot be a `NavigationLink`. The shell sets it; the default does nothing, for the reason
+/// `requestLibraryRemoval` has one: a missing closure must be a no-op, never a trap.
+private struct OpenBrowseDestinationKey: EnvironmentKey {
+    static let defaultValue: @MainActor (BrowseDestination) -> Void = { _ in }
+}
+
+extension EnvironmentValues {
+    var openBrowseDestination: @MainActor (BrowseDestination) -> Void {
+        get { self[OpenBrowseDestinationKey.self] }
+        set { self[OpenBrowseDestinationKey.self] = newValue }
+    }
+}

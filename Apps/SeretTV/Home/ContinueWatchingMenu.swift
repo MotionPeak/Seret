@@ -18,12 +18,19 @@ struct ContinueWatchingActions: View {
     /// and taking it explicitly is what lets the `-uiPreview home` harness drive a real mark.
     let home: HomeStore
     let session: AppSession
+    /// Opens the title's page. Selecting a card RESUMES, so without this there was no way from Home
+    /// to the page of anything you were part-way through — the long-press menu HBO and Netflix both
+    /// offer as "Go to series".
+    var openTitle: () -> Void = {}
 
     /// A show's card stands for one episode, so its marks have to say so — "Mark Watched" on a
     /// series poster reads as the whole run.
     private var scope: String { entry.item.kind == .show ? "Episode " : "" }
 
     var body: some View {
+        Button(entry.item.kind == .show ? "Go to Show" : "Go to Movie", systemImage: "info.circle") {
+            openTitle()
+        }
         Button("Mark \(scope)Watched", systemImage: "checkmark.circle") { markEntry(true) }
         Button("Mark \(scope)Unwatched", systemImage: "circle") { markEntry(false) }
         if entry.item.kind == .show {
