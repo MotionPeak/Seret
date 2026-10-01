@@ -171,10 +171,14 @@ struct ShowDetailView: View {
                 Button {
                     if let target {
                         onPlayEpisode(target.season, target.number)
-                    } else if store.episodesState(forSeason: store.selectedSeason) == .failed {
-                        Task { await store.retrySeason() }
-                    } else if trailerURL != nil {
-                        expandTrailer = true
+                    } else {
+                        switch store.episodesState(forSeason: store.selectedSeason) {
+                        case .failed: Task { await store.retrySeason() }
+                        // Only once the list says nothing has aired: while it loads the button
+                        // reads "Play", and a press then opened the trailer full-screen.
+                        case .loaded: if trailerURL != nil { expandTrailer = true }
+                        case .loading: break                 // early — Play is on its way
+                        }
                     }
                 } label: {
                     if let target {
@@ -221,7 +225,11 @@ struct ShowDetailView: View {
         case .loaded: break
         }
         if let date = store.nextAirDate {
-            return "Premieres \(date.formatted(.dateTime.day().month(.abbreviated).year()))"
+            // An air DATE, held as midnight UTC: printed in the device's zone it was the day
+            // before anywhere west of Greenwich.
+            var day = Date.FormatStyle.dateTime.day().month(.abbreviated).year()
+            day.timeZone = TimeZone(identifier: "UTC") ?? .gmt
+            return "Premieres \(date.formatted(day))"
         }
         return trailerURL != nil ? "Trailer" : "Coming Soon"
     }
