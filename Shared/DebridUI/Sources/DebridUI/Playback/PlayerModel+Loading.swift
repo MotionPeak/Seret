@@ -464,11 +464,13 @@ extension PlayerModel {
         // episode. Pick up where it stopped instead, once per place — a file that really does stop
         // there (a short encode, a container that overstates its length) ends on the second try.
         //
-        // Not past the finish line, though. There the place to come back to is "finished", and a
-        // finished title has no resume point (it would resume into the credits) — so the reopen
-        // started the film again from 0:00 and its first tick un-finished it. An end in the
-        // credits, early or not, is the end.
-        if stoppedShortOfTheEnd, !hasReachedEnd(at: position, duration: duration),
+        // Only where the store keeps a place to come back to, though — the reopen resumes from
+        // exactly that. In the credits a finished title has none (it would resume into them), so
+        // the reopen started the film again from 0:00 and its first tick un-finished it: an end
+        // there is the end. But a finish line drawn EARLY — a subtitle file that stops at 82% —
+        // leaves more than any credits run, the store keeps that place, and asking "past the
+        // finish line?" instead closed a film with a quarter of an hour still to play.
+        if stoppedShortOfTheEnd, recordKeepsAPlace(at: position, duration: duration),
            interruptedAt.map({ abs(position - $0) > 30 }) ?? true {
             interruptedAt = position
             await recordCurrentProgress()

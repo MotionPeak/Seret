@@ -523,6 +523,15 @@ public final class PlayerModel {
                                      lastSubtitleCue: contentEndTime)
     }
 
+    /// Whether the progress this playhead would record keeps a place to come back to. Asked of
+    /// `WatchState.resumePosition` — the rule the store resumes by — over exactly the row
+    /// `recordCurrentProgress` writes, so the player and the store cannot disagree about it.
+    func recordKeepsAPlace(at position: Double, duration: Double) -> Bool {
+        WatchState(contentKey: contentKey, sourceKey: "", positionSeconds: position,
+                   durationSeconds: duration, finished: hasReachedEnd(at: position, duration: duration),
+                   updatedAt: Date()).resumePosition != nil
+    }
+
     // MARK: - Computed helpers
 
     public var canTryAnotherVersion: Bool { sourceIndex + 1 < sources.count }

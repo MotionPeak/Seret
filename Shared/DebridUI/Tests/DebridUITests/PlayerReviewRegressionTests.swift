@@ -70,6 +70,27 @@ import DebridCore
         #expect(model.position == 2400)
     }
 
+    /// …and so does a drop past a finish line drawn EARLY. A subtitle whose last line ends at 82% of
+    /// a 100-minute film puts the line there; a drop at 83% leaves 16:40 — more than any credits
+    /// run — and the store keeps that place. The film was closed on the viewer anyway, because the
+    /// recovery asked "past the finish line?" instead of "is there a place to come back to?".
+    @Test func aDropAfterAnEarlyFinishLineStillReopensAtThePlace() async {
+        let engine = FakeVideoPlayerEngine(), store = Store()
+        let model = makeModel(store: store, engine: engine)
+        model.start(); await model.waitForIdleForTesting()
+        model.contentEndTime = 4900                     // the subtitle's last line
+        engine.emit(.state(.playing))
+        engine.emit(.time(.init(position: 4999, duration: 6000)))
+        engine.emit(.time(.init(position: 5000, duration: 6000)))
+        await model.waitForIdleForTesting()
+
+        engine.emit(.state(.ended)); await model.waitForIdleForTesting()
+
+        #expect(store.rows[Fixture.request().contentKey]?.resumePosition == 5000)
+        #expect(engine.loadCount == 2, "reopened")
+        #expect(model.shouldDismiss == false)
+    }
+
     /// "From Start" on a title saved at 1:00:00, then a failure between libvlc's `.playing` and the
     /// first tick: the intent was dropped at `.playing` (the first-frame mark), so Retry resumed
     /// at 1:00:00. It now holds until the playhead is real.
