@@ -91,6 +91,29 @@ import DebridCore
         #expect(model.shouldDismiss == false)
     }
 
+    /// A swap whose link fails: the Retry screen must be the only thing on it. The swap's reload
+    /// raised the buffering hint and the failure set the phase and left the hint up — and the
+    /// iPhone's spinner, shown for every wait that is not a cold open, spun over Retry.
+    @Test func aFailureLowersTheBufferingHint() async {
+        let engine = FakeVideoPlayerEngine()
+        let model = PlayerModel(request: Fixture.showRequest(playingEpisode: 1), engine: engine,
+                                unrestrict: { link in
+                                    if link.contains("e2") { throw URLError(.badServerResponse) }
+                                    return URL(string: "https://cdn/x.mkv")!
+                                },
+                                recordProgress: { _, _, _, _, _ in }, subtitles: nil)
+        model.start(); await model.waitForIdleForTesting()
+        engine.emit(.state(.playing))
+        engine.emit(.time(.init(position: 600, duration: 1320)))
+        engine.emit(.time(.init(position: 601, duration: 1320)))
+        await model.waitForIdleForTesting()
+
+        model.playNext(); await model.waitForIdleForTesting()
+
+        #expect(model.phase.isFailed)
+        #expect(model.isBuffering == false)
+    }
+
     /// "From Start" on a title saved at 1:00:00, then a failure between libvlc's `.playing` and the
     /// first tick: the intent was dropped at `.playing` (the first-frame mark), so Retry resumed
     /// at 1:00:00. It now holds until the playhead is real.

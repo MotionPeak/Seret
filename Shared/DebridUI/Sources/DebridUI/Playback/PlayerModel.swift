@@ -75,7 +75,12 @@ public final class PlayerModel {
 
     // MARK: - Published state
 
-    public internal(set) var phase: Phase = .preparing
+    public internal(set) var phase: Phase = .preparing {
+        // A failure is not a wait. Five paths set one and only libvlc's own lowered the buffering
+        // hint, so a link that died during a swap or a load left every spinner keyed on
+        // `isBuffering` turning over the Retry screen.
+        didSet { if phase.isFailed, isBuffering { isBuffering = false } }
+    }
     public internal(set) var position: Double = 0
     public internal(set) var duration: Double = 0
     public internal(set) var controlsVisible: Bool = true
