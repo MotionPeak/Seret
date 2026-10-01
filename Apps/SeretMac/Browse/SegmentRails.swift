@@ -35,10 +35,13 @@ struct SegmentRails: View {
             content
         }
         // Keyed on `kind` too — a Movies/Shows switch must restart the load, not reuse a stale id.
-        // …and on the library's size: a For You built before the library loaded is rebuilt with
-        // personal rails once it lands (a loaded segment is a no-op).
-        .task(id: "\(kind.rawValue)/\(store.selectedSegment.rawValue)/\(seedSignature)") {
+        .task(id: "\(kind.rawValue)/\(store.selectedSegment.rawValue)") {
             await store.loadSegment(store.selectedSegment)
+        }
+        // A For You built before the library or the profile landed is rebuilt — quietly — when they
+        // do; on the change only, never merely because the page reappeared.
+        .onChange(of: seedSignature) { _, _ in
+            Task { await store.refreshForYouIfBetterSeeds() }
         }
     }
 

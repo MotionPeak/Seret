@@ -178,17 +178,6 @@ public final class DiscoverStore {
     /// in a task of its own, and every ask joins it — so a segment left mid-load is simply finished
     /// when the viewer comes back.
     public func loadSegment(_ segment: Segment) async {
-        if let running = segmentLoads[segment] { await running.value }
-        // A For You built from less than the best seeds is rebuilt once better ones exist. The
-        // browse pages are built at launch, kept alive behind Home, so For You was routinely asked
-        // for before the library had loaded (Trending) or before the profile had resolved (library
-        // titles, no watch history) — and that was then cached as loaded, so "Because you
-        // watched…" never appeared for the rest of the session.
-        if segment == .forYou, statesBySegment[.forYou] == .loaded, forYouBasis < .history,
-           await availableForYouBasis() > forYouBasis {
-            statesBySegment[.forYou] = .idle
-        }
-        // Another ask may have started one while this one was awaiting.
         if let running = segmentLoads[segment] { await running.value; return }
         switch statesBySegment[segment] ?? .idle {
         case .loading, .loaded: return
@@ -203,9 +192,34 @@ public final class DiscoverStore {
         if segmentLoads[segment] == load { segmentLoads[segment] = nil }
     }
 
-    private func performSegmentLoad(_ segment: Segment) async {
-        statesBySegment[segment] = .loading
-        rowsBySegment[segment] = []
+    /// Rebuild For You when better seeds exist than it was built from — called when what seeds it
+    /// CHANGES (the library landing, the profile resolving), never merely because the page appeared.
+    ///
+    /// The browse pages are built at launch, kept alive behind Home, so For You was routinely built
+    /// before the library had loaded (Trending) or before the profile had resolved (library titles,
+    /// no watch history) — and that was then cached for the session, so "Because you watched…"
+    /// never appeared. QUIET: the rails on screen stay until the new ones are all in, then swap in
+    /// one step. Emptying them first put skeletons under the viewer and took their focus with them.
+    public func refreshForYouIfBetterSeeds() async {
+        guard statesBySegment[.forYou] == .loaded, forYouBasis < .history,
+              await availableForYouBasis() > forYouBasis else { return }
+        if let running = segmentLoads[.forYou] { await running.value; return }
+        let rebuild = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.performSegmentLoad(.forYou, quietly: true)
+        }
+        segmentLoads[.forYou] = rebuild
+        await rebuild.value
+        if segmentLoads[.forYou] == rebuild { segmentLoads[.forYou] = nil }
+    }
+
+    /// - Parameter quietly: build the rails without publishing anything until they are all in, and
+    ///   keep what is on screen if the rebuild comes back empty.
+    private func performSegmentLoad(_ segment: Segment, quietly: Bool = false) async {
+        if !quietly {
+            statesBySegment[segment] = .loading
+            rowsBySegment[segment] = []
+        }
         if kind == .movie && camIDs.isEmpty {
             camIDs = Set(((try? await discover.nowPlayingMovies()) ?? []).map(\.id))
         }
@@ -222,12 +236,19 @@ public final class DiscoverStore {
             while next < specs.count && running < cap { addTask(next); next += 1; running += 1 }
             for await (i, hits) in group {
                 completed[i] = hits
-                rowsBySegment[segment] = Self.assemble(specs: specs, completed: completed)
-                if statesBySegment[segment] != .loaded, !(rowsBySegment[segment]?.isEmpty ?? true) {
-                    statesBySegment[segment] = .loaded   // show as soon as the first rail has content
+                if !quietly {
+                    rowsBySegment[segment] = Self.assemble(specs: specs, completed: completed)
+                    if statesBySegment[segment] != .loaded, !(rowsBySegment[segment]?.isEmpty ?? true) {
+                        statesBySegment[segment] = .loaded   // show as soon as the first rail has content
+                    }
                 }
                 if next < specs.count { addTask(next); next += 1 } else { running -= 1 }
             }
+        }
+        if quietly {
+            let rebuilt = Self.assemble(specs: specs, completed: completed)
+            if !rebuilt.isEmpty { rowsBySegment[segment] = rebuilt }   // one swap, or keep what was there
+            return
         }
         if rowsBySegment[segment]?.isEmpty ?? true { statesBySegment[segment] = .failed }
     }

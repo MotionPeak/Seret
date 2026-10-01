@@ -9,6 +9,10 @@ struct DetailView: View {
     @State private var pendingVersionRemoval: MediaSource?
     @State private var removeError: String?
     @State private var downloadingEpisodeID: String?
+    /// On screen right now. A play that resolves after the viewer has left — Menu pressed while
+    /// "Finding a version…" was still searching — must not push the player over whatever page they
+    /// went to (or over a film already playing, which the push then tore down).
+    @State private var isOnScreen = false
     @State private var episodeError: String?
     /// Finds, adds and plays an episode you do not have — the same engine the movie page uses.
     @State private var acquirer: TitleAcquirer?
@@ -87,6 +91,8 @@ struct DetailView: View {
         // Fires again when the player pops back to this screen (value-nav) — re-read watch state
         // so Resume · <time> reflects the position the player just recorded.
         .onAppear { Task { await store.reloadWatch() } }
+        .onAppear { isOnScreen = true }
+        .onDisappear { isOnScreen = false }
         // The title became yours while this page was open — played from here (which adds it), a
         // whole season downloaded, a requested download landing. Take the library's item, files
         // and all, or Play would acquire it AGAIN and start it from 0:00.
@@ -178,7 +184,7 @@ struct DetailView: View {
             downloadingEpisodeID = nil
             switch outcome {
             case let .play(request):
-                openDestination(.play(request))
+                if isOnScreen { openDestination(.play(request)) }
             case let .failed(message) where !message.isEmpty:
                 episodeError = message
             default:

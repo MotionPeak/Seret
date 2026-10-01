@@ -153,7 +153,7 @@ private func movie(_ id: Int) -> TMDBSearchResult {
         #expect((store.rowsBySegment[.forYou] ?? []).map(\.title).first == "Trending Today")
 
         seeds.value = [RecommendationSeed(tmdbID: 100, title: "Dune", watched: true)]
-        await store.loadSegment(.forYou)              // the page asks again when the library lands
+        await store.refreshForYouIfBetterSeeds()      // the page calls this when the library lands
 
         #expect((store.rowsBySegment[.forYou] ?? []).map(\.title) == ["Because you watched Dune"])
     }
@@ -197,7 +197,7 @@ private func movie(_ id: Int) -> TMDBSearchResult {
 
         seeds.value = [RecommendationSeed(tmdbID: 100, title: "Dune", watched: true),
                        RecommendationSeed(tmdbID: 200, title: "Heat", watched: false)]
-        await store.loadSegment(.forYou)
+        await store.refreshForYouIfBetterSeeds()
 
         #expect((store.rowsBySegment[.forYou] ?? []).map(\.title)
                 == ["Because you watched Dune", "More like Heat"])
@@ -213,7 +213,23 @@ private func movie(_ id: Int) -> TMDBSearchResult {
         let asked = fake.recommendedFor.count
 
         await store.loadSegment(.forYou)
+        await store.refreshForYouIfBetterSeeds()
 
         #expect(fake.recommendedFor.count == asked)
+    }
+
+    /// Coming back to For You re-runs the page's load: that alone must never rebuild it. The rebuild
+    /// used to hang off the load, so a return emptied the rails into skeletons under the viewer.
+    @Test func askingForAFallbackForYouAgainDoesNotRebuildIt() async {
+        let fake = FakeDiscover()
+        let seeds = FakeSeeds()
+        let store = DiscoverStore(kind: .movie, discover: fake, seeds: seeds)
+        await store.loadSegment(.forYou)
+        seeds.value = [RecommendationSeed(tmdbID: 100, title: "Dune", watched: true)]
+
+        await store.loadSegment(.forYou)                // a return to the page, not a seed change
+
+        #expect((store.rowsBySegment[.forYou] ?? []).map(\.title).first == "Trending Today")
+        #expect(fake.recommendedFor.isEmpty)
     }
 }

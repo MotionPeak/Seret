@@ -127,10 +127,13 @@ struct FindScreen: View {
                 // Keyed on kind AND segment so a Movies→Shows flip re-fires the load even when both
                 // stores sit on the same segment (else the id wouldn't change and the new kind's rails
                 // would stay stuck on the spinner).
-                // …and on the library's size: a For You built before the library loaded is
-                // rebuilt with personal rails once it lands (a loaded segment is a no-op).
-                .task(id: "\(kind.rawValue)/\(browse.selectedSegment.rawValue)/\(seedSignature)") {
+                .task(id: "\(kind.rawValue)/\(browse.selectedSegment.rawValue)") {
                     await browse.loadSegment(browse.selectedSegment)
+                }
+                // A For You built before the library or the profile landed is rebuilt — quietly —
+                // when they do; on the change only, never merely because the screen reappeared.
+                .onChange(of: seedSignature) { _, _ in
+                    Task { await browse.refreshForYouIfBetterSeeds() }
                 }
                 // Warm the first screenful of rail posters as rails land (the id re-fires per new
                 // rail). First few rails only — prefetching a whole segment is cellular-hostile.

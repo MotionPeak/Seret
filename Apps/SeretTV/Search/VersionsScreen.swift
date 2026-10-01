@@ -27,6 +27,10 @@ struct VersionsScreen: View {
     /// other play path.
     @Environment(\.openBrowseDestination) private var openDestination
     @State private var model: VersionsModel?
+    /// On screen right now. A play that resolves after the viewer has left — Menu pressed while
+    /// "Finding a version…" was still searching — must not push the player over whatever page they
+    /// went to (or over a film already playing, which the push then tore down).
+    @State private var isOnScreen = false
 
     var body: some View {
         ScrollView {
@@ -39,6 +43,8 @@ struct VersionsScreen: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(CanvasBackground())
+        .onAppear { isOnScreen = true }
+        .onDisappear { isOnScreen = false }
         .task {
             guard model == nil else { return }
             let target: AcquisitionStore.Target = episode.map { .episode(season: $0.season, number: $0.number) } ?? .movie
@@ -120,7 +126,7 @@ struct VersionsScreen: View {
         Task {
             switch await model.pick(stream) {
             case let .play(request):
-                openDestination(.play(request))
+                if isOnScreen { openDestination(.play(request)) }
             default:
                 break   // downloadStarted / failed / busy — the status line above already reflects it
             }

@@ -10,6 +10,7 @@ struct EpisodeRow: View {
     let row: DetailStore.EpisodeRowInfo
     var isDownloading: Bool = false
     var onDownload: (DetailStore.EpisodeRowInfo) -> Void = { _ in }
+    @Environment(\.openBrowseDestination) private var openDestination
 
     private let width: CGFloat = 320
 
@@ -22,36 +23,26 @@ struct EpisodeRow: View {
     private var isWatched: Bool { watch?.finished == true }
 
     var body: some View {
-        Group {
+        // ONE control whose action varies — never a link-or-button branch. The branch swapped the
+        // focused card for a different view the moment the episode became yours (a page now adopts
+        // the library's item while it is open: an episode bought from this card, a season pack
+        // landing), and tvOS dropped focus with it. Same shape as `DownloadingRailCard`.
+        // Not `.disabled(isDownloading)`: a disabled card cannot keep focus either; the page ignores
+        // a second press while one is under way (`DetailView.playEpisode`).
+        Button {
             if let ep = row.ownedEpisode, let src = row.ownedSource {
-                NavigationLink(value: store.playRequest(source: src, episode: ep, label: label)) {
-                    lockup
-                }
-                .buttonStyle(.borderless)
-                .contextMenu {
-                    Button(isWatched ? "Mark Unwatched" : "Mark Watched") {
-                        Task { await store.setWatched(!isWatched, contentKey: contentKey, source: src) }
-                    }
-                    ownedVersionsMenu(ep)
-                    findOtherVersionsLink
-                }
+                openDestination(.play(store.playRequest(source: src, episode: ep, label: label)))
             } else {
-                // ⚠️ This branch swap (link ↔ button) is the shape that drops tvOS focus when the
-                // condition flips under the user. It only flips after a library refresh, exactly as
-                // before — do not make it flip more often.
-                // Not `.disabled(isDownloading)`: a disabled card cannot keep focus, so the press
-                // that started the download threw focus out of the row. The page ignores a second
-                // press while one is under way (`DetailView.playEpisode`).
-                Button { onDownload(row) } label: { lockup }
-                    .buttonStyle(.borderless)
-                    .contextMenu {
-                        Button(isWatched ? "Mark Unwatched" : "Mark Watched") {
-                            Task { await store.setWatched(!isWatched, contentKey: contentKey,
-                                                          source: nil) }
-                        }
-                        findOtherVersionsLink
-                    }
+                onDownload(row)
             }
+        } label: { lockup }
+        .buttonStyle(.borderless)
+        .contextMenu {
+            Button(isWatched ? "Mark Unwatched" : "Mark Watched") {
+                Task { await store.setWatched(!isWatched, contentKey: contentKey, source: row.ownedSource) }
+            }
+            if let ep = row.ownedEpisode { ownedVersionsMenu(ep) }
+            findOtherVersionsLink
         }
         .frame(width: width, alignment: .leading)
     }

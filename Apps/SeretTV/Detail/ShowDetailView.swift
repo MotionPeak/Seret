@@ -17,6 +17,14 @@ struct ShowDetailView: View {
     var onPlayEpisode: (Int, Int) -> Void = { _, _ in }
     var downloadingEpisodeID: String? = nil
     @State private var seasonStore: AddStore?
+    /// The season button has been pressed for the season on screen — it stays put until the
+    /// season changes, whatever the library says about the season meanwhile.
+    private var seasonButtonInUse: Bool {
+        switch seasonStore?.state {
+        case .adding, .added, .addFailed: return true
+        default: return false
+        }
+    }
     /// The key `seasonStore` was built for. `.task(id:)` re-runs on every re-appearance, not only
     /// when the id changes — and coming back from the player is a re-appearance — so without this
     /// the indexer query ran again and the status line flashed back to "Checking…" over an answer
@@ -51,8 +59,10 @@ struct ShowDetailView: View {
                     VStack(alignment: .leading, spacing: 32) {
                         markSeasonButton
                         // A season you already have every episode of has nothing to download — the
-                        // button would only add a duplicate torrent.
-                        if !store.isSeasonFullyOwned(store.selectedSeason) {
+                        // button would only add a duplicate torrent. Unless it is THIS button that
+                        // just made the season complete: removing it then took the focused control
+                        // out from under the viewer the moment the library caught up.
+                        if !store.isSeasonFullyOwned(store.selectedSeason) || seasonButtonInUse {
                             SeasonDownloadButton(store: seasonStore, onAdded: onSeasonAdded,
                                                  showTmdbID: store.item.tmdbID,
                                                  season: store.selectedSeason,

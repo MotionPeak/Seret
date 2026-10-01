@@ -25,6 +25,10 @@ struct MovieDetailView: View {
     @Environment(WatchlistMarks.self) private var watchlist: WatchlistMarks?
     /// Drives Play on a title that is not in the library: find the best cached release, add it, play.
     @State private var acquisition: AcquisitionStore?
+    /// On screen right now. A play that resolves after the viewer has left — Menu pressed while
+    /// "Finding a version…" was still searching — must not push the player over whatever page they
+    /// went to (or over a film already playing, which the push then tore down).
+    @State private var isOnScreen = false
     /// Opens the player as a PUSH. A full-screen cover cannot host it on tvOS: inside a cover the
     /// Menu press never reaches the player's own handler — the cover dismisses itself first — so
     /// Menu with Settings or the subtitle list open walked out of the film instead of closing the
@@ -70,8 +74,10 @@ struct MovieDetailView: View {
             // Its job is done once there is something to play. The cover reset it on dismissal;
             // a push has no dismissal hook, and coming back re-reads the watch state on appear.
             acquisition?.reset()
-            openDestination(.play(request))
+            if isOnScreen { openDestination(.play(request)) }
         }
+        .onAppear { isOnScreen = true }
+        .onDisappear { isOnScreen = false }
         .background(CanvasBackground())
         .fullScreenCover(isPresented: $expandTrailer) {
             if let u = trailerURL { FullScreenTrailer(url: u) }

@@ -54,11 +54,14 @@ struct BrowseScreen: View {
             // Load the selected segment whenever it changes (and on first show). Keyed on kind TOO,
             // so Find's Movies→Shows flip re-fires the load even when both stores sit on the same
             // segment (else the id wouldn't change and the new kind's rails would stay stuck loading).
-            // …and on the library's size, so a For You built before the library had loaded (from
-            // the Trending fallback) is rebuilt with personal rails once it lands. A loaded segment
-            // is otherwise a no-op to ask for again.
-            .task(id: "\(kind.rawValue)/\(browse.selectedSegment.rawValue)/\(seedSignature)") {
+            .task(id: "\(kind.rawValue)/\(browse.selectedSegment.rawValue)") {
                 await browse.loadSegment(browse.selectedSegment)
+            }
+            // A For You built before the library or the profile had landed is rebuilt — quietly —
+            // when they do. On the CHANGE only: a return to this page re-runs the task above, and
+            // hanging the rebuild off that put skeletons under the viewer on the way back.
+            .onChange(of: seedSignature) { _, _ in
+                Task { await browse.refreshForYouIfBetterSeeds() }
             }
         } else {
             SeretLoader()
