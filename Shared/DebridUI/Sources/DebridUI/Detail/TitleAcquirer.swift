@@ -178,6 +178,14 @@ public final class TitleAcquirer {
     /// download (downloading, via the store) | none at all: `.noFullSeason` | AddStore failure:
     /// `.failed(message)`.
     public func downloadSeason(_ season: Int) async {
+        // A second press while the first is still looking or adding: each click runs its own task,
+        // both used to get here before the page swapped the button for "Checking…", and each built
+        // a pack and added it — two torrents of one season. Set before the first suspension, so
+        // the second always sees it.
+        switch seasonPhases[season] {
+        case .checking?, .adding?: return
+        default: break
+        }
         seasonPhases[season] = .checking
         guard let pack = makeSeasonPack(season) else {
             seasonPhases[season] = .failed("Not signed in to Real\u{2011}Debrid.")

@@ -91,6 +91,35 @@ private final class GatedEpisodeStreamSource: StreamSource, @unchecked Sendable 
     }
 }
 
+/// Holds EVERY stream fetch until opened — any number of callers, so a test that lets a second
+/// request through by mistake fails instead of hanging.
+private final class HeldStreamSource: StreamSource, @unchecked Sendable {
+    let cached: [CachedStream]
+    private let lock = NSLock()
+    private var opened = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+    init(cached: [CachedStream]) { self.cached = cached }
+    func open() {
+        let held: [CheckedContinuation<Void, Never>] = lock.withLock {
+            opened = true
+            defer { waiters = [] }
+            return waiters
+        }
+        held.forEach { $0.resume() }
+    }
+    func streams(for query: StreamQuery) async throws -> [CachedStream] {
+        await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
+            let now = lock.withLock { () -> Bool in
+                if opened { return true }
+                waiters.append(c)
+                return false
+            }
+            if now { c.resume() }
+        }
+        return cached
+    }
+}
+
 // MARK: - Download-store fakes (mirrors DownloadStoreTests)
 
 private final class FakeReq: DownloadRequesting, @unchecked Sendable {
@@ -347,6 +376,34 @@ private func acquisitionFactory(streams: FakeStreamSource,
         await a.downloadSeason(3)
 
         #expect(a.seasonPhase(3) == .noFullSeason)
+    }
+
+    /// A double click on Download Whole Season: each click spawns its own task, both ran before the
+    /// page swapped the button for "Checking…", and each built a season pack and added it — two
+    /// torrents of the same season.
+    @Test func aSecondPressWhileTheFirstIsCheckingStartsNothing() async {
+        let held = HeldStreamSource(cached: [seasonPackStream("pack", season: 1)])
+        var packsMade = 0
+        let a = TitleAcquirer(
+            item: show(), makeAcquisition: { nil },
+            makeSeasonPack: { season in
+                packsMade += 1
+                return AddStore(imdbID: "tt1", kind: .series(season: season, episode: 1),
+                                originalLanguage: "en", streamSource: held,
+                                add: FakeAdd(.success(torrentInfo())), seasonPack: season)
+            },
+            downloads: nil, onAdded: {})
+
+        let first = Task { await a.downloadSeason(1) }
+        for _ in 0..<200 where a.seasonPhase(1) != .checking { try? await Task.sleep(for: .milliseconds(5)) }
+        let second = Task { await a.downloadSeason(1) }      // the second click
+        try? await Task.sleep(for: .milliseconds(20))
+        held.open()
+        await first.value
+        await second.value
+
+        #expect(packsMade == 1)
+        #expect(a.seasonPhase(1) == .added)
     }
 
     @Test func signedOutFailsClearly() async {
