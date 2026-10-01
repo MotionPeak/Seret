@@ -154,9 +154,10 @@ struct PlayerView: View {
     /// …and over an episode swap. That is not a cold open — the viewer is watching, so the screen
     /// is not the full overlay's to take — but nothing is moving either, and asking for a rendered
     /// frame (which the swap's reload clears) left it showing nothing at all: the next episode
-    /// looked like a dead tap. Everything that is not a cold open gets the spinner.
+    /// looked like a dead tap. Everything that is not a cold open gets the spinner — except while
+    /// `.preparing`, which shows the "Preparing…" overlay with a spinner of its own.
     @ViewBuilder private var midPlaySpinner: some View {
-        if !model.isColdOpen && model.isBuffering && showsMidPlaySpinner {
+        if !model.isColdOpen && model.isBuffering && showsMidPlaySpinner && model.phase != .preparing {
             ProgressView().controlSize(.large).tint(Theme.Palette.gold)
                 .padding(18).background(.black.opacity(0.35), in: Circle())
                 .allowsHitTesting(false)

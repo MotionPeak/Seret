@@ -17,7 +17,8 @@ import SwiftUI
 ///   - `autosync` / `autosyncdone` / `autosyncfailed` — the subtitle-sync bar over the picture
 ///   - `episodeswap` — the real player screen two seconds into S1E1, then S1E2 picked; the stub
 ///     engine never answers for E2, so the screen stays on the swap — what it shows there is the
-///     point
+///     point. `episodeswapopening`: the same, but libvlc never reports buffering for E2 either, so
+///     the swap stays in its `.preparing` stage (the "Preparing…" overlay)
 ///   - `showdetail` — the real show page for a show you own with S1E2 part-watched: Resume + Start,
 ///     the season list, the episode rows (long-press one for its menu)
 ///   - `letterboxdrating` / `letterboxdrerating` — the post-credits rating prompt, unrated and
@@ -39,6 +40,7 @@ struct PlayerUIPreview: View {
             case "autosyncdone":    MobileAutoSyncPreview(mood: .synced)
             case "autosyncfailed":  MobileAutoSyncPreview(mood: .failed)
             case "episodeswap":     MobileEpisodeSwapPreview()
+            case "episodeswapopening": MobileEpisodeSwapPreview(reportsBuffering: false)
             case "showdetail":      MobileShowDetailPreview()
             case "subtitlebrowser":
                 // Tinted here because in the app the browser is pushed INSIDE the settings sheet,
@@ -246,6 +248,8 @@ private struct MobileShowDetailPreview: View {
 /// The real `PlayerView` over a model driven by the stub engine; the VLC engine is there only for
 /// its (black) video surface.
 private struct MobileEpisodeSwapPreview: View {
+    /// Whether libvlc reports buffering for E2 (moving the swap from `.preparing` to `.buffering`).
+    var reportsBuffering = true
     @State private var engine = MobilePreviewEngine()
     @State private var surface = VLCKitVideoPlayerEngine()
     @State private var model: PlayerModel?
@@ -285,7 +289,7 @@ private struct MobileEpisodeSwapPreview: View {
         try? await Task.sleep(for: .seconds(2))
         m.play(e2)                                   // the strip's next episode
         try? await Task.sleep(for: .milliseconds(300))
-        engine.emit(.state(.buffering))              // what libvlc reports while it opens E2
+        if reportsBuffering { engine.emit(.state(.buffering)) }   // what libvlc reports opening E2
     }
 }
 
