@@ -50,6 +50,11 @@ struct SideMenu: View {
         // ONE focus target spanning the full height, so LEFT from the first item of any row lands
         // here. A section widens a target; it does not trap focus.
         .focusSection()
+        // …and where LEFT lands is the page you are on, as in every Apple TV app. Left to geometry
+        // it was whichever row sat level with the focused control: Library from Home's Resume,
+        // Movies from a card a little higher — so Select from the menu opened a different page
+        // each time. `.userInitiated` is what applies it to a press, not just to launch focus.
+        .defaultFocus(focus, selected, priority: .userInitiated)
     }
 
     private var profileRow: some View {
