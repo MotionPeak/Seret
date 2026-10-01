@@ -256,9 +256,14 @@ private final class Collector: @unchecked Sendable {
                        centreSums: [Double](repeating: 0, count: n),
                        counts: [Int](repeating: 0, count: n),
                        budget: n, firstPTS: nil, complete: false, armed: false,
-                       band: SpeechBandFilter(sampleRate: sampleRate),
-                       channelFrames: Array(repeating: [Double](repeating: 0, count: n),
-                                            count: Int(AudioActivityProbe.channels)))
+                       band: SpeechBandFilter(sampleRate: sampleRate))
+            // DEBUG-only, like the field: passed to the initialiser unconditionally, it was the one
+            // reference outside a DEBUG block — and a Release build (an archive, TestFlight) did not
+            // compile at all.
+            #if DEBUG
+            $0.channelFrames = Array(repeating: [Double](repeating: 0, count: n),
+                                     count: Int(AudioActivityProbe.channels))
+            #endif
         }
     }
 
