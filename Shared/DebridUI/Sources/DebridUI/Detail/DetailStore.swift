@@ -445,6 +445,15 @@ public final class DetailStore {
         !(item.seasons.first(where: { $0.number == n })?.episodes.isEmpty ?? true)
     }
 
+    /// Every episode TMDB lists for the season is already in the library — gates "Download Whole
+    /// Season", which on such a season could only add a duplicate torrent. Without TMDB's list there
+    /// is no telling what is missing, so an unknown season is never "fully owned".
+    public func isSeasonFullyOwned(_ n: Int) -> Bool {
+        guard let listed = episodeMeta[n], !listed.isEmpty else { return false }
+        let owned = Set(item.seasons.first(where: { $0.number == n })?.episodes.map(\.number) ?? [])
+        return listed.keys.allSatisfy(owned.contains)
+    }
+
     /// True when every downloaded episode of the season is finished — drives the toggle label.
     /// Reads whatever watch state is currently loaded (the selected season is loaded on entry).
     public func isSeasonWatched(_ n: Int) -> Bool {

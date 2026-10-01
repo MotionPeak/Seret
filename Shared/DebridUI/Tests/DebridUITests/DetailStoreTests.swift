@@ -130,6 +130,31 @@ private actor FakeMyList: MyListProviding {
         #expect(store.episodeMeta[1]?[1]?.name == "Pilot")
     }
 
+    /// "Download Whole Season" on a season you already have every episode of only adds a duplicate
+    /// torrent, so the page hides it — but only when TMDB's list PROVES nothing is missing.
+    @Test func seasonIsFullyOwnedOnlyWhenEveryListedEpisodeIsInTheLibrary() async {
+        let sh = show("9", seasons: [Season(number: 1, episodes: [episode(1, 1, "t1"), episode(1, 2, "t2")])])
+        func meta(_ n: Int) -> TMDBEpisodeDetails {
+            TMDBEpisodeDetails(episodeNumber: n, name: "E\(n)", overview: "o",
+                               stillPath: "/s.jpg", runtime: 30, airDate: "2020-01-01")
+        }
+        let full = DetailStore(item: sh,
+                               details: FakeDetails(tv: .success(tvDetails()),
+                                                    seasons: [1: .success([meta(1), meta(2)])]),
+                               watch: nil)
+        #expect(full.isSeasonFullyOwned(1) == false)   // no TMDB list yet: unknown is not "all of it"
+        await full.load()
+        #expect(full.isSeasonFullyOwned(1) == true)
+
+        let partial = DetailStore(item: sh,
+                                  details: FakeDetails(tv: .success(tvDetails()),
+                                                       seasons: [1: .success([meta(1), meta(2), meta(3)])]),
+                                  watch: nil)
+        await partial.load()
+        #expect(partial.isSeasonFullyOwned(1) == false)   // episode 3 is not in the library
+        #expect(partial.isSeasonFullyOwned(2) == false)   // nothing owned, nothing listed
+    }
+
     @Test func markSeasonWatchedMarksEveryEpisodeAndTogglesBack() async {
         let eps = [episode(1, 1, "t1"), episode(1, 2, "t2"), episode(1, 3, "t3")]
         let sh = show("9", seasons: [Season(number: 1, episodes: eps)])
