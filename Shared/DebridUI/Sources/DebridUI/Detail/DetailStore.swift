@@ -563,8 +563,9 @@ public final class DetailStore {
     /// What a show's Play starts, among the episodes you own. The episode touched most recently
     /// decides — the rule Continue Watching uses, so the page and Home agree: part-way through,
     /// resume it; finished, the one after it — nil when the series has a next one you don't own
-    /// (`nextEpisodeTarget` fetches it). Nothing watched yet, or the series run out: the first
-    /// episode not finished, regular seasons before the Specials. Uses whatever watch state is loaded.
+    /// (`nextEpisodeTarget` fetches it). Caught up on a show still airing: the last one watched,
+    /// again. Nothing watched yet, or the series run out: the first episode not finished, regular
+    /// seasons before the Specials. Uses whatever watch state is loaded.
     ///
     /// It used to take the FIRST part-way episode in series order, so an episode abandoned at 89%
     /// weeks ago outranked the one being watched tonight and Play dropped the viewer into its
@@ -579,8 +580,18 @@ public final class DetailStore {
         func owned(_ s: Int, _ n: Int) -> Episode? { all.first { $0.season == s && $0.number == n } }
         if let latest = latestTouchedEpisode() {
             if !latest.state.finished, let episode = owned(latest.season, latest.number) { return episode }
-            if latest.state.finished, let next = nextUnfinished(after: latest.season, latest.number) {
-                return owned(next.season, next.number)   // nil → not yours yet: Play fetches it
+            if latest.state.finished {
+                switch continuation(after: latest.season, latest.number) {
+                case let .episode(season, number):
+                    return owned(season, number)         // nil → not yours yet: Play fetches it
+                case .caughtUp:
+                    // The next one is listed but not out. "From the top" — the run-out answer —
+                    // offered S1·E1 and opened the page on season 1, a season away from where the
+                    // viewer is and from the date the next one airs.
+                    return owned(latest.season, latest.number)
+                case .end:
+                    break                                // the series has run out: from the top
+                }
             }
         }
         let regular = all.filter { $0.season != 0 }
@@ -591,8 +602,9 @@ public final class DetailStore {
 
     /// What Play should start for a show, addressed by NUMBERS so it works whether or not the
     /// episode is downloaded: the owned next episode when there is one; else the episode after the
-    /// one finished last (or the one left part-way, if its file has gone); otherwise the first
-    /// episode of the selected season that is not already finished.
+    /// one finished last (or the one left part-way, if its file has gone; or that one again when
+    /// the viewer is caught up); otherwise the first episode of the selected season that is not
+    /// already finished — never one that has not aired.
     ///
     /// A show you have not added has no owned episode, and without this its page would have no Play
     /// button — which on tvOS also means `.defaultFocus` has nothing to focus and the remote dies.
@@ -600,9 +612,15 @@ public final class DetailStore {
         if let owned = nextEpisode() { return (owned.season, owned.number) }
         if let latest = latestTouchedEpisode() {
             if !latest.state.finished { return (latest.season, latest.number) }
-            if let next = nextUnfinished(after: latest.season, latest.number) { return next }
+            switch continuation(after: latest.season, latest.number) {
+            case let .episode(season, number): return (season, number)
+            case .caughtUp: return (latest.season, latest.number)
+            case .end: break
+            }
         }
+        // Next week's episode is listed with the rest, and is not something Play can start.
         let rows = episodes(forSeason: selectedSeason)
+            .filter { !hasNotAired(season: selectedSeason, number: $0.number) }
         guard !rows.isEmpty else { return nil }
         let unwatched = rows.first {
             watchByKey[WatchKey.content(forShow: item, season: selectedSeason, number: $0.number)]?
@@ -662,48 +680,75 @@ public final class DetailStore {
         return (season, number)
     }
 
+    /// One step along the series from an episode.
+    private enum Step {
+        case episode(season: Int, number: Int)
+        /// TMDB counts a next season that has not started — a renewal, nothing aired yet.
+        case seasonNotStarted
+        case end
+    }
+
     /// The episode after (season, number), from what you own and what TMDB lists. Never from a
-    /// regular season into the Specials, and nil once the series has nothing later.
-    private func successor(ofSeason s: Int, number n: Int) -> (season: Int, number: Int)? {
-        guard s != 0 else { return nil }
+    /// regular season into the Specials.
+    private func successor(ofSeason s: Int, number n: Int) -> Step {
+        guard s != 0 else { return .end }
         let ownedHere = Set(item.seasons.first { $0.number == s }?.episodes.map(\.number) ?? [])
-        if ownedHere.contains(n + 1) { return (s, n + 1) }
+        if ownedHere.contains(n + 1) { return .episode(season: s, number: n + 1) }
         if let listed = episodeMeta[s] {
-            if listed[n + 1] != nil { return (s, n + 1) }
+            if listed[n + 1] != nil { return .episode(season: s, number: n + 1) }
         } else if ownedHere.contains(where: { $0 > n }) {
-            return (s, n + 1)          // a gap in what you own, in a season TMDB has not listed yet
+            // a gap in what you own, in a season TMDB has not listed yet
+            return .episode(season: s, number: n + 1)
         }
         let nextSeasonOwned = item.seasons.contains { $0.number == s + 1 && !$0.episodes.isEmpty }
-        if nextSeasonOwned { return (s + 1, 1) }
+        if nextSeasonOwned { return .episode(season: s + 1, number: 1) }
         if numberOfSeasons.map({ s + 1 <= $0 }) ?? false {
             // Only into a season that has STARTED: a renewal TMDB already counts, listing nothing
             // aired yet, is not somewhere Play can go.
             if let listed = episodeMeta[s + 1], listed[1] == nil || hasNotAired(season: s + 1, number: 1) {
-                return nil
+                return .seasonNotStarted
             }
-            return (s + 1, 1)
+            return .episode(season: s + 1, number: 1)
         }
-        return nil
+        return .end
     }
 
-    /// The first episode after (s, n) that is not already finished — walking PAST finished ones.
+    /// What follows an episode the viewer has finished.
+    private enum Continuation {
+        /// The first episode after it not already finished.
+        case episode(season: Int, number: Int)
+        /// The next one is listed but has not aired, or the next season has not started: caught up
+        /// on a show that is still going. Not the same as `end` — see `nextEpisode`.
+        case caughtUp
+        /// The series has nothing later.
+        case end
+    }
+
+    /// What follows (s, n), walking PAST finished episodes.
     ///
     /// The episode after the one touched last was taken as-is. But marks are writes too, each with
     /// its own timestamp: marking seasons 1 and 2 watched while part-way through S3E2 made the last
     /// mark the "latest touched", and the episode after it — S3E1 — was one already seen, so Play
-    /// offered it from 0:00. Nil at an episode that has not aired: next week's is not playable.
-    private func nextUnfinished(after s: Int, _ n: Int) -> (season: Int, number: Int)? {
+    /// offered it from 0:00. And next week's episode is not playable: that is "caught up".
+    private func continuation(after s: Int, _ n: Int) -> Continuation {
         var cursor = (season: s, number: n)
         for _ in 0..<2000 {                 // bounded: a long-running series, never a loop
-            guard let next = successor(ofSeason: cursor.season, number: cursor.number) else { return nil }
-            if watchByKey[WatchKey.content(forShow: item, season: next.season, number: next.number)]?
-                .finished == true {
-                cursor = next
-                continue
+            switch successor(ofSeason: cursor.season, number: cursor.number) {
+            case .end:
+                return .end
+            case .seasonNotStarted:
+                return .caughtUp
+            case let .episode(season, number):
+                if watchByKey[WatchKey.content(forShow: item, season: season, number: number)]?
+                    .finished == true {
+                    cursor = (season, number)
+                    continue
+                }
+                return hasNotAired(season: season, number: number)
+                    ? .caughtUp : .episode(season: season, number: number)
             }
-            return hasNotAired(season: next.season, number: next.number) ? nil : next
         }
-        return nil
+        return .end
     }
 
     /// TMDB lists an air date in the future for it. Unknown dates count as aired.

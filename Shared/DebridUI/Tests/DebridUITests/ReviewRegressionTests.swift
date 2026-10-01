@@ -243,3 +243,100 @@ extension SwiftDataSuite {
         }
     }
 }
+
+/// `seasons` seasons of `perSeason` episodes each; in the LAST season, episodes from `unairedFrom`
+/// on air in 2099.
+private struct AiringTV: MediaDetailsProviding {
+    var seasons: Int
+    var perSeason: Int
+    var unairedFrom: Int
+    func movieDetails(tmdbID: Int) async throws -> TMDBMovieDetails { throw Boom.nope }
+    func tvDetails(tmdbID: Int) async throws -> TMDBTVDetails {
+        TMDBTVDetails(id: tmdbID, name: "S", firstAirDate: nil, overview: nil, posterPath: nil,
+                      backdropPath: nil, numberOfSeasons: seasons, genres: [], voteAverage: nil)
+    }
+    func seasonEpisodes(tvID: Int, season: Int) async throws -> [TMDBEpisodeDetails] {
+        (1...perSeason).map { k in
+            TMDBEpisodeDetails(episodeNumber: k, name: "E\(k)", overview: nil, stillPath: nil, runtime: 22,
+                               airDate: season == seasons && k >= unairedFrom ? "2099-01-01" : "2020-01-01")
+        }
+    }
+}
+
+extension SwiftDataSuite {
+    /// Round 2 of the review: caught up on a show still airing.
+    @Suite struct CaughtUpTests {
+        private func provider() throws -> LocalWatchProvider {
+            let c = try ModelContainer(for: WatchProgress.self,
+                                       configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+            return LocalWatchProvider(store: LocalWatchStore(modelContainer: c), profileID: { "p1" })
+        }
+
+        private func finish(_ keys: [String], in p: LocalWatchProvider) async throws {
+            for key in keys {
+                try await p.record(contentKey: key, sourceKey: "a", positionSeconds: 1300,
+                                   durationSeconds: 1320, finished: true, profileID: "p1")
+                try await Task.sleep(for: .milliseconds(5))     // distinct timestamps, in order
+            }
+        }
+
+        /// Owned S1E1–S2E2, every one watched; TMDB lists S2E3 for next week. The page opened on
+        /// SEASON 1 offering "Play S1·E1" — the answer for a series that has run out — a season
+        /// away from where the viewer is and from the date the next one airs.
+        @MainActor @Test func caughtUpOnAnOwnedShowStaysWhereTheViewerIs() async throws {
+            let p = try provider()
+            try await finish(["show:tmdb:1:s1e1", "show:tmdb:1:s1e2", "show:tmdb:1:s2e1",
+                              "show:tmdb:1:s2e2"], in: p)
+            let store = DetailStore(item: show(1, seasons: [1: 2, 2: 2]),
+                                    details: AiringTV(seasons: 2, perSeason: 3, unairedFrom: 3),
+                                    watch: p, profileID: "p1")
+            await store.load()
+
+            #expect(store.selectedSeason == 2)
+            #expect(store.nextEpisode()?.id == "s2e2")
+            let target = store.nextEpisodeTarget()
+            #expect(target?.season == 2 && target?.number == 2, "Play targets \(String(describing: target))")
+        }
+
+        /// …and a show you do not own (watched, files gone): Play fell through to the season's
+        /// first unwatched ROW — next week's S1E3, which no indexer has.
+        @MainActor @Test func caughtUpOnAShowYouDoNotOwnNeverTargetsTheUnairedOne() async throws {
+            let p = try provider()
+            try await finish(["show:tmdb:1:s1e1", "show:tmdb:1:s1e2"], in: p)
+            let store = DetailStore(item: MediaItem(id: "show:tmdb:1", kind: .show, title: "S", year: 2020,
+                                                    sources: [], seasons: [], tmdbID: 1),
+                                    details: AiringTV(seasons: 1, perSeason: 3, unairedFrom: 3),
+                                    watch: p, profileID: "p1")
+            await store.load()
+
+            let target = store.nextEpisodeTarget()
+            #expect(target?.season == 1 && target?.number == 2, "Play targets \(String(describing: target))")
+        }
+
+        /// A show that has not premiered has nothing Play can start — rather than a Play for an
+        /// episode no indexer can have yet.
+        @MainActor @Test func aShowThatHasNotPremieredOffersNoEpisodeToPlay() async throws {
+            let p = try provider()
+            let store = DetailStore(item: MediaItem(id: "show:tmdb:1", kind: .show, title: "S", year: 2020,
+                                                    sources: [], seasons: [], tmdbID: 1),
+                                    details: AiringTV(seasons: 1, perSeason: 3, unairedFrom: 1),
+                                    watch: p, profileID: "p1")
+            await store.load()
+
+            #expect(store.nextEpisodeTarget() == nil)
+        }
+
+        /// The series that HAS run out still starts over from the top.
+        @MainActor @Test func aFinishedSeriesStillStartsOverFromTheTop() async throws {
+            let p = try provider()
+            try await finish(["show:tmdb:1:s1e1", "show:tmdb:1:s1e2", "show:tmdb:1:s2e1",
+                              "show:tmdb:1:s2e2"], in: p)
+            let store = DetailStore(item: show(1, seasons: [1: 2, 2: 2]),
+                                    details: AiringTV(seasons: 2, perSeason: 2, unairedFrom: 99),
+                                    watch: p, profileID: "p1")
+            await store.load()
+
+            #expect(store.nextEpisode()?.id == "s1e1")
+        }
+    }
+}
