@@ -77,6 +77,16 @@ struct HomeScreen: View {
         // The player is presented above the shell, so dismissing it doesn't fire onAppear here —
         // rebuild when it closes so the resume position / Continue Watching order update.
         .onChange(of: router.playback == nil) { _, closed in if closed { Task { await rebuild() } } }
+        // …and the same for a title page, which is presented above the shell too: a title marked
+        // watched (or played) there stayed on Continue Watching, unticked, until something else
+        // happened to rebuild Home.
+        .onChange(of: router.detail == nil) { _, closed in
+            guard closed else { return }
+            Task {
+                await session.libraryStore?.reloadWatchStates()
+                await rebuild()
+            }
+        }
     }
 
     @ViewBuilder private var content: some View {
@@ -118,6 +128,12 @@ struct HomeScreen: View {
                                                               imageURL: backdropURL(hi.item),
                                                               fraction: hi.fraction, width: landW)
                                     }.pressable()
+                                    // The same long-press the Apple TV offers: the title's page
+                                    // (a tap resumes), and the marks that take it off the rail.
+                                    .contextMenu {
+                                        ContinueWatchingActions(entry: hi, home: home, session: session,
+                                                                openTitle: { router.detail = hi.item })
+                                    }
                                 }
                             }
                         }
