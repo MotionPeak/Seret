@@ -120,6 +120,28 @@ import DebridCore
         #expect(model.isBuffering == false)
     }
 
+    /// …and a skip ON the failure screen — Control Center and AirPods route straight to `skip` —
+    /// raised the hint again, with nothing left to lower it.
+    @Test func aSkipOnTheFailureScreenDoesNotRaiseTheHint() async {
+        let engine = FakeVideoPlayerEngine()
+        let model = PlayerModel(request: Fixture.request(), engine: engine,
+                                unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
+                                recordProgress: { _, _, _, _, _ in }, subtitles: nil)
+        model.start(); await model.waitForIdleForTesting()
+        engine.emit(.state(.playing))
+        engine.emit(.time(.init(position: 600, duration: 6000)))
+        engine.emit(.time(.init(position: 601, duration: 6000)))
+        await model.waitForIdleForTesting()
+        engine.emit(.state(.failed("libvlc error"))); await model.waitForIdleForTesting()
+        #expect(model.phase.isFailed && !model.isBuffering)
+
+        model.skip(10)
+        #expect(model.isBuffering == false)
+        model.scrub(to: 900)
+        #expect(model.isBuffering == false)
+        await model.teardown()
+    }
+
     /// "From Start" on a title saved at 1:00:00, then a failure between libvlc's `.playing` and the
     /// first tick: the intent was dropped at `.playing` (the first-frame mark), so Retry resumed
     /// at 1:00:00. It now holds until the playhead is real.

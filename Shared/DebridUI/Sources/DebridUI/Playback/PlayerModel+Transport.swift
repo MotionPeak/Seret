@@ -46,8 +46,9 @@ extension PlayerModel {
         handleUserSeek(to: target)
         position = target            // optimistic: the scrub bar jumps to the new time immediately
         // Loading hint only while PLAYING: a paused seek has no frames to wait for, and paused
-        // never emits `.playing`, so raising it here would leave it up for good.
-        if phase != .paused { isBuffering = true }
+        // never emits `.playing`, so raising it here would leave it up for good. Nor on the failure
+        // screen — a Control Center or AirPods skip still lands here, and nothing would lower it.
+        if phase != .paused, !phase.isFailed { isBuffering = true }
         lastTickPosition = target    // re-arm advance detection past the target
         holdBar(from: origin, to: target)
         if seekEngine { scheduleCoalescedSeek(to: target) } else { coalescedSeekTarget = target }
@@ -68,7 +69,7 @@ extension PlayerModel {
         cancelCoalescedSeek()
         handleUserSeek(to: target)
         position = target            // optimistic: the bar stays where the viewer put it
-        if phase != .paused { isBuffering = true }
+        if phase != .paused, !phase.isFailed { isBuffering = true }   // see `skip`
         lastTickPosition = target    // re-arm advance detection past the target
         holdBar(from: origin, to: target)
         engine.seek(to: target)
@@ -207,7 +208,7 @@ extension PlayerModel {
         handleUserSeek(to: scrubTarget)
         position = scrubTarget
         lastTickPosition = scrubTarget
-        if phase != .paused { isBuffering = true }   // hint only while playing — see `skip`
+        if phase != .paused, !phase.isFailed { isBuffering = true }   // hint only while playing — see `skip`
         holdBar(from: from, to: scrubTarget)
         cancelCoalescedSeek()                  // a commit supersedes any open skip window
         engine.seek(to: scrubTarget)
