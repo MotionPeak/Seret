@@ -38,6 +38,14 @@ struct EpisodeRow: View {
         } label: { lockup }
         .buttonStyle(.borderless)
         .contextMenu {
+            // Selecting the card resumes; this starts a part-watched episode over (the Mac's
+            // episode grid has offered it all along).
+            if let ep = row.ownedEpisode, let src = row.ownedSource, watch?.resumePosition != nil {
+                Button("Play from Beginning", systemImage: "gobackward") {
+                    openDestination(.play(store.playRequest(source: src, episode: ep, label: label,
+                                                            fromStart: true)))
+                }
+            }
             Button(isWatched ? "Mark Unwatched" : "Mark Watched") {
                 Task { await store.setWatched(!isWatched, contentKey: contentKey, source: row.ownedSource) }
             }

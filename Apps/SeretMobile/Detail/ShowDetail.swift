@@ -357,6 +357,12 @@ struct EpisodeRowView: View {
         // Long-press to mark watched — including an episode you have not downloaded, which you may
         // well have seen elsewhere.
         .contextMenu {
+            // A tap resumes; this starts a part-watched episode over.
+            if let ep = row.ownedEpisode, let src = row.ownedSource, watch?.resumePosition != nil {
+                Button("Play from Beginning", systemImage: "gobackward") {
+                    onPlay(store.playRequest(source: src, episode: ep, label: label, fromStart: true))
+                }
+            }
             Button(isWatched ? "Mark Unwatched" : "Mark Watched",
                    systemImage: isWatched ? "checkmark.circle.fill" : "checkmark.circle") {
                 Task { await store.setWatched(!isWatched, contentKey: contentKey,
