@@ -51,9 +51,12 @@ public struct LocalWatchProvider: WatchProgressProviding, Sendable {
     public func record(contentKey: String, sourceKey: String, positionSeconds: Double,
                        durationSeconds: Double, finished: Bool, profileID: String) async throws {
         // No subtitle cue here: this is the path for callers with no player. The player knows
-        // where the dialogue ends and passes `finished` itself, so its answer is the one that
-        // lands earlier and wins. Duration 0 (a manual mark) yields no threshold at all, which is
-        // what stops every manual mark dividing by zero.
+        // where the dialogue ends and passes `finished` itself; the two are ORed, so an early
+        // last cue finishes the title early — but a LATE one (dialogue past 92%) does not hold
+        // the flag back: this line lands first. The player does not ask the store where to
+        // reopen after a drop for exactly that reason (`PlayerModel.reopenAt`). Duration 0 (a
+        // manual mark) yields no threshold at all, which is what stops every manual mark dividing
+        // by zero.
         let reachedEnd = WatchThreshold.hasReachedEnd(position: positionSeconds,
                                                       duration: durationSeconds,
                                                       lastSubtitleCue: nil)

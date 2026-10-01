@@ -271,7 +271,7 @@ extension PlayerModel {
         // The request's resumeAt is only the FALLBACK — loadCurrentSource() re-resolves the
         // saved position from the store (when a provider is wired) so resume can't race the
         // screen's watch-state load or go stale after a previous playback.
-        resumeTarget = fromStart ? 0 : max(resumeAt ?? 0, 0)
+        resumeTarget = reopenAt ?? (fromStart ? 0 : max(resumeAt ?? 0, 0))
         // Until the engine reports otherwise, the viewer's place IS the resume point: that is what
         // the bar shows and what a skip counts from. And nothing is written until it is real.
         position = resumeTarget
@@ -340,7 +340,9 @@ extension PlayerModel {
         do {
             // The resume lookup first (a local store read, single-digit ms), then unrestrict —
             // which is instant anyway when the link was prefetched (PlayableLinkCache).
-            if !fromStart, let resolveResume {
+            if reopenAt != nil {
+                // A recovery reopen: `reload()` already aimed at the playhead the drop happened at.
+            } else if !fromStart, let resolveResume {
                 let saved = await resolveResume(contentKey) ?? 0
                 guard !Task.isCancelled else { return }
                 resumeTarget = saved > 0 ? saved : 0     // authoritative: overrides the UI hint
@@ -385,6 +387,7 @@ extension PlayerModel {
     func settlePlayhead() {
         playheadSettled = true
         if fromStart { fromStart = false }
+        if reopenAt != nil { reopenAt = nil }    // the reopened stream is playing at the place
     }
 
     /// First frames are on screen. Clears the loading state so the overlay/spinner hide.
@@ -464,18 +467,21 @@ extension PlayerModel {
         // episode. Pick up where it stopped instead, once per place — a file that really does stop
         // there (a short encode, a container that overstates its length) ends on the second try.
         //
-        // Only where the store keeps a place to come back to, though — the reopen resumes from
-        // exactly that. In the credits a finished title has none (it would resume into them), so
-        // the reopen started the film again from 0:00 and its first tick un-finished it: an end
-        // there is the end. But a finish line drawn EARLY — a subtitle file that stops at 82% —
-        // leaves more than any credits run, the store keeps that place, and asking "past the
-        // finish line?" instead closed a film with a quarter of an hour still to play.
+        // Only where there is a place to come back to, though. In the credits there is none — an
+        // end there is the end (the reopen used to start the film again from 0:00 and its first
+        // tick un-finished it). But a finish line drawn EARLY — a subtitle file that stops at 82% —
+        // leaves more than any credits run, and asking "past the finish line?" instead closed a
+        // film with a quarter of an hour still to play. The reopen resumes at the playhead itself:
+        // the store, finishing titles at its own subtitle-blind line, can answer "no place" for a
+        // drop the player knows is mid-dialogue.
         if stoppedShortOfTheEnd, recordKeepsAPlace(at: position, duration: duration),
            interruptedAt.map({ abs(position - $0) > 30 }) ?? true {
-            interruptedAt = position
+            let place = position
+            interruptedAt = place
             await recordCurrentProgress()
             guard !isTornDown else { return }
-            reload()                       // re-resolves the place just recorded
+            reopenAt = place               // the playhead itself — see `reopenAt`
+            reload()
             return
         }
         // Binge: a finished episode records its tail, then auto-advances to the next one in-place

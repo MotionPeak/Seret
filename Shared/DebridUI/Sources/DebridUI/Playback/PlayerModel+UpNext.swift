@@ -84,6 +84,7 @@ extension PlayerModel {
         resumeAt = newResume
         fromStart = false                    // the new episode resumes via the provider if mid-watched
         interruptedAt = nil                  // a recovered drop belonged to the previous file
+        reopenAt = nil                       // …and so did the place it would have reopened at
         // The per-source subtitle state (rows, moviehash, browser results, selections) is reset
         // by `reload()` below, which every file change goes through.
         selectedAudioID = nil

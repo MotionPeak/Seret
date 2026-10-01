@@ -1,11 +1,15 @@
 import Testing
 import Foundation
+import SwiftData
 @testable import DebridUI
 import DebridCore
 
 /// Player regressions found by reviewing fix/polish-sweep-2026-10-01 against itself. The resume
 /// rule here is the REAL one — the store row's `resumePosition`, exactly what AppSession wires —
-/// because the existing fakes return raw positions and so could not see the first of these.
+/// because the existing fakes return raw positions and so could not see the first of these. And
+/// the row is written the way `LocalWatchProvider.record` writes it: the player's `finished` ORed
+/// with the store's own subtitle-blind finish line (the fake once passed `finished` straight
+/// through, which hid a late-cue drop restarting from 0:00 — see `PlayerStoreBackedTests`).
 @MainActor
 @Suite struct PlayerReviewRegressionTests {
 
@@ -21,11 +25,13 @@ import DebridCore
                     unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
                     recordProgress: { key, source, position, duration, finished in
                         await MainActor.run {
-                            store.writes.append((position, finished))
+                            let stored = finished || WatchThreshold.hasReachedEnd(
+                                position: position, duration: duration, lastSubtitleCue: nil)
+                            store.writes.append((position, stored))
                             store.rows[key] = WatchState(contentKey: key, sourceKey: source,
                                                          positionSeconds: position,
                                                          durationSeconds: duration,
-                                                         finished: finished, updatedAt: .now)
+                                                         finished: stored, updatedAt: .now)
                         }
                     },
                     subtitles: nil,
@@ -153,5 +159,85 @@ import DebridCore
             raised = model.isBuffering
         }
         #expect(!raised)
+    }
+}
+
+extension SwiftDataSuite {
+    /// The same player over the REAL local watch store, wired exactly as `AppSession.makePlayer`
+    /// wires it — the store's own rules are the point.
+    @MainActor @Suite struct PlayerStoreBackedTests {
+        private func makeModel(_ p: LocalWatchProvider, engine: FakeVideoPlayerEngine) -> PlayerModel {
+            PlayerModel(request: Fixture.request(), engine: engine,
+                        unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
+                        recordProgress: { key, source, position, duration, finished in
+                            guard duration > 0 else { return }
+                            try? await p.record(contentKey: key, sourceKey: source, positionSeconds: position,
+                                                durationSeconds: duration, finished: finished, profileID: "p1")
+                        },
+                        subtitles: nil,
+                        resolveResume: { key in
+                            (try? await p.progress(forContentKey: key, profileID: "p1"))?.resumePosition
+                        })
+        }
+
+        private func provider() throws -> LocalWatchProvider {
+            let c = try ModelContainer(for: WatchProgress.self,
+                                       configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+            return LocalWatchProvider(store: LocalWatchStore(modelContainer: c), profileID: { "p1" })
+        }
+
+        /// A subtitle whose last line runs to 98% of a 100-minute film, and a drop at 93%: mid-
+        /// dialogue to the player, so it reopens — but the store had already filed the title
+        /// finished at its own 92% line, with no resume point inside the "credits". Asked where to
+        /// reopen, it said nowhere: the film restarted from 0:00, and its first tick un-finished it.
+        @Test func aDropBeforeALateLastCueReopensAtThePlace() async throws {
+            let p = try provider()
+            let engine = FakeVideoPlayerEngine()
+            let model = makeModel(p, engine: engine)
+            model.start(); await model.waitForIdleForTesting()
+            model.contentEndTime = 5900
+            engine.emit(.state(.playing))
+            engine.emit(.time(.init(position: 5599, duration: 6000)))
+            engine.emit(.time(.init(position: 5600, duration: 6000)))
+            await model.waitForIdleForTesting()
+
+            engine.emit(.state(.ended)); await model.waitForIdleForTesting()     // the drop
+
+            #expect(engine.loadCount == 2, "reopened")
+            #expect(model.position == 5600, "the reopen aimed at \(model.position)")
+
+            engine.emit(.state(.playing))                                        // reopened, at the place
+            engine.emit(.time(.init(position: 5600, duration: 6000)))
+            engine.emit(.time(.init(position: 5601, duration: 6000)))
+            await model.waitForIdleForTesting()
+            let row = try await p.progress(forContentKey: "m1", profileID: "p1")
+            #expect(row?.finished == true, "the title lost its finish")
+            #expect((row?.positionSeconds ?? 0) >= 5600, "the place: \(String(describing: row?.positionSeconds))")
+            #expect(model.reopenAt == nil)
+            await model.teardown()
+        }
+
+        /// …and a Retry after the reopen itself failed still comes back to the place, rather than
+        /// asking the store (which still says nowhere).
+        @Test func aRetryAfterAFailedReopenStillComesBackToThePlace() async throws {
+            let p = try provider()
+            let engine = FakeVideoPlayerEngine()
+            let model = makeModel(p, engine: engine)
+            model.start(); await model.waitForIdleForTesting()
+            model.contentEndTime = 5900
+            engine.emit(.state(.playing))
+            engine.emit(.time(.init(position: 5599, duration: 6000)))
+            engine.emit(.time(.init(position: 5600, duration: 6000)))
+            await model.waitForIdleForTesting()
+            engine.emit(.state(.ended)); await model.waitForIdleForTesting()
+
+            engine.emit(.state(.failed("the reopen failed"))); await model.waitForIdleForTesting()
+            #expect(model.phase.isFailed)
+            model.retry(); await model.waitForIdleForTesting()
+
+            #expect(engine.loadCount == 3)
+            #expect(model.position == 5600, "the retry aimed at \(model.position)")
+            await model.teardown()
+        }
     }
 }

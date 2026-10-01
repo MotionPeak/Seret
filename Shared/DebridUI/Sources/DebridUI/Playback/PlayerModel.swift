@@ -456,6 +456,12 @@ public final class PlayerModel {
     /// Where the last mid-film "end" was recovered from (see `finish()`), so a file that genuinely
     /// stops there is accepted as ended the second time instead of being reopened forever.
     var interruptedAt: Double?
+    /// Where a recovery reopen (see `finish()`) resumes: the playhead the drop happened at, held
+    /// until the reopened stream is really playing there — so a Retry after a failed reopen comes
+    /// back to it too. NOT the store's resume point: the store marks a title finished at its own
+    /// subtitle-blind line, so between that line and a later last cue it answers "no place", and
+    /// the reopen started the film again from 0:00.
+    var reopenAt: Double?
     /// `teardown()` has begun. Work still in flight — an end being processed, a recovery reload —
     /// must not start a new media on an engine that was just stopped.
     var isTornDown = false
@@ -528,9 +534,11 @@ public final class PlayerModel {
                                      lastSubtitleCue: contentEndTime)
     }
 
-    /// Whether the progress this playhead would record keeps a place to come back to. Asked of
-    /// `WatchState.resumePosition` — the rule the store resumes by — over exactly the row
-    /// `recordCurrentProgress` writes, so the player and the store cannot disagree about it.
+    /// Whether this playhead leaves a place worth coming back to: `WatchState.resumePosition`'s rule
+    /// over the row `recordCurrentProgress` writes, with the PLAYER's finish line (it knows where
+    /// the dialogue ends). The store can still disagree — it also marks a title finished at its own
+    /// subtitle-blind line — which is why a recovery reopens at the playhead (`reopenAt`) rather
+    /// than asking the store where to resume.
     func recordKeepsAPlace(at position: Double, duration: Double) -> Bool {
         WatchState(contentKey: contentKey, sourceKey: "", positionSeconds: position,
                    durationSeconds: duration, finished: hasReachedEnd(at: position, duration: duration),
