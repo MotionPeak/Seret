@@ -15,8 +15,9 @@ public protocol StreamProxying: Sendable {
     func close(_ handle: StreamHandle) async
     /// Memory warning: drop history, keep read-ahead.
     func trimMemory() async
-    /// Why RD stopped serving the stream, if it refused: the player asks when libvlc reports the
-    /// end, because a refusal reaches libvlc as a plain EOF.
+    /// Why RD is not serving the stream, if it is not — it refused, or it is failing right now
+    /// (the network is down): the player asks when libvlc reports the end, because either reaches
+    /// libvlc as a plain EOF.
     func upstreamFailure(_ handle: StreamHandle) async -> StreamError?
 }
 
@@ -53,6 +54,10 @@ public actor StreamProxy: StreamProxying {
     #endif
 
     /// RD traffic without URLCache: 206s of a 60 GB file are not worth caching twice.
+    ///
+    /// Offline, a fetch fails at once (-1009) rather than `waitsForConnectivity`: a fetch quietly
+    /// waiting for the network would hide the outage from the session, which paces its retries
+    /// and must tell the player why the stream stopped (`StreamSession.clearToFetch`).
     public static let defaultConfiguration: @Sendable () -> URLSessionConfiguration = {
         let configuration = URLSessionConfiguration.default
         configuration.urlCache = nil

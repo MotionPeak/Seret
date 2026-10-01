@@ -4,7 +4,8 @@ import Foundation
 public enum StreamError: Error, Equatable, Sendable {
     /// RD answered with this non-success status (after one link refresh, for 403/404/410).
     case upstreamStatus(Int)
-    /// The connection to RD failed without a status.
+    /// RD gave no usable answer: the connection failed without a status, or RD sent the whole
+    /// file in answer to a range.
     case transport(String)
     /// A read at or past the end of the file.
     case endOfFile
