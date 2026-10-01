@@ -462,6 +462,9 @@ public final class PlayerModel {
     /// subtitle-blind line, so between that line and a later last cue it answers "no place", and
     /// the reopen started the film again from 0:00.
     var reopenAt: Double?
+    /// Bumped by every `reload()` — a new media on its way. Work that awaits across a reload (see
+    /// `finish()`) compares it to learn that what it was handling is gone.
+    var mediaGeneration = 0
     /// `teardown()` has begun. Work still in flight — an end being processed, a recovery reload —
     /// must not start a new media on an engine that was just stopped.
     var isTornDown = false

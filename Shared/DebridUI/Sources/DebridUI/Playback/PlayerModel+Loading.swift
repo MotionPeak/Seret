@@ -259,6 +259,7 @@ extension PlayerModel {
 
     func reload() {
         guard !isTornDown else { return }  // a recovery or retry racing teardown starts nothing
+        mediaGeneration &+= 1             // anything still handling the old media stands down
         closeStream()                     // the old session must not outlive its media
         phase = .preparing
         position = 0
@@ -443,6 +444,10 @@ extension PlayerModel {
         // which covers every path that legitimately re-arms an ending.
         guard !isFinishing else { return }
         isFinishing = true
+        // Every await below can outlive the media this end belongs to: an episode picked from the
+        // strip, a Retry, another version — each reloads. Acting on the old end after that put the
+        // new episode at the old one's playhead, or advanced PAST the episode just picked.
+        let generation = mediaGeneration
         // VLCKit maps BOTH end-of-file and a failed open to `.stopped`/`.stopping` → `.ended`.
         // A media that never rendered a frame and never moved the playhead did not END — it never
         // STARTED. Treating that as EOF records progress at 0 and silently auto-advances to the
@@ -457,10 +462,11 @@ extension PlayerModel {
         // disk the first frames play before RD is asked, so a refusal can come after them — and it
         // reaches libvlc as a closed connection, which it reports as the end of the file.
         if let refusal = await streamRefusal() {
+            guard mediaGeneration == generation else { return }
             phase = .failed(refusal)
             return
         }
-        guard !isTornDown else { return }
+        guard !isTornDown, mediaGeneration == generation else { return }
         // libvlc also reports a connection that simply DROPPED as the end of the file — the loopback
         // socket reclaimed while the app was away, a libvlc error, a direct-path RD drop. Forty
         // minutes into a two-hour film that is not the end: it closed the film or started the next
@@ -479,7 +485,7 @@ extension PlayerModel {
             let place = position
             interruptedAt = place
             await recordCurrentProgress()
-            guard !isTornDown else { return }
+            guard !isTornDown, mediaGeneration == generation else { return }
             reopenAt = place               // the playhead itself — see `reopenAt`
             reload()
             return
@@ -488,7 +494,7 @@ extension PlayerModel {
         // (same player/engine) — unless the viewer dismissed the Up Next bar to watch the credits,
         // in which case the real file end exits. A movie or last episode records and dismisses.
         await recordCurrentProgress()
-        guard !isTornDown else { return }
+        guard !isTornDown, mediaGeneration == generation else { return }
         if nextEpisode != nil, !upNextDismissed {
             advanceToNextEpisode()
             return

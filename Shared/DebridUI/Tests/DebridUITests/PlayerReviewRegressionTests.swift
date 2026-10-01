@@ -4,6 +4,26 @@ import SwiftData
 @testable import DebridUI
 import DebridCore
 
+/// Parks every progress write made while armed until `open()` — so a test can act while a write is
+/// in flight.
+@MainActor
+private final class ProgressGate {
+    private var armed = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+    var hasWaiter: Bool { !waiters.isEmpty }
+    func arm() { armed = true }
+    func open() {
+        armed = false
+        let held = waiters
+        waiters = []
+        held.forEach { $0.resume() }
+    }
+    func pass() async {
+        guard armed else { return }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+}
+
 /// Player regressions found by reviewing fix/polish-sweep-2026-10-01 against itself. The resume
 /// rule here is the REAL one — the store row's `resumePosition`, exactly what AppSession wires —
 /// because the existing fakes return raw positions and so could not see the first of these. And
@@ -118,6 +138,39 @@ import DebridCore
 
         #expect(model.phase.isFailed)
         #expect(model.isBuffering == false)
+    }
+
+    /// An episode picked from the strip WHILE a dropped stream's progress was being written: the
+    /// recovery then carried on — set the OLD episode's playhead as the place to reopen at and
+    /// reloaded — so the picked episode opened at 40:00 instead of its own 5:00.
+    @Test func aSwapDuringTheDropWriteKeepsTheNewEpisodesOwnPlace() async {
+        let gate = ProgressGate()
+        let engine = FakeVideoPlayerEngine()
+        let request = Fixture.showRequest(episodes: 3, playingEpisode: 1)
+        let model = PlayerModel(
+            request: request, engine: engine,
+            unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
+            recordProgress: { _, _, _, _, _ in await gate.pass() },
+            subtitles: nil,
+            resolveResume: { key in key.hasSuffix(":s1e2") ? 300 : nil })   // E2 saved at 5:00
+        model.start(); await model.waitForIdleForTesting()
+        engine.emit(.state(.playing))
+        engine.emit(.time(.init(position: 2399, duration: 3000)))
+        engine.emit(.time(.init(position: 2400, duration: 3000)))
+        await model.waitForIdleForTesting()
+
+        gate.arm()
+        engine.emit(.state(.ended))                                  // the drop, at 40:00 of 50:00
+        for _ in 0..<400 where !gate.hasWaiter { try? await Task.sleep(for: .milliseconds(5)) }
+        #expect(gate.hasWaiter, "the recovery never reached its progress write")
+        model.play(request.item.seasons[0].episodes[1])              // E2, picked meanwhile
+        gate.open()
+        await model.waitForIdleForTesting()
+
+        #expect(model.contentKey.hasSuffix(":s1e2"))
+        #expect(model.position == 300, "E2 opened at \(model.position)")
+        #expect(engine.seeks.last == 300, "engine seeks: \(engine.seeks)")
+        await model.teardown()
     }
 
     /// …and a skip ON the failure screen — Control Center and AirPods route straight to `skip` —
