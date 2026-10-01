@@ -119,6 +119,12 @@ public final class DownloadStore {
     /// one starts (each terminal failure self-skips, mirroring the instant add's fallback).
     public func request(contentKey: String, tmdbID: Int, title: String, kind: MediaKind,
                         candidates: [CachedStream], posterPath: String? = nil) async {
+        // One download per title at a time. A second press while the first was starting or running
+        // added a SECOND torrent, and the one tile then alternated between the two progress values.
+        switch statuses[contentKey]?.phase {
+        case .queued, .downloading: return
+        default: break
+        }
         guard !candidates.isEmpty else {
             statuses[contentKey] = .failed(contentKey, tmdbID, "No version available to download.")
             return

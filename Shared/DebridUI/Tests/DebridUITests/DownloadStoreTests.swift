@@ -105,6 +105,20 @@ private final class FakePoller: DownloadPolling, @unchecked Sendable {
         #expect(records.upserts.first?.tmdbID == 42)
     }
 
+    /// A second press while the first download is starting or running added a SECOND torrent, and
+    /// the one Home tile then alternated between the two progress values.
+    @Test func aSecondRequestWhileOneIsUnderWayStartsNothing() async {
+        let req = ScriptedReq(["h1": [.success(tv("downloading", id: "T1"))],
+                               "h2": [.success(tv("downloading", id: "T2"))]])
+        let records = FakeRecords()
+        let s = make(req: req, records: records)
+        let key = DownloadKey.movie(tmdbID: 11)
+        await s.request(contentKey: key, tmdbID: 11, title: "X", kind: .movie, candidates: [stream("h1")])
+        await s.request(contentKey: key, tmdbID: 11, title: "X", kind: .movie, candidates: [stream("h2")])
+        #expect(req.calls == ["h1"])
+        #expect(records.upserts.map(\.torrentID) == ["T1"])
+    }
+
     @Test func requestFallsBackThroughCandidates() async {
         // First candidate is a dead magnet; second starts.
         let req = FakeReq(.failure(.boom), perHash: ["h2": .success(tv("downloading", id: "T2"))])

@@ -45,16 +45,23 @@ struct ShowDetailView: View {
                 VStack(alignment: .leading, spacing: 32) {
                     hero.frame(maxWidth: .infinity, alignment: .leading)
                     seasonPicker
-                    markSeasonButton
-                    // A season you already have every episode of has nothing to download — the
-                    // button would only add a duplicate torrent.
-                    if !store.isSeasonFullyOwned(store.selectedSeason) {
-                        SeasonDownloadButton(store: seasonStore, onAdded: onSeasonAdded,
-                                             showTmdbID: store.item.tmdbID,
-                                             season: store.selectedSeason,
-                                             showTitle: store.item.title,
-                                             posterPath: store.item.posterPath)
+                    // One full-width section: UP from an episode card scrolled to the right had
+                    // nothing above it within these shrink-wrapped buttons, so it skipped them and
+                    // landed on a season pill.
+                    VStack(alignment: .leading, spacing: 32) {
+                        markSeasonButton
+                        // A season you already have every episode of has nothing to download — the
+                        // button would only add a duplicate torrent.
+                        if !store.isSeasonFullyOwned(store.selectedSeason) {
+                            SeasonDownloadButton(store: seasonStore, onAdded: onSeasonAdded,
+                                                 showTmdbID: store.item.tmdbID,
+                                                 season: store.selectedSeason,
+                                                 showTitle: store.item.title,
+                                                 posterPath: store.item.posterPath)
+                        }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .focusSection()
                     episodeList
                     // Gated on non-empty: the rail only ever appears once TMDB credits land, and it
                     // appends BELOW everything else, so it never resizes content already on screen.
@@ -135,6 +142,8 @@ struct ShowDetailView: View {
             } else if let target = store.nextEpisodeTarget() {
                 // Nothing downloaded yet — Play still starts the show. Without this the page has no
                 // Play at all, `.defaultFocus` has nothing to focus, and the remote goes dead.
+                // Busy in the label, never `.disabled` — a disabled button loses tvOS focus. The
+                // page ignores a second press while one is under way (`DetailView.playEpisode`).
                 Button { onPlayEpisode(target.season, target.number) } label: {
                     Label(downloadingEpisodeID == nil
                           ? "Play S\(target.season)·E\(target.number)" : "Finding a version…",
@@ -142,7 +151,6 @@ struct ShowDetailView: View {
                 }
                 .buttonStyle(SeretActionButtonStyle(prominent: true))
                 .focused($initialFocus, equals: .play)
-                .disabled(downloadingEpisodeID != nil)
             }
 
             // Trailer + destructive Remove tucked off the primary path.
@@ -183,8 +191,13 @@ struct ShowDetailView: View {
             }
             .padding(.horizontal, -Theme.Layout.contentMargin)       // while the ScrollView runs edge-to-edge so a focused
                                                      // pill's scaled side isn't clipped at the row edge.
-            .onChange(of: focusedSeason) { _, new in
-                if let new, new != store.selectedSeason { Task { await store.selectSeason(new) } }
+            // Switch only while GLIDING across the pills. Arriving in the row from below (an episode
+            // card, the stars) or above lands on whichever pill is geometrically nearest — rarely the
+            // selected one — and that silently loaded another season: rate a show 8/10, press down
+            // and the season under star 8 opened. Arriving is not a choice; Select still is.
+            .onChange(of: focusedSeason) { old, new in
+                guard let new, old != nil, new != store.selectedSeason else { return }
+                Task { await store.selectSeason(new) }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .focusSection()

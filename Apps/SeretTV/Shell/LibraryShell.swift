@@ -197,7 +197,7 @@ struct LibraryShell: View {
     private func revealMenuAfterLaunchFocus() async {
         guard !menuRevealed else { return }
         for _ in 0..<25 {
-            if tab != .home || homeHasFocusableContent { break }
+            if tab != .home || homeSettledForLaunchFocus { break }
             try? await Task.sleep(for: .milliseconds(100))
         }
         try? await Task.sleep(for: .milliseconds(250))   // let the focus engine settle on the page
@@ -206,10 +206,14 @@ struct LibraryShell: View {
         if menuFocus == nil { pageHasHeldFocus = true }
     }
 
-    /// Mirrors `HomeScreen.homeReady`: the moment Home draws anything focusable.
-    private var homeHasFocusableContent: Bool {
+    /// Home has drawn what it will open on: the hero (Resume takes the first focus), or — with no
+    /// Continue Watching — its grid, but only once that is an answer for the profile. Recently
+    /// Added arrives first (it needs no profile), and revealing on it parked focus on a poster that
+    /// the hero then pushed off the top of the screen.
+    private var homeSettledForLaunchFocus: Bool {
         guard let home = session.home else { return false }
-        return !(home.continueWatching.isEmpty && home.recentlyAdded.isEmpty)
+        if home.featured != nil { return true }
+        return home.hasBuiltForProfile && !home.recentlyAdded.isEmpty
     }
 
     /// Search pushes, the profile presents, everything else switches the page. Commit-on-press —

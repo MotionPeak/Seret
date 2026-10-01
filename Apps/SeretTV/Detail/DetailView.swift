@@ -172,7 +172,9 @@ struct DetailView: View {
     /// Acquire and play one episode, addressed by number so it works for a show you have not added
     /// at all. Falls through to a tracked download when Real-Debrid has nothing instant.
     private func playEpisode(season: Int, number: Int, id: String) {
-        guard let acquirer else { return }
+        // One at a time: the buttons that call this stay enabled (so they keep focus), and a second
+        // press would otherwise start a second search and add a second torrent.
+        guard let acquirer, downloadingEpisodeID == nil else { return }
         downloadingEpisodeID = id
         Task {
             let outcome = await acquirer.play(.episode(season: season, number: number))

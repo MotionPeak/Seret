@@ -108,10 +108,7 @@ struct MovieDetailView: View {
             acquisitionStatus
             UserRatingRow(store: store)
             WatchDatesLine(summary: store.watchSummary, since: store.historySince)
-            if let tmdb = item.tmdbID,
-               store.bestSource == nil
-                || session.downloadStore?
-                    .status(forContentKey: DownloadKey.movie(tmdbID: tmdb)) != nil {
+            if let tmdb = item.tmdbID, offersDownload(tmdbID: tmdb) {
                 MovieDownloadSection(tmdbID: tmdb, title: item.title, posterPath: item.posterPath,
                                      imdbID: store.imdbID, originalLanguage: store.originalLanguage)
             }
@@ -151,15 +148,22 @@ struct MovieDetailView: View {
             } else {
                 // Not in the library: Play still means play. It finds the best instantly-available
                 // release, adds it, and starts — the old Add screen's whole job, on this page.
-                Button { Task { await acquisition?.playBest(.movie) } } label: {
+                //
+                // Never `.disabled`: a disabled button cannot hold tvOS focus. Disabled while busy,
+                // the press that started the search threw focus off the button (to the director pill
+                // or Versions, so the next Select opened THAT); disabled until the IMDb id resolved,
+                // the page's default focus had nothing to land on when it opened. Busy is said in the
+                // label, and the action ignores a press it cannot act on yet — the engine cannot
+                // query an indexer before the IMDb id arrives (pressing then used to fail with "Not
+                // signed in to Real-Debrid", a reason that was not only unhelpful but untrue).
+                Button {
+                    guard !acquiring, let acquisition, store.imdbID != nil else { return }
+                    Task { await acquisition.playBest(.movie) }
+                } label: {
                     Label(acquiringLabel, systemImage: acquiring ? "hourglass" : "play.fill")
                 }
                 .buttonStyle(SeretActionButtonStyle(prominent: true))
                 .focused($initialFocus, equals: .play)
-                // …and until the IMDb id has resolved. The engine cannot query an indexer without it, so
-                // tapping earlier failed with "Not signed in to Real-Debrid" — a reason that is not
-                // only unhelpful but untrue.
-                .disabled(acquiring || acquisition == nil || store.imdbID == nil)
             }
 
             // Reachable whether or not you own the title — on an un-owned one it IS the way to pick
@@ -176,13 +180,15 @@ struct MovieDetailView: View {
             if let film = WatchlistFilm(item: item), let watchlist {
                 let on = watchlist.contains(tmdbID: film.tmdbID)
                 Button {
+                    // A press while the last one is still in flight is ignored rather than the
+                    // button being disabled — disabling it threw focus off it, usually onto Play.
+                    guard !watchlist.isInFlight(tmdbID: film.tmdbID) else { return }
                     Task { await watchlist.toggle(film: film) }
                 } label: {
                     Label(on ? "On Watchlist" : "Watchlist",
                           systemImage: on ? "bookmark.fill" : "bookmark")
                 }
                 .buttonStyle(SeretActionButtonStyle())
-                .disabled(watchlist.isInFlight(tmdbID: film.tmdbID))
             }
 
             // Everything rare or destructive lives here — off the primary path so it can't be mis-hit.
@@ -228,6 +234,21 @@ struct MovieDetailView: View {
     }
 
     /// True while a release is being found or added.
+    /// The download offer appears once there is a reason for it: Play looked and found nothing it
+    /// could start, or a download of this film already exists. It used to sit on every film you
+    /// don't own, announcing "No cached version exists" before anything had been checked — and
+    /// inviting a slow download where Play would have started the film at once.
+    private func offersDownload(tmdbID: Int) -> Bool {
+        if session.downloadStore?.status(forContentKey: DownloadKey.movie(tmdbID: tmdbID)) != nil {
+            return true
+        }
+        guard store.bestSource == nil else { return false }
+        switch acquisition?.phase {
+        case .noneCached, .failed: return true
+        default: return false
+        }
+    }
+
     private var acquiring: Bool {
         switch acquisition?.phase {
         case .finding, .adding: true
@@ -361,46 +382,72 @@ private struct MovieDownloadSection: View {
 
     var body: some View {
         let status = session.downloadStore?.status(forContentKey: DownloadKey.movie(tmdbID: tmdbID))
-        VStack(alignment: .leading, spacing: 16) {
-            if requesting && status == nil {
-                ProgressView("Starting download…")
-            } else if case .queued = status?.phase {
-                ProgressView("Starting download…")
-            } else if case .downloading = status?.phase {
-                let pct = Int((status?.fraction ?? 0) * 100)
-                Label("Downloading \(pct)% to Real-Debrid…", systemImage: "arrow.down.circle.fill")
-                ProgressView(value: status?.fraction ?? 0).frame(maxWidth: 600)
-                Text("It'll appear here when it's ready.").font(.seretCallout).foregroundStyle(.secondary)
-            } else if case .failed(let reason) = status?.phase {
-                Label(reason, systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
-                requestButton("Try Another Version")
-            } else {
-                Text("No cached version exists. Start a download and it'll appear here when it's ready.")
-                    .font(.seretCallout).foregroundStyle(.secondary).frame(maxWidth: 1000, alignment: .leading)
-                requestButton("Request Download")
+        VStack(alignment: .leading, spacing: 14) {
+            // ONE button through every state, its label saying what is happening. It used to be
+            // disabled on press and then replaced by a progress view — and a focused view that is
+            // disabled or replaced throws tvOS focus off it, to the top of the page.
+            Button { request(status) } label: {
+                Label(buttonTitle(status), systemImage: buttonIcon(status))
             }
+            .buttonStyle(SeretActionButtonStyle())
+            if case .downloading = status?.phase {
+                ProgressView(value: status?.fraction ?? 0).frame(maxWidth: 600)
+            }
+            Text(caption(status))
+                .font(.seretCallout).foregroundStyle(.secondary)
+                .frame(maxWidth: 1000, alignment: .leading)
         }
-        .font(.seretTitle3)
     }
 
-    private func requestButton(_ label: String) -> some View {
-        Button {
-            Task {
-                requesting = true
-                var candidates: [CachedStream] = []
-                if let imdbID, let add = session.makeAddStore(imdbID: imdbID, kind: .movie,
-                                                              originalLanguage: originalLanguage,
-                                                              subtitleTarget: .movie(tmdbID: tmdbID, title: title,
-                                                                                     year: nil)) {
-                    candidates = await add.uncachedCandidates()
-                }
-                let target = DownloadTarget(contentKey: DownloadKey.movie(tmdbID: tmdbID),
-                                            tmdbID: tmdbID, title: title, kind: .movie,
-                                            posterPath: posterPath)
-                await session.downloadStore?.request(target, candidates: candidates)
-                requesting = false
+    /// Only a press that can start something does: nothing while a request or download is under way.
+    private func request(_ status: DownloadStatus?) {
+        guard !requesting else { return }
+        switch status?.phase {
+        case nil, .failed: break
+        default: return
+        }
+        Task {
+            requesting = true
+            defer { requesting = false }
+            var candidates: [CachedStream] = []
+            if let imdbID, let add = session.makeAddStore(imdbID: imdbID, kind: .movie,
+                                                          originalLanguage: originalLanguage,
+                                                          subtitleTarget: .movie(tmdbID: tmdbID, title: title,
+                                                                                 year: nil)) {
+                candidates = await add.uncachedCandidates()
             }
-        } label: { Label(label, systemImage: "arrow.down.circle") }
-            .disabled(requesting || imdbID == nil)
+            let target = DownloadTarget(contentKey: DownloadKey.movie(tmdbID: tmdbID),
+                                        tmdbID: tmdbID, title: title, kind: .movie,
+                                        posterPath: posterPath)
+            await session.downloadStore?.request(target, candidates: candidates)
+        }
+    }
+
+    private func buttonTitle(_ status: DownloadStatus?) -> String {
+        switch status?.phase {
+        case .queued: return "Starting download\u{2026}"
+        case .downloading: return "Downloading \(Int((status?.fraction ?? 0) * 100))%"
+        case .ready: return "Downloaded"
+        case .failed: return "Try Another Version"
+        case nil: return requesting ? "Starting download\u{2026}" : "Request Download"
+        }
+    }
+
+    private func buttonIcon(_ status: DownloadStatus?) -> String {
+        switch status?.phase {
+        case .queued, .downloading: return "arrow.down.circle.fill"
+        case .ready: return "checkmark.circle.fill"
+        case .failed: return "arrow.clockwise"
+        case nil: return requesting ? "hourglass" : "arrow.down.circle"
+        }
+    }
+
+    private func caption(_ status: DownloadStatus?) -> String {
+        switch status?.phase {
+        case .queued, .downloading: return "Real\u{2011}Debrid is fetching it. It'll appear here when it's ready."
+        case .ready: return "It's in your library."
+        case .failed(let reason): return reason
+        case nil: return "Nothing can start instantly. Request a download and it'll appear here when it's ready."
+        }
     }
 }

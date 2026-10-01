@@ -39,9 +39,11 @@ struct EpisodeRow: View {
                 // ⚠️ This branch swap (link ↔ button) is the shape that drops tvOS focus when the
                 // condition flips under the user. It only flips after a library refresh, exactly as
                 // before — do not make it flip more often.
+                // Not `.disabled(isDownloading)`: a disabled card cannot keep focus, so the press
+                // that started the download threw focus out of the row. The page ignores a second
+                // press while one is under way (`DetailView.playEpisode`).
                 Button { onDownload(row) } label: { still }
                     .buttonStyle(.card)
-                    .disabled(isDownloading)
                     .contextMenu {
                         Button(isWatched ? "Mark Unwatched" : "Mark Watched") {
                             Task { await store.setWatched(!isWatched, contentKey: contentKey,
