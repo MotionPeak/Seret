@@ -83,13 +83,6 @@ struct TitlePage: View {
         }
         .task { await store.loadPreferredVersion() }
         .task { await store.loadMyList(contentKey: store.item.id) }
-        // The title became yours while this page was open — a requested download landing, a
-        // season added, a Play that added it. Take the library's item, files and all, as the
-        // Apple TV and iPhone pages do: the page kept the snapshot it opened with, so a finished
-        // download never lit up Play, and Play went searching the indexers for the film again.
-        .task(id: ownedInLibrary) {
-            if let owned = ownedInLibrary { await store.adopt(owned) }
-        }
         .task(id: store.imdbID) {
             guard injectedAcquirer == nil, ownAcquirer == nil, let session else { return }
             ownAcquirer = session.makeTitleAcquirer(for: store)
@@ -229,8 +222,9 @@ struct TitlePage: View {
     /// A film with nothing to play right now, or one already tracked in the download store —
     /// covers both "never requested" and "requested, still going / failed".
     /// Owned is asked of the LIBRARY as well as the page: the library lists a finished download a
-    /// moment before the page adopts it, and for that moment the page alone offered "Request
-    /// Download" again. A finished download on an owned film shows nothing — Play is right there.
+    /// moment before `TitleRoute` rebuilds this page over the library's item, and for that moment
+    /// the page alone offered "Request Download" again. A finished download on an owned film shows
+    /// nothing — Play is right there.
     private var showDownloadSection: Bool {
         let owned = store.bestSource != nil || ownedInLibrary != nil
         if let status = acquirer?.status(.movie) {
@@ -240,7 +234,7 @@ struct TitlePage: View {
         return !owned
     }
 
-    /// The library's item for this title, read live (see the `.task(id:)` that adopts it).
+    /// The library's item for this title, read live.
     private var ownedInLibrary: MediaItem? {
         store.item.tmdbID.flatMap { session?.libraryStore?.ownedItem(tmdbID: $0, kind: store.item.kind) }
     }
