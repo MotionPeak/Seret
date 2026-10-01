@@ -675,16 +675,19 @@ import DebridCore
     @Test func skipDuringInFlightResumeSupersedesTheResumeSeek() async {
         // Bug #4: a deliberate skip while the resume seek is still in flight must WIN — tick()'s
         // resume branch must not drag the playhead back to the resume point nor freeze the position.
+        // The skip counts from the RESUME POINT — the place the viewer is about to be — not from the
+        // 0 the playhead read while the resume travelled (that is what opened films at 0:10 and
+        // wrote 0:10 over the saved place; see PlayerResumeSafetyTests).
         let engine = FakeVideoPlayerEngine()
         let model = makeModel(request: Fixture.request(resumeAt: 3600), engine: engine)
         model.start(); await model.waitForIdleForTesting()
         #expect(engine.seeks == [3600])                    // load-time resume seek, not yet landed
-        model.skip(1000)                                   // user seeks to ~1000 mid-resume
+        model.skip(1000)                                   // +1000 from the resume point
         await model.waitForIdleForTesting()
-        #expect(engine.seeks == [3600, 1000])
-        engine.emit(.time(.init(position: 1000.3, duration: 7200))); await model.waitForIdleForTesting()
-        #expect(engine.seeks == [3600, 1000])              // NO snap-back seek to 3600
-        #expect(model.position > 1000)                     // live tracking resumed (not frozen at 1000)
+        #expect(engine.seeks == [3600, 4600])
+        engine.emit(.time(.init(position: 4600.3, duration: 7200))); await model.waitForIdleForTesting()
+        #expect(engine.seeks == [3600, 4600])              // NO snap-back seek to 3600
+        #expect(model.position > 4600)                     // live tracking resumed (not frozen at 4600)
     }
 
     @Test func resumeBeyondShorterSourceDurationStartsFromZero() async {

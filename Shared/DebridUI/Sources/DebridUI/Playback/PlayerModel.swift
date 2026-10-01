@@ -433,6 +433,18 @@ public final class PlayerModel {
     /// episode finished and destroying its resume point; and `markRendered()` disarmed the load
     /// watchdog guarding the incoming episode, so a dead link sat on the spinner with no Retry.
     var engineHoldsCurrentMedia = false
+    /// The displayed playhead is one the viewer actually REACHED in this media. False from
+    /// `reload()` until the engine reports a real position for it — the whole window a resume
+    /// spends travelling. Nothing is persisted while it is false: the store already holds the right
+    /// place, and every write in that window used to be a 0 (or a stale hint) over a resume point —
+    /// a press of Menu during "Buffering…" turned "Resume 1:00:00" into "Play".
+    var playheadSettled = false
+    /// Where the last mid-film "end" was recovered from (see `finish()`), so a file that genuinely
+    /// stops there is accepted as ended the second time instead of being reopened forever.
+    var interruptedAt: Double?
+    /// `teardown()` has begun. Work still in flight — an end being processed, a recovery reload —
+    /// must not start a new media on an engine that was just stopped.
+    var isTornDown = false
     /// Persist the resume point every second of playback so Continue Watching / cross-device resume
     /// is never more than ~1s stale (SwiftData writes are cheap and CloudKit coalesces the sync).
     let saveInterval: Double = 1
@@ -644,6 +656,9 @@ public final class PlayerModel {
     /// idea of the state disagrees with ours.
     public func play() {
         guard phase != .playing else { return }
+        // On the failure screen "play" means "try again". `engine.play()` on the dead media made
+        // libvlc reopen it from 0: the error vanished and the ticks overwrote the saved place.
+        if phase.isFailed { retry(); return }
         engine.play()
         revealScrubBar()
     }

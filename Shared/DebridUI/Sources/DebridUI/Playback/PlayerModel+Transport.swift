@@ -6,11 +6,27 @@ extension PlayerModel {
     // MARK: - Transport controls
 
     public func togglePlayPause() {
+        // On the failure screen the button means "try again". `engine.play()` on the dead media made
+        // libvlc reopen it from 0: the error overlay vanished, the film ran from 0:00 and the ticks
+        // overwrote the saved place — and the end it then reached was ignored, because the failed
+        // load had already latched `isFinishing`.
+        if phase.isFailed { retry(); return }
         if phase == .playing { engine.pause() } else { engine.play() }
         revealScrubBar()
     }
 
     public func skip(_ delta: Double) { skip(delta, seekEngine: true) }
+
+    /// A seek asked for before the engine holds this load's media — the remote is live under the
+    /// loading overlay, and a link can take seconds to open. There is nothing to seek yet, so it
+    /// moves the place the load will seek to (`loadCurrentSource` issues `resumeTarget`). Seeking
+    /// the engine here instead hit the OUTGOING media, the load then started at 0 with the resume
+    /// cancelled, and the viewer's place was overwritten a second later.
+    private func retargetPendingLoad(to target: Double) {
+        resumeTarget = target
+        resumeSeekIssued = false
+        position = target
+    }
 
     /// - Parameter seekEngine: `false` moves the DISPLAYED playhead only and just records where the
     ///   engine should end up, leaving the actual seek to the next engine-bound skip or to
@@ -19,6 +35,12 @@ extension PlayerModel {
     ///   second — which blocked the main thread and made the remote stop responding.
     func skip(_ delta: Double, seekEngine: Bool) {
         let before = position
+        guard engineHoldsCurrentMedia else {
+            let target = clamp(position + delta)
+            retargetPendingLoad(to: target)
+            accumulateSkipFeedback(target - before)
+            return
+        }
         let origin = pendingSeek?.from ?? position   // a burst keeps the ORIGINAL pre-seek origin
         let target = clamp(position + delta)
         handleUserSeek(to: target)
@@ -41,6 +63,7 @@ extension PlayerModel {
     /// position dragged the bar backwards before the new ones arrived.
     public func scrub(to seconds: Double) {
         let target = clamp(seconds)
+        guard engineHoldsCurrentMedia else { retargetPendingLoad(to: target); return }
         let origin = pendingSeek?.from ?? position
         cancelCoalescedSeek()
         handleUserSeek(to: target)
@@ -174,6 +197,12 @@ extension PlayerModel {
     public func commitScrub() {
         guard isScrubbing else { return }
         isScrubbing = false
+        guard engineHoldsCurrentMedia else {
+            retargetPendingLoad(to: scrubTarget)
+            armAutoHide()
+            revealScrubBar()
+            return
+        }
         let from = position
         handleUserSeek(to: scrubTarget)
         position = scrubTarget

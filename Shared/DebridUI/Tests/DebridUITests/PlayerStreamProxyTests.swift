@@ -90,6 +90,8 @@ import DebridCore
                             recordProgress: { _, _, _, _, _ in records.value += 1 },
                             subtitles: nil, streamProxy: proxy)
         m.start(); await m.waitForIdleForTesting()
+        // A real playhead to record — a session that never reported one writes nothing at all.
+        engine.emit(.time(.init(position: 42, duration: 100))); await m.waitForIdleForTesting()
         let before = records.value
         let release = await proxy.holdCloses()
         let teardown = Task { await m.teardown() }

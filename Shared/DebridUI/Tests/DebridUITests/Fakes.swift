@@ -46,14 +46,18 @@ final class FakeVideoPlayerEngine: VideoPlayerEngine, EventCountingEngineForTest
     private(set) var yieldedEventCount = 0
     func emit(_ e: PlaybackEvent) { yieldedEventCount += 1; continuation.yield(e) }
 
+    /// How many medias were handed over — a retry is a SECOND load, not a play on the dead one.
+    private(set) var loadCount = 0
+    private(set) var pauseCount = 0
     func load(url: URL, headers: [String: String], audioLanguage: String?,
               audioTrackID: String?) {
+        loadCount += 1
         loadedURL = url
         loadedAudioLanguage = audioLanguage
         loadedAudioTrackID = audioTrackID
     }
     func play() { playCalled = true }
-    func pause() {}
+    func pause() { pauseCount += 1 }
     func stop() { stopCalled = true; continuation.finish() }
     func seek(to seconds: Double) { seekedTo = seconds; seeks.append(seconds) }
     func setRate(_ rate: Double) { rateSet = rate }

@@ -42,7 +42,9 @@ import DebridCore
                                     try? await Task.sleep(for: .seconds(0.05))
                                 },
                                 subtitles: nil)
-        await warmUp(model, engine, to: 100, duration: 200)
+        // Near the end: an `.ended` far from it is a dropped connection now, and is picked up
+        // where it stopped rather than treated as the episode finishing (PlayerResumeSafetyTests).
+        await warmUp(model, engine, to: 195, duration: 200)
 
         engine.emit(.state(.ended))          // .stopping
         engine.emit(.state(.ended))          // …and .stopped

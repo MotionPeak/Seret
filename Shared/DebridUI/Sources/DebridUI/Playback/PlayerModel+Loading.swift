@@ -85,8 +85,14 @@ extension PlayerModel {
             // system playback stopped — without it the Remote app keeps advancing a frozen playhead.
             pushNowPlaying()
         case .ended:
+            // Gated like `.playing`: `reload()` closes the outgoing stream, and the dying media
+            // reports its end while the new link is still resolving. Taken as THIS media's end it
+            // latched `isFinishing`, so the retried film could never end (or advance) at all.
+            guard engineHoldsCurrentMedia else { break }
             finishTask = Task { await finish() }
         case .failed(let reason):
+            // …and its failure: the error overlay came back in the middle of a retry.
+            guard engineHoldsCurrentMedia else { break }
             phase = .failed(reason)
             isBuffering = false     // it is not waiting on frames; it is over
         }
@@ -115,13 +121,31 @@ extension PlayerModel {
                 // "ended" or a stuck buffer). Drop it and start from 0. NO slack band here: a
                 // legitimate resume a few seconds before the real end must still be honored (VLCKit
                 // can report a slightly-low early duration estimate, and a band would false-drop it).
+                //
+                // The early seek has ALREADY gone out (the load issues it before any length is
+                // known). When it landed — the playhead is out at this version's end — "start from
+                // 0" has to be said to the engine too: it used to sit at the end, record the title
+                // as finished and end. The bar holds at 0 through the echoes still on their way.
+                // When it was dropped the film is already playing from the top; leave it be.
                 resumeTarget = 0
+                if t.position > 30 {
+                    engine.seek(to: 0)
+                    holdBar(from: t.position, to: 0)
+                    position = 0
+                    lastTickPosition = 0
+                }
             } else if t.position >= resumeTarget - 5 {  // arrived (keyframe slack) → resume complete
                 #if DEBUG
                 resumeProbe("ARRIVED at resume point")
                 #endif
                 lastTickPosition = t.position
                 resumeTarget = 0
+                // Publish the arrival — this tick used to return before `position` was set, so the
+                // playhead read 0 until the NEXT tick, and anything that read it in between (a skip,
+                // an exit) worked from 0.
+                position = t.position
+                positionStamp = .now
+                playheadSettled = true
             } else if !resumeSeekIssued {
                 #if DEBUG
                 resumeProbe("DEFERRED seek — early one was DROPPED")
@@ -137,6 +161,9 @@ extension PlayerModel {
                     // is fine; a permanently-black screen is not.
                     lastTickPosition = t.position
                     resumeTarget = 0
+                    position = t.position
+                    positionStamp = .now
+                    playheadSettled = true
                     return
                 }
             }
@@ -170,6 +197,7 @@ extension PlayerModel {
 
         position = t.position
         positionStamp = .now        // when THIS figure was true — see `preciseNow`
+        if !playheadSettled { playheadSettled = true }   // a real playhead for THIS media
         // The drift correction is a function of position, so it has to be recomputed as position
         // moves. VLCKit ticks once a second; within one tick a 4% error is 40ms, imperceptible.
         if isCorrectingSubtitleDrift { applyEffectiveSubtitleDelay() }
@@ -210,6 +238,7 @@ extension PlayerModel {
     }
 
     func reload() {
+        guard !isTornDown else { return }  // a recovery or retry racing teardown starts nothing
         closeStream()                     // the old session must not outlive its media
         phase = .preparing
         position = 0
@@ -222,6 +251,10 @@ extension PlayerModel {
         // saved position from the store (when a provider is wired) so resume can't race the
         // screen's watch-state load or go stale after a previous playback.
         resumeTarget = fromStart ? 0 : max(resumeAt ?? 0, 0)
+        // Until the engine reports otherwise, the viewer's place IS the resume point: that is what
+        // the bar shows and what a skip counts from. And nothing is written until it is real.
+        position = resumeTarget
+        playheadSettled = false
         resumeSeekIssued = false
         resumeTicksSinceSeek = 0
         pendingSeek = nil
@@ -285,12 +318,14 @@ extension PlayerModel {
             // which is instant anyway when the link was prefetched (PlayableLinkCache).
             if !fromStart, let resolveResume {
                 let saved = await resolveResume(contentKey) ?? 0
+                guard !Task.isCancelled else { return }
                 resumeTarget = saved > 0 ? saved : 0     // authoritative: overrides the UI hint
+                position = resumeTarget                  // …and is where the viewer is until playback says so
             }
             let url = try await unrestrict(currentSource.restrictedLink)
-            guard !Task.isCancelled else { return }   // superseded by a newer reload()
+            guard !Task.isCancelled, !isTornDown else { return }   // superseded, or the player closed
             let playURL = await openStream(for: url)
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, !isTornDown else { return }
             engine.load(url: playURL, headers: [:], audioLanguage: preferredAudioLanguageOption,
                         audioTrackID: rememberedAudioTrackID)
             engineHoldsCurrentMedia = true   // from here, time events describe THIS source
@@ -329,6 +364,10 @@ extension PlayerModel {
         if !hasRenderedFrame {
             hasRenderedFrame = true
             markStreamPlaybackStarted()
+            // "Start over" describes how this session BEGAN. Once it is playing, the place it has
+            // reached is the one to come back to: a Retry or "Try another version" forty minutes in
+            // used to start from 0:00 again — and the first tick overwrote the forty minutes.
+            if fromStart { fromStart = false }
         }
         if isBuffering { isBuffering = false }
         if loadWatchdog != nil {
@@ -356,6 +395,10 @@ extension PlayerModel {
     }
 
     func finish() async {
+        guard !isTornDown else { return }       // the viewer already left; start nothing
+        // A failure is not an ending. libvlc follows an error with end-of-stream; finishing on it
+        // closed the film (or advanced the episode) under the viewer's Retry button.
+        guard !phase.isFailed else { return }
         guard phase != .ended else { return }   // VLCKit can emit .stopped + .ended; finish once
         guard !isSwitching else { return }      // ignore the OLD media's late `.ended` mid-swap
         // Both of those guards read state that only changes AFTER the await below, and VLCKit
@@ -369,7 +412,9 @@ extension PlayerModel {
         // A media that never rendered a frame and never moved the playhead did not END — it never
         // STARTED. Treating that as EOF records progress at 0 and silently auto-advances to the
         // next episode with no error and no Retry.
-        if !hasRenderedFrame, position < 1 {
+        // (`position` is the pending resume point while one is still travelling, so that counts as
+        // not started too.)
+        if !hasRenderedFrame, position < 1 || resumeTarget > 0 {
             phase = .failed("The stream stopped before it started. The Real-Debrid link may have expired.")
             return
         }
@@ -380,16 +425,38 @@ extension PlayerModel {
             phase = .failed(refusal)
             return
         }
+        guard !isTornDown else { return }
+        // libvlc also reports a connection that simply DROPPED as the end of the file — the loopback
+        // socket reclaimed while the app was away, a libvlc error, a direct-path RD drop. Forty
+        // minutes into a two-hour film that is not the end: it closed the film or started the next
+        // episode. Pick up where it stopped instead, once per place — a file that really does stop
+        // there (a short encode, a container that overstates its length) ends on the second try.
+        if stoppedShortOfTheEnd, interruptedAt.map({ abs(position - $0) > 30 }) ?? true {
+            interruptedAt = position
+            await recordCurrentProgress()
+            guard !isTornDown else { return }
+            reload()                       // re-resolves the place just recorded
+            return
+        }
         // Binge: a finished episode records its tail, then auto-advances to the next one in-place
         // (same player/engine) — unless the viewer dismissed the Up Next bar to watch the credits,
         // in which case the real file end exits. A movie or last episode records and dismisses.
         await recordCurrentProgress()
+        guard !isTornDown else { return }
         if nextEpisode != nil, !upNextDismissed {
             advanceToNextEpisode()
             return
         }
         phase = .ended
         shouldDismiss = true
+    }
+
+    /// The playhead is well short of the file's end, so an "end" here is a dropped connection rather
+    /// than the film running out. A minute — or 2% of a long film — of slack covers a duration
+    /// estimate that runs a little long and a last tick that lands a second before the real end.
+    var stoppedShortOfTheEnd: Bool {
+        guard duration > 0, hasRenderedFrame else { return false }
+        return duration - position > max(60, duration * 0.02)
     }
 
     // MARK: - Recovery
@@ -404,7 +471,18 @@ extension PlayerModel {
 
     // MARK: - Teardown
 
+    /// The app is leaving the screen — the TV button, the TV going to sleep, a call on the phone.
+    /// Pause and keep the place, as every streaming app does. Nothing did before: libvlc played on
+    /// into a process about to be suspended (on tvOS its audio output then fails in a tight loop),
+    /// and the viewer came back to a film that had run on without them.
+    public func appDidLeaveForeground() async {
+        guard hasStarted, !isTornDown else { return }
+        if phase == .playing { engine.pause() }
+        await recordCurrentProgress()
+    }
+
     public func teardown() async {
+        isTornDown = true                       // first: nothing in flight may start a new media now
         eventTask?.cancel()
         loadTask?.cancel()
         hideControlsTask?.cancel()

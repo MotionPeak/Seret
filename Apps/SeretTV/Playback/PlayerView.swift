@@ -27,6 +27,7 @@ struct PlayerView: View {
     @State private var scrubNudge: Double = 0
     @FocusState private var focus: PlayerFocus?
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     let backdropURL: URL?
     let pushSignal: LetterboxdPushSignal?
     let filmRating: FinishedFilmRating?
@@ -230,6 +231,11 @@ struct PlayerView: View {
         .onChange(of: showSubtitleBrowser) { _, open in if !open { model.revealScrubBar() } }
         .onChange(of: showManualSync) { _, open in if !open { model.revealScrubBar() } }
         .onChange(of: model.shouldDismiss) { _, dismissNow in if dismissNow { dismiss() } }
+        // The TV button, or the TV going to sleep: pause and keep the place, so the viewer comes
+        // back to the frame they left instead of a film that ran on into a suspended app.
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .background { Task { await model.appDidLeaveForeground() } }
+        }
         .onDisappear { Task { await model.teardown() } }
     }
 

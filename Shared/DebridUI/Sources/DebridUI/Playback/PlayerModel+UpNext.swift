@@ -83,6 +83,7 @@ extension PlayerModel {
         label = "\(item.title) — S\(ep.season)·E\(ep.number)"
         resumeAt = newResume
         fromStart = false                    // the new episode resumes via the provider if mid-watched
+        interruptedAt = nil                  // a recovered drop belonged to the previous file
         // The per-source subtitle state (rows, moviehash, browser results, selections) is reset
         // by `reload()` below, which every file change goes through.
         selectedAudioID = nil
@@ -128,6 +129,8 @@ extension PlayerModel {
     /// fraction, which meant local state was never written here at all — the tick was the only
     /// thing recording, and with Trakt's API app gone that hook wrote nowhere.
     func recordCurrentProgress() async {
+        // Never a place the viewer did not reach. See `playheadSettled`.
+        guard playheadSettled else { return }
         await recordProgress(contentKey, WatchKey.source(currentSource), position, duration,
                              hasReachedEnd(at: position, duration: duration))
     }
@@ -140,6 +143,9 @@ extension PlayerModel {
     /// `duration` had all been replaced by `switchTo()`/`reload()`: the episode the viewer had just
     /// finished was never finalised, and a position of 0 was filed under the INCOMING episode's key.
     func recordOutgoingProgress() {
+        // An episode left while its resume was still travelling has nothing new to record — and
+        // what it held there was 0, filed over its real place.
+        guard playheadSettled else { return }
         let (key, source, at, length) = (contentKey, WatchKey.source(currentSource), position, duration)
         let watched = hasReachedEnd(at: at, duration: length)
         progressSaveTask = Task { await self.recordProgress(key, source, at, length, watched) }

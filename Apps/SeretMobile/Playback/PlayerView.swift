@@ -10,6 +10,7 @@ struct PlayerView: View {
     @State private var engine: VLCKitVideoPlayerEngine
     @State private var showSettings = false
     @State private var dragOffset: CGFloat = 0          // interactive pull-down-to-dismiss
+    @Environment(\.scenePhase) private var scenePhase
     let backdropURL: URL?
     let pushSignal: LetterboxdPushSignal?
     let filmRating: FinishedFilmRating?
@@ -101,6 +102,10 @@ struct PlayerView: View {
             if model.isEpisode { await model.loadSeasonEpisodes() }
         }
         .onChange(of: model.shouldDismiss) { _, done in if done { onExit() } }
+        // Locked, switched away, a call: pause and keep the place.
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .background { Task { await model.appDidLeaveForeground() } }
+        }
         .onDisappear { OrientationGate.setPlayerActive(false); Task { await model.teardown() } }
     }
 
