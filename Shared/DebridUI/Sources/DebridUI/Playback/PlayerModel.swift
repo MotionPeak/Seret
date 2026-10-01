@@ -76,10 +76,18 @@ public final class PlayerModel {
     // MARK: - Published state
 
     public internal(set) var phase: Phase = .preparing {
-        // A failure is not a wait. Five paths set one and only libvlc's own lowered the buffering
-        // hint, so a link that died during a swap or a load left every spinner keyed on
-        // `isBuffering` turning over the Retry screen.
-        didSet { if phase.isFailed, isBuffering { isBuffering = false } }
+        didSet {
+            guard phase.isFailed else { return }
+            // A failure is not a wait. Five paths set one and only libvlc's own lowered the
+            // buffering hint, so a link that died during a swap or a load left every spinner keyed
+            // on `isBuffering` turning over the Retry screen.
+            if isBuffering { isBuffering = false }
+            // A failure MID-FILM keeps its place for Retry and Try Another Version, as a recovered
+            // drop does (`reopenAt`). Asked instead, the store — finishing titles at its own
+            // subtitle-blind line — answered "nowhere" late in a film whose dialogue runs past it:
+            // Retry restarted it from 0:00 and its first tick marked it unwatched again.
+            if playheadSettled, position > 0, reopenAt == nil { reopenAt = position }
+        }
     }
     public internal(set) var position: Double = 0
     public internal(set) var duration: Double = 0

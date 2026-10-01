@@ -150,10 +150,13 @@ import DebridCore
         model.start(); await model.waitForIdleForTesting()
         #expect(engine.seeks.isEmpty)                    // From Start really is from the start
         await playTo(2400, duration: 6000, model, engine)
-        let failedAt = try #require(store.saved["m1"])
-        #expect(failedAt >= 2399 && failedAt <= 2400)    // the new session owns the place now
+        let saved = try #require(store.saved["m1"])
+        #expect(saved >= 2399 && saved <= 2400)          // the new session owns the place now
+        let failedAt = model.position
         engine.emit(.state(.failed("boom"))); await model.waitForIdleForTesting()
         model.retry(); await model.waitForIdleForTesting()
+        // The playhead it failed at — not the store's place, which lags it by a save interval
+        // (and late in a film can say "nowhere"; see `PlayerStoreBackedTests`).
         #expect(engine.seeks == [failedAt])
     }
 
@@ -164,11 +167,11 @@ import DebridCore
         let model = makeModel(engine: engine, store: store)
         model.start(); await model.waitForIdleForTesting()
         await playTo(101, duration: 6000, model, engine)
+        let failedAt = model.position
         engine.emit(.state(.failed("Real-Debrid stopped sending this file."))); await model.waitForIdleForTesting()
-        let saved = store.saved["m1"]
         model.togglePlayPause(); await model.waitForIdleForTesting()
         #expect(engine.loadCount == 2)                   // a real retry…
-        #expect(engine.seeks == [saved ?? -1])           // …that resumes where it failed
+        #expect(engine.seeks == [failedAt])              // …that resumes where it failed
     }
 
     /// `reload()` closes the old stream, and the dying open reports `.failed` / `.ended` while the

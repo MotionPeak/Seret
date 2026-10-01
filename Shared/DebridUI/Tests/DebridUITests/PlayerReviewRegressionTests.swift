@@ -292,6 +292,48 @@ extension SwiftDataSuite {
             await model.teardown()
         }
 
+        /// The same late window, but a drop the STREAM CACHE saw (Real-Debrid stopped answering):
+        /// that is the failure screen, not a reopen — and its Retry asked the store, which said
+        /// "nowhere". The film restarted from 0:00 and its first tick marked it unwatched again.
+        @Test func aRetryAfterACacheReportedDropLateInTheFilmKeepsThePlace() async throws {
+            let p = try provider()
+            let engine = FakeVideoPlayerEngine()
+            let proxy = FakeStreamProxy()
+            let model = PlayerModel(
+                request: Fixture.request(), engine: engine,
+                unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
+                recordProgress: { key, source, position, duration, finished in
+                    guard duration > 0 else { return }
+                    try? await p.record(contentKey: key, sourceKey: source, positionSeconds: position,
+                                        durationSeconds: duration, finished: finished, profileID: "p1")
+                },
+                subtitles: nil,
+                resolveResume: { key in
+                    (try? await p.progress(forContentKey: key, profileID: "p1"))?.resumePosition
+                },
+                streamProxy: proxy)
+            model.start(); await model.waitForIdleForTesting()
+            model.contentEndTime = 5900
+            engine.emit(.state(.playing))
+            engine.emit(.time(.init(position: 5599, duration: 6000)))
+            engine.emit(.time(.init(position: 5600, duration: 6000)))
+            await model.waitForIdleForTesting()
+
+            await proxy.failWith(.transport("network down"))
+            engine.emit(.state(.ended)); await model.waitForIdleForTesting()
+            #expect(model.phase.isFailed)
+            model.retry(); await model.waitForIdleForTesting()
+            #expect(model.position == 5600, "Retry aimed at \(model.position)")
+
+            engine.emit(.state(.playing))
+            engine.emit(.time(.init(position: 5600, duration: 6000)))
+            engine.emit(.time(.init(position: 5601, duration: 6000)))
+            await model.waitForIdleForTesting()
+            let row = try await p.progress(forContentKey: "m1", profileID: "p1")
+            #expect(row?.finished == true, "the title lost its finish")
+            await model.teardown()
+        }
+
         /// …and a Retry after the reopen itself failed still comes back to the place, rather than
         /// asking the store (which still says nowhere).
         @Test func aRetryAfterAFailedReopenStillComesBackToThePlace() async throws {
