@@ -37,7 +37,7 @@ struct MovieDetailView: View {
             VStack(spacing: 0) {
                 TrailerHero(tmdbID: item.tmdbID, kind: .movie,
                             backdropPath: store.backdropPath, posterFallback: item.posterPath,
-                            resolvedURL: $trailerURL)
+                            resolvedURL: $trailerURL, paused: expandTrailer)
                 VStack(alignment: .leading, spacing: 36) {
                     hero.frame(maxWidth: .infinity, alignment: .leading)
                     if !store.versions.isEmpty { versionsSection }

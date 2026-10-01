@@ -13,6 +13,10 @@ struct TrailerHero: View {
     let posterFallback: String?
     /// Published up once resolved so the detail can present "swipe up" full-screen playback.
     @Binding var resolvedURL: URL?
+    /// True while something covers the page — the full-screen trailer. A cover does not make the
+    /// page disappear, so the muted loop kept decoding underneath it: two video streams at once on
+    /// an Apple TV, one of them nobody could see.
+    var paused = false
 
     @Environment(AppSession.self) private var session
     @State private var model: TrailerModel?
@@ -26,7 +30,7 @@ struct TrailerHero: View {
             .frame(height: 620)
             .overlay { backdropImage }
             .overlay {
-                if showVideo, let url = model?.streamURL {
+                if showVideo, !paused, let url = model?.streamURL {
                     InlineMutedTrailer(url: url).transition(.opacity)
                 }
             }

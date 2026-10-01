@@ -41,7 +41,7 @@ struct ShowDetailView: View {
             VStack(spacing: 0) {
                 TrailerHero(tmdbID: item.tmdbID, kind: .show,
                             backdropPath: store.backdropPath, posterFallback: item.posterPath,
-                            resolvedURL: $trailerURL)
+                            resolvedURL: $trailerURL, paused: expandTrailer)
                 VStack(alignment: .leading, spacing: 32) {
                     hero.frame(maxWidth: .infinity, alignment: .leading)
                     seasonPicker
