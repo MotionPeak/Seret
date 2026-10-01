@@ -11,7 +11,10 @@ struct SettingsCard<Content: View>: View {
     let icon: String
     @ViewBuilder var content: Content
 
-    static var width: CGFloat { 1180 }
+    /// Wide enough for the widest row on the screen — the subtitle Font pills, which cannot shrink
+    /// (each is one line by design). At 1180 that row was wider than the card, so the Subtitles card
+    /// grew past its own frame and stood out wider than every card below it.
+    static var width: CGFloat { 1320 }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
