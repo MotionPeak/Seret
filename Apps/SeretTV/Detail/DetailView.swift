@@ -9,7 +9,6 @@ struct DetailView: View {
     @State private var pendingVersionRemoval: MediaSource?
     @State private var removeError: String?
     @State private var downloadingEpisodeID: String?
-    @State private var episodePlayback: EpisodePlayback?
     @State private var episodeError: String?
     /// Finds, adds and plays an episode you do not have — the same engine the movie page uses.
     @State private var acquirer: TitleAcquirer?
@@ -19,10 +18,13 @@ struct DetailView: View {
     @State private var watchlist: WatchlistMarks?
     @Environment(AppSession.self) private var session
     @Environment(\.dismiss) private var dismiss
-
-    /// Wraps a just-downloaded episode's request for `.fullScreenCover(item:)` (downloaded episodes
-    /// play via the value-nav link in `EpisodeRow`; this covers the download-then-play path).
-    private struct EpisodePlayback: Identifiable { let id = UUID(); let request: PlaybackRequest }
+    /// The download-then-play path opens the player as a PUSH (owned episodes already do, via
+    /// `EpisodeRow`'s value link). A full-screen cover cannot host it on tvOS: inside a cover the
+    /// Menu press never reaches the player's own handler — the cover dismisses itself first — so
+    /// Menu with Settings or the subtitle list open walked out of the film instead of closing the
+    /// panel, and Menu could not abandon a scrub or a scan either. Pushed, it behaves like every
+    /// other play path.
+    @Environment(\.openBrowseDestination) private var openDestination
 
     init(item: MediaItem, details: MediaDetailsProviding, watch: WatchProgressProviding?,
          profileID: String? = nil, myList: MyListProviding? = nil, ratings: RatingsProviding? = nil,
@@ -90,11 +92,6 @@ struct DetailView: View {
         // and all, or Play would acquire it AGAIN and start it from 0:00.
         .task(id: ownedInLibrary) {
             if let owned = ownedInLibrary { await store.adopt(owned) }
-        }
-        // A cover's dismissal does not re-fire `.onAppear`, so the download-then-play path has to
-        // re-read for itself.
-        .fullScreenCover(item: $episodePlayback, onDismiss: { Task { await store.reloadWatch() } }) { presented in
-            PlayerHost(request: presented.request, app: session, backdropSize: "w1280")
         }
         .alert("Remove \u{201C}\(store.item.title)\u{201D}?", isPresented: $confirmingRemove) {
             Button("Remove", role: .destructive) { performRemove() }
@@ -181,7 +178,7 @@ struct DetailView: View {
             downloadingEpisodeID = nil
             switch outcome {
             case let .play(request):
-                episodePlayback = EpisodePlayback(request: request)
+                openDestination(.play(request))
             case let .failed(message) where !message.isEmpty:
                 episodeError = message
             default:

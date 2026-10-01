@@ -36,8 +36,7 @@ struct SeretTVApp: App {
                 // unconditionally would hijack every debug launch into playback.
                 // `-autoPlayShow` / `-autoPlayMovie <title>` imply auto-play, so they work without
                 // `-autoPlay 0`.
-                let named = AutoPlayHarness.showNeedle != nil || AutoPlayHarness.movieNeedle != nil
-                if let index = Self.autoPlayIndex ?? (named ? 0 : nil) {
+                if let index = AutoPlayHarness.launchIndex {
                     RootView()
                         .environment(session)
                         .modifier(AutoPlayHarness(session: session, index: index))
@@ -56,14 +55,6 @@ struct SeretTVApp: App {
     /// (true for both XCTest and Swift Testing runs).
     private static var isRunningTests: Bool {
         ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
-    }
-
-    /// The index after `-autoPlay`, or 0 when the flag is present with no number. nil = absent.
-    /// See `AutoPlayHarness` — DEBUG-only, for capturing a device playback log without a remote.
-    private static var autoPlayIndex: Int? {
-        let args = ProcessInfo.processInfo.arguments
-        guard let i = args.firstIndex(of: "-autoPlay") else { return nil }
-        return i + 1 < args.count ? Int(args[i + 1]) ?? 0 : 0
     }
 
     /// The value after `-uiPreview` in the launch arguments, if any. DEBUG-only visual harnesses.

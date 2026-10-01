@@ -52,6 +52,7 @@ struct LibraryShell: View {
     /// Whether `-openTitle` has already pushed its page, so a later library refresh does not
     /// push it again.
     @State private var openedTitleForTesting = false
+    @State private var autoPlayedForTesting = false
 
     /// DEBUG-only: `-openTitle <text>` pushes the title page of the first library film (or, failing
     /// that, show) whose title contains the text. It checks a title page against the real account without walking the focus
@@ -77,6 +78,16 @@ struct LibraryShell: View {
         path.append(BrowseDestination.versions(SearchHit(result: TMDBSearchResult(
             id: tmdb, title: item.title, name: nil, releaseDate: nil, firstAirDate: nil,
             posterPath: item.posterPath, overview: nil, voteAverage: nil), kind: .movie)))
+    }
+
+    /// DEBUG-only: `-autoPlay…` pushes the player the way every real play path does. See
+    /// `AutoPlayHarness` for the flags, and for why this is a push and not a cover.
+    private func autoPlayForTesting() {
+        guard !autoPlayedForTesting, !AutoPlayHarness.runsMemoryTimeline,
+              let index = AutoPlayHarness.launchIndex, let store = session.libraryStore,
+              let request = AutoPlayHarness.request(in: store, index: index) else { return }
+        autoPlayedForTesting = true
+        path.append(BrowseDestination.play(request))
     }
     #endif
 
@@ -130,6 +141,17 @@ struct LibraryShell: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(CanvasBackground())
+        // Both actions are set out HERE, around the whole stack, so a PUSHED page sees them too.
+        // They used to sit on the root pages, below the `navigationDestination` that builds every
+        // pushed page — so a person's credits, "More Like This" and Search all got the do-nothing
+        // default: Remove on a poster there silently did nothing, and a pushed page could not open
+        // the player as a push. The confirmation moves with them, so its alert presents over
+        // whichever page is on top rather than from a root page that is not on screen.
+        .environment(\.requestLibraryRemoval, { pendingRemoval = $0 })
+        .environment(\.openBrowseDestination, { path.append($0) })
+        .libraryRemovalConfirmation(pending: $pendingRemoval,
+                                    errorMessage: $removeErrorMessage,
+                                    store: session.libraryStore)
         // Menu button opens the nav from anywhere; a second press falls through and exits, because
         // the handler is removed while the menu is already open.
         .onExitCommand(perform: menuOpen || !path.isEmpty ? nil : {
@@ -161,7 +183,10 @@ struct LibraryShell: View {
         }
         .task { await revealMenuAfterLaunchFocus() }
         #if DEBUG
-        .task(id: session.libraryStore?.movies.count ?? 0) { openTitleForTesting() }
+        .task(id: "\(session.libraryStore?.movies.count ?? 0)-\(session.libraryStore?.shows.count ?? 0)") {
+            openTitleForTesting()
+            autoPlayForTesting()
+        }
         #endif
         .task { if tileMarks == nil { tileMarks = session.makeTileWatchMarks() } }
         .environment(tileMarks ?? .placeholder)
@@ -254,12 +279,6 @@ struct LibraryShell: View {
             if tab == .settings { SettingsView() }
         }
         .focusSection()
-        // Removal is offered by posters all over the app; the confirmation lives here once.
-        .environment(\.requestLibraryRemoval, { pendingRemoval = $0 })
-        .environment(\.openBrowseDestination, { path.append($0) })
-        .libraryRemovalConfirmation(pending: $pendingRemoval,
-                                    errorMessage: $removeErrorMessage,
-                                    store: session.libraryStore)
     }
 
     @ViewBuilder private func keptAlive<V: View>(_ visible: Bool, @ViewBuilder _ make: () -> V) -> some View {

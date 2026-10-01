@@ -22,6 +22,12 @@ import DebridCore
 ///
 /// Starts from zero deliberately — a resumed playhead would seek before the decoder settles and
 /// muddy the first seconds of the log, which is exactly where the decoder is announced.
+///
+/// The player is PUSHED, by `LibraryShell`, exactly as Home's Resume and a title page's Play push
+/// it. It used to be a full-screen cover of its own, and a cover is not a faithful stand-in: inside
+/// one, tvOS dismisses on Menu before the player's handler runs, so Menu in Settings walked out of
+/// the film in the harness while it only closed the panel for real. Only `-autoMemory` still uses
+/// the cover, because its timeline has to dismiss the player by itself.
 struct AutoPlayHarness: ViewModifier {
     let session: AppSession
     let index: Int
@@ -44,6 +50,15 @@ struct AutoPlayHarness: ViewModifier {
         return args[i + 1]
     }
 
+    /// The index after `-autoPlay`, 0 when a title needle stands alone; nil = no auto-play asked.
+    static var launchIndex: Int? {
+        let args = ProcessInfo.processInfo.arguments
+        if let i = args.firstIndex(of: "-autoPlay") {
+            return i + 1 < args.count ? Int(args[i + 1]) ?? 0 : 0
+        }
+        return showNeedle != nil || movieNeedle != nil ? 0 : nil
+    }
+
     /// `-autoMemory` runs the whole footprint timeline: idle, playing, and — the part that matters —
     /// after the player is dismissed.
     ///
@@ -51,7 +66,7 @@ struct AutoPlayHarness: ViewModifier {
     /// and the claim that this is playback working set rather than a leak rests on a SIMULATOR
     /// measurement. The simulator is not where the memory pressure is happening. This measures
     /// `phys_footprint` — the exact number jetsam judges a process by — on the device.
-    private var runsMemoryTimeline: Bool {
+    static var runsMemoryTimeline: Bool {
         ProcessInfo.processInfo.arguments.contains("-autoMemory")
     }
 
@@ -71,51 +86,52 @@ struct AutoPlayHarness: ViewModifier {
             }
     }
 
+    /// `-autoMemory` only — every other auto-play is pushed by `LibraryShell`.
     private func startIfReady() async {
-        guard !started, let store = session.libraryStore else { return }
+        guard Self.runsMemoryTimeline, !started, let store = session.libraryStore,
+              let request = Self.request(in: store, index: index) else { return }
+        started = true
+        await runMemoryTimeline(request)
+    }
+
+    /// What the `-autoPlay…` flags ask for, once the library holds it; nil while it is still loading.
+    static func request(in store: LibraryStore, index: Int) -> PlaybackRequest? {
         // `-autoPlayShow <text>` plays the first EPISODE of the first show whose title matches.
         // Subtitle behaviour is a per-FILE property and the reports are about episodes, so a
         // harness that could only reach movies could not open the file being complained about.
-        if let needle = Self.showNeedle {
+        if let needle = showNeedle {
             guard let show = store.shows.first(where: {
                 $0.title.localizedCaseInsensitiveContains(needle)
-            }) else { return }                        // library still loading — the task re-runs
+            }) else { return nil }                    // library still loading — the task re-runs
             guard let episode = show.seasons.sortedBySeason()
                 .flatMap({ $0.episodes.sorted(by: { $0.number < $1.number }) })
-                .dropFirst(index).first else { return }
-            started = true
+                .dropFirst(index).first else { return nil }
             let source = episode.source
-            print("[autoPlay] \(show.title) S\(episode.season)E\(episode.number) — \(Self.describe(source))")
-            request = PlaybackRequest(item: show, source: source, resumeAt: nil,
-                                      label: "\(show.title) — S\(episode.season)·E\(episode.number)",
-                                      contentKey: WatchKey.content(forShow: show, episode: episode),
-                                      episode: episode, fromStart: true)
-            return
+            print("[autoPlay] \(show.title) S\(episode.season)E\(episode.number) — \(describe(source))")
+            return PlaybackRequest(item: show, source: source, resumeAt: nil,
+                                   label: "\(show.title) — S\(episode.season)·E\(episode.number)",
+                                   contentKey: WatchKey.content(forShow: show, episode: episode),
+                                   episode: episode, fromStart: true)
         }
         // `-autoPlayMovie <text>` names the film instead of ranking for it, so a comparison can be
         // run against the exact file a report is about.
-        let candidates = Self.movieNeedle.map { needle in
+        let candidates = movieNeedle.map { needle in
             store.movies.filter { $0.title.localizedCaseInsensitiveContains(needle) }
-        } ?? Self.heaviestFirst(store.movies)
-        guard !candidates.isEmpty else { return }     // library still loading — the task re-runs
-        started = true
+        } ?? heaviestFirst(store.movies)
+        guard !candidates.isEmpty else { return nil }  // library still loading — the task re-runs
         let item = candidates[min(index, candidates.count - 1)]
-        guard let source = item.sources.best else { return }
-        print("[autoPlay] \(item.title) — \(Self.describe(source))")
-        if runsMemoryTimeline {
-            await runMemoryTimeline(item: item, source: source)
-            return
-        }
-        request = PlaybackRequest(item: item, source: source, resumeAt: nil,
-                                  label: item.title,
-                                  contentKey: WatchKey.content(forMovie: item),
-                                  episode: nil, fromStart: true)
+        guard let source = item.sources.best else { return nil }
+        print("[autoPlay] \(item.title) — \(describe(source))")
+        return PlaybackRequest(item: item, source: source, resumeAt: nil,
+                               label: item.title,
+                               contentKey: WatchKey.content(forMovie: item),
+                               episode: nil, fromStart: true)
     }
 
     /// idle → playing → dismissed, sampling the footprint throughout. The last phase is the whole
     /// point: if it settles back near the idle figure the memory is playback working set and the
     /// device is simply full; if it stays high, the player is not giving it back.
-    private func runMemoryTimeline(item: MediaItem, source: MediaSource) async {
+    private func runMemoryTimeline(_ playback: PlaybackRequest) async {
         await sample("idle", seconds: 10, every: 5)
 
         // Browsing is the missing half of the earlier measurement, which went straight to playback
@@ -125,10 +141,7 @@ struct AutoPlayHarness: ViewModifier {
         await warmPosterCache()
         await sample("browsed", seconds: 10, every: 5)
 
-        request = PlaybackRequest(item: item, source: source, resumeAt: nil,
-                                  label: item.title,
-                                  contentKey: WatchKey.content(forMovie: item),
-                                  episode: nil, fromStart: true)
+        request = playback
         await sample("playing", seconds: 60, every: 10)
 
         request = nil                       // dismisses the cover → PlayerView.onDisappear → teardown

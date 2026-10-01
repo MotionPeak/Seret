@@ -20,8 +20,13 @@ struct VersionsScreen: View {
     var episode: (season: Int, number: Int)?
 
     @Environment(AppSession.self) private var session
+    /// Opens the player as a PUSH. A full-screen cover cannot host it on tvOS: inside a cover the
+    /// Menu press never reaches the player's own handler — the cover dismisses itself first — so
+    /// Menu with Settings or the subtitle list open walked out of the film instead of closing the
+    /// panel, and Menu could not abandon a scrub or a scan either. Pushed, it behaves like every
+    /// other play path.
+    @Environment(\.openBrowseDestination) private var openDestination
     @State private var model: VersionsModel?
-    @State private var player: PlayerPresentation?
 
     var body: some View {
         ScrollView {
@@ -42,9 +47,6 @@ struct VersionsScreen: View {
             guard let m = session.makeVersionsModel(for: placeholderItem, target: target) else { return }
             model = m
             await m.load()
-        }
-        .fullScreenCover(item: $player) { presented in
-            PlayerHost(request: presented.request, app: session, backdropSize: "original")
         }
     }
 
@@ -118,16 +120,10 @@ struct VersionsScreen: View {
         Task {
             switch await model.pick(stream) {
             case let .play(request):
-                player = PlayerPresentation(request: request)
+                openDestination(.play(request))
             default:
                 break   // downloadStarted / failed / busy — the status line above already reflects it
             }
         }
-    }
-
-    /// Wraps a `PlaybackRequest` so it can drive `.fullScreenCover(item:)`.
-    private struct PlayerPresentation: Identifiable {
-        let id = UUID()
-        let request: PlaybackRequest
     }
 }

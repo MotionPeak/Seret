@@ -25,7 +25,12 @@ struct MovieDetailView: View {
     @Environment(WatchlistMarks.self) private var watchlist: WatchlistMarks?
     /// Drives Play on a title that is not in the library: find the best cached release, add it, play.
     @State private var acquisition: AcquisitionStore?
-    @State private var acquiredPlayback: AcquiredPlayback?
+    /// Opens the player as a PUSH. A full-screen cover cannot host it on tvOS: inside a cover the
+    /// Menu press never reaches the player's own handler — the cover dismisses itself first — so
+    /// Menu with Settings or the subtitle list open walked out of the film instead of closing the
+    /// panel, and Menu could not abandon a scrub or a scan either. Pushed, it behaves like every
+    /// other play path.
+    @Environment(\.openBrowseDestination) private var openDestination
 
     var body: some View {
         ScrollView {
@@ -62,15 +67,12 @@ struct MovieDetailView: View {
         .onChange(of: acquisition?.phase) { _, phase in
             guard case let .ready(request) = phase else { return }
             session.libraryStore?.reload()     // a new torrent landed in RD
-            acquiredPlayback = AcquiredPlayback(request: request)
+            // Its job is done once there is something to play. The cover reset it on dismissal;
+            // a push has no dismissal hook, and coming back re-reads the watch state on appear.
+            acquisition?.reset()
+            openDestination(.play(request))
         }
         .background(CanvasBackground())
-        .fullScreenCover(item: $acquiredPlayback, onDismiss: {
-            acquisition?.reset()
-            Task { await store.reloadWatch() }
-        }) { presented in
-            PlayerHost(request: presented.request, app: session, backdropSize: "original")
-        }
         .fullScreenCover(isPresented: $expandTrailer) {
             if let u = trailerURL { FullScreenTrailer(url: u) }
         }
@@ -340,12 +342,6 @@ struct MovieDetailView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .focusSection()
     }
-}
-
-/// Wraps a just-acquired `PlaybackRequest` so it can drive `.fullScreenCover(item:)`.
-private struct AcquiredPlayback: Identifiable {
-    let id = UUID()
-    let request: PlaybackRequest
 }
 
 #Preview {
