@@ -242,7 +242,10 @@ private final class FakePoller: DownloadPolling, @unchecked Sendable {
         let s = make(poller: poller, onReady: { readyFor = $0.tmdbID })
         await s.refresh()
         #expect(readyFor == 5)
-        #expect(s.status(forContentKey: DownloadKey.movie(tmdbID: 5)) == nil)   // badge cleared; title now in library
+        #expect(s.activeTiles.isEmpty)                                          // badge cleared; title now in library
+        // …but the title's own status stays READY rather than vanishing: cleared, the title page's
+        // control fell back to a pressable "Request Download" until the library caught up.
+        #expect(s.status(forContentKey: DownloadKey.movie(tmdbID: 5))?.phase == .ready)
     }
 
     @Test func refreshFailedKeepsStatusForRetry() async {

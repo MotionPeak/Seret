@@ -229,7 +229,11 @@ public final class DownloadStore {
     private func apply(_ status: DownloadStatus) async {
         switch status.phase {
         case .ready:
-            statuses[status.storeKey] = nil
+            // Kept, as READY — not cleared. Cleared, the title page's download control fell back
+            // to "Request Download" (pressable: a second torrent) for the seconds before the
+            // library reload made the title its own, and then vanished from under focus. Ready is
+            // left out of the Downloading strips (`activeTiles`) and asks nothing more of anyone.
+            statuses[status.storeKey] = status
             await onReady(status)
         case .queued, .downloading, .failed:
             statuses[status.storeKey] = status

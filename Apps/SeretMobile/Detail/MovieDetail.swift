@@ -341,6 +341,11 @@ private struct MovieDownloadSection: View {
                     .font(Theme.Typo.body()).foregroundStyle(.orange)
                 requestButton("Try Another Version")
                 magnetButton
+            } else if case .ready = status?.phase {
+                // Finished. Not "Request Download": that was what this said in the seconds before
+                // the library caught up, and pressing it started a second torrent.
+                Label("Downloaded \u{2014} it\u{2019}s in your library.", systemImage: "checkmark.circle.fill")
+                    .font(Theme.Typo.body()).foregroundStyle(Theme.Palette.gold)
             } else {
                 Label("Not in your library yet", systemImage: "arrow.down.circle")
                     .font(Theme.Typo.body()).foregroundStyle(Theme.Palette.textSecondary)

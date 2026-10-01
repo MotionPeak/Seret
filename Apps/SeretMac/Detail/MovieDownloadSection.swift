@@ -9,6 +9,8 @@ enum DownloadSectionPhase: Equatable {
     case starting
     case downloading(fraction: Double, line: String)
     case failed(String)
+    /// Finished — in the seconds before the library reload makes the title its own.
+    case ready
 
     static func derive(requesting: Bool, status: DownloadStatus?) -> DownloadSectionPhase {
         guard let status else { return requesting ? .starting : .idle }
@@ -18,8 +20,10 @@ enum DownloadSectionPhase: Equatable {
         case .downloading:
             return .downloading(fraction: status.fraction, line: DownloadProgressText.line(for: status))
         case .ready:
-            // About to leave the store as the library refreshes and the page upgrades (Decision 3).
-            return .idle
+            // Finished, and the library reload is on its way to upgrading the page. NOT `.idle`:
+            // that drew "Request Download" for those seconds, and pressing it started a second
+            // torrent.
+            return .ready
         case .failed(let message):
             return .failed(message)
         }
@@ -90,6 +94,14 @@ struct MovieDownloadSection: View {
                         .font(.system(size: 12))
                         .foregroundStyle(Theme.Palette.textSecondary)
                 }
+            }
+        case .ready:
+            Label {
+                Text("Downloaded \u{2014} it\u{2019}s in your library.")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color.white.opacity(0.85))
+            } icon: {
+                Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.Palette.gold)
             }
         case .failed(let reason):
             VStack(alignment: .leading, spacing: 10) {

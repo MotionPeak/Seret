@@ -31,8 +31,9 @@ import Testing
             == .failed("no seeders"))
     }
 
-    @Test func readyIsIdle() {
-        // About to leave the store as the library refreshes and the page upgrades in place.
-        #expect(DownloadSectionPhase.derive(requesting: false, status: status(.ready)) == .idle)
+    @Test func readyIsReadyNotARequestAgain() {
+        // Finished, with the library refresh on its way. `.idle` drew "Request Download" for those
+        // seconds — pressing it started a second torrent.
+        #expect(DownloadSectionPhase.derive(requesting: false, status: status(.ready)) == .ready)
     }
 }
