@@ -382,9 +382,25 @@ struct EpisodeRowView: View {
     private var still: some View {
         RemoteImage(url: TMDBClient.imageURL(path: row.meta?.stillPath, size: "w300"))
         .frame(width: 124, height: 70)
+        // Where you are in it. The row only ever showed a ✓ for a FINISHED episode, so one you were
+        // halfway through looked exactly like one you had never started — the Apple TV draws this.
+        .overlay(alignment: .bottom) { progressBar }
         .clipped()
         .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.chip))
         .opacity(row.isDownloaded ? 1 : 0.55)     // dim not-downloaded episodes
+    }
+
+    @ViewBuilder private var progressBar: some View {
+        if let w = watch, !w.finished, w.durationSeconds > 0, w.positionSeconds > 0 {
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Rectangle().fill(.white.opacity(0.28))
+                    Rectangle().fill(Theme.Palette.gold)
+                        .frame(width: geo.size.width * min(1, w.positionSeconds / w.durationSeconds))
+                }
+            }
+            .frame(height: 3)
+        }
     }
 
     /// The show, as the Add pipeline wants it. Needs a TMDB id to search.
