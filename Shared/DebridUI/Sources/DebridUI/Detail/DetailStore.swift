@@ -35,6 +35,8 @@ public final class DetailStore {
     public private(set) var genres: [String] = []
     public private(set) var overview: String?
     public private(set) var selectedSeason: Int
+    /// Set by `selectSeason` — the viewer picked the season on screen. See there.
+    private var viewerChoseSeason = false
     public private(set) var episodeMeta: [Int: [Int: TMDBEpisodeDetails]] = [:]   // season → epNo → meta
     /// Seasons whose TMDB episode list could not be fetched. See `episodesState(forSeason:)`.
     private var failedSeasons: Set<Int> = []
@@ -156,10 +158,11 @@ public final class DetailStore {
         item = owned
         removedSourceKeys = []                      // they described the old snapshot's files
         // A show opened with nothing owned sat on season 1; with episodes now owned, open on the
-        // first season that has them — the same choice `init` makes for an owned show.
-        if !hadSeasons, let first = owned.seasons.sortedBySeason().first?.number,
+        // first season that has them — the same choice `init` makes for an owned show. Never over
+        // a season the viewer chose.
+        if !hadSeasons, !viewerChoseSeason, let first = owned.seasons.sortedBySeason().first?.number,
            !owned.seasons.contains(where: { $0.number == selectedSeason }) {
-            await selectSeason(first)
+            await showSeason(first)
         }
         await loadPreferredVersion()
         await reloadWatch()
@@ -280,7 +283,6 @@ public final class DetailStore {
         // Re-entrancy guard: one load per store (a retry after failure is still allowed).
         guard richState == .idle || richState == .failed else { return }
         richState = .loading
-        let seasonAtStart = selectedSeason    // a season the viewer picks meanwhile is theirs to keep
         await loadStoredSubtitleEvidence()
         // Watch state (local store) and TMDB details (network) are independent — overlap them so
         // neither delays the other. The async let must be awaited on every path below, or scope
@@ -324,7 +326,7 @@ public final class DetailStore {
             }
             await watchLoad
             if item.kind == .show {
-                await openOnTheSeasonBeingWatched(tvID: tmdbID, pickedBefore: seasonAtStart)
+                await openOnTheSeasonBeingWatched(tvID: tmdbID)
             }
             richState = .loaded
             // Overlapped, not sequential. Both add a row to the hero ABOVE the Play CTA, and run
@@ -442,7 +444,17 @@ public final class DetailStore {
         historySince = await summaryProvider.historySince(forContentKey: item.id)
     }
 
+    /// The viewer chose a season. From then on it is theirs for the life of the page: nothing the
+    /// page works out later — where the viewer is in the show, a title becoming owned — moves them
+    /// off it. Only a pick made DURING the load used to count: one made before Try Again was taken
+    /// back by the reload it started.
     public func selectSeason(_ n: Int) async {
+        viewerChoseSeason = true
+        await showSeason(n)
+    }
+
+    /// Put a season on screen without it counting as the viewer's choice.
+    private func showSeason(_ n: Int) async {
         selectedSeason = n
         await loadWatchForSeason(n)
         guard episodeMeta[n] == nil, let tvID = item.tmdbID else { return }
@@ -635,9 +647,9 @@ public final class DetailStore {
     /// are halfway through season 3. It now opens where Play would take you. The season last
     /// touched is listed first, so "what comes after it" can see where that season ends.
     ///
-    /// `pickedBefore` is the season selected when the load started: a viewer who picked a season
-    /// themselves while TMDB was answering keeps it — the page used to switch it back under them.
-    private func openOnTheSeasonBeingWatched(tvID: Int, pickedBefore: Int) async {
+    /// Never over a season the viewer picked — while TMDB was answering, or before a Try Again: the
+    /// page used to switch it back under them.
+    private func openOnTheSeasonBeingWatched(tvID: Int) async {
         if let latest = latestTouchedEpisode(), latest.season != 0, episodeMeta[latest.season] == nil {
             await loadSeason(latest.season, tvID: tvID)
         }
@@ -647,10 +659,10 @@ public final class DetailStore {
            episodeMeta[target.season] == nil, allSeasons.contains(target.season) {
             await loadSeason(target.season, tvID: tvID)
         }
-        guard selectedSeason == pickedBefore,
+        guard !viewerChoseSeason,
               let target = nextEpisodeTarget(), target.season != selectedSeason,
               allSeasons.contains(target.season) else { return }
-        await selectSeason(target.season)
+        await showSeason(target.season)
     }
 
     /// The episode of this show played or marked most recently, from the watch state loaded — owned

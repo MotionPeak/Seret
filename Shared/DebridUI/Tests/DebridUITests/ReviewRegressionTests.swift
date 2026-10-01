@@ -263,8 +263,32 @@ private struct AiringTV: MediaDetailsProviding {
     }
 }
 
+/// A show's details fail `failures` times, then answer: three seasons of three aired episodes.
+private final class FlakyTV: MediaDetailsProviding, @unchecked Sendable {
+    private let lock = NSLock()
+    private var failuresLeft: Int
+    init(failures: Int) { failuresLeft = failures }
+    func movieDetails(tmdbID: Int) async throws -> TMDBMovieDetails { throw Boom.nope }
+    func tvDetails(tmdbID: Int) async throws -> TMDBTVDetails {
+        let fail = lock.withLock { () -> Bool in
+            guard failuresLeft > 0 else { return false }
+            failuresLeft -= 1
+            return true
+        }
+        if fail { throw Boom.nope }
+        return TMDBTVDetails(id: tmdbID, name: "S", firstAirDate: nil, overview: nil, posterPath: nil,
+                             backdropPath: nil, numberOfSeasons: 3, genres: [], voteAverage: nil)
+    }
+    func seasonEpisodes(tvID: Int, season: Int) async throws -> [TMDBEpisodeDetails] {
+        (1...3).map { k in
+            TMDBEpisodeDetails(episodeNumber: k, name: "E\(k)", overview: nil, stillPath: nil, runtime: 22,
+                               airDate: "2020-01-01")
+        }
+    }
+}
+
 extension SwiftDataSuite {
-    /// Round 2 of the review: caught up on a show still airing.
+    /// Round 2 of the review: caught up on a show still airing; a Try Again that kept the season.
     @Suite struct CaughtUpTests {
         private func provider() throws -> LocalWatchProvider {
             let c = try ModelContainer(for: WatchProgress.self,
@@ -324,6 +348,39 @@ extension SwiftDataSuite {
             await store.load()
 
             #expect(store.nextEpisodeTarget() == nil)
+        }
+
+        /// The page's details failed; the viewer picked season 3, then pressed Try Again. The reload
+        /// worked out where they are in the show (part-way through S2E2) and moved them there — off
+        /// the season they had just chosen. Only a pick made DURING a load counted.
+        @MainActor @Test func aSeasonPickedBeforeTryAgainIsKept() async throws {
+            let p = try provider()
+            try await p.record(contentKey: "show:tmdb:1:s2e2", sourceKey: "a", positionSeconds: 600,
+                               durationSeconds: 1320, finished: false, profileID: "p1")
+            let store = DetailStore(item: show(1, seasons: [1: 3, 2: 3, 3: 3]), details: FlakyTV(failures: 1),
+                                    watch: p, profileID: "p1")
+            await store.load()
+            #expect(store.richState == .failed)
+
+            await store.selectSeason(3)
+            await store.retrySeason()
+
+            #expect(store.richState == .loaded)
+            #expect(store.selectedSeason == 3, "Try Again moved the viewer to season \(store.selectedSeason)")
+        }
+
+        /// …while a Try Again nobody steered still opens where the viewer is.
+        @MainActor @Test func tryAgainWithoutAPickStillOpensWhereTheViewerIs() async throws {
+            let p = try provider()
+            try await p.record(contentKey: "show:tmdb:1:s2e2", sourceKey: "a", positionSeconds: 600,
+                               durationSeconds: 1320, finished: false, profileID: "p1")
+            let store = DetailStore(item: show(1, seasons: [1: 3, 2: 3, 3: 3]), details: FlakyTV(failures: 1),
+                                    watch: p, profileID: "p1")
+            await store.load()
+            await store.retrySeason()
+
+            #expect(store.richState == .loaded)
+            #expect(store.selectedSeason == 2)
         }
 
         /// The series that HAS run out still starts over from the top.
