@@ -227,6 +227,19 @@ public final class DownloadStore {
         }
     }
 
+    /// Let go of finished downloads the library now lists.
+    ///
+    /// READY is kept only to bridge the seconds between a download finishing and the library
+    /// listing it (see `apply`). Left in place after that, it outlived the title: remove the film
+    /// and its page said "Downloaded" over a button that did nothing, with no way to ask for it
+    /// again — and an owned film's page kept a "Downloaded" control that did nothing either. Keyed
+    /// on the TORRENT, so it holds for a season pack and for a title TMDB never identified.
+    public func forgetFinished(where libraryOwns: (String) -> Bool) {
+        for (key, status) in statuses {
+            if case .ready = status.phase, libraryOwns(status.torrentID) { statuses[key] = nil }
+        }
+    }
+
     /// Test hook: apply monitor results without a poller.
     func applyForTest(_ results: [DownloadStatus]) async {
         for status in results { await apply(status) }
@@ -238,7 +251,8 @@ public final class DownloadStore {
             // Kept, as READY — not cleared. Cleared, the title page's download control fell back
             // to "Request Download" (pressable: a second torrent) for the seconds before the
             // library reload made the title its own, and then vanished from under focus. Ready is
-            // left out of the Downloading strips (`activeTiles`) and asks nothing more of anyone.
+            // left out of the Downloading strips (`activeTiles`) and asks nothing more of anyone,
+            // and it goes once the library lists the torrent (`forgetFinished`).
             statuses[status.storeKey] = status
             await onReady(status)
         case .queued, .downloading, .failed:

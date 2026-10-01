@@ -42,6 +42,11 @@ public final class LibraryStore {
     /// `.task`. Wired by the composition root (`AppSession`); `nil` in isolation/tests by default.
     public var onContentChanged: (@MainActor () async -> Void)?
 
+    /// Fired whenever the titles the library lists may have changed — every load, every removal —
+    /// so a finished download can let go of its "ready" badge once the library carries the
+    /// torrent. See `releaseFinishedDownloads(in:)`.
+    public var onOwnershipChanged: (@MainActor () -> Void)?
+
     /// When the last load ended, however it ended — what `refreshIfStale` measures from.
     public private(set) var lastLoadEndedAt: Date?
     private let now: @MainActor () -> Date
@@ -346,6 +351,24 @@ public final class LibraryStore {
                                        item.tmdbID.map { (OwnedKey(kind: item.kind, tmdbID: $0), item) }
                                    },
                                    uniquingKeysWith: { first, _ in first })
+        onOwnershipChanged?()
+    }
+
+    /// Whether any title in the library is backed by this Real-Debrid torrent — a film's version or
+    /// any copy of any episode. A walk of the library, so for the occasional question, not a
+    /// per-tile one.
+    public func owns(torrentID: String) -> Bool {
+        !torrentID.isEmpty && (movies + shows).contains { Self.torrentIDs(of: $0).contains(torrentID) }
+    }
+
+    /// Let `downloads` drop a finished download's READY badge once this library lists its torrent.
+    /// Kept past that, a title removed later still read "Downloaded" and could not be asked for
+    /// again. Wired by `AppSession`.
+    public func releaseFinishedDownloads(in downloads: DownloadStore) {
+        onOwnershipChanged = { [weak self, weak downloads] in
+            guard let self, let downloads else { return }
+            downloads.forgetFinished { self.owns(torrentID: $0) }
+        }
     }
 
     static func message(for error: Error) -> String {

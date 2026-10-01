@@ -89,6 +89,31 @@ private final class FakeLibrary: LibraryProviding {
         #expect(store.ownedItem(tmdbID: 1396, kind: .show) == nil)
     }
 
+    /// What lets a finished download go once the library carries it: every load says the listing
+    /// may have changed, and the torrent is found whether it backs a film or an episode.
+    @Test func aLoadAnnouncesOwnershipAndKnowsItsTorrents() async {
+        let src = { (id: String) in
+            MediaSource(torrentID: id, fileID: nil, restrictedLink: "rd://\(id)",
+                        parsed: ParsedRelease(title: "t", resolution: "1080p"))
+        }
+        let film = MediaItem(id: "movie:tmdb:5", kind: .movie, title: "M", year: 2024,
+                             sources: [src("TF")], seasons: [], tmdbID: 5)
+        let series = MediaItem(id: "show:tmdb:7", kind: .show, title: "S", year: 2023, sources: [],
+                               seasons: [Season(number: 1, episodes: [Episode(season: 1, number: 1,
+                                                                              source: src("TE"))])],
+                               tmdbID: 7)
+        let store = LibraryStore(library: FakeLibrary(cached: nil, refresh: .success([film, series])))
+        var announced = 0
+        store.onOwnershipChanged = { announced += 1 }
+        await store.load()
+
+        #expect(announced >= 1)
+        #expect(store.owns(torrentID: "TF"))
+        #expect(store.owns(torrentID: "TE"))
+        #expect(!store.owns(torrentID: "elsewhere"))
+        #expect(!store.owns(torrentID: ""))
+    }
+
     @Test func retryIncrementsAttempt() {
         let store = LibraryStore(library: FakeLibrary(cached: nil, refresh: .success([])))
         store.retry()

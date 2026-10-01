@@ -263,11 +263,21 @@ struct MovieDetailView: View {
     /// could start, or a download of this film already exists. It used to sit on every film you
     /// don't own, announcing "No cached version exists" before anything had been checked — and
     /// inviting a slow download where Play would have started the film at once.
+    ///
+    /// Owned is asked of the LIBRARY as well as the page: the library lists a finished download a
+    /// moment before the page adopts it, and for that moment the page alone offered "Request
+    /// Download" again. A finished download on an owned film offers nothing — Play is the way in —
+    /// where it used to leave a "Downloaded" button that did nothing. (Focus on that button when
+    /// the section goes lands on Play: the page's default focus — measured in `-uiPreview
+    /// downloadfinish`.)
     private func offersDownload(tmdbID: Int) -> Bool {
-        if session.downloadStore?.status(forContentKey: DownloadKey.movie(tmdbID: tmdbID)) != nil {
+        let owned = store.bestSource != nil
+            || session.libraryStore?.ownedItem(tmdbID: tmdbID, kind: .movie) != nil
+        if let status = session.downloadStore?.status(forContentKey: DownloadKey.movie(tmdbID: tmdbID)) {
+            if case .ready = status.phase { return !owned }
             return true
         }
-        guard store.bestSource == nil else { return false }
+        guard !owned else { return false }
         switch acquisition?.phase {
         case .noneCached, .failed: return true
         default: return false

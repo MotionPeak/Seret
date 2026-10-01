@@ -154,6 +154,17 @@ public final class AppSession {
 
     public let realDebrid: RealDebridSession
 
+    #if DEBUG
+    /// Preview harnesses only: put fake-backed stores where the screens look for them, so a flow
+    /// that needs a library and downloads — a download finishing on an open title page — can be
+    /// driven in the simulator without an account. Wired the way sign-in wires them.
+    public func installStoresForPreview(library: LibraryStore, downloads: DownloadStore) {
+        libraryStore = library
+        downloadStore = downloads
+        library.releaseFinishedDownloads(in: downloads)
+    }
+    #endif
+
     public init(realDebrid: RealDebridSession) {
         self.realDebrid = realDebrid
     }
@@ -510,6 +521,8 @@ public final class AppSession {
                                           self.downloadNotifier.notifyReady(title: name)
                                       })
             downloadStore = store
+            // …and once the library lists the finished torrent, its READY badge has done its job.
+            libraryStore?.releaseFinishedDownloads(in: store)
             Task { await store.loadActive() }
             Task { await downloadNotifier.requestAuthorization() }
         }

@@ -55,10 +55,7 @@ struct MovieDetail: View {
                     Label(message, systemImage: "exclamationmark.triangle")
                         .font(Theme.Typo.caption()).foregroundStyle(.orange)
                 }
-                if let tmdb = item.tmdbID,
-                   store.bestSource == nil
-                    || session.downloadStore?
-                        .status(forContentKey: DownloadKey.movie(tmdbID: tmdb)) != nil {
+                if let tmdb = item.tmdbID, showsDownloadSection(tmdbID: tmdb) {
                     MovieDownloadSection(tmdbID: tmdb, title: item.title, posterPath: item.posterPath,
                                          imdbID: store.imdbID, originalLanguage: store.originalLanguage)
                 }
@@ -305,6 +302,21 @@ struct MovieDetail: View {
 
     private var resumeSeconds: Double? {
         return watch?.resumePosition
+    }
+
+    /// The download section shows for a film you don't own, and for one with a download under way.
+    ///
+    /// Owned is asked of the LIBRARY as well as the page: the library lists a finished download a
+    /// moment before the page adopts it, and for that moment the page alone offered "Request
+    /// Download" again. A finished download on an owned film shows nothing — Play is right there.
+    private func showsDownloadSection(tmdbID: Int) -> Bool {
+        let owned = store.bestSource != nil
+            || session.libraryStore?.ownedItem(tmdbID: tmdbID, kind: .movie) != nil
+        if let status = session.downloadStore?.status(forContentKey: DownloadKey.movie(tmdbID: tmdbID)) {
+            if case .ready = status.phase { return !owned }
+            return true
+        }
+        return !owned
     }
 }
 

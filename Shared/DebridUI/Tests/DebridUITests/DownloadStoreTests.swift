@@ -87,6 +87,15 @@ private final class CountingPoller: DownloadPolling, @unchecked Sendable {
     }
 }
 
+/// A library whose listing the test changes between loads.
+private final class SteppingLibrary: LibraryProviding, @unchecked Sendable {
+    var items: [MediaItem] = []
+    func loadCached() -> [MediaItem]? { nil }
+    func refresh() async throws -> [MediaItem] { items }
+    func remove(_ item: MediaItem) async throws {}
+    func removeVersion(_ item: MediaItem, source: MediaSource) async throws {}
+}
+
 @MainActor
 @Suite struct DownloadStoreTests {
     private func make(req: any DownloadRequesting = FakeReq(.success(tv("queued"))),
@@ -310,6 +319,55 @@ private final class CountingPoller: DownloadPolling, @unchecked Sendable {
 
         #expect(s.status(forContentKey: key)?.phase == .ready)
         #expect(poller.polls <= 2, "still polling: \(poller.polls) polls")
+    }
+
+    /// READY bridges the moment between a download finishing and the library listing it — and no
+    /// longer. Kept for the session, a film removed later still read "Downloaded" over a button
+    /// that did nothing, and could not be asked for again.
+    @Test func aFinishedDownloadIsLetGoOnceTheLibraryListsItsTorrent() async {
+        let key = DownloadKey.movie(tmdbID: 5)
+        let poller = FakePoller([[DownloadStatus(torrentID: "T5", contentKey: key, tmdbID: 5,
+                                                 phase: .ready, fraction: 1)]])
+        let s = make(poller: poller)
+        await s.refresh()
+
+        s.forgetFinished { _ in false }                     // the library does not list it yet
+        #expect(s.status(forContentKey: key)?.phase == .ready)
+        s.forgetFinished { $0 == "T5" }                     // …now it does
+        #expect(s.status(forContentKey: key) == nil)
+    }
+
+    /// The wiring itself: the library's next listing of the torrent is what lets it go — and a
+    /// listing without it does not.
+    @Test func theLibraryListingTheTorrentLetsTheFinishedDownloadGo() async {
+        let key = DownloadKey.movie(tmdbID: 5)
+        let poller = FakePoller([[DownloadStatus(torrentID: "T5", contentKey: key, tmdbID: 5,
+                                                 phase: .ready, fraction: 1)]])
+        let downloads = make(poller: poller)
+        await downloads.refresh()
+        let library = SteppingLibrary()
+        let store = LibraryStore(library: library)
+        store.releaseFinishedDownloads(in: downloads)
+
+        await store.load()                                  // listed before the torrent shows up
+        #expect(downloads.status(forContentKey: key)?.phase == .ready)
+        library.items = [MediaItem(id: key, kind: .movie, title: "X", year: 2024,
+                                   sources: [MediaSource(torrentID: "T5", fileID: nil,
+                                                         restrictedLink: "rd://T5",
+                                                         parsed: ParsedRelease(title: "X", resolution: "1080p"))],
+                                   seasons: [], tmdbID: 5)]
+        await store.load()
+        #expect(downloads.status(forContentKey: key) == nil)
+    }
+
+    /// Only a FINISHED download is let go: another version downloading for a film you own is still
+    /// under way, and its progress still shows.
+    @Test func aDownloadStillUnderWayIsNotLetGo() async {
+        let key = DownloadKey.movie(tmdbID: 6)
+        let s = make(req: FakeReq(.success(tv("downloading", id: "T6"))))
+        await s.request(contentKey: key, tmdbID: 6, title: "X", kind: .movie, candidates: [stream("h")])
+        s.forgetFinished { _ in true }
+        #expect(s.status(forContentKey: key)?.phase == .downloading)
     }
 
     @Test func refreshFailedKeepsStatusForRetry() async {

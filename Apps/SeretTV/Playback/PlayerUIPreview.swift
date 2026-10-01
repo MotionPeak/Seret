@@ -13,6 +13,9 @@ import DebridCore
 ///   - `subtitles` — the full subtitle browser with ranked, badged results
 ///   - `subtitlesfailed` — the same browser after a pick that could not be honoured
 ///   - `detail`    — the Movie Detail page with a rating-capable stub store
+///   - `downloadfinish` — a film page whose requested download finishes 25 s in: the library takes
+///     it and the page becomes the owned page. Focus the download button first (Down from Play)
+///     and the screenshot after says where focus went
 ///   - `sidemenu`  — the side menu EXPANDED over a stand-in page
 ///   - `sidemenucollapsed` — the same menu at rest, for an A/B of the two states
 ///   - `opensubtitles` — the OpenSubtitles pairing card: QR, LAN address, keyboard fallback
@@ -41,6 +44,7 @@ struct PlayerUIPreview: View {
         case "subtitlesfailed": SubtitleBrowserPreview(failing: true)
         case "inputprobe": InputProbePreview()
         case "detail":     MovieDetailPreview()
+        case "downloadfinish": DownloadFinishPreview()
         case "detailwatchlisted": MovieDetailPreview(onWatchlist: true)
         case "sidemenu":            SideMenuPreview(startExpanded: true)
         case "sidemenucollapsed":   SideMenuPreview(startExpanded: false)
@@ -420,6 +424,120 @@ private struct MovieDetailPreview: View {
                 await marks.load()
                 watchlist = marks
             }
+    }
+}
+
+// MARK: - A download finishing on an open page
+
+/// The real `DetailView` on a film you do not own, with a download of it under way that Real-Debrid
+/// finishes `readyAfter` seconds in. The real `DownloadStore` and `LibraryStore` run on fakes: the
+/// poll reports the torrent done, the library's next listing carries it, the READY badge is let go
+/// and the page adopts the film — the whole path a real download takes, minus the account.
+private struct DownloadFinishPreview: View {
+    nonisolated static let tmdbID = 1_242_011
+    nonisolated static let torrentID = "T-preview"
+    static let readyAfter: TimeInterval = 25
+
+    @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()))
+    @State private var ready = false
+
+    private static let placeholder = MediaItem(id: "movie:tmdb:1242011", kind: .movie,
+                                               title: "The Odyssey", year: 2026, sources: [],
+                                               seasons: [], tmdbID: tmdbID,
+                                               overview: "Odysseus takes the long way home.")
+    private static let owned = MediaItem(
+        id: "movie:tmdb:1242011", kind: .movie, title: "The Odyssey", year: 2026,
+        sources: [MediaSource(torrentID: torrentID, fileID: 1, restrictedLink: "rd://preview",
+                              parsed: ParsedRelease(title: "The Odyssey", year: 2026,
+                                                    resolution: "2160p"))],
+        seasons: [], tmdbID: tmdbID, overview: "Odysseus takes the long way home.")
+
+    var body: some View {
+        NavigationStack {
+            if ready {
+                DetailView(item: Self.placeholder, details: PreviewDetails(), watch: PreviewWatchRating())
+            } else {
+                Color.black
+            }
+        }
+        .environment(session)
+        .environment(session.makeTileWatchMarks())
+        .task { await setUp() }
+    }
+
+    private func setUp() async {
+        let listing = Listing()
+        let library = LibraryStore(library: listing)
+        let downloads = DownloadStore(
+            service: Service(), records: Records(),
+            poller: Poller(readyAt: Date().addingTimeInterval(Self.readyAfter), listing: listing,
+                           owned: Self.owned),
+            deleter: Deleter(),
+            onReady: { _ in library.reload() },          // as `AppSession` wires it
+            pollInterval: .seconds(1))
+        session.installStoresForPreview(library: library, downloads: downloads)
+        await library.load()
+        await downloads.request(contentKey: DownloadKey.movie(tmdbID: Self.tmdbID), tmdbID: Self.tmdbID,
+                                title: "The Odyssey", kind: .movie,
+                                candidates: [CachedStream(infoHash: "preview", fileIdx: nil,
+                                                          rawTitle: "The.Odyssey.2026.2160p",
+                                                          parsed: ParsedRelease(title: "The Odyssey",
+                                                                                resolution: "2160p"),
+                                                          languages: ["en"], sizeBytes: 40_000_000_000,
+                                                          sourceName: nil)])
+        ready = true
+    }
+
+    /// The account's torrent list: empty until the poll has reported the download done.
+    private final class Listing: LibraryProviding, @unchecked Sendable {
+        private let lock = NSLock()
+        private var items: [MediaItem] = []
+        func set(_ new: [MediaItem]) { lock.withLock { items = new } }
+        func loadCached() -> [MediaItem]? { nil }
+        func refresh() async throws -> [MediaItem] { lock.withLock { items } }
+        func remove(_ item: MediaItem) async throws {}
+        func removeVersion(_ item: MediaItem, source: MediaSource) async throws {}
+    }
+
+    private struct Service: DownloadRequesting {
+        func startDownload(infoHash: String) async throws -> TorrentInfo {
+            TorrentInfo(id: DownloadFinishPreview.torrentID, filename: "The.Odyssey.2026.2160p.mkv",
+                        hash: infoHash, bytes: 40_000_000_000, progress: 40, status: "downloading",
+                        files: [TorrentFile(id: 1, path: "/The.Odyssey.2026.2160p.mkv",
+                                            bytes: 40_000_000_000, selected: 1)],
+                        links: [])
+        }
+    }
+
+    private final class Records: DownloadRecording, @unchecked Sendable {
+        private let lock = NSLock()
+        private var rows: [DownloadRequestData] = []
+        func upsert(_ data: DownloadRequestData) async throws { lock.withLock { rows.append(data) } }
+        func all() async throws -> [DownloadRequestData] { lock.withLock { rows } }
+        func delete(torrentID: String) async throws { lock.withLock { rows.removeAll { $0.torrentID == torrentID } } }
+    }
+
+    private struct Deleter: DownloadDeleting {
+        func deleteTorrent(id: String) async throws {}
+    }
+
+    /// Downloading at 40% until `readyAt`; then done — and from then on the account lists it.
+    private struct Poller: DownloadPolling {
+        let readyAt: Date
+        let listing: Listing
+        let owned: MediaItem
+        func poll() async throws -> [DownloadStatus] {
+            let key = DownloadKey.movie(tmdbID: DownloadFinishPreview.tmdbID)
+            guard Date() >= readyAt else {
+                return [DownloadStatus(torrentID: DownloadFinishPreview.torrentID, contentKey: key,
+                                       tmdbID: DownloadFinishPreview.tmdbID, phase: .downloading,
+                                       fraction: 0.4, title: "The Odyssey")]
+            }
+            listing.set([owned])
+            return [DownloadStatus(torrentID: DownloadFinishPreview.torrentID, contentKey: key,
+                                   tmdbID: DownloadFinishPreview.tmdbID, phase: .ready, fraction: 1,
+                                   title: "The Odyssey")]
+        }
     }
 }
 
