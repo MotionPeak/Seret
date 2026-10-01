@@ -94,6 +94,9 @@ public final class AddStore {
     /// whole top of the list is flagged still cannot turn into a request storm.
     public func addBest() async {
         guard !ranked.isEmpty else { return }
+        // One add at a time. Two taps that land before the button redraws both reached here, and
+        // each added the torrent to Real-Debrid — the account then held the season twice.
+        if case .adding = state { return }
         state = .adding
         var attempts = 0
         var probes = 0

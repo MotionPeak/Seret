@@ -33,6 +33,28 @@ private final class ScriptedAdd: AddProviding, @unchecked Sendable {
     }
 }
 
+/// An add that holds until released, counting how many times it was asked.
+private final class SlowAdd: AddProviding, @unchecked Sendable {
+    private let info: TorrentInfo
+    private let lock = NSLock()
+    private var waiting: [CheckedContinuation<Void, Never>] = []
+    private var released = false
+    private var _calls = 0
+    var calls: Int { lock.withLock { _calls } }
+    init(info: TorrentInfo) { self.info = info }
+    func add(infoHash: String) async throws -> TorrentInfo {
+        let wait: Bool = lock.withLock { _calls += 1; return !released }
+        if wait { await withCheckedContinuation { c in lock.withLock { waiting.append(c) } } }
+        return info
+    }
+    func release() {
+        let toResume: [CheckedContinuation<Void, Never>] = lock.withLock {
+            released = true; defer { waiting = [] }; return waiting
+        }
+        toResume.forEach { $0.resume() }
+    }
+}
+
 private func cachedStream(_ hash: String, res: String, langs: [String], size: Int) -> CachedStream {
     CachedStream(infoHash: hash, fileIdx: nil, rawTitle: "t",
                  parsed: ParsedRelease(title: "t", resolution: res),
@@ -89,6 +111,25 @@ private func cachedStream(_ hash: String, res: String, langs: [String], size: In
         await s.loadStreams()
         await s.addBest()
         if case let .added(info) = s.state { #expect(info.id == "T") } else { Issue.record("expected added") }
+    }
+
+    /// Two taps on "Download Whole Season" that land before the button redraws both ran — and each
+    /// added the torrent to Real-Debrid, so the account held the season twice.
+    @Test func aSecondAddWhileOneIsRunningAddsNothing() async {
+        let add = SlowAdd(info: tv())
+        let s = AddStore(imdbID: "tt1", kind: .movie, originalLanguage: "fr",
+                         streamSource: FakeStreamSource(.success([
+                             cachedStream("b", res: "1080p", langs: ["fr"], size: 50)])),
+                         add: add)
+        await s.loadStreams()
+        let first = Task { await s.addBest() }
+        let second = Task { await s.addBest() }
+        try? await Task.sleep(for: .milliseconds(30))
+        add.release()
+        await first.value
+        await second.value
+        #expect(add.calls == 1)
+        if case .added = s.state {} else { Issue.record("expected added, got \(s.state)") }
     }
 
     @Test func addBestFallsBackToNextWhenTopNotInstant() async {
