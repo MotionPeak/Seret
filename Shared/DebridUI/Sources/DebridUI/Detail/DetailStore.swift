@@ -274,6 +274,7 @@ public final class DetailStore {
         // Re-entrancy guard: one load per store (a retry after failure is still allowed).
         guard richState == .idle || richState == .failed else { return }
         richState = .loading
+        let seasonAtStart = selectedSeason    // a season the viewer picks meanwhile is theirs to keep
         await loadStoredSubtitleEvidence()
         // Watch state (local store) and TMDB details (network) are independent — overlap them so
         // neither delays the other. The async let must be awaited on every path below, or scope
@@ -316,7 +317,9 @@ public final class DetailStore {
                 await loadSeason(selectedSeason, tvID: tmdbID)
             }
             await watchLoad
-            if item.kind == .show { await openOnTheSeasonBeingWatched(tvID: tmdbID) }
+            if item.kind == .show {
+                await openOnTheSeasonBeingWatched(tvID: tmdbID, pickedBefore: seasonAtStart)
+            }
             richState = .loaded
             // Overlapped, not sequential. Both add a row to the hero ABOVE the Play CTA, and run
             // one after the other they landed a network round-trip apart — so the page shifted
@@ -570,7 +573,7 @@ public final class DetailStore {
         func owned(_ s: Int, _ n: Int) -> Episode? { all.first { $0.season == s && $0.number == n } }
         if let latest = latestTouchedEpisode() {
             if !latest.state.finished, let episode = owned(latest.season, latest.number) { return episode }
-            if latest.state.finished, let next = successor(ofSeason: latest.season, number: latest.number) {
+            if latest.state.finished, let next = nextUnfinished(after: latest.season, latest.number) {
                 return owned(next.season, next.number)   // nil → not yours yet: Play fetches it
             }
         }
@@ -591,7 +594,7 @@ public final class DetailStore {
         if let owned = nextEpisode() { return (owned.season, owned.number) }
         if let latest = latestTouchedEpisode() {
             if !latest.state.finished { return (latest.season, latest.number) }
-            if let next = successor(ofSeason: latest.season, number: latest.number) { return next }
+            if let next = nextUnfinished(after: latest.season, latest.number) { return next }
         }
         let rows = episodes(forSeason: selectedSeason)
         guard !rows.isEmpty else { return nil }
@@ -607,11 +610,21 @@ public final class DetailStore {
     /// A show page opened on the first season you own, wherever you were — season 1 of a show you
     /// are halfway through season 3. It now opens where Play would take you. The season last
     /// touched is listed first, so "what comes after it" can see where that season ends.
-    private func openOnTheSeasonBeingWatched(tvID: Int) async {
+    ///
+    /// `pickedBefore` is the season selected when the load started: a viewer who picked a season
+    /// themselves while TMDB was answering keeps it — the page used to switch it back under them.
+    private func openOnTheSeasonBeingWatched(tvID: Int, pickedBefore: Int) async {
         if let latest = latestTouchedEpisode(), latest.season != 0, episodeMeta[latest.season] == nil {
             await loadSeason(latest.season, tvID: tvID)
         }
-        guard let target = nextEpisodeTarget(), target.season != selectedSeason,
+        // The season after the last one touched is looked at BEFORE moving to it: a renewal TMDB
+        // already counts, with nothing aired, otherwise opened the page on an empty season.
+        if let target = nextEpisodeTarget(), target.season != selectedSeason,
+           episodeMeta[target.season] == nil, allSeasons.contains(target.season) {
+            await loadSeason(target.season, tvID: tvID)
+        }
+        guard selectedSeason == pickedBefore,
+              let target = nextEpisodeTarget(), target.season != selectedSeason,
               allSeasons.contains(target.season) else { return }
         await selectSeason(target.season)
     }
@@ -655,9 +668,53 @@ public final class DetailStore {
             return (s, n + 1)          // a gap in what you own, in a season TMDB has not listed yet
         }
         let nextSeasonOwned = item.seasons.contains { $0.number == s + 1 && !$0.episodes.isEmpty }
-        if nextSeasonOwned || (numberOfSeasons.map { s + 1 <= $0 } ?? false) { return (s + 1, 1) }
+        if nextSeasonOwned { return (s + 1, 1) }
+        if numberOfSeasons.map({ s + 1 <= $0 }) ?? false {
+            // Only into a season that has STARTED: a renewal TMDB already counts, listing nothing
+            // aired yet, is not somewhere Play can go.
+            if let listed = episodeMeta[s + 1], listed[1] == nil || hasNotAired(season: s + 1, number: 1) {
+                return nil
+            }
+            return (s + 1, 1)
+        }
         return nil
     }
+
+    /// The first episode after (s, n) that is not already finished — walking PAST finished ones.
+    ///
+    /// The episode after the one touched last was taken as-is. But marks are writes too, each with
+    /// its own timestamp: marking seasons 1 and 2 watched while part-way through S3E2 made the last
+    /// mark the "latest touched", and the episode after it — S3E1 — was one already seen, so Play
+    /// offered it from 0:00. Nil at an episode that has not aired: next week's is not playable.
+    private func nextUnfinished(after s: Int, _ n: Int) -> (season: Int, number: Int)? {
+        var cursor = (season: s, number: n)
+        for _ in 0..<2000 {                 // bounded: a long-running series, never a loop
+            guard let next = successor(ofSeason: cursor.season, number: cursor.number) else { return nil }
+            if watchByKey[WatchKey.content(forShow: item, season: next.season, number: next.number)]?
+                .finished == true {
+                cursor = next
+                continue
+            }
+            return hasNotAired(season: next.season, number: next.number) ? nil : next
+        }
+        return nil
+    }
+
+    /// TMDB lists an air date in the future for it. Unknown dates count as aired.
+    private func hasNotAired(season: Int, number: Int) -> Bool {
+        guard let date = episodeMeta[season]?[number]?.airDate,
+              let aired = Self.airDateFormatter.date(from: date) else { return false }
+        return aired > Date()
+    }
+
+    private static let airDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.calendar = Calendar(identifier: .gregorian)
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(identifier: "UTC")
+        f.dateFormat = "yyyy-MM-dd"
+        return f
+    }()
 
     private func loadSeason(_ n: Int, tvID: Int) async {
         failedSeasons.remove(n)          // a retry is loading again until it says otherwise

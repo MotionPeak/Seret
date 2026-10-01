@@ -85,6 +85,15 @@ public final class DownloadStore {
 
     public func status(forContentKey key: String) -> DownloadStatus? { statuses[key] }
 
+    /// The request names the release already downloading for this title — its first candidate is
+    /// the one asked for. Unknown (no record of the running one) counts as different: the viewer
+    /// asked explicitly, and doing nothing is the outcome that cannot be right.
+    private func isTheReleaseUnderWay(_ status: DownloadStatus?, candidates: [CachedStream]) async -> Bool {
+        guard let status, let wanted = candidates.first?.infoHash.lowercased() else { return true }
+        let running = (try? await records.all())?.first { $0.torrentID == status.torrentID }
+        return running?.infoHash.lowercased() == wanted
+    }
+
     /// In-progress downloads (queued/downloading) as poster tiles. Failed and ready ones are
     /// excluded — failed surfaces on Detail, ready becomes a real library item.
     public var activeTiles: [DownloadTile] {
@@ -122,7 +131,15 @@ public final class DownloadStore {
         // One download per title at a time. A second press while the first was starting or running
         // added a SECOND torrent, and the one tile then alternated between the two progress values.
         switch statuses[contentKey]?.phase {
-        case .queued, .downloading: return
+        case .queued:
+            return                  // the first press is still choosing a version
+        case .downloading:
+            // …but a DIFFERENT release is the viewer replacing the one under way — "pick another
+            // version" on a download stuck at 3%, a pasted magnet. Ignoring it reported success
+            // and changed nothing. The tracked download is cancelled and the new one started; the
+            // same release again is just a second press.
+            if await isTheReleaseUnderWay(statuses[contentKey], candidates: candidates) { return }
+            await cancel(contentKey: contentKey)
         default: break
         }
         guard !candidates.isEmpty else {

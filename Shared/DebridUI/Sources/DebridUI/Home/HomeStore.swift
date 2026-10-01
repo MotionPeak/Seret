@@ -101,14 +101,19 @@ public final class HomeStore {
         // closing, and on every CloudKit import.
         let chosen = await versionPrefs?.preferred(forContentKeys: states.map(\.contentKey)) ?? [:]
         let subtitles = await storedSubtitles(for: states, movies: movies)
-        let resumable = entries.compactMap { entry -> HomeItem? in
+        var resumable: [HomeItem] = []
+        for entry in entries {
             switch entry {
             case let .resume(s):
-                return Self.resolve(s, movies: movies, shows: shows,
-                                    preferredSourceKey: chosen[s.contentKey],
-                                    subtitles: subtitles[s.contentKey] ?? .empty)
+                if let item = Self.resolve(s, movies: movies, shows: shows,
+                                           preferredSourceKey: chosen[s.contentKey],
+                                           subtitles: subtitles[s.contentKey] ?? .empty) {
+                    resumable.append(item)
+                }
             case let .upNext(after: s):
-                return Self.resolveUpNext(after: s, shows: shows)
+                if let item = await continuation(after: s, shows: shows, profileID: profileID) {
+                    resumable.append(item)
+                }
             }
         }
         guard generation == rebuildGeneration else { return }   // a newer rebuild owns the rails
@@ -197,6 +202,41 @@ public final class HomeStore {
             if out.count == limit { break }
         }
         return out
+    }
+
+    /// The card for a show whose latest touch was a FINISHED episode: the first owned episode after
+    /// it that is not finished yet — resumed where it was left, when it was left part-way.
+    ///
+    /// The episode right after the finished one was taken as-is. But marks are writes too, each with
+    /// its own time: marking earlier seasons watched while part-way through S3E2 made the last mark
+    /// the newest finish, and the episode after it — S3E1 — was one already seen, so the card offered
+    /// it from 0:00 instead of resuming S3E2. One batched read of the show's later episodes settles it.
+    private func continuation(after s: WatchState, shows: [MediaItem], profileID: String) async -> HomeItem? {
+        guard let show = shows.first(where: { s.contentKey.hasPrefix($0.id + ":") }) else { return nil }
+        let epID = String(s.contentKey.dropFirst(show.id.count + 1))
+        let ordered = show.seasons.sortedBySeason().flatMap { $0.episodes.sorted { $0.number < $1.number } }
+        guard let i = ordered.firstIndex(where: { $0.id == epID }) else { return nil }
+        // Never from a regular season into the Specials, which sort last for exactly that reason.
+        let later = ordered[(i + 1)...].filter { $0.season != 0 || ordered[i].season == 0 }
+        guard !later.isEmpty else { return nil }
+        let keys = later.map { WatchKey.content(forShow: show, episode: $0) }
+        let states = (try? await watch.progress(forContentKeys: keys, profileID: profileID)) ?? [:]
+        for episode in later {
+            let key = WatchKey.content(forShow: show, episode: episode)
+            guard let state = states[key] else { return Self.upNextCard(show: show, episode: episode) }
+            if state.finished { continue }
+            if state.positionSeconds > 0 {
+                return Self.resolve(state, movies: [], shows: [show]) ?? Self.upNextCard(show: show, episode: episode)
+            }
+            return Self.upNextCard(show: show, episode: episode)
+        }
+        return nil                                      // everything after it is watched
+    }
+
+    static func upNextCard(show: MediaItem, episode next: Episode) -> HomeItem {
+        HomeItem(item: show, fraction: 0, subtitle: formatEpisodeKey(next.id), episode: next,
+                 source: next.source, contentKey: WatchKey.content(forShow: show, episode: next),
+                 resumeAt: nil, isUpNext: true)
     }
 
     /// The card for the episode after `s`, if you own it — from its start (the player still picks up

@@ -26,6 +26,10 @@ struct PosterActionPerformer {
             Task {
                 if let request = await QuickPlay.request(for: owned, session: session) {
                     shell?.present(request)
+                } else if owned.kind == .show {
+                    // The next episode is one you do not own yet — a gap, or the next season. That
+                    // is not "couldn't play": the title page's Play fetches it.
+                    shell?.open(.title(model.page))
                 } else {
                     shell?.couldNotPlay = owned
                 }

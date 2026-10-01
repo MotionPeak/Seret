@@ -51,7 +51,8 @@ private final class FakeRecords: DownloadRecording, @unchecked Sendable {
     var seeded: [DownloadRequestData]
     init(seeded: [DownloadRequestData] = []) { self.seeded = seeded }
     func upsert(_ data: DownloadRequestData) async throws { upserts.append(data) }
-    func all() async throws -> [DownloadRequestData] { seeded }
+    /// What was there at launch plus what was written since — as the real store reads back.
+    func all() async throws -> [DownloadRequestData] { seeded + upserts }
     func delete(torrentID: String) async throws { deleted.append(torrentID) }
 }
 
@@ -106,17 +107,35 @@ private final class FakePoller: DownloadPolling, @unchecked Sendable {
     }
 
     /// A second press while the first download is starting or running added a SECOND torrent, and
-    /// the one Home tile then alternated between the two progress values.
-    @Test func aSecondRequestWhileOneIsUnderWayStartsNothing() async {
-        let req = ScriptedReq(["h1": [.success(tv("downloading", id: "T1"))],
-                               "h2": [.success(tv("downloading", id: "T2"))]])
+    /// the one Home tile then alternated between the two progress values. A second press is the
+    /// SAME request — the same ranked list, the same release first.
+    @Test func aSecondPressOfTheSameReleaseStartsNothing() async {
+        let req = ScriptedReq(["h1": [.success(tv("downloading", id: "T1")),
+                                      .success(tv("downloading", id: "T1b"))]])
         let records = FakeRecords()
         let s = make(req: req, records: records)
         let key = DownloadKey.movie(tmdbID: 11)
         await s.request(contentKey: key, tmdbID: 11, title: "X", kind: .movie, candidates: [stream("h1")])
-        await s.request(contentKey: key, tmdbID: 11, title: "X", kind: .movie, candidates: [stream("h2")])
+        await s.request(contentKey: key, tmdbID: 11, title: "X", kind: .movie, candidates: [stream("h1")])
         #expect(req.calls == ["h1"])
         #expect(records.upserts.map(\.torrentID) == ["T1"])
+    }
+
+    /// …but a DIFFERENT release is the viewer replacing the download — "pick another version" on one
+    /// stuck at 3%, a pasted magnet. That was ignored while reporting success. It now cancels the
+    /// one under way and starts the one asked for.
+    @Test func aDifferentReleaseReplacesTheOneUnderWay() async {
+        let req = ScriptedReq(["h1": [.success(tv("downloading", id: "T1"))],
+                               "h2": [.success(tv("downloading", id: "T2"))]])
+        let records = FakeRecords()
+        let deleter = FakeDeleter()
+        let s = make(req: req, records: records, deleter: deleter)
+        let key = DownloadKey.movie(tmdbID: 11)
+        await s.request(contentKey: key, tmdbID: 11, title: "X", kind: .movie, candidates: [stream("h1")])
+        await s.request(contentKey: key, tmdbID: 11, title: "X", kind: .movie, candidates: [stream("h2")])
+        #expect(req.calls == ["h1", "h2"])
+        #expect(deleter.deleted == ["T1"])
+        #expect(s.status(forContentKey: key)?.torrentID == "T2")
     }
 
     @Test func requestFallsBackThroughCandidates() async {

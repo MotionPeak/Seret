@@ -93,6 +93,28 @@ extension SwiftDataSuite {
             #expect(try await s.rollup(forContentKey: key, profileID: "p")?.plays == 2)
         }
 
+        /// One row per TITLE: a show's whole season marked watched (a write per episode) used to fill
+        /// every slot, and every other show's Up Next fell off Home.
+        @Test func recentlyFinishedKeepsOneRowPerTitle() async throws {
+            let s = try store()
+            let t0 = Date(timeIntervalSince1970: 5_000_000)
+            try await s.write(contentKey: "show:tmdb:2:s1e1", sourceKey: "y", positionSeconds: 1300,
+                              durationSeconds: 1320, finished: true, profileID: "p", at: t0)
+            for n in 1...40 {                                   // a bulk mark of another show, newer
+                try await s.write(contentKey: "show:tmdb:1:s1e\(n)", sourceKey: "", positionSeconds: 0,
+                                  durationSeconds: 0, finished: true, profileID: "p",
+                                  at: t0.addingTimeInterval(Double(n)))
+            }
+            let rows = try await s.recentlyFinished(limit: 30, profileID: "p")
+            #expect(rows.map(\.contentKey) == ["show:tmdb:1:s1e40", "show:tmdb:2:s1e1"])
+        }
+
+        @Test func titleKeysStripOnlyAnEpisodeSuffix() {
+            #expect(LocalWatchStore.titleKey(ofContentKey: "show:tmdb:1434:s3e20") == "show:tmdb:1434")
+            #expect(LocalWatchStore.titleKey(ofContentKey: "movie:tmdb:694") == "movie:tmdb:694")
+            #expect(LocalWatchStore.titleKey(ofContentKey: "movie:the-seven:1995") == "movie:the-seven:1995")
+        }
+
         @Test func anUnfinishedWriteIsNotAnEdge() async throws {
             let crossed = try await store().write(contentKey: "movie:tmdb:73", sourceKey: "src",
                                                   positionSeconds: 10, durationSeconds: 100,
@@ -404,7 +426,9 @@ extension SwiftDataSuite {
                               durationSeconds: 6000, finished: false, profileID: "p1",
                               at: Date(timeIntervalSince1970: 40))
             let finished = try await s.recentlyFinished(limit: 10, profileID: "p1")
-            #expect(finished.map(\.contentKey) == ["show:tmdb:1:s1e3", "show:tmdb:1:s1e2"])
+            // One row per title: the show's newest finished episode stands for it (see
+            // `recentlyFinishedKeepsOneRowPerTitle`); the unfinished film is not listed at all.
+            #expect(finished.map(\.contentKey) == ["show:tmdb:1:s1e3"])
             #expect(try await s.recentlyFinished(limit: 10, profileID: "p2").isEmpty)
         }
 

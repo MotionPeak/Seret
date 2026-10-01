@@ -252,17 +252,39 @@ public actor LocalWatchStore {
     /// the newest of a show's rows matters to anyone reading this.
     public func recentlyFinished(limit: Int, profileID: String) throws -> [WatchState] {
         guard limit > 0 else { return [] }
-        var descriptor = FetchDescriptor<WatchProgress>(
-            predicate: #Predicate { $0.profileID == profileID && $0.finished },
-            sortBy: [SortDescriptor(\.updatedAt, order: .reverse)])
-        descriptor.fetchLimit = limit * 2 + 8
+        // One row per TITLE — a show's newest finished episode stands for the show. Per episode,
+        // one bulk mark ("Mark Show Watched" is a write per episode) filled every slot with a
+        // single show and pushed every other show's Up Next off Home. Paged, so a mark of a few
+        // hundred episodes cannot hide the titles behind it either.
+        let page = 200
+        var offset = 0
         var seen = Set<String>()
         var out: [WatchState] = []
-        for row in try modelContext.fetch(descriptor) where seen.insert(row.contentKey).inserted {
-            out.append(state(row))
-            if out.count == limit { break }
+        while out.count < limit {
+            var descriptor = FetchDescriptor<WatchProgress>(
+                predicate: #Predicate { $0.profileID == profileID && $0.finished },
+                sortBy: [SortDescriptor(\.updatedAt, order: .reverse)])
+            descriptor.fetchLimit = page
+            descriptor.fetchOffset = offset
+            let rows = try modelContext.fetch(descriptor)
+            for row in rows where seen.insert(Self.titleKey(ofContentKey: row.contentKey)).inserted {
+                out.append(state(row))
+                if out.count == limit { break }
+            }
+            guard rows.count == page else { break }
+            offset += page
         }
         return out
+    }
+
+    /// The title a content key belongs to: an episode key without its `:sNeM`, anything else as is.
+    static func titleKey(ofContentKey key: String) -> String {
+        guard let colon = key.lastIndex(of: ":") else { return key }
+        let suffix = key[key.index(after: colon)...].lowercased()
+        guard suffix.hasPrefix("s"), let e = suffix.firstIndex(of: "e"),
+              Int(suffix[suffix.index(after: suffix.startIndex)..<e]) != nil,
+              Int(suffix[suffix.index(after: e)...]) != nil else { return key }
+        return String(key[..<colon])
     }
 
     /// Drop progress for these titles across every profile — the item left the shared library.

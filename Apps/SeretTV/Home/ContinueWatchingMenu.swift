@@ -6,8 +6,9 @@ import SwiftUI
 ///
 /// The rail had no menu at all, so whatever you started stayed on Home until you finished it —
 /// a film opened for ten seconds sat at the top of the screen and took the hero with it, and the
-/// only way to clear it was to play it to the end. Marking is the way out: both marks drop the
-/// entry, because the rail is exactly the rows that are unfinished AND carry a position.
+/// only way to clear it was to play it to the end. Marking is the way out for a FILM: both marks
+/// drop it. A SHOW stays while it is being watched — marking its episode moves the card on (or,
+/// unmarked, back to that episode from the start) — and "Mark Show Unwatched" is what takes it off.
 ///
 /// Both are offered rather than a toggle, for the reason `LibraryTitleActions` offers a show both:
 /// a part-watched entry has no honest binary state, and the two mean different things — watched

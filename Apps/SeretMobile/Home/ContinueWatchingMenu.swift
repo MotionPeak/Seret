@@ -6,7 +6,8 @@ import SwiftUI
 ///
 /// The phone's rail had no menu at all: a title opened for ten seconds stayed on Home until it was
 /// played to the end, and nothing on Home led to its page (a tap RESUMES). Marking is the way off
-/// the rail, because the rail is exactly the rows that are unfinished AND carry a position.
+/// the rail for a FILM. A SHOW stays while it is being watched — marking its episode moves the card
+/// on (or, unmarked, back to that episode from the start) — and "Mark Show Unwatched" takes it off.
 ///
 /// Both marks are offered rather than a toggle: a part-watched entry has no honest binary state,
 /// and they mean different things — watched keeps where you were and leaves a ✓, unwatched throws
