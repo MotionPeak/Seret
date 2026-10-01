@@ -60,6 +60,7 @@ struct PlayerUIPreview: View {
         case "letterboxdtoast":     LetterboxdToastPreview()
         case "letterboxdrating":    LetterboxdRatingPreview(existing: nil)
         case "letterboxdrerating":  LetterboxdRatingPreview(existing: 7)
+        case "letterboxdinvite":    LetterboxdRatingPreview(existing: nil, invite: true)
         case "spin":                WatchlistSpinPreview()
         case "serverprobe":         ServerReachabilityPreview()
         default:           ScrubBarPreview()
@@ -1122,6 +1123,8 @@ private struct LetterboxdToastPreview: View {
 /// the one that matters for a rewatch.
 private struct LetterboxdRatingPreview: View {
     let existing: Int?
+    /// Show the prompt as it first arrives — the invitation, before Up — instead of the stars.
+    var invite = false
     @State private var signal = LetterboxdPushSignal()
     @State private var picked: String = "nothing picked yet"
     @FocusState private var focus: PlayerFocus?
@@ -1144,10 +1147,14 @@ private struct LetterboxdRatingPreview: View {
             switch state {
             case .logged: LetterboxdLoggedBar()
             case .askingRating(_, let current):
-                LetterboxdRatingBar(current: current, focus: $focus) { value in
-                    picked = value.map { "rated \($0)/10" } ?? "rating cleared"
-                } onDismiss: {
-                    picked = "dismissed — logged unrated"
+                if invite {
+                    LetterboxdRatingInvite(current: current)
+                } else {
+                    LetterboxdRatingBar(current: current, focus: $focus) { value in
+                        picked = value.map { "rated \($0)/10" } ?? "rating cleared"
+                    } onDismiss: {
+                        picked = "dismissed — logged unrated"
+                    }
                 }
             }
         }

@@ -28,6 +28,8 @@ struct PlayerView: View {
     @FocusState private var focus: PlayerFocus?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
+    /// The viewer pressed Up to answer the Letterboxd rating prompt. See `isRating`.
+    @State private var ratingEngaged = false
     let backdropURL: URL?
     let pushSignal: LetterboxdPushSignal?
     let filmRating: FinishedFilmRating?
@@ -123,16 +125,20 @@ struct PlayerView: View {
                         case .logged:
                             LetterboxdLoggedBar()
                         case .askingRating(let tmdbID, let current):
-                            LetterboxdRatingBar(current: current, focus: $focus) { value in
-                                Task { await answerRating(value, tmdbID: tmdbID) }
-                            } onDismiss: {
-                                Task { await dismissRating(tmdbID: tmdbID) }
+                            if ratingEngaged {
+                                LetterboxdRatingBar(current: current, focus: $focus) { value in
+                                    Task { await answerRating(value, tmdbID: tmdbID) }
+                                } onDismiss: {
+                                    Task { await dismissRating(tmdbID: tmdbID) }
+                                }
+                            } else {
+                                LetterboxdRatingInvite(current: current)
                             }
                         }
                     }
-                    // The confirmation is inert, but the stars have to be pressable — and the
-                    // stars are the ONLY focusable thing this overlay ever mounts.
-                    .allowsHitTesting(isAskingRating)
+                    // The confirmation and the invitation are inert; only the stars are pressable —
+                    // and they are the ONLY focusable thing this overlay ever mounts.
+                    .allowsHitTesting(isRating)
             }
 
             if let fb = model.skipFeedback {          // ride above everything; never eat remote input
@@ -231,6 +237,8 @@ struct PlayerView: View {
         .onChange(of: showSubtitleBrowser) { _, open in if !open { model.revealScrubBar() } }
         .onChange(of: showManualSync) { _, open in if !open { model.revealScrubBar() } }
         .onChange(of: model.shouldDismiss) { _, dismissNow in if dismissNow { dismiss() } }
+        // Each prompt starts as an invitation, whatever happened to the last one.
+        .onChange(of: isAskingRating) { _, asking in if !asking { ratingEngaged = false } }
         // The TV button, or the TV going to sleep: pause and keep the place, so the viewer comes
         // back to the frame they left instead of a film that ran on into a suspended app.
         .onChange(of: scenePhase) { _, phase in
@@ -247,8 +255,17 @@ struct PlayerView: View {
     /// skip and hold-to-scan on a player that had already failed.
     private var inputSurfaceActive: Bool {
         !showSettings && !showEpisodes && !model.upNextVisible && !showSubtitleBrowser
-            && !showManualSync && !hasFailed && !isAskingRating
+            && !showManualSync && !hasFailed && !isRating
     }
+
+    /// The stars are up and own the remote — only once the viewer has pressed Up to answer.
+    ///
+    /// The prompt arrives while the film is still playing (its credits, or 92% of the runtime when
+    /// no subtitle says where the dialogue ends), and it used to mount the stars at once with focus
+    /// seeded on the first one. The viewer's next Select — meant to pause — filed 1/10 to Letterboxd,
+    /// and the arrows moved between stars instead of skipping. Until Up, the prompt is an invitation
+    /// and the remote keeps doing what it was doing.
+    private var isRating: Bool { isAskingRating && ratingEngaged }
 
     /// True while a diary entry for THIS film is held waiting on a rating.
     ///
@@ -290,6 +307,8 @@ struct PlayerView: View {
     /// called from there, and `openSettingsOrEpisodes` only ever CLOSES the strip. So `showEpisodes`
     /// could never become true and the whole in-player episode picker was unreachable.
     private func openEpisodesOrRevealBar() {
+        // A pending Letterboxd prompt claims Up: it is the deliberate step into rating.
+        if isAskingRating, !ratingEngaged { ratingEngaged = true; return }
         guard model.isEpisode, !model.seasonEpisodes.isEmpty, !showEpisodes else {
             model.revealScrubBar()
             return
@@ -415,6 +434,36 @@ struct LetterboxdRatingBar: View {
         // the viewer did not choose sitting one press away from being filed.
         .onAppear { focus.wrappedValue = .rating(current ?? 1) }
         .onDisappear { focus.wrappedValue = nil }
+    }
+}
+
+/// The rating prompt before the viewer has chosen to answer it: the same bar, with nothing to
+/// focus. The film is still playing, usually its credits, so the remote keeps its jobs — Select
+/// pauses, the arrows skip — and Up is the deliberate step into the stars (see `isRating`).
+struct LetterboxdRatingInvite: View {
+    let current: Int?
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Text("LOGGING TO LETTERBOXD")
+                .font(.seret(.caption1, .semibold)).kerning(1.5)
+                .foregroundStyle(Theme.Palette.gold)
+            HStack(spacing: 12) {
+                Image(systemName: "chevron.up.circle.fill")
+                    .font(.system(size: 30, weight: .semibold))
+                    .foregroundStyle(Theme.Palette.gold)
+                Text(current.map { "Press up to change your \($0)/10" } ?? "Press up to rate it")
+                    .font(.seret(26, .semibold))
+                    .foregroundStyle(.white)
+            }
+            Text("Press Menu to log it without a rating.")
+                .font(.seretCaption).foregroundStyle(Theme.Palette.textSecondary)
+        }
+        .padding(.horizontal, 44).padding(.vertical, 26)
+        .background(RoundedRectangle(cornerRadius: 24).fill(.black.opacity(0.82))
+            .overlay(RoundedRectangle(cornerRadius: 24).stroke(.white.opacity(0.12))))
+        .fixedSize(horizontal: true, vertical: false)
+        .padding(.top, 50)
     }
 }
 
