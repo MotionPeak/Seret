@@ -148,6 +148,7 @@ public actor LocalWatchStore {
             let r = WatchProgress(); modelContext.insert(r); return r
         }()
         let wasFinished = row.finished
+        let previousFinish = row.lastWatchedAt
         row.contentKey = contentKey
         row.profileID = profileID
         row.sourceKey = sourceKey
@@ -156,14 +157,30 @@ public actor LocalWatchStore {
         row.finished = finished
         row.updatedAt = at
         // Count a play only on the unfinished→finished edge, so re-saving position on an already
-        // watched title does not inflate the count.
+        // watched title does not inflate the count — and only when the edge can be a new viewing.
+        let crossed = finished && !wasFinished
+            && !Self.isSameViewing(previousFinish: previousFinish, now: at,
+                                   durationSeconds: durationSeconds)
         if finished {
-            if !wasFinished { row.plays += 1 }
+            if crossed { row.plays += 1 }
             row.lastWatchedAt = at
         }
-        let crossed = finished && !wasFinished
         try modelContext.save()
         return crossed
+    }
+
+    /// A finish too soon after the last one to be another viewing of the title.
+    ///
+    /// The edge alone was not enough. Rewinding out of the credits writes the title back to
+    /// unfinished, and playing on crosses the line again minutes later; so does toggling Mark
+    /// Watched off and on. Each counted as a new play and filed a second Letterboxd diary entry
+    /// — as a rewatch. Nobody watches a title again in less than half its length, so a finish
+    /// inside that gap is the same viewing ending again. Half an hour at least, for a manual mark
+    /// that has no length to go by.
+    static func isSameViewing(previousFinish: Date?, now: Date, durationSeconds: Double) -> Bool {
+        guard let previousFinish else { return false }
+        let gap = max(durationSeconds * 0.5, 30 * 60)
+        return now.timeIntervalSince(previousFinish) < gap
     }
 
     public func rating(forContentKey key: String, profileID: String) throws -> Int? {

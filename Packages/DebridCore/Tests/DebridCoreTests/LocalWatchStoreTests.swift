@@ -39,6 +39,60 @@ extension SwiftDataSuite {
             #expect(!again)
         }
 
+        /// Rewinding out of the credits writes the title back to unfinished, and playing on crosses
+        /// the line again — minutes after it first did. That is one viewing, and it counted twice:
+        /// a second play, and a second Letterboxd diary entry marked as a rewatch.
+        @Test func reCrossingTheFinishMinutesLaterIsTheSameViewing() async throws {
+            let s = try store()
+            let key = "movie:tmdb:73"
+            let t0 = Date(timeIntervalSince1970: 1_000_000)
+            #expect(try await s.write(contentKey: key, sourceKey: "src", positionSeconds: 6600,
+                                      durationSeconds: 7200, finished: true, profileID: "p", at: t0))
+            // Back into the last act…
+            try await s.write(contentKey: key, sourceKey: "src", positionSeconds: 5400,
+                              durationSeconds: 7200, finished: false, profileID: "p",
+                              at: t0.addingTimeInterval(60))
+            // …and through the credits again, twenty minutes after the first finish.
+            let again = try await s.write(contentKey: key, sourceKey: "src", positionSeconds: 6600,
+                                          durationSeconds: 7200, finished: true, profileID: "p",
+                                          at: t0.addingTimeInterval(20 * 60))
+            #expect(!again, "not a new viewing — nothing to log")
+            #expect(try await s.rollup(forContentKey: key, profileID: "p")?.plays == 1)
+            #expect(try await s.state(forContentKey: key, profileID: "p")?.finished == true)
+        }
+
+        /// The same rule covers a manual mark toggled off and on: no second play, no second entry.
+        @Test func reMarkingWatchedRightAfterUnmarkingIsNotANewPlay() async throws {
+            let s = try store()
+            let key = "movie:tmdb:74"
+            let t0 = Date(timeIntervalSince1970: 2_000_000)
+            #expect(try await s.write(contentKey: key, sourceKey: "", positionSeconds: 0,
+                                      durationSeconds: 0, finished: true, profileID: "p", at: t0))
+            try await s.write(contentKey: key, sourceKey: "", positionSeconds: 0, durationSeconds: 0,
+                              finished: false, profileID: "p", at: t0.addingTimeInterval(5))
+            #expect(!(try await s.write(contentKey: key, sourceKey: "", positionSeconds: 0,
+                                        durationSeconds: 0, finished: true, profileID: "p",
+                                        at: t0.addingTimeInterval(10))))
+            #expect(try await s.rollup(forContentKey: key, profileID: "p")?.plays == 1)
+        }
+
+        /// A real rewatch still counts: a whole film's length later is a new viewing.
+        @Test func finishingAgainAFullViewingLaterIsARewatch() async throws {
+            let s = try store()
+            let key = "movie:tmdb:75"
+            let t0 = Date(timeIntervalSince1970: 3_000_000)
+            try await s.write(contentKey: key, sourceKey: "src", positionSeconds: 6600,
+                              durationSeconds: 7200, finished: true, profileID: "p", at: t0)
+            try await s.write(contentKey: key, sourceKey: "src", positionSeconds: 60,
+                              durationSeconds: 7200, finished: false, profileID: "p",
+                              at: t0.addingTimeInterval(86_400))
+            let rewatch = try await s.write(contentKey: key, sourceKey: "src", positionSeconds: 6600,
+                                            durationSeconds: 7200, finished: true, profileID: "p",
+                                            at: t0.addingTimeInterval(86_400 + 7000))
+            #expect(rewatch)
+            #expect(try await s.rollup(forContentKey: key, profileID: "p")?.plays == 2)
+        }
+
         @Test func anUnfinishedWriteIsNotAnEdge() async throws {
             let crossed = try await store().write(contentKey: "movie:tmdb:73", sourceKey: "src",
                                                   positionSeconds: 10, durationSeconds: 100,
