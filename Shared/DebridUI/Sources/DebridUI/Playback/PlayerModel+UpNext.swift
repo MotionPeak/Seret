@@ -26,7 +26,7 @@ extension PlayerModel {
                 // to read the next episode's title, or to answer the door — did not hold it: it
                 // reached zero and started the next episode over the viewer's paused frame. Holding
                 // rather than cancelling keeps the bar and its number exactly as they look now.
-                guard phase == .playing else { continue }
+                guard phase == .playing, !upNextHeld else { continue }
                 upNextSecondsRemaining -= 1
             }
             // Re-checked after the loop, not only inside it. Dismissing on the final second

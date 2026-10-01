@@ -147,7 +147,10 @@ struct PlayerView: View {
                     .allowsHitTesting(false)
             }
 
-            if model.upNextVisible, let next = model.nextEpisode {
+            // Not over a panel: the bar seeds focus to "Play Now" when it appears, which used to
+            // pull focus out from under an open Settings or subtitle browser — so the next Select
+            // started the next episode. It waits (its countdown held) until the panel closes.
+            if model.upNextVisible, !panelOpen, let next = model.nextEpisode {
                 UpNextBar(model: model, next: next)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
@@ -211,16 +214,19 @@ struct PlayerView: View {
             if showManualSync { showManualSync = false; model.endManualSync() }
             else if model.isScanning { model.endScan() }
             else if model.isScrubbing { model.cancelScrub() }  // Menu abandons a scrub
+            // The topmost thing first: a panel is drawn over the Up Next bar, so it closes before
+            // the bar is dismissed. The other way round, Menu in Settings dismissed Up Next — and
+            // with it the auto-advance, so the episode then exited at its end instead.
+            else if showSubtitleBrowser { showSubtitleBrowser = false }   // fallback; the browser also self-closes
+            else if showSettings { showSettings = false }
+            else if showEpisodes { showEpisodes = false }
             else if model.upNextVisible { model.dismissUpNext() }
-            // Before the panels: the stars own the remote while they are up, so Menu has to be
-            // able to hand it back without also walking out of the film.
+            // The stars own the remote while they are up, so Menu has to be able to hand it back
+            // without also walking out of the film.
             else if isAskingRating,
                     let film = LetterboxdContentKey.tmdbID(fromMovieKey: model.contentKey) {
                 Task { await dismissRating(tmdbID: film) }
             }
-            else if showSubtitleBrowser { showSubtitleBrowser = false }   // fallback; the browser also self-closes
-            else if showSettings { showSettings = false }
-            else if showEpisodes { showEpisodes = false }
             else { dismiss() }
         }
         .onAppear {
@@ -239,6 +245,8 @@ struct PlayerView: View {
         .onChange(of: model.shouldDismiss) { _, dismissNow in if dismissNow { dismiss() } }
         // Each prompt starts as an invitation, whatever happened to the last one.
         .onChange(of: isAskingRating) { _, asking in if !asking { ratingEngaged = false } }
+        // Up Next does not count down to the next episode underneath an open panel.
+        .onChange(of: panelOpen) { _, open in model.upNextHeld = open }
         // The TV button, or the TV going to sleep: pause and keep the place, so the viewer comes
         // back to the frame they left instead of a film that ran on into a suspended app.
         .onChange(of: scenePhase) { _, phase in
@@ -257,6 +265,9 @@ struct PlayerView: View {
         !showSettings && !showEpisodes && !model.upNextVisible && !showSubtitleBrowser
             && !showManualSync && !hasFailed && !isRating
     }
+
+    /// Something the viewer opened is up over the picture.
+    private var panelOpen: Bool { showSettings || showSubtitleBrowser || showManualSync || showEpisodes }
 
     /// The stars are up and own the remote — only once the viewer has pressed Up to answer.
     ///
@@ -601,7 +612,8 @@ private struct PlayerBottomBar: View {
             }
             if model.isEpisode && !model.seasonEpisodes.isEmpty {
                 if showEpisodes {
-                    EpisodeStripExpanded(model: model, onPlay: { showEpisodes = false })
+                    EpisodeStripExpanded(model: model, onPlay: { showEpisodes = false },
+                                         onClose: { showEpisodes = false })
                         .transition(.opacity)
                 } else if barShown {
                     EpisodePeek()
@@ -649,32 +661,54 @@ private struct EpisodePeek: View {
 private struct EpisodeStripExpanded: View {
     @Bindable var model: PlayerModel
     let onPlay: () -> Void
+    /// Down from the cards — the strip opened with Up.
+    var onClose: () -> Void = {}
     @FocusState private var focused: String?
 
+    private static let closeTarget = "close-strip"
+
+    private var currentID: String? {
+        model.currentEpisode.map { "\($0.season)x\($0.number)" }
+    }
+
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(spacing: 22) {
-                    ForEach(model.seasonEpisodes) { ep in
-                        Button { if let owned = ep.owned { model.play(owned); onPlay() } } label: { card(ep) }
-                            .buttonStyle(.card)
-                            .disabled(!ep.isPlayable)
-                            .id(ep.id)
-                            .focused($focused, equals: ep.id)
+        VStack(spacing: 0) {
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    // Eager, not lazy: a season is a few dozen cards at most, and the playing
+                    // episode's card has to EXIST for focus to land on it. Lazily, a card past the
+                    // first screenful was not built yet when the strip opened, the focus write was
+                    // dropped, and on a long season focus landed on an early episode instead.
+                    HStack(spacing: 22) {
+                        ForEach(model.seasonEpisodes) { ep in
+                            Button { if let owned = ep.owned { model.play(owned); onPlay() } } label: { card(ep) }
+                                .buttonStyle(.card)
+                                .disabled(!ep.isPlayable)
+                                .id(ep.id)
+                                .focused($focused, equals: ep.id)
+                        }
                     }
+                    .padding(.vertical, 10)            // just enough room for the focus lift
                 }
-                .padding(.vertical, 10)            // just enough room for the focus lift
+                // Snug to the cards (stills only now, no name labels) so the strip sits TIGHT under the
+                // scrub bar — a horizontal ScrollView is greedy vertically and would otherwise fill it.
+                .frame(height: 140)
+                .defaultFocus($focused, currentID)
+                .onAppear {
+                    guard let id = currentID else { return }
+                    proxy.scrollTo(id, anchor: .center)
+                    focused = id
+                }
             }
-            // Snug to the cards (stills only now, no name labels) so the strip sits TIGHT under the
-            // scrub bar — a horizontal ScrollView is greedy vertically and would otherwise fill it.
-            .frame(height: 140)
-            .onAppear {
-                guard let cur = model.currentEpisode else { return }
-                let id = "\(cur.season)x\(cur.number)"
-                focused = id
-                proxy.scrollTo(id, anchor: .center)
-            }
+            // The only way to hear DOWN from a card: a thin focus target under the row. The cards
+            // cannot take `.onMoveCommand` — on a focusable row it swallows the arrows and traps
+            // focus — and with the input surface off while the strip is up, nothing else listens.
+            Color.clear
+                .frame(maxWidth: .infinity).frame(height: 2)
+                .focusable()
+                .focused($focused, equals: Self.closeTarget)
         }
+        .onChange(of: focused) { _, new in if new == Self.closeTarget { onClose() } }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 

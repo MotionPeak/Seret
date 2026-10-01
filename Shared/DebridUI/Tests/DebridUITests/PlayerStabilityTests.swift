@@ -175,6 +175,33 @@ import DebridCore
         #expect(model.currentEpisode?.number == 1)    // …and it did not advance
     }
 
+    /// A panel over the picture — settings, the subtitle browser, the episode strip — HIDES the Up
+    /// Next bar on tvOS, so the countdown under it was running out of sight: the viewer opened
+    /// Subtitles during the credits, and the next episode started behind the panel. The view holds
+    /// the countdown for as long as a panel is up; it resumes, from the same number, once it closes.
+    @Test func theUpNextCountdownHoldsWhileAPanelCoversIt() async {
+        let engine = FakeVideoPlayerEngine()
+        let model = PlayerModel(request: Fixture.showRequest(playingEpisode: 1), engine: engine,
+                                unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
+                                recordProgress: { _, _, _, _, _ in }, subtitles: nil)
+        model.start()
+        await model.waitForIdleForTesting()
+        engine.emit(.time(.init(position: 60, duration: 100)))
+        engine.emit(.time(.init(position: 75, duration: 100)))
+        await model.waitForIdleForTesting()
+        #expect(model.upNextVisible == true)
+        let remaining = model.upNextSecondsRemaining
+
+        model.upNextHeld = true                       // a panel opened over the bar
+        try? await Task.sleep(for: .seconds(2.2))
+        #expect(model.upNextSecondsRemaining == remaining, "nothing counts down out of sight")
+        #expect(model.currentEpisode?.number == 1)
+
+        model.upNextHeld = false                      // …and closed again
+        try? await Task.sleep(for: .seconds(1.2))
+        #expect(model.upNextSecondsRemaining < remaining, "the countdown picks up where it was")
+    }
+
     // MARK: - Track selection across a version switch
 
     /// libvlc's track ids are positional ("audio/0", "spu/0") and therefore collide between two

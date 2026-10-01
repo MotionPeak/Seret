@@ -87,6 +87,9 @@ public final class PlayerModel {
     /// "Up Next" bar state (shows near content-end for a show with another episode).
     public internal(set) var upNextVisible: Bool = false
     public internal(set) var upNextSecondsRemaining: Int = 0
+    /// A panel (settings, subtitles, the episode strip) is up over the picture: the Up Next
+    /// countdown holds rather than advancing to the next episode underneath it. Set by the view.
+    public var upNextHeld = false
 
     /// Currently-selected track ids — drives the settings sheet's selection indicator.
     public internal(set) var selectedAudioID: String?
