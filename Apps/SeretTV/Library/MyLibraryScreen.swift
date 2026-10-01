@@ -35,6 +35,9 @@ struct MyLibraryScreen: View {
                     .focused($focusedKind, equals: .show)
             }
             .padding(.top, 30)
+            // The grid below is inset by the page margin; without the same inset the pills sat at
+            // the page's raw edge, visibly left of the first column.
+            .padding(.horizontal, Theme.Layout.contentMargin)
             .frame(maxWidth: .infinity, alignment: .leading)
             // The grid below already has a section (so DOWN worked); the pills did not (so UP did not).
             .focusSection()
