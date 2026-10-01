@@ -348,6 +348,10 @@ extension SwiftDataSuite {
             await store.load()
 
             #expect(store.nextEpisodeTarget() == nil)
+            // …and says when it arrives, so the Apple TV page has something to hold its focus.
+            var utc = Calendar(identifier: .gregorian)
+            utc.timeZone = TimeZone(identifier: "UTC")!
+            #expect(store.nextAirDate == utc.date(from: DateComponents(year: 2099, month: 1, day: 1)))
         }
 
         /// The page's details failed; the viewer picked season 3, then pressed Try Again. The reload

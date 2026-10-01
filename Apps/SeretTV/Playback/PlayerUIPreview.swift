@@ -13,6 +13,8 @@ import DebridCore
 ///   - `subtitles` — the full subtitle browser with ranked, badged results
 ///   - `subtitlesfailed` — the same browser after a pick that could not be honoured
 ///   - `detail`    — the Movie Detail page with a rating-capable stub store
+///   - `unpremiered` — the page of a show whose every listed episode airs in 2099: no episode to
+///     play, so the screenshot says what holds the page's focus
 ///   - `downloadfinish` — a film page whose requested download finishes 25 s in: the library takes
 ///     it and the page becomes the owned page. Focus the download button first (Down from Play)
 ///     and the screenshot after says where focus went
@@ -45,6 +47,7 @@ struct PlayerUIPreview: View {
         case "inputprobe": InputProbePreview()
         case "detail":     MovieDetailPreview()
         case "downloadfinish": DownloadFinishPreview()
+        case "unpremiered":    UnpremieredShowPreview()
         case "detailwatchlisted": MovieDetailPreview(onWatchlist: true)
         case "sidemenu":            SideMenuPreview(startExpanded: true)
         case "sidemenucollapsed":   SideMenuPreview(startExpanded: false)
@@ -424,6 +427,39 @@ private struct MovieDetailPreview: View {
                 await marks.load()
                 watchlist = marks
             }
+    }
+}
+
+// MARK: - A show that has not premiered
+
+/// The real `DetailView` for a show you do not own whose every listed episode airs in 2099.
+private struct UnpremieredShowPreview: View {
+    @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()))
+    private static let show = MediaItem(id: "show:tmdb:999001", kind: .show, title: "The Long Way Home",
+                                        year: 2099, sources: [], seasons: [], tmdbID: 999_001,
+                                        overview: "A family saga that has not aired yet.")
+
+    var body: some View {
+        NavigationStack {
+            DetailView(item: Self.show, details: Details(), watch: PreviewWatchRating())
+        }
+        .environment(session)
+        .environment(session.makeTileWatchMarks())
+    }
+
+    private struct Details: MediaDetailsProviding {
+        func movieDetails(tmdbID: Int) async throws -> TMDBMovieDetails { throw CancellationError() }
+        func tvDetails(tmdbID: Int) async throws -> TMDBTVDetails {
+            TMDBTVDetails(id: tmdbID, name: "The Long Way Home", firstAirDate: "2099-03-12",
+                          overview: "A family saga that has not aired yet.", posterPath: nil,
+                          backdropPath: nil, numberOfSeasons: 1, genres: [], voteAverage: nil)
+        }
+        func seasonEpisodes(tvID: Int, season: Int) async throws -> [TMDBEpisodeDetails] {
+            (1...6).map { n in
+                TMDBEpisodeDetails(episodeNumber: n, name: "Episode \(n)", overview: nil, stillPath: nil,
+                                   runtime: 50, airDate: String(format: "2099-03-%02d", 11 + n))
+            }
+        }
     }
 }
 

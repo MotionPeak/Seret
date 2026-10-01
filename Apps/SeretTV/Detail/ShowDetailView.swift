@@ -160,15 +160,30 @@ struct ShowDetailView: View {
                     }
                     .buttonStyle(SeretActionButtonStyle())
                 }
-            } else if let target = store.nextEpisodeTarget() {
-                // Nothing downloaded yet — Play still starts the show. Without this the page has no
-                // Play at all, `.defaultFocus` has nothing to focus, and the remote goes dead.
+            } else {
+                // Nothing downloaded yet — Play still starts the show. ONE button whatever it says,
+                // and always there: it is what `.defaultFocus` lands on, and the action row starts
+                // off-screen, so without it the page took no focus at all and the remote went dead
+                // — as it did for a show with nothing aired yet, which has no episode to play.
                 // Busy in the label, never `.disabled` — a disabled button loses tvOS focus. The
                 // page ignores a second press while one is under way (`DetailView.playEpisode`).
-                Button { onPlayEpisode(target.season, target.number) } label: {
-                    Label(downloadingEpisodeID == nil
-                          ? "Play S\(target.season)·E\(target.number)" : "Finding a version…",
-                          systemImage: downloadingEpisodeID == nil ? "play.fill" : "hourglass")
+                let target = store.nextEpisodeTarget()
+                Button {
+                    if let target {
+                        onPlayEpisode(target.season, target.number)
+                    } else if store.episodesState(forSeason: store.selectedSeason) == .failed {
+                        Task { await store.retrySeason() }
+                    } else if trailerURL != nil {
+                        expandTrailer = true
+                    }
+                } label: {
+                    if let target {
+                        Label(downloadingEpisodeID == nil
+                              ? "Play S\(target.season)·E\(target.number)" : "Finding a version…",
+                              systemImage: downloadingEpisodeID == nil ? "play.fill" : "hourglass")
+                    } else {
+                        Label(notYetTitle, systemImage: notYetIcon)
+                    }
                 }
                 .buttonStyle(SeretActionButtonStyle(prominent: true))
                 .focused($initialFocus, equals: .play)
@@ -196,6 +211,26 @@ struct ShowDetailView: View {
         // and UP was a dead press. (`.focusSection()` widens a target; it does NOT trap focus.)
         .frame(maxWidth: .infinity, alignment: .leading)
         .focusSection()
+    }
+
+    /// What the primary button says with no episode to play: the season's episodes are still on
+    /// their way (or failed — pressing asks again), or nothing listed has aired yet.
+    private var notYetTitle: String {
+        switch store.episodesState(forSeason: store.selectedSeason) {
+        case .loading, .failed: return "Play"
+        case .loaded: break
+        }
+        if let date = store.nextAirDate {
+            return "Premieres \(date.formatted(.dateTime.day().month(.abbreviated).year()))"
+        }
+        return trailerURL != nil ? "Trailer" : "Coming Soon"
+    }
+
+    private var notYetIcon: String {
+        switch store.episodesState(forSeason: store.selectedSeason) {
+        case .loading, .failed: return "play.fill"
+        case .loaded: return trailerURL != nil ? "play.rectangle.fill" : "calendar"
+        }
     }
 
     @ViewBuilder private var seasonPicker: some View {

@@ -763,6 +763,16 @@ public final class DetailStore {
         return .end
     }
 
+    /// When the selected season's next episode airs, if TMDB lists one in the future — what a show
+    /// page says when nothing it lists has aired yet ("Premieres 12 Mar"), instead of a Play.
+    public var nextAirDate: Date? {
+        let now = Date()
+        return episodeMeta[selectedSeason]?.values
+            .compactMap { $0.airDate.flatMap(Self.airDateFormatter.date(from:)) }
+            .filter { $0 > now }
+            .min()
+    }
+
     /// TMDB lists an air date in the future for it. Unknown dates count as aired.
     private func hasNotAired(season: Int, number: Int) -> Bool {
         guard let date = episodeMeta[season]?[number]?.airDate,
