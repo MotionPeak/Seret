@@ -11,6 +11,11 @@ struct SubtitleBrowser: View {
 
     @State private var languages: [SubtitleLanguage] = SubtitleLanguages.fallback
     @State private var showAllLanguages = false
+    /// The subtitle being fetched and attached right now. A pick takes a download and an attach —
+    /// seconds — and showed nothing meanwhile, so a second press started a SECOND download (the
+    /// file-id cache only fills once the first finishes): two of the day's OpenSubtitles quota for
+    /// one subtitle.
+    @State private var pickingFileID: Int?
     @FocusState private var focused: String?
 
     private let pinned = ["he", "en"]
@@ -22,7 +27,9 @@ struct SubtitleBrowser: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             header
-            languagePills
+            // Above its later siblings, so the language list it drops down draws OVER the results
+            // instead of the results reading through it.
+            languagePills.zIndex(1)
             if let failure = model.subtitlePickFailure { failureBanner(failure) }
             results
             Spacer(minLength: 0)
@@ -43,7 +50,11 @@ struct SubtitleBrowser: View {
                 await model.searchSubtitles(language: pinned[0])
             }
         }
-        .onExitCommand { onClose() }
+        // Menu closes the language list first, if it is open — it used to close the whole browser
+        // from under it.
+        .onExitCommand {
+            if showAllLanguages { showAllLanguages = false } else { onClose() }
+        }
     }
 
     private var header: some View {
@@ -149,7 +160,13 @@ struct SubtitleBrowser: View {
                             // close unconditionally, so a pick that failed — no account, quota
                             // used up, a dead network — took the list away having changed nothing,
                             // which is indistinguishable from the press being ignored.
-                            Task { if await model.useSubtitle(ranked) { onClose() } }
+                            guard pickingFileID == nil else { return }
+                            pickingFileID = ranked.result.fileID
+                            Task {
+                                let attached = await model.useSubtitle(ranked)
+                                pickingFileID = nil
+                                if attached { onClose() }
+                            }
                         } label: {
                             row(ranked)
                         }
@@ -172,7 +189,10 @@ struct SubtitleBrowser: View {
                         .font(.seretCaption).foregroundStyle(Theme.Palette.textSecondary)
                 }
                 Spacer()
-                if let downloads = ranked.result.downloadCount {
+                if pickingFileID == ranked.result.fileID {
+                    ProgressView().controlSize(.small).tint(Theme.Palette.gold)
+                    Text("Adding\u{2026}").font(.seretCaption).foregroundStyle(Theme.Palette.gold)
+                } else if let downloads = ranked.result.downloadCount {
                     Label(downloads.formatted(.number), systemImage: "arrow.down.circle")
                         .font(.seretCaption).foregroundStyle(Theme.Palette.textSecondary)
                 }

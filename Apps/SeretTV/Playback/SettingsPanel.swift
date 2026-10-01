@@ -43,12 +43,28 @@ private struct PlaybackColumns: View {
     let onSearchSubtitles: () -> Void
     let onSyncToLine: () -> Void
     let onPick: () -> Void
-    /// Seeds focus to the "Subtitles → Off" row when the panel opens, so the arrows navigate the
-    /// options immediately — no extra click to "enter" the menu. `@FocusState` + `.onAppear` is the
-    /// reliable seed HERE; `.defaultFocus`/`.focusScope` stranded focus and left the panel
-    /// uncontrollable. (The opposite holds for the Detail screen's off-screen CTA, which NEEDS
-    /// `.defaultFocus` — don't generalize either rule.)
-    @FocusState private var landingFocused: Bool
+    /// Seeds focus to the subtitle that is ON when the panel opens — "Off" only when none is — so
+    /// the arrows navigate the options immediately, with no extra click to "enter" the menu.
+    ///
+    /// It always landed on "Off", which made Select the most destructive press in the panel: the
+    /// viewer who swiped down by accident and clicked to get back to the film switched their
+    /// subtitles off. The current choice is also where every other player puts you.
+    ///
+    /// `@FocusState` + `.onAppear` is the reliable seed HERE; `.defaultFocus`/`.focusScope` stranded
+    /// focus and left the panel uncontrollable. (The opposite holds for the Detail screen's
+    /// off-screen CTA, which NEEDS `.defaultFocus` — don't generalize either rule.)
+    @FocusState private var landing: Landing?
+
+    private enum Landing: Hashable { case off, track(String) }
+
+    /// The selected track's row when it is on screen, else "Off" — a seed that matches no row is
+    /// dropped, and the panel would open with focus wherever the engine happened to put it.
+    private var landingTarget: Landing {
+        guard let id = model.selectedSubtitleID,
+              (model.embeddedTracks + model.downloadedTracks).contains(where: { $0.id == id })
+        else { return .off }
+        return .track(id)
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 60) {
@@ -56,7 +72,7 @@ private struct PlaybackColumns: View {
             subtitlesColumn
             speedColumn
         }
-        .onAppear { landingFocused = true }
+        .onAppear { landing = landingTarget }
     }
 
     private var audioColumn: some View {
@@ -75,7 +91,7 @@ private struct PlaybackColumns: View {
     private var subtitlesColumn: some View {
         SettingsColumn(header: "SUBTITLES") {
             CheckRow(title: "Off", checked: model.selectedSubtitleID == nil) { model.selectSubtitleOff() }
-                .focused($landingFocused)         // first focused when the panel opens
+                .focused($landing, equals: .off)
 
             // Muxed subtitle tracks that ship inside the file.
             if !model.embeddedTracks.isEmpty {
@@ -84,6 +100,7 @@ private struct PlaybackColumns: View {
                     CheckRow(title: entry.label, checked: model.selectedSubtitleID == entry.track.id) {
                         model.selectSubtitle(id: entry.track.id)
                     }
+                    .focused($landing, equals: .track(entry.track.id))
                 }
             }
             // Subtitles attached from a download this session (auto he/en or a browser pick).
@@ -93,6 +110,7 @@ private struct PlaybackColumns: View {
                     CheckRow(title: entry.label, checked: model.selectedSubtitleID == entry.track.id) {
                         model.selectSubtitle(id: entry.track.id)
                     }
+                    .focused($landing, equals: .track(entry.track.id))
                 }
             }
             // One-click Hebrew/English, for the overwhelmingly common case: an RD rip with no muxed
@@ -103,10 +121,14 @@ private struct PlaybackColumns: View {
             // above, so listing it here too would duplicate it.
             ForEach(model.subtitleRows) { row in
                 if model.attachedTrackID(row) == nil {
+                    // Never `.disabled`: the row turned "downloading" — and disabled — the instant it
+                    // was pressed, which threw focus to the neighbouring row (usually the English
+                    // one), so the viewer's second press downloaded English. A press it cannot act
+                    // on is ignored instead.
                     CheckRow(title: quickTitle(row), checked: false) {
+                        guard !isDisabled(row) else { return }
                         Task { await model.requestSubtitle(language: row.language) }
                     }
-                    .disabled(isDisabled(row))
                 }
             }
 
