@@ -71,6 +71,22 @@ private final class FakePoller: DownloadPolling, @unchecked Sendable {
     }
 }
 
+/// Answers `first` once and nothing after, counting every poll.
+private final class CountingPoller: DownloadPolling, @unchecked Sendable {
+    private let lock = NSLock()
+    private var pending: [DownloadStatus]?
+    private var _polls = 0
+    var polls: Int { lock.withLock { _polls } }
+    init(first: [DownloadStatus]) { pending = first }
+    func poll() async throws -> [DownloadStatus] {
+        lock.withLock {
+            _polls += 1
+            defer { pending = nil }
+            return pending ?? []
+        }
+    }
+}
+
 @MainActor
 @Suite struct DownloadStoreTests {
     private func make(req: any DownloadRequesting = FakeReq(.success(tv("queued"))),
@@ -246,6 +262,23 @@ private final class FakePoller: DownloadPolling, @unchecked Sendable {
         // …but the title's own status stays READY rather than vanishing: cleared, the title page's
         // control fell back to a pressable "Request Download" until the library caught up.
         #expect(s.status(forContentKey: DownloadKey.movie(tmdbID: 5))?.phase == .ready)
+    }
+
+    /// A finished download stays in the store as READY — and must not keep the poll loop alive. Its
+    /// stop condition was "every status failed", which a ready status never satisfies: Seret asked
+    /// Real-Debrid for its torrent list every interval for the rest of the session.
+    @Test func aFinishedDownloadStopsThePolling() async {
+        let key = DownloadKey.movie(tmdbID: 21)
+        let poller = CountingPoller(first: [DownloadStatus(torrentID: "T1", contentKey: key, tmdbID: 21,
+                                                          phase: .ready, fraction: 1)])
+        let s = DownloadStore(service: FakeReq(.success(tv("downloading", id: "T1"))),
+                              records: FakeRecords(), poller: poller, deleter: FakeDeleter(),
+                              pollInterval: .milliseconds(30))
+        await s.request(contentKey: key, tmdbID: 21, title: "X", kind: .movie, candidates: [stream("h1")])
+        try? await Task.sleep(for: .milliseconds(300))      // ten intervals
+
+        #expect(s.status(forContentKey: key)?.phase == .ready)
+        #expect(poller.polls <= 2, "still polling: \(poller.polls) polls")
     }
 
     @Test func refreshFailedKeepsStatusForRetry() async {

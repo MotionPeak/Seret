@@ -246,9 +246,17 @@ public final class DownloadStore {
             while !Task.isCancelled {
                 guard let self else { return }
                 await self.refresh()
-                if self.statuses.allSatisfy({ if case .failed = $0.value.phase { return true } else { return false } }) {
-                    break   // nothing left actively downloading
+                // Nothing left actively downloading. Asked of the ACTIVE phases rather than "all
+                // failed": a finished download now stays in the store as READY, and "all failed"
+                // never became true again — the loop asked Real-Debrid for its torrent list every
+                // interval for the rest of the session.
+                let anyActive = self.statuses.values.contains { status in
+                    switch status.phase {
+                    case .queued, .downloading: return true
+                    case .ready, .failed: return false
+                    }
                 }
+                if !anyActive { break }
                 try? await Task.sleep(for: self.pollInterval + self.pollBackoff)
             }
             self?.pollTask = nil
