@@ -397,6 +397,8 @@ public final class PlayerModel {
     /// it would wait for a count that can no longer move.
     var eventLoopFinished = false
     var hideControlsTask: Task<Void, Never>?
+    /// Something inside the transport is being browsed — see `holdControls(_:)`.
+    var controlsHeld = false
     var scrubBarHideTask: Task<Void, Never>?
     var lastSavedPosition: Double = -.infinity
     /// Last engine-reported position — to detect *sustained* advance (real frames) vs a single

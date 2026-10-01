@@ -16,6 +16,9 @@ struct EpisodePeekStrip: View {
                 if expanded { fullStrip } else { peek }
             }
             .animation(.spring(response: 0.34, dampingFraction: 0.86), value: expanded)
+            // Open, it is being browsed: the transport it lives in must not auto-hide under it.
+            .onChange(of: expanded) { _, open in model.holdControls(open) }
+            .onDisappear { if expanded { model.holdControls(false) } }
         }
     }
 

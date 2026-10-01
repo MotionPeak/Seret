@@ -317,14 +317,28 @@ extension PlayerModel {
     }
 
     /// Hide the transport after `autoHideDelay` of no interaction — but only while actively playing
-    /// and not scrubbing (paused / buffering / error keep the controls up).
+    /// and not scrubbing (paused / buffering / error keep the controls up), and not while held.
     func armAutoHide() {
         hideControlsTask?.cancel()
         guard autoHideDelay > 0 else { return }
         hideControlsTask = Task { @MainActor in
             try? await Task.sleep(for: .seconds(autoHideDelay))
             guard !Task.isCancelled else { return }
-            if phase == .playing, !isScrubbing { controlsVisible = false }
+            if phase == .playing, !isScrubbing, !controlsHeld { controlsVisible = false }
+        }
+    }
+
+    /// Keep the transport up while the viewer is browsing something inside it — the touch player's
+    /// expanded episode strip. Browsing it is scrolling, not tapping, so nothing re-armed the timer
+    /// and auto-hide took the whole transport down, strip and all, four seconds into choosing an
+    /// episode. Releasing re-arms the timer from that moment.
+    public func holdControls(_ held: Bool) {
+        controlsHeld = held
+        if held {
+            controlsVisible = true
+            hideControlsTask?.cancel()
+        } else {
+            armAutoHide()
         }
     }
 }

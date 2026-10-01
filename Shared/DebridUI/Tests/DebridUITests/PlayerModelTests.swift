@@ -271,6 +271,26 @@ import DebridCore
         #expect(model.controlsVisible == true)              // woke back up
     }
 
+    /// The touch player's expanded episode strip lives inside the transport, and browsing it is not
+    /// a tap — so auto-hide took the whole transport down, strip and all, four seconds into choosing
+    /// an episode. A hold keeps it up for as long as the strip is open.
+    @Test func heldControlsDoNotAutoHideUntilReleased() async {
+        let engine = FakeVideoPlayerEngine()
+        let model = makeModel(request: Fixture.request(), engine: engine, autoHideDelay: 0.02)
+        model.start(); await model.waitForIdleForTesting()
+        engine.emit(.state(.playing)); await model.waitForIdleForTesting()
+        model.showControls()
+
+        model.holdControls(true)                            // the strip opens
+        model.showControls()                                // any other tap re-arms the timer…
+        try? await Task.sleep(nanoseconds: 80_000_000)      // well past autoHideDelay
+        #expect(model.controlsVisible == true)              // …and the hold still wins
+
+        model.holdControls(false)                           // …and closes
+        for _ in 0..<50 where model.controlsVisible { try? await Task.sleep(nanoseconds: 20_000_000) }
+        #expect(model.controlsVisible == false)             // auto-hide resumes from there
+    }
+
     @Test func scrubModeNeverAutoHidesControls() async {
         let engine = FakeVideoPlayerEngine()
         let model = makeModel(request: Fixture.request(), engine: engine, autoHideDelay: 0.02)
