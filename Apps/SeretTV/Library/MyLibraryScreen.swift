@@ -40,7 +40,8 @@ struct MyLibraryScreen: View {
             .focusSection()
 
             if let tiles = session.downloadStore?.activeTiles, !tiles.isEmpty {
-                DownloadingStrip(tiles: tiles)
+                DownloadingStrip(tiles: tiles, library: session.libraryStore)
+                    .focusSection()
             }
 
             if let store = session.libraryStore {
@@ -68,18 +69,29 @@ struct MyLibraryScreen: View {
 
 /// A horizontal strip of in-progress downloads above the library grid, so a requested title is
 /// visible (with live progress) before it finishes and becomes a normal library item.
+///
+/// The cards are the focusable Home-rail ones, leading to the title's page. They were bare tiles:
+/// nothing in the strip could take focus, so the remote skipped straight over it from the pills to
+/// the grid — a download you could watch but never open, cancel or check on.
 private struct DownloadingStrip: View {
     let tiles: [DownloadTile]
+    let library: LibraryStore?
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Downloading").font(.seret(.title3, .bold))
                 .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, Theme.Layout.contentMargin)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 30) {
-                    ForEach(tiles) { DownloadingTile(tile: $0) }
+                    ForEach(tiles) { tile in
+                        DownloadingRailCard(tile: tile,
+                                            destination: downloadDestination(for: tile, library: library))
+                    }
                 }
                 .padding(.horizontal, Theme.Layout.contentMargin)
+                .padding(.vertical, 20)       // room for the card's focus lift
             }
+            .scrollClipDisabled()
         }
+        .frame(maxWidth: .infinity)
     }
 }
