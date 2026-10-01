@@ -35,6 +35,10 @@ struct HomeScreen: View {
     /// Nothing on Home YET: the library is still being read, or it has titles that Home has not
     /// composed yet. Both used to show "Nothing here yet — play something", for the whole first
     /// build of a cold launch.
+    /// A Try Again is under way — see `failed(_:)`.
+    @State private var retrying = false
+    @State private var lastFailure: String?
+
     private var stillLoading: Bool {
         guard let library = session.libraryStore else { return false }
         return library.state == .loading || !(library.movies.isEmpty && library.shows.isEmpty)
@@ -46,6 +50,9 @@ struct HomeScreen: View {
             content
         }
         .task { await rebuild() }
+        .onChange(of: session.libraryStore?.state) { _, state in
+            if state != .loading { retrying = false }      // answered, either way
+        }
         .onChange(of: session.libraryStore?.movies) { _, _ in Task { await rebuild() } }
         .onChange(of: session.libraryStore?.shows) { _, _ in Task { await rebuild() } }
         // The active profile resolves asynchronously after sign-in; rebuild once it's known so
@@ -107,6 +114,8 @@ struct HomeScreen: View {
             }
         } else if case .failed(let message) = session.libraryStore?.state {
             failed(message)
+        } else if retrying, let lastFailure {
+            failed(lastFailure)            // the button stays put, saying "Trying…", until it answers
         } else if stillLoading {
             SeretLoader()
         } else {
@@ -123,8 +132,16 @@ struct HomeScreen: View {
                 .foregroundStyle(Theme.Palette.textSecondary)
             Text(message).bodyText().foregroundStyle(Theme.Palette.textSecondary)
                 .multilineTextAlignment(.center).frame(maxWidth: 900)
-            Button { session.libraryStore?.retry() } label: {
-                Label("Try Again", systemImage: "arrow.clockwise")
+            // Pressing it used to swap the whole view for a loader — the focused button went, and
+            // tvOS put focus on the side menu, which opened by itself. It stays, saying so.
+            Button {
+                guard !retrying else { return }
+                retrying = true
+                lastFailure = message
+                session.libraryStore?.retry()
+            } label: {
+                Label(retrying ? "Trying\u{2026}" : "Try Again",
+                      systemImage: retrying ? "hourglass" : "arrow.clockwise")
             }
             .buttonStyle(SeretActionButtonStyle(prominent: true))
         }

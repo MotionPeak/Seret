@@ -180,6 +180,8 @@ struct EpisodePlaceholderCard: View {
 struct EpisodeNoticeCard: View {
     let message: String
     var retry: (() -> Void)?
+    /// The retry is running: the same button, saying so — it must not be swapped for skeletons.
+    var retrying = false
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -189,8 +191,13 @@ struct EpisodeNoticeCard: View {
                     .font(.seret(Theme.Typography.calloutSize, .medium))
                     .foregroundStyle(Theme.Palette.textSecondary)
                 if let retry {
-                    Button("Try Again", action: retry)
-                        .buttonStyle(SeretActionButtonStyle())
+                    Button {
+                        if !retrying { retry() }
+                    } label: {
+                        Label(retrying ? "Trying\u{2026}" : "Try Again",
+                              systemImage: retrying ? "hourglass" : "arrow.clockwise")
+                    }
+                    .buttonStyle(SeretActionButtonStyle())
                 }
             }
             .padding(.top, 24)

@@ -38,6 +38,9 @@ public final class DetailStore {
     public private(set) var episodeMeta: [Int: [Int: TMDBEpisodeDetails]] = [:]   // season → epNo → meta
     /// Seasons whose TMDB episode list could not be fetched. See `episodesState(forSeason:)`.
     private var failedSeasons: Set<Int> = []
+    /// The season a Try Again is fetching. It reads as still FAILED until the answer arrives: going
+    /// back to "loading" swapped the notice card — and its focused Try Again — for skeletons.
+    public private(set) var retryingSeason: Int?
     public private(set) var watchByKey: [String: WatchState] = [:]                // contentKey → state
     /// Set once TMDB details resolve — needed to grab a whole-season pack from the library page.
     public private(set) var imdbID: String?
@@ -252,7 +255,7 @@ public final class DetailStore {
     /// press and no reason given.
     public func episodesState(forSeason n: Int) -> SeasonEpisodesState {
         if episodeMeta[n] != nil { return .loaded }
-        if failedSeasons.contains(n) { return .failed }
+        if failedSeasons.contains(n) || retryingSeason == n { return .failed }
         // No TMDB id: there is no list to fetch, so what the library owns is all there is.
         guard item.tmdbID != nil else { return .loaded }
         // The page's own details failed, so the season list was never asked for at all.
@@ -262,11 +265,14 @@ public final class DetailStore {
 
     /// Ask TMDB for the selected season's episodes again, after a failure.
     public func retrySeason() async {
-        guard let tvID = item.tmdbID else { return }
+        guard let tvID = item.tmdbID, retryingSeason == nil else { return }
+        let season = selectedSeason
+        retryingSeason = season
+        defer { retryingSeason = nil }
         if richState == .failed {
             await load()                       // the details never arrived: start over
         } else {
-            await loadSeason(selectedSeason, tvID: tvID)
+            await loadSeason(season, tvID: tvID)
         }
     }
 
@@ -717,10 +723,10 @@ public final class DetailStore {
     }()
 
     private func loadSeason(_ n: Int, tvID: Int) async {
-        failedSeasons.remove(n)          // a retry is loading again until it says otherwise
         do {
             let eps = try await details.seasonEpisodes(tvID: tvID, season: n)
             episodeMeta[n] = Dictionary(eps.map { ($0.episodeNumber, $0) }, uniquingKeysWith: { a, _ in a })
+            failedSeasons.remove(n)      // only once there is an answer; a retry stays "failed" until then
         } catch {
             // leave episodeMeta[n] nil → owned rows degrade to "Episode N"; selecting the season
             // again retries. Recorded, so an empty season says it failed instead of loading forever.

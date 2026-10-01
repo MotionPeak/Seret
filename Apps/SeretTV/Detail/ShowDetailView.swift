@@ -245,7 +245,8 @@ struct ShowDetailView: View {
                         EpisodeNoticeCard(message: "No episodes in this season yet.")
                     case .failed:
                         EpisodeNoticeCard(message: "Couldn\u{2019}t load this season\u{2019}s episodes.",
-                                          retry: { Task { await store.retrySeason() } })
+                                          retry: { Task { await store.retrySeason() } },
+                                          retrying: store.retryingSeason == store.selectedSeason)
                     }
                 } else {
                     ForEach(rows) { row in

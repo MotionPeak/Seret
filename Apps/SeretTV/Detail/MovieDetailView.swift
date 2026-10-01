@@ -25,6 +25,8 @@ struct MovieDetailView: View {
     @Environment(WatchlistMarks.self) private var watchlist: WatchlistMarks?
     /// Drives Play on a title that is not in the library: find the best cached release, add it, play.
     @State private var acquisition: AcquisitionStore?
+    /// Why Play cannot search, said once it is pressed — see the unowned Play button.
+    @State private var playUnavailable: String?
     /// On screen right now. A play that resolves after the viewer has left — Menu pressed while
     /// "Finding a version…" was still searching — must not push the player over whatever page they
     /// went to (or over a film already playing, which the push then tore down).
@@ -165,7 +167,22 @@ struct MovieDetailView: View {
                 // query an indexer before the IMDb id arrives (pressing then used to fail with "Not
                 // signed in to Real-Debrid", a reason that was not only unhelpful but untrue).
                 Button {
-                    guard !acquiring, let acquisition, store.imdbID != nil else { return }
+                    guard !acquiring else { return }
+                    guard let acquisition, store.imdbID != nil else {
+                        // Still loading, the id is on its way and a press is merely early. Loaded
+                        // without one — TMDB has no IMDb id, or the details never arrived — the
+                        // button used to do nothing at all, which reads as a dead remote.
+                        switch store.richState {
+                        case .loaded:
+                            playUnavailable = "Can\u{2019}t search for versions of this title \u{2014} TMDB has no IMDb id for it."
+                        case .failed:
+                            playUnavailable = "Couldn\u{2019}t load this title\u{2019}s details. Check your connection and try again."
+                        default:
+                            break
+                        }
+                        return
+                    }
+                    playUnavailable = nil
                     Task { await acquisition.playBest(.movie) }
                 } label: {
                     Label(acquiringLabel, systemImage: acquiring ? "hourglass" : "play.fill")
@@ -275,6 +292,10 @@ struct MovieDetailView: View {
     /// What the acquisition is waiting on or failed at. `.noneCached` falls through to the existing
     /// Request Download section below, which already renders whenever there is no playable source.
     @ViewBuilder private var acquisitionStatus: some View {
+        if let playUnavailable {
+            Label(playUnavailable, systemImage: "exclamationmark.triangle")
+                .font(.seretCallout).foregroundStyle(.orange)
+        }
         switch acquisition?.phase {
         case .noneCached:
             Label("No instantly-playable version. Request a download below.",
