@@ -48,6 +48,7 @@ struct PlayerUIPreview: View {
         case "gridfade":            GridTopFadePreview()
         case "person":              PersonScreenPreview()
         case "episodeversions":     EpisodeVersionsPreview()
+        case "episodenotice":       EpisodeNoticePreview()
         case "versions":            VersionListPreview()
         case "autosync":            AutoSyncBarPreview(mood: .measuring)
         case "autosyncdone":        AutoSyncBarPreview(mood: .synced)
@@ -309,6 +310,30 @@ private struct SideMenuPreview: View {
 /// reached with live data. The fixture also pins the ordering: the sources are handed over
 /// worst-first, so a correctly-ranked row shows the right-sized 2160p first and the 40 GB REMUX
 /// last.
+/// The two things an empty episode row can say, each beside a skeleton card so a screenshot shows
+/// they hold the row's height — the property that keeps the page from jumping when one replaces
+/// the skeletons.
+private struct EpisodeNoticePreview: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 40) {
+            HStack(alignment: .top, spacing: 30) {
+                EpisodePlaceholderCard()
+                EpisodeNoticeCard(message: "No episodes in this season yet.")
+            }
+            .border(.red.opacity(0.5))
+            HStack(alignment: .top, spacing: 30) {
+                EpisodePlaceholderCard()
+                EpisodeNoticeCard(message: "Couldn\u{2019}t load this season\u{2019}s episodes.",
+                                  retry: {})
+            }
+            .border(.red.opacity(0.5))
+        }
+        .padding(60)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(CanvasBackground())
+    }
+}
+
 private struct EpisodeVersionsPreview: View {
     @State private var store: DetailStore = {
         func src(_ id: String, _ res: String, _ source: String, _ gb: Double) -> MediaSource {

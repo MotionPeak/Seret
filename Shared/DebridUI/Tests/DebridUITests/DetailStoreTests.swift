@@ -318,6 +318,52 @@ private actor FakeMyList: MyListProviding {
         #expect(rows.allSatisfy { !$0.isDownloaded })
     }
 
+    // MARK: - A season's episode list: loading, loaded, failed
+
+    /// The page draws skeleton cards while a season's list is empty — and "empty" was also what a
+    /// FAILED fetch and a season with no episodes yet looked like, so both showed grey placeholders
+    /// forever. The store now says which it is.
+    @Test func aSeasonWhoseFetchFailedSaysSoAndCanBeRetried() async {
+        let sh = show("9", seasons: [Season(number: 2, episodes: [episode(2, 1, "t1")])])
+        let store = DetailStore(item: sh,
+                                details: FakeDetails(tv: .success(tv(seasons: 3)),
+                                                     seasons: [1: .failure(.boom)]),
+                                watch: nil)
+        await store.load()
+        #expect(store.episodesState(forSeason: 2) == .loaded)
+        await store.selectSeason(1)
+        #expect(store.episodes(forSeason: 1).isEmpty)
+        #expect(store.episodesState(forSeason: 1) == .failed)
+    }
+
+    @Test func aSeasonWithNoEpisodesYetIsLoadedNotLoading() async {
+        let sh = show("9", seasons: [Season(number: 1, episodes: [episode(1, 1, "t1")])])
+        let store = DetailStore(item: sh,
+                                details: FakeDetails(tv: .success(tv(seasons: 2)),
+                                                     seasons: [2: .success([])]),   // announced, empty
+                                watch: nil)
+        await store.load()
+        await store.selectSeason(2)
+        #expect(store.episodes(forSeason: 2).isEmpty)
+        #expect(store.episodesState(forSeason: 2) == .loaded)
+    }
+
+    @Test func aSeasonNotYetAskedForIsLoading() async {
+        let sh = show("9", seasons: [Season(number: 2, episodes: [episode(2, 1, "t1")])])
+        let store = DetailStore(item: sh, details: FakeDetails(tv: .success(tv(seasons: 3))),
+                                watch: nil)
+        #expect(store.episodesState(forSeason: 3) == .loading)
+    }
+
+    /// The whole page's details failing means the season list was never even asked for — that is
+    /// a failure too, not an eternal "loading".
+    @Test func aPageWhoseDetailsFailedDoesNotLeaveTheSeasonLoading() async {
+        let sh = show("9", seasons: [Season(number: 2, episodes: [episode(2, 1, "t1")])])
+        let store = DetailStore(item: sh, details: FakeDetails(tv: .failure(.boom)), watch: nil)
+        await store.load()
+        #expect(store.episodesState(forSeason: 1) == .failed)
+    }
+
     // MARK: - Batched watch reads / fromStart / reloadWatch
 
     @Test func playRequestCarriesTheExplicitFromStartIntent() async {

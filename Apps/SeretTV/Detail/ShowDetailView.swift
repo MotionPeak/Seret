@@ -224,9 +224,19 @@ struct ShowDetailView: View {
         return ScrollView(.horizontal, showsIndicators: false) {
             LazyHStack(alignment: .top, spacing: 30) {
                 if rows.isEmpty {
-                    // Hold the row's HEIGHT with skeletons while the season loads — an empty row
-                    // collapses to nothing and snaps the page's scroll to the top (the B/D jump).
-                    ForEach(0..<5, id: \.self) { _ in EpisodePlaceholderCard() }
+                    switch store.episodesState(forSeason: store.selectedSeason) {
+                    case .loading:
+                        // Hold the row's HEIGHT with skeletons while the season loads — an empty row
+                        // collapses to nothing and snaps the page's scroll to the top (the B/D jump).
+                        ForEach(0..<5, id: \.self) { _ in EpisodePlaceholderCard() }
+                    case .loaded:
+                        // Skeletons here would mean "loading" forever: TMDB lists the season, with
+                        // nothing in it yet.
+                        EpisodeNoticeCard(message: "No episodes in this season yet.")
+                    case .failed:
+                        EpisodeNoticeCard(message: "Couldn\u{2019}t load this season\u{2019}s episodes.",
+                                          retry: { Task { await store.retrySeason() } })
+                    }
                 } else {
                     ForEach(rows) { row in
                         EpisodeRow(store: store, row: row,

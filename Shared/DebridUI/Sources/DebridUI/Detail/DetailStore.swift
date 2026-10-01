@@ -36,6 +36,8 @@ public final class DetailStore {
     public private(set) var overview: String?
     public private(set) var selectedSeason: Int
     public private(set) var episodeMeta: [Int: [Int: TMDBEpisodeDetails]] = [:]   // season → epNo → meta
+    /// Seasons whose TMDB episode list could not be fetched. See `episodesState(forSeason:)`.
+    private var failedSeasons: Set<Int> = []
     public private(set) var watchByKey: [String: WatchState] = [:]                // contentKey → state
     /// Set once TMDB details resolve — needed to grab a whole-season pack from the library page.
     public private(set) var imdbID: String?
@@ -236,6 +238,35 @@ public final class DetailStore {
         let numbers = Set(metas.keys).union(owned.map(\.number)).sorted()
         return numbers.map { n in
             EpisodeRowInfo(season: season, number: n, meta: metas[n], ownedEpisode: ownedByNumber[n])
+        }
+    }
+
+    /// Where a season's episode LIST has got to — distinct from whether any rows exist.
+    public enum SeasonEpisodesState: Equatable, Sendable { case loading, loaded, failed }
+
+    /// Whether an empty season is still coming, really empty, or failed.
+    ///
+    /// The tvOS page drew skeleton cards whenever a season had no rows, on the understanding that
+    /// "no rows" meant "still loading". It also meant a fetch that failed, and a season TMDB lists
+    /// with no episodes yet — both of which then showed grey placeholders forever, with nothing to
+    /// press and no reason given.
+    public func episodesState(forSeason n: Int) -> SeasonEpisodesState {
+        if episodeMeta[n] != nil { return .loaded }
+        if failedSeasons.contains(n) { return .failed }
+        // No TMDB id: there is no list to fetch, so what the library owns is all there is.
+        guard item.tmdbID != nil else { return .loaded }
+        // The page's own details failed, so the season list was never asked for at all.
+        if richState == .failed { return .failed }
+        return .loading
+    }
+
+    /// Ask TMDB for the selected season's episodes again, after a failure.
+    public func retrySeason() async {
+        guard let tvID = item.tmdbID else { return }
+        if richState == .failed {
+            await load()                       // the details never arrived: start over
+        } else {
+            await loadSeason(selectedSeason, tvID: tvID)
         }
     }
 
@@ -629,11 +660,14 @@ public final class DetailStore {
     }
 
     private func loadSeason(_ n: Int, tvID: Int) async {
+        failedSeasons.remove(n)          // a retry is loading again until it says otherwise
         do {
             let eps = try await details.seasonEpisodes(tvID: tvID, season: n)
             episodeMeta[n] = Dictionary(eps.map { ($0.episodeNumber, $0) }, uniquingKeysWith: { a, _ in a })
         } catch {
-            // leave episodeMeta[n] nil → rows degrade to "Episode N"
+            // leave episodeMeta[n] nil → owned rows degrade to "Episode N"; selecting the season
+            // again retries. Recorded, so an empty season says it failed instead of loading forever.
+            failedSeasons.insert(n)
         }
         // TMDB's episode list can be bigger than what you own — for a show you have not added it is
         // the ONLY list — so keys that did not exist when watch state was first read do now.

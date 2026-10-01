@@ -184,6 +184,30 @@ struct EpisodePlaceholderCard: View {
     }
 }
 
+/// What an episode row says when there are no episodes to show — in the row's own height, so the
+/// page does not jump when it replaces the skeletons, and with a way to try again when it failed.
+struct EpisodeNoticeCard: View {
+    let message: String
+    var retry: (() -> Void)?
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            EpisodePlaceholderCard().hidden()          // the height of a row of cards
+            VStack(alignment: .leading, spacing: 20) {
+                Label(message, systemImage: retry == nil ? "tv" : "exclamationmark.triangle")
+                    .font(.seret(Theme.Typography.calloutSize, .medium))
+                    .foregroundStyle(Theme.Palette.textSecondary)
+                if let retry {
+                    Button("Try Again", action: retry)
+                        .buttonStyle(SeretActionButtonStyle())
+                }
+            }
+            .padding(.top, 24)
+            .frame(width: 720, alignment: .leading)
+        }
+    }
+}
+
 /// The words under an episode's still: its title, its runtime/status, and what happens in it.
 ///
 /// The title used to be ONE line — "3 · Denial, Anger, Acc…" — and the synopsis was not shown
