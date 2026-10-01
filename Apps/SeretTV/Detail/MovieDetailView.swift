@@ -315,6 +315,12 @@ struct MovieDetailView: View {
                             QualityChips(parsed: src.parsed)
                             if hebrew == .matched { HebrewBadge(.matched) }
                             Spacer()
+                            if let detail = versionDetail(src) {
+                                Text(detail)
+                                    .font(.seret(Theme.Typography.captionSize, .medium))
+                                    .foregroundStyle(Theme.Palette.textSecondary)
+                                    .lineLimit(1)
+                            }
                             Image(systemName: "play.fill")
                         }
                     }
@@ -341,6 +347,17 @@ struct MovieDetailView: View {
         .frame(maxWidth: 1100, alignment: .leading)
         .frame(maxWidth: .infinity, alignment: .leading)
         .focusSection()
+    }
+
+    /// Release group and size — what tells otherwise identical versions apart. Three rows reading
+    /// "2160p · BluRay · HEVC · DTS" and nothing else left the choice between them to luck.
+    private func versionDetail(_ src: MediaSource) -> String? {
+        var parts: [String] = []
+        if let group = src.parsed.releaseGroup, !group.isEmpty { parts.append(group) }
+        if let bytes = src.sizeBytes, bytes > 0 {
+            parts.append(ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file))
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 }
 
