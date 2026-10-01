@@ -32,13 +32,22 @@ struct HomeScreen: View {
         return !(h.continueWatching.isEmpty && h.recentlyAdded.isEmpty)
     }
 
-    /// Nothing on Home YET: the library is still being read, or it has titles that Home has not
-    /// composed yet. Both used to show "Nothing here yet — play something", for the whole first
-    /// build of a cold launch.
     /// A Try Again is under way — see `failed(_:)`.
     @State private var retrying = false
     @State private var lastFailure: String?
 
+    /// What the failure screen says: the library's own failure, or — while a Try Again is under way
+    /// and the library reads "loading" — the one being retried. ONE value feeding ONE branch: as two
+    /// branches that both drew `failed(…)`, the flip from failed to loading swapped one for the
+    /// other, the focused Try Again went with it, and tvOS put focus on the side menu.
+    private var failureMessage: String? {
+        if case .failed(let message) = session.libraryStore?.state { return message }
+        return retrying ? lastFailure : nil
+    }
+
+    /// Nothing on Home YET: the library is still being read, or it has titles that Home has not
+    /// composed yet. Both used to show "Nothing here yet — play something", for the whole first
+    /// build of a cold launch.
     private var stillLoading: Bool {
         guard let library = session.libraryStore else { return false }
         return library.state == .loading || !(library.movies.isEmpty && library.shows.isEmpty)
@@ -112,10 +121,8 @@ struct HomeScreen: View {
                 }
                 .padding(.vertical, 40)
             }
-        } else if case .failed(let message) = session.libraryStore?.state {
-            failed(message)
-        } else if retrying, let lastFailure {
-            failed(lastFailure)            // the button stays put, saying "Trying…", until it answers
+        } else if let failureMessage {
+            failed(failureMessage)         // the button stays put, saying "Trying…", until it answers
         } else if stillLoading {
             SeretLoader()
         } else {
