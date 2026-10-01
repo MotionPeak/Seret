@@ -18,6 +18,8 @@ import SwiftUI
 ///   - `episodeswap` — the real player screen two seconds into S1E1, then S1E2 picked; the stub
 ///     engine never answers for E2, so the screen stays on the swap — what it shows there is the
 ///     point
+///   - `showdetail` — the real show page for a show you own with S1E2 part-watched: Resume + Start,
+///     the season list, the episode rows (long-press one for its menu)
 ///   - `letterboxdrating` / `letterboxdrerating` — the post-credits rating prompt, unrated and
 ///     already rated 7. Prints what the tap produced, so a screenshot answers it
 ///
@@ -37,6 +39,7 @@ struct PlayerUIPreview: View {
             case "autosyncdone":    MobileAutoSyncPreview(mood: .synced)
             case "autosyncfailed":  MobileAutoSyncPreview(mood: .failed)
             case "episodeswap":     MobileEpisodeSwapPreview()
+            case "showdetail":      MobileShowDetailPreview()
             case "subtitlebrowser":
                 // Tinted here because in the app the browser is pushed INSIDE the settings sheet,
                 // which sets the gold tint — an untinted harness screenshot would show system blue
@@ -175,6 +178,71 @@ final class MobilePreviewEngine: VideoPlayerEngine {
 /// A sync runs for minutes with the film still playing, so this bar is the only thing telling the
 /// viewer it is alive — which makes its legibility over a bright picture, and whether its longest
 /// message fits a narrow phone, the whole question. Only a screenshot settles either.
+/// The real `ShowDetail` over fixed details and watch state — no session, no network.
+private struct MobileShowDetailPreview: View {
+    @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()))
+    @State private var store: DetailStore = {
+        let source = { (id: String) in
+            MediaSource(torrentID: id, fileID: 1, restrictedLink: "rd://\(id)",
+                        parsed: ParsedRelease(title: "The Sopranos", resolution: "1080p"))
+        }
+        let seasons = (1...2).map { s in
+            Season(number: s, episodes: (1...3).map { n in
+                Episode(season: s, number: n, source: source("s\(s)e\(n)"))
+            })
+        }
+        let show = MediaItem(id: "show:tmdb:1398", kind: .show, title: "The Sopranos", year: 1999,
+                             sources: [], seasons: seasons, tmdbID: 1398,
+                             overview: "New Jersey mob boss Tony Soprano deals with personal and professional issues.")
+        return DetailStore(item: show, details: Details(), watch: Watch(), profileID: "preview")
+    }()
+
+    var body: some View {
+        ShowDetail(store: store, onPlay: { request in
+            print("[preview] play \(request.label) fromStart=\(request.fromStart) resumeAt=\(String(describing: request.resumeAt))")
+        })
+        .environment(session)
+        .environment(session.makeTileWatchMarks())
+        .task { await store.load() }
+    }
+
+    private struct Details: MediaDetailsProviding {
+        func movieDetails(tmdbID: Int) async throws -> TMDBMovieDetails { throw CancellationError() }
+        func tvDetails(tmdbID: Int) async throws -> TMDBTVDetails {
+            TMDBTVDetails(id: tmdbID, name: "The Sopranos", firstAirDate: "1999-01-10",
+                          overview: "New Jersey mob boss Tony Soprano deals with personal and professional issues.",
+                          posterPath: nil, backdropPath: nil, numberOfSeasons: 2, genres: [], voteAverage: 8.6)
+        }
+        func seasonEpisodes(tvID: Int, season: Int) async throws -> [TMDBEpisodeDetails] {
+            (1...3).map { n in
+                TMDBEpisodeDetails(episodeNumber: n, name: ["Pilot", "46 Long", "Denial, Anger, Acceptance"][n - 1],
+                                   overview: "Tony's world shifts as the family business and the family collide.",
+                                   stillPath: nil, runtime: 55, airDate: "1999-01-10")
+            }
+        }
+    }
+
+    /// S1E1 finished, S1E2 part-way — so Play reads "Resume S1·E2" and Start sits beside it.
+    private struct Watch: WatchProgressProviding {
+        func progress(forContentKey key: String, profileID: String) async throws -> WatchState? {
+            switch key {
+            case "show:tmdb:1398:s1e1":
+                return WatchState(contentKey: key, sourceKey: "s1e1#1", positionSeconds: 3200,
+                                  durationSeconds: 3300, finished: true, updatedAt: Date().addingTimeInterval(-600))
+            case "show:tmdb:1398:s1e2":
+                return WatchState(contentKey: key, sourceKey: "s1e2#1", positionSeconds: 1250,
+                                  durationSeconds: 3000, finished: false, updatedAt: Date())
+            default:
+                return nil
+            }
+        }
+        func record(contentKey: String, sourceKey: String, positionSeconds: Double,
+                    durationSeconds: Double, finished: Bool, profileID: String) async throws {}
+        func recentlyWatched(limit: Int, profileID: String) async throws -> [WatchState] { [] }
+        func deleteProgress(forContentKeys keys: [String]) async throws {}
+    }
+}
+
 /// The real `PlayerView` over a model driven by the stub engine; the VLC engine is there only for
 /// its (black) video surface.
 private struct MobileEpisodeSwapPreview: View {
