@@ -78,7 +78,7 @@ struct MovieDetail: View {
                 if !store.cast.isEmpty { CastRail(cast: store.cast) }
                 if !store.similar.isEmpty {
                     SimilarRail(titles: store.similar, parentKind: .movie,
-                                onOpenOwned: onOpenTitle, onAddNew: onAddTitle)
+                                onOpen: onOpenTitle)
                 }
             }
             .frame(maxWidth: 700, alignment: .leading)

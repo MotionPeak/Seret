@@ -15,10 +15,9 @@ struct ShowDetail: View {
     /// Builds a single-episode download engine for (imdbID, season, episode, originalLanguage).
     var makeEpisodeDownload: (String, Int, Int, String?) -> AddStore? = { _, _, _, _ in nil }
     var onSeasonAdded: () -> Void = {}
-    /// A "More Like This" poster was tapped — owned opens its Detail, new opens the Add flow.
+    /// A "More Like This" poster was tapped — open that title's page, owned or not.
     /// The parent presents (see `SimilarRail`).
     var onOpenTitle: (MediaItem) -> Void = { _ in }
-    var onAddTitle: (SearchHit) -> Void = { _ in }
     /// Open the version list for ONE episode — the episode equivalent of a movie's "Versions".
     var onFindEpisodeVersions: (SearchHit, Int, Int) -> Void = { _, _, _ in }
     @State private var seasonStore: AddStore?
@@ -70,7 +69,7 @@ struct ShowDetail: View {
                 if !store.cast.isEmpty { CastRail(cast: store.cast) }
                 if !store.similar.isEmpty {
                     SimilarRail(titles: store.similar, parentKind: .show,
-                                onOpenOwned: onOpenTitle, onAddNew: onAddTitle)
+                                onOpen: onOpenTitle)
                 }
             }
             .frame(maxWidth: 700, alignment: .leading)

@@ -72,7 +72,6 @@ struct DetailScreen: View {
                                 },
                                 onSeasonAdded: { session.libraryStore?.retry() },
                                 onOpenTitle: { similarDetail = $0 },
-                                onAddTitle: { versionsHit = $0 },
                                 onFindEpisodeVersions: { hit, season, number in
                                     episodeVersions = EpisodeVersionsTarget(hit: hit, season: season,
                                                                             number: number)
