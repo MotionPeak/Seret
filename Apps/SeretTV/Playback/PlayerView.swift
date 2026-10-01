@@ -242,6 +242,12 @@ struct PlayerView: View {
         .onChange(of: showEpisodes) { _, open in if !open { model.revealScrubBar() } }
         .onChange(of: showSubtitleBrowser) { _, open in if !open { model.revealScrubBar() } }
         .onChange(of: showManualSync) { _, open in if !open { model.revealScrubBar() } }
+        // The model ends the session when the file changes under it (an episode swap, a retry):
+        // the lines it was syncing belonged to the old subtitle. The panel goes with it — left up,
+        // it drew nothing yet still counted as open, holding Up Next and eating the next Menu.
+        .onChange(of: model.manualSyncReadout == nil) { _, ended in
+            if ended { showManualSync = false }
+        }
         .onChange(of: model.shouldDismiss) { _, dismissNow in if dismissNow { dismiss() } }
         // Each prompt starts as an invitation, whatever happened to the last one.
         .onChange(of: isAskingRating) { _, asking in if !asking { ratingEngaged = false } }

@@ -53,6 +53,7 @@ final class FakeVideoPlayerEngine: VideoPlayerEngine, EventCountingEngineForTest
               audioTrackID: String?) {
         loadCount += 1
         loadedURL = url
+        slavesOfCurrentMedia = []        // a new media starts with none attached
         loadedAudioLanguage = audioLanguage
         loadedAudioTrackID = audioTrackID
     }
@@ -76,7 +77,10 @@ final class FakeVideoPlayerEngine: VideoPlayerEngine, EventCountingEngineForTest
         // track appears. Modelled, because the app's attach handshake waits for a newcomer — and
         // a wait that can never end is exactly how a second ask for an already-attached language
         // timed out into "not found".
-        let known = addedSubtitles.contains(url)
+        // Per MEDIA, as libvlc's are: a reload or an episode swap is a new media, and attaching
+        // the same file to it works.
+        let known = slavesOfCurrentMedia.contains(url)
+        slavesOfCurrentMedia.insert(url)
         addedSubtitles.append(url)
         guard !deferSlaveAttach, !known else { return }
         // Simulate VLCKit surfacing the external sub as a new, generically-named slave track.
@@ -86,6 +90,7 @@ final class FakeVideoPlayerEngine: VideoPlayerEngine, EventCountingEngineForTest
                                          isExternal: true))
     }
     private var slaveCount = 0
+    private var slavesOfCurrentMedia: Set<URL> = []
 }
 
 // MARK: - FakeTrackPreferences

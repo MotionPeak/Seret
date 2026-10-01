@@ -335,6 +335,10 @@ public final class PlayerModel {
     /// the settings panel closing, while still dying with the player.
     var autoSyncTask: Task<Void, Never>?
     var autoSyncProgressTask: Task<Void, Never>?
+    /// Which measurement is the live one. Each run captures it, and bumping it disowns every run
+    /// started before — so a run that was abandoned but has not finished unwinding can no longer
+    /// write the shared state the CURRENT run is reporting through.
+    var autoSyncGeneration = 0
     var autoSyncETA = ETAEstimator()
 
     /// How long to let VLCKit finish discovering subtitle tracks before falling back to a download.

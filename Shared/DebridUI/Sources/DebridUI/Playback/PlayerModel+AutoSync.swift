@@ -144,10 +144,34 @@ extension PlayerModel {
     public func startAutoSync() {
         guard autoSyncState != .measuring, canAutoSyncSubtitle else { return }
         autoSyncTask?.cancel()
+        autoSyncGeneration += 1
+        let generation = autoSyncGeneration
         autoSyncTask = Task { @MainActor [weak self] in
-            await self?.autoSyncSubtitle()
-            self?.autoSyncTask = nil
+            await self?.autoSyncSubtitle(generation: generation)
+            if self?.autoSyncGeneration == generation { self?.autoSyncTask = nil }
         }
+    }
+
+    /// Stop a measurement and forget it: the file it is listening to, or the subtitle it would
+    /// shift, is no longer the one on screen.
+    ///
+    /// `reload()` — an episode swap, a retry, "Try another version" — reset every other piece of
+    /// subtitle state and left this one running. Minutes later it shifted the NEW file's subtitle
+    /// by the offset it had measured on the old one, and announced "Subtitles synced"; until then
+    /// its `.measuring` state refused a sync for the new file. The probe is stopped too, so the
+    /// old file's audio stops competing with the film for the connection.
+    func cancelAutoSync() {
+        autoSyncGeneration += 1
+        autoSyncTask?.cancel()
+        autoSyncTask = nil
+        autoSyncProgressTask?.cancel()
+        autoSyncProgressTask = nil
+        autoSyncOutcomeTask?.cancel()
+        autoSyncOutcomeTask = nil
+        autoSyncProgress = nil
+        autoSyncOutcome = nil
+        autoSyncState = .idle
+        audioProbe?.cancel()
     }
 
     /// Put the outcome on the bar, and take it down again a few seconds later.
@@ -199,11 +223,16 @@ extension PlayerModel {
         await settleForTesting()
     }
 
-    func autoSyncSubtitle() async {
+    /// - Parameter generation: the run this is, from `startAutoSync`; nil (a direct call, as the
+    ///   tests make) is the current one.
+    func autoSyncSubtitle(generation: Int? = nil) async {
         guard autoSyncState != .measuring,
               let audioProbe,
               let subtitleURL = selectedDownloadedSubtitleFile,
               let text = Self.readSubtitle(at: subtitleURL) else { return }
+        let generation = generation ?? autoSyncGeneration
+        /// Still the run the model is reporting through — false once it has been abandoned.
+        var isCurrent: Bool { generation == autoSyncGeneration }
 
         autoSyncState = .measuring
         autoSyncETA = ETAEstimator()
@@ -215,13 +244,17 @@ extension PlayerModel {
         // bar reports the same thing on every path out, including the early refusals.
         var applied: Double?
         defer {
-            if autoSyncState == .measuring { autoSyncState = .failed }
-            autoSyncProgressTask?.cancel()
-            autoSyncProgressTask = nil
-            autoSyncProgress = nil          // the bar shows the outcome now, not the progress
-            reportAutoSyncOutcome(applied.map {
-                String(format: "Subtitles synced  ·  shifted %+.1fs", $0)
-            } ?? "Couldn't sync the subtitles \u{2014} nudge the timing by hand")
+            // An abandoned run reports nothing and touches nothing: the state it would write is
+            // the next run's, or the clean slate a new file started from.
+            if isCurrent {
+                if autoSyncState == .measuring { autoSyncState = .failed }
+                autoSyncProgressTask?.cancel()
+                autoSyncProgressTask = nil
+                autoSyncProgress = nil          // the bar shows the outcome now, not the progress
+                reportAutoSyncOutcome(applied.map {
+                    String(format: "Subtitles synced  ·  shifted %+.1fs", $0)
+                } ?? "Couldn't sync the subtitles \u{2014} nudge the timing by hand")
+            }
         }
 
         guard let url = try? await unrestrict(currentSource.restrictedLink) else {
@@ -375,7 +408,7 @@ extension PlayerModel {
         // Cancellation is cooperative, so the result is already in hand by the time the await
         // returns, and applying it would move a subtitle the viewer has just dialled in
         // themselves — minutes after they stopped looking at it.
-        guard !Task.isCancelled else {
+        guard !Task.isCancelled, isCurrent else {
             note("auto-sync: cancelled before applying — leaving the subtitle as it is")
             return
         }

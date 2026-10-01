@@ -213,4 +213,99 @@ import DebridCore
 
         #expect(m.autoSyncState == PlayerModel.AutoSyncState.idle)
     }
+
+    // MARK: - A measurement belongs to the file it is listening to
+
+    /// A sync takes minutes and the film keeps playing, so the file can change under it — Up Next
+    /// rolls into the next episode, or the viewer picks "Try another version". `reload()` reset
+    /// every other piece of subtitle state and left this one running: minutes later it shifted the
+    /// NEW episode's subtitle by the offset it measured on the old one, and until then its
+    /// `.measuring` state refused a sync for the new file.
+    @Test func aFileChangeAbandonsTheMeasurementInFlight() async {
+        let gated = GatedAudioProbe(inner: FakeAudioProbe.speaking(at: cueTimes.map { $0 - 4 }))
+        let player = gatedModel(probe: gated)
+        await prepared(player)
+
+        player.startAutoSync()
+        await gated.waitUntilAsked()
+        #expect(player.autoSyncState == .measuring)
+
+        player.retry()                                  // the file changes under the measurement
+        #expect(player.autoSyncState == .idle, "the new file has not been measured")
+        #expect(player.autoSyncProgress == nil)
+
+        gated.release()                                 // the old measurement comes back
+        try? await Task.sleep(for: .milliseconds(200))
+        await player.waitForIdleForTesting()
+
+        #expect(player.subtitleDelay == 0, "its answer was about a file that is gone")
+        #expect(player.autoSyncState == .idle)
+        #expect(player.autoSyncOutcome == nil)
+    }
+
+    /// The abandoned run must not reach into the NEXT one either: its exit path used to flip
+    /// whatever was `.measuring` to `.failed` and clear the progress — the new run's, by then.
+    @Test func anAbandonedMeasurementCannotFailTheNextOne() async {
+        let gated = GatedAudioProbe(inner: FakeAudioProbe.speaking(at: cueTimes.map { $0 - 4 }))
+        let player = gatedModel(probe: gated)
+        await prepared(player)
+        player.startAutoSync()
+        await gated.waitUntilAsked()
+
+        player.retry()                                  // abandon the first…
+        await player.waitForIdleForTesting()
+        await player.requestSubtitle(language: "he")    // …the new file gets its subtitle…
+        await player.waitForIdleForTesting()
+        player.setDurationForTesting(900)
+        player.startAutoSync()                          // …and its own measurement
+        await gated.waitUntilAsked(count: 2)
+        #expect(player.autoSyncState == .measuring)
+
+        gated.release()                                 // the FIRST one returns, late
+        try? await Task.sleep(for: .milliseconds(200))
+        #expect(player.autoSyncState == .measuring, "the second run is still listening")
+
+        gated.release()                                 // the second one finishes
+        try? await Task.sleep(for: .milliseconds(300))
+        await player.waitForIdleForTesting()
+        #expect(player.autoSyncState == .synced)
+        #expect(abs(player.subtitleDelay - (-4.0)) < 0.35)
+    }
+
+    private func gatedModel(probe: GatedAudioProbe) -> PlayerModel {
+        let subs = FakeSubtitleProvider()
+        subs.searchResults = [SubtitleResult(fileID: 1, language: "he")]
+        subs.downloadedText = srt
+        return PlayerModel(request: Fixture.request(), engine: FakeVideoPlayerEngine(),
+                           unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
+                           recordProgress: { _, _, _, _, _ in }, subtitles: subs,
+                           subtitleShiftDebounce: 0.01, audioProbe: probe,
+                           autoSyncWindow: 90, autoSyncMaxLag: 5, autoSyncMinimumHalf: 25)
+    }
+}
+
+/// A probe that holds every measurement until the test lets it go, so a file can change while one
+/// is in flight.
+@MainActor
+private final class GatedAudioProbe: AudioLoudnessProbing {
+    private let inner: FakeAudioProbe
+    private var waiting: [CheckedContinuation<Void, Never>] = []
+    private(set) var asked = 0
+
+    init(inner: FakeAudioProbe) { self.inner = inner }
+
+    func loudness(url: URL, from startSeconds: Double, seconds: Double) async -> LoudnessWindow? {
+        asked += 1
+        await withCheckedContinuation { waiting.append($0) }
+        return await inner.loudness(url: url, from: startSeconds, seconds: seconds)
+    }
+
+    /// Let the oldest held measurement return.
+    func release() { if !waiting.isEmpty { waiting.removeFirst().resume() } }
+
+    func waitUntilAsked(count: Int = 1) async {
+        for _ in 0..<200 where asked < count { try? await Task.sleep(for: .milliseconds(10)) }
+    }
+
+    func cancel() {}
 }

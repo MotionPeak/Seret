@@ -50,9 +50,8 @@ public extension PlayerModel {
         let cues = manualSyncCues
         guard !cues.isEmpty else { return }
         // A measurement already running would land minutes from now and overwrite the answer the
-        // viewer is about to give by hand.
-        autoSyncTask?.cancel()
-        autoSyncTask = nil
+        // viewer is about to give by hand. Forgotten, not failed: the viewer superseded it.
+        cancelAutoSync()
         manualSync = ManualSyncSession(selectedIndex: SubtitleCues.nearest(to: position, in: cues) ?? 0,
                                        capturedMoment: nil)
     }

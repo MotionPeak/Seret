@@ -323,6 +323,9 @@ extension PlayerModel {
         attachedSubtitleTracks = [:]   // …and where each attached FILE landed is just as positional
         subtitleShiftCopies = [:]      // …and every shifted copy of a file this media no longer has
         cancelSubtitleShift()
+        // A sync is about the file it listened to and the subtitle it would move — both gone now.
+        cancelAutoSync()
+        manualSync = nil
         subtitleRows = Self.freshSubtitleRows(hasAccount: subtitles != nil)
         lastSavedPosition = -.infinity
         loadTask?.cancel()
