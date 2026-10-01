@@ -154,6 +154,37 @@ private final class CountingPoller: DownloadPolling, @unchecked Sendable {
         #expect(s.status(forContentKey: key)?.torrentID == "T2")
     }
 
+    /// Real-Debrid reports an uncached torrent with no seeders as converting a magnet — `.queued` —
+    /// for as long as it is stuck, which is exactly the download a viewer replaces. Every `.queued`
+    /// was taken for the store's own "still choosing a version" placeholder, so another version or
+    /// a pasted magnet said it was sent and changed nothing.
+    @Test func aDifferentReleaseReplacesOneRealDebridHasQueued() async {
+        let req = ScriptedReq(["h1": [.success(tv("magnet_conversion", id: "T1"))],
+                               "h2": [.success(tv("downloading", id: "T2"))]])
+        let deleter = FakeDeleter()
+        let s = make(req: req, deleter: deleter)
+        let key = DownloadKey.movie(tmdbID: 11)
+        await s.request(contentKey: key, tmdbID: 11, title: "X", kind: .movie, candidates: [stream("h1")])
+        #expect(s.status(forContentKey: key)?.phase == .queued)
+        await s.request(contentKey: key, tmdbID: 11, title: "X", kind: .movie, candidates: [stream("h2")])
+        #expect(req.calls == ["h1", "h2"])
+        #expect(deleter.deleted == ["T1"])
+        #expect(s.status(forContentKey: key)?.torrentID == "T2")
+    }
+
+    /// …and the same release pressed again while Real-Debrid has it queued is still just a second
+    /// press.
+    @Test func theSameReleasePressedAgainWhileQueuedStartsNothing() async {
+        let req = ScriptedReq(["h1": [.success(tv("queued", id: "T1")), .success(tv("queued", id: "T1b"))]])
+        let deleter = FakeDeleter()
+        let s = make(req: req, deleter: deleter)
+        let key = DownloadKey.movie(tmdbID: 11)
+        await s.request(contentKey: key, tmdbID: 11, title: "X", kind: .movie, candidates: [stream("h1")])
+        await s.request(contentKey: key, tmdbID: 11, title: "X", kind: .movie, candidates: [stream("h1")])
+        #expect(req.calls == ["h1"])
+        #expect(deleter.deleted.isEmpty)
+    }
+
     @Test func requestFallsBackThroughCandidates() async {
         // First candidate is a dead magnet; second starts.
         let req = FakeReq(.failure(.boom), perHash: ["h2": .success(tv("downloading", id: "T2"))])

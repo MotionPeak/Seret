@@ -130,17 +130,23 @@ public final class DownloadStore {
                         candidates: [CachedStream], posterPath: String? = nil) async {
         // One download per title at a time. A second press while the first was starting or running
         // added a SECOND torrent, and the one tile then alternated between the two progress values.
-        switch statuses[contentKey]?.phase {
-        case .queued:
-            return                  // the first press is still choosing a version
-        case .downloading:
-            // …but a DIFFERENT release is the viewer replacing the one under way — "pick another
-            // version" on a download stuck at 3%, a pasted magnet. Ignoring it reported success
-            // and changed nothing. The tracked download is cancelled and the new one started; the
-            // same release again is just a second press.
-            if await isTheReleaseUnderWay(statuses[contentKey], candidates: candidates) { return }
-            await cancel(contentKey: contentKey)
-        default: break
+        if let current = statuses[contentKey] {
+            switch current.phase {
+            case .queued where current.torrentID.isEmpty:
+                return              // the first press is still choosing a version
+            case .queued, .downloading:
+                // …but a DIFFERENT release is the viewer replacing the one under way — "pick
+                // another version" on a download stuck at 3%, a pasted magnet. Ignoring it
+                // reported success and changed nothing. Real-Debrid's own waiting states count
+                // (queued, converting a magnet, waiting for file selection — all `.queued` here):
+                // a magnet with no seeders sits converting for good, and that is exactly the
+                // download a viewer replaces. The tracked one is cancelled and the new one
+                // started; the same release again is just a second press.
+                if await isTheReleaseUnderWay(current, candidates: candidates) { return }
+                await cancel(contentKey: contentKey)
+            case .ready, .failed:
+                break
+            }
         }
         guard !candidates.isEmpty else {
             statuses[contentKey] = .failed(contentKey, tmdbID, "No version available to download.")
