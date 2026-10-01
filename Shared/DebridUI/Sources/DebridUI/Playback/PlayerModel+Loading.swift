@@ -81,6 +81,10 @@ extension PlayerModel {
             // watchdog, so a dead link for the incoming episode left the spinner up with no Retry.
             guard engineHoldsCurrentMedia else { break }
             phase = .playing
+            // The stall clock restarts with play. It still held the last advance from BEFORE the
+            // pause, so every resume after a pause longer than the threshold briefly read as a
+            // stall — "Buffering…" over a film that was playing.
+            lastAdvanceStamp = .now
             markRendered()
             refreshTracks()
             armAutoHide()
@@ -160,7 +164,7 @@ extension PlayerModel {
                 // an exit) worked from 0.
                 position = t.position
                 positionStamp = .now
-                playheadSettled = true
+                settlePlayhead()
             } else if !resumeSeekIssued {
                 #if DEBUG
                 resumeProbe("DEFERRED seek — early one was DROPPED")
@@ -178,7 +182,7 @@ extension PlayerModel {
                     resumeTarget = 0
                     position = t.position
                     positionStamp = .now
-                    playheadSettled = true
+                    settlePlayhead()
                     return
                 }
             }
@@ -212,7 +216,7 @@ extension PlayerModel {
 
         position = t.position
         positionStamp = .now        // when THIS figure was true — see `preciseNow`
-        if !playheadSettled { playheadSettled = true }   // a real playhead for THIS media
+        if !playheadSettled { settlePlayhead() }   // a real playhead for THIS media
         // The drift correction is a function of position, so it has to be recomputed as position
         // moves. VLCKit ticks once a second; within one tick a 4% error is 40ms, imperceptible.
         if isCorrectingSubtitleDrift { applyEffectiveSubtitleDelay() }
@@ -371,6 +375,18 @@ extension PlayerModel {
         }
     }
 
+    /// The playhead is real for this media from here on.
+    ///
+    /// "Start over" describes how this session BEGAN. Once there is a real place in the film, that
+    /// is the one to come back to: a Retry or "Try another version" forty minutes in used to start
+    /// from 0:00 again — and the first tick overwrote the forty minutes. Cleared HERE rather than
+    /// at the first frame: libvlc reports `.playing` before any tick, so a stream that failed in
+    /// between had already dropped the intent — and its Retry resumed at the saved place instead.
+    func settlePlayhead() {
+        playheadSettled = true
+        if fromStart { fromStart = false }
+    }
+
     /// First frames are on screen. Clears the loading state so the overlay/spinner hide.
     func markRendered() {
         #if DEBUG
@@ -384,10 +400,6 @@ extension PlayerModel {
         if !hasRenderedFrame {
             hasRenderedFrame = true
             markStreamPlaybackStarted()
-            // "Start over" describes how this session BEGAN. Once it is playing, the place it has
-            // reached is the one to come back to: a Retry or "Try another version" forty minutes in
-            // used to start from 0:00 again — and the first tick overwrote the forty minutes.
-            if fromStart { fromStart = false }
         }
         if isBuffering { isBuffering = false }
         if loadWatchdog != nil {
@@ -451,7 +463,13 @@ extension PlayerModel {
         // minutes into a two-hour film that is not the end: it closed the film or started the next
         // episode. Pick up where it stopped instead, once per place — a file that really does stop
         // there (a short encode, a container that overstates its length) ends on the second try.
-        if stoppedShortOfTheEnd, interruptedAt.map({ abs(position - $0) > 30 }) ?? true {
+        //
+        // Not past the finish line, though. There the place to come back to is "finished", and a
+        // finished title has no resume point (it would resume into the credits) — so the reopen
+        // started the film again from 0:00 and its first tick un-finished it. An end in the
+        // credits, early or not, is the end.
+        if stoppedShortOfTheEnd, !hasReachedEnd(at: position, duration: duration),
+           interruptedAt.map({ abs(position - $0) > 30 }) ?? true {
             interruptedAt = position
             await recordCurrentProgress()
             guard !isTornDown else { return }

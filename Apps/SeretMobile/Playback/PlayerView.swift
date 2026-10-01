@@ -38,7 +38,11 @@ struct PlayerView: View {
             switch model.phase {
             case .preparing:
                 loadingOverlay("Preparing…")
-            case .buffering where model.position == 0:
+            // A cold open, as on tvOS — not "the playhead is at 0". While a resume travels,
+            // `position` already holds the place being resumed, so a resumed play (and a Retry,
+            // and a swap to a part-watched episode) lost its overlay: controls over a black screen
+            // with live skip zones, whose double-tap cancelled the pending resume.
+            case .buffering where model.isColdOpen:
                 loadingOverlay("Buffering…")
             case .failed(let reason):
                 ErrorOverlay(reason: reason, canTryAnother: model.canTryAnotherVersion, backdropURL: backdropURL,
