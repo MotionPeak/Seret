@@ -51,6 +51,30 @@ private func removedEntry(_ slug: String, at when: Date) -> WatchlistEntry {
         }
     }
 
+    /// Opening a film from the Watchlist pushes its page, and a push makes the Watchlist disappear —
+    /// which cancelled its `.task`, and with it a crawl that ran inside that task. The cancellation
+    /// came back as an error, so returning showed "Import failed" over a list that had been fine,
+    /// and the crawl started again. The model owns the crawl now; the asker going away is nothing.
+    @Test func aSyncWhoseAskerWentAwayFinishesQuietly() async {
+        let gate = SyncGate()
+        let crawls = CrawlCount()
+        let model = WatchlistModel(cached: [], settings: enabled(lastImport: nil)) { _ in
+            await crawls.bump()
+            await gate.wait()
+            try Task.checkCancellation()          // what a real network call does when cancelled
+            return [entry("speed", position: 0, tmdbID: 1637)]
+        }
+        let asker = Task { await model.syncNow() }
+        try? await Task.sleep(for: .milliseconds(30))
+        asker.cancel()                            // the viewer opens a film mid-crawl
+        await gate.open()
+        await asker.value
+
+        #expect(model.phase == .idle, "a crawl nobody is waiting on is not a failed one")
+        #expect(model.entries.map(\.slug) == ["speed"])
+        #expect(await crawls.value == 1, "and it is not started again")
+    }
+
     @Test func openingAgainStraightAwayDoesNotReCrawl() async {
         let ran = RanFlag()
         let justNow = Date()
@@ -165,4 +189,24 @@ private func removedEntry(_ slug: String, at when: Date) -> WatchlistEntry {
         #expect(model.canSpin == false)
         #expect(model.spin() == nil)
     }
+}
+
+/// Holds a crawl until the test opens it, so the asker can go away mid-crawl.
+private actor SyncGate {
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var opened = false
+    func wait() async {
+        guard !opened else { return }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+    func open() {
+        opened = true
+        for w in waiters { w.resume() }
+        waiters = []
+    }
+}
+
+private actor CrawlCount {
+    private(set) var value = 0
+    func bump() { value += 1 }
 }

@@ -43,6 +43,8 @@ public final class WatchlistModel {
     private let minimumInterval: TimeInterval
     private let now: @Sendable () -> Date
     private let run: WatchlistSyncRunning
+    /// The crawl in flight, owned here rather than by whoever asked — see `syncNow()`.
+    @ObservationIgnored private var syncTask: Task<Void, Never>?
     private let removeSlug: WatchlistRemoving
     private let relay: WatchlistRelaying
 
@@ -117,11 +119,25 @@ public final class WatchlistModel {
     /// True when a spin has something to land on — drives whether the control is offered at all.
     public var canSpin: Bool { !WatchlistRandomizer.eligible(entries).isEmpty }
 
-    /// The button. Always syncs.
+    /// The button. Always syncs — or joins the sync already running.
+    ///
+    /// The crawl runs in a task the MODEL owns. It used to run in the caller's: the screen's
+    /// `.task`, which a push cancels (opening a film makes the Watchlist disappear). The cancelled
+    /// crawl came back as an error, so returning showed "Import failed" over a list that had been
+    /// fine, and the next appearance crawled Letterboxd all over again.
     public func syncNow() async {
+        if let syncTask { await syncTask.value; return }
         guard !settings.username.isEmpty else { return }
-        if case .syncing = phase { return }
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.performSync()
+        }
+        syncTask = task
+        await task.value
+        syncTask = nil
+    }
 
+    private func performSync() async {
         phase = .syncing(done: 0, total: 0)
         do {
             let result = try await run { [weak self] done, total in
