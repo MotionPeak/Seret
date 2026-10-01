@@ -104,7 +104,7 @@ struct MovieDetailView: View {
             }
             RatingsRow(ratings: store.ratings, letterboxd: store.letterboxdRating)
             if let overview = store.overview {
-                Text(overview).bodyText().frame(maxWidth: 1100, alignment: .leading).lineLimit(4)
+                ExpandableOverview(text: overview, title: item.title)
             }
             actions
             acquisitionStatus

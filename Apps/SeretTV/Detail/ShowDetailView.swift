@@ -103,7 +103,7 @@ struct ShowDetailView: View {
             }
             RatingsRow(ratings: store.ratings)
             if let overview = store.overview {
-                Text(overview).bodyText().frame(maxWidth: 1100, alignment: .leading).lineLimit(4)
+                ExpandableOverview(text: overview, title: item.title)
             }
             heroActions
             UserRatingRow(store: store)

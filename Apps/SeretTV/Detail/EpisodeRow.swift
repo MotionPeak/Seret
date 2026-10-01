@@ -22,12 +22,12 @@ struct EpisodeRow: View {
     private var isWatched: Bool { watch?.finished == true }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        Group {
             if let ep = row.ownedEpisode, let src = row.ownedSource {
                 NavigationLink(value: store.playRequest(source: src, episode: ep, label: label)) {
-                    still
+                    lockup
                 }
-                .buttonStyle(.card)
+                .buttonStyle(.borderless)
                 .contextMenu {
                     Button(isWatched ? "Mark Unwatched" : "Mark Watched") {
                         Task { await store.setWatched(!isWatched, contentKey: contentKey, source: src) }
@@ -42,8 +42,8 @@ struct EpisodeRow: View {
                 // Not `.disabled(isDownloading)`: a disabled card cannot keep focus, so the press
                 // that started the download threw focus out of the row. The page ignores a second
                 // press while one is under way (`DetailView.playEpisode`).
-                Button { onDownload(row) } label: { still }
-                    .buttonStyle(.card)
+                Button { onDownload(row) } label: { lockup }
+                    .buttonStyle(.borderless)
                     .contextMenu {
                         Button(isWatched ? "Mark Unwatched" : "Mark Watched") {
                             Task { await store.setWatched(!isWatched, contentKey: contentKey,
@@ -52,14 +52,19 @@ struct EpisodeRow: View {
                         findOtherVersionsLink
                     }
             }
-            HStack(spacing: 8) {
-                Text(title).cardTitle().lineLimit(1)
-                if isWatched { Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.Palette.gold) }
-            }
-            if !subtitle.isEmpty {
-                Text(subtitle).font(.seret(Theme.Typography.captionSize, .medium))
-                    .foregroundStyle(Theme.Palette.textSecondary)
-            }
+        }
+        .frame(width: width, alignment: .leading)
+    }
+
+    /// The still AND its words, as one focus target — the tvOS "lockup". Only the still was
+    /// focusable before, so the focus engine scrolled the page just far enough to show the still,
+    /// and the title and synopsis under it ran off the bottom of the screen. The highlight stays on
+    /// the still alone (`hoverEffect`), the way the Apple TV app draws an episode.
+    private var lockup: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            still.hoverEffect(.highlight)
+            EpisodeCardText(title: title, meta: subtitle, synopsis: row.meta?.overview,
+                            isWatched: isWatched)
         }
         .frame(width: width, alignment: .leading)
     }
@@ -169,10 +174,44 @@ struct EpisodePlaceholderCard: View {
             RoundedRectangle(cornerRadius: Theme.Layout.posterCorner, style: .continuous)
                 .fill(Theme.Palette.surface2)
                 .frame(width: width, height: width * 9 / 16)
-            RoundedRectangle(cornerRadius: 4).fill(Theme.Palette.surface2).frame(width: 200, height: 18)
-            RoundedRectangle(cornerRadius: 4).fill(Theme.Palette.surface2.opacity(0.6)).frame(width: 120, height: 14)
+            // The real card's own text block, redacted: the same fonts and the same reserved lines,
+            // so the row is exactly as tall loading as loaded and nothing below it moves when the
+            // season arrives.
+            EpisodeCardText(title: "Episode title", meta: "00 min", synopsis: "Synopsis")
+                .redacted(reason: .placeholder)
         }
         .frame(width: width, alignment: .leading)
-        .redacted(reason: .placeholder)
+    }
+}
+
+/// The words under an episode's still: its title, its runtime/status, and what happens in it.
+///
+/// The title used to be ONE line — "3 · Denial, Anger, Acc…" — and the synopsis was not shown
+/// anywhere on the page, so choosing an episode meant choosing it by number. Every line here
+/// RESERVES its space, so a card with a short title or no synopsis is as tall as its neighbours:
+/// the synopses line up across the row, and the skeleton matches it exactly.
+struct EpisodeCardText: View {
+    let title: String
+    let meta: String
+    let synopsis: String?
+    var isWatched = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(title).cardTitle().lineLimit(2, reservesSpace: true)
+                if isWatched {
+                    Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.Palette.gold)
+                }
+            }
+            Text(meta).font(.seret(Theme.Typography.captionSize, .medium))
+                .foregroundStyle(Theme.Palette.textSecondary)
+                .lineLimit(1, reservesSpace: true)
+            Text(synopsis ?? "").font(.seret(Theme.Typography.captionSize, .regular))
+                .foregroundStyle(Theme.Palette.textSecondary.opacity(0.9))
+                .lineLimit(3, reservesSpace: true)
+                .padding(.top, 2)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
