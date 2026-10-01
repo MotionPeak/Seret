@@ -170,7 +170,11 @@ struct LibraryShell: View {
             await watchlistMarks?.load()
         }
         .environment(watchlistMarks ?? .placeholder)
-        .onChange(of: tab) { _, new in if new == .home { Task { await session.refreshHome() } } }
+        .onChange(of: tab) { _, new in
+            if new == .home { Task { await session.refreshHome() } }
+            // A page the viewer comes back to should not show a library from hours ago.
+            session.libraryStore?.refreshIfStale(maxAge: RootView.libraryMaxAge)
+        }
         .onChange(of: path.isEmpty) { _, empty in if empty { Task { await session.refreshHome() } } }
         .fullScreenCover(isPresented: $showingProfiles) {
             WhoIsWatchingScreen(onPicked: { showingProfiles = false }).environment(session)

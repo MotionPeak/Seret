@@ -9,6 +9,10 @@ struct RootView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var splashDone = false
 
+    /// How old the library may get before coming back to the app re-reads it. A refresh with
+    /// nothing new is one paginated Real-Debrid call.
+    static let libraryMaxAge: TimeInterval = 120
+
     var body: some View {
         ZStack {
             switch session.state {
@@ -40,6 +44,9 @@ struct RootView: View {
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
             Task { await session.letterboxdPush?.drain() }
+            // tvOS keeps a suspended app alive for days; without this, titles added from DMM, the
+            // phone or the Real-Debrid site never appeared until the app was killed.
+            session.libraryStore?.refreshIfStale(maxAge: Self.libraryMaxAge)
         }
     }
 }

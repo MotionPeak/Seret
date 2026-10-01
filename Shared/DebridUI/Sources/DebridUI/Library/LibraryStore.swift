@@ -1,4 +1,5 @@
 import DebridCore
+import Foundation
 import Observation
 
 /// The library UI's single source of truth: cache-first instant render, then a background
@@ -41,11 +42,17 @@ public final class LibraryStore {
     /// `.task`. Wired by the composition root (`AppSession`); `nil` in isolation/tests by default.
     public var onContentChanged: (@MainActor () async -> Void)?
 
+    /// When the last load ended, however it ended — what `refreshIfStale` measures from.
+    public private(set) var lastLoadEndedAt: Date?
+    private let now: @MainActor () -> Date
+
     public init(library: LibraryProviding, watch: WatchProgressProviding? = nil,
-                profileID: @escaping @MainActor () -> String? = { nil }) {
+                profileID: @escaping @MainActor () -> String? = { nil },
+                now: @escaping @MainActor () -> Date = { Date() }) {
         self.library = library
         self.watch = watch
         self.profileID = profileID
+        self.now = now
     }
 
     #if DEBUG
@@ -81,6 +88,7 @@ public final class LibraryStore {
         loadTask = task
         await task.value
         loadTask = nil
+        lastLoadEndedAt = now()
         // The owner, and only the owner, runs whatever was asked for while it was busy.
         if reloadPending {
             reloadPending = false
@@ -135,6 +143,20 @@ public final class LibraryStore {
         attempt += 1
         if loadTask != nil { reloadPending = true }
         Task { @MainActor [weak self] in await self?.load() }
+    }
+
+    /// Reload when the library has not been refreshed for `maxAge` seconds — what a foregrounded
+    /// app, or a page the viewer comes back to, calls. tvOS keeps a suspended app alive for days and
+    /// the shell loads the library exactly once, at mount, so a title added from DMM, the phone or
+    /// the Real-Debrid site stayed invisible — and a deleted one stayed playable-looking — until the
+    /// app was killed. A refresh with nothing new is one paginated list call. Returns whether it
+    /// reloaded.
+    @discardableResult
+    public func refreshIfStale(maxAge: TimeInterval) -> Bool {
+        guard loadTask == nil else { return false }      // a load in flight is already answering
+        if let last = lastLoadEndedAt, now().timeIntervalSince(last) < maxAge { return false }
+        reload()
+        return true
     }
 
     /// Permanently remove an item from Real-Debrid, purge its watch progress, and drop it from

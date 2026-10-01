@@ -30,6 +30,9 @@ struct RootView: View {
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
             Task { await session.letterboxdPush?.drain() }
+            // An app left in the background keeps its library; re-read it if it has gone stale so a
+            // title added elsewhere shows up without relaunching.
+            session.libraryStore?.refreshIfStale(maxAge: 120)
         }
         .environment(router)
         .task { if tileMarks == nil { tileMarks = session.makeTileWatchMarks() } }
