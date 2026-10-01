@@ -136,6 +136,25 @@ private let comedy = DiscoverStore.Genre(name: "Comedy", tmdbID: 35)
         #expect(fake.calls.count == callsAfterEnd)
     }
 
+    /// A page that FAILED is not the end of the results. It was read as an empty page — `try?`
+    /// flattened the error to nothing — so one dropped request while scrolling ended the grid for
+    /// good, with two hundred titles still behind it.
+    @Test func aFailedPageIsRetriedNotTakenAsTheEnd() async {
+        let fake = FakeGenreBrowsing()
+        let s = store(fake)
+        await s.load()
+
+        fake.failEverything = true
+        await s.loadMore()
+        #expect(!s.reachedEnd)
+        #expect(s.hits.count == 3)
+
+        fake.failEverything = false
+        await s.loadMore()                      // the next scroll to the bottom asks again
+        #expect(s.hits.count == 6)
+        #expect(fake.calls.last?.page == 2)     // …for the page that failed, not the one after it
+    }
+
     /// The focus-glide race: a gated fetch for Action is still in flight when the user lands on
     /// Comedy. Releasing Action afterwards must NOT overwrite Comedy's grid.
     @Test func staleGenreFetchIsDiscarded() async {

@@ -130,11 +130,14 @@ public final class GenreGridStore {
         defer { inFlight = false }
 
         let page = nextPage
-        let fetched = try? await browsing.titles(kind: kind, genreID: genre.tmdbID,
-                                                 sort: sort, page: page)
+        // A thrown page is NOT an empty one. `try?` made them the same thing, so one dropped request
+        // while scrolling marked the grid finished for good. A failure leaves `nextPage` where it
+        // is: the next time the viewer reaches the bottom, that page is asked for again.
+        guard let fetched = try? await browsing.titles(kind: kind, genreID: genre.tmdbID,
+                                                       sort: sort, page: page) else { return }
         guard myToken == token else { return }          // superseded mid-flight
 
-        let new = (fetched ?? []).map { SearchHit(result: $0, kind: kind) }
+        let new = fetched.map { SearchHit(result: $0, kind: kind) }
         let known = Set(hits.map(\.id))
         let fresh = new.filter { !known.contains($0.id) }
         if fresh.isEmpty {
