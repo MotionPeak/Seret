@@ -31,26 +31,36 @@ public final class TileWatchMarks {
 
     public func isWatched(_ hit: SearchHit) -> Bool { finished.contains(hit.contentKey) }
 
-    /// Read watch state for the titles whose answer could still change.
+    /// Marks made here, by key → the edit count when they were made. See `load`.
+    private var editedAt: [String: UInt64] = [:]
+    private var edits: UInt64 = 0
+
+    /// Read watch state for every title in the grid — one batched read over the local store.
     ///
-    /// Only a FINISHED result is worth remembering: it cannot become unfinished on its own, and the
-    /// one thing that can un-finish it — an explicit mark — goes through `set`. Remembering the
-    /// UNFINISHED ones too, which is what a plain "already read" cache did, meant a title watched
-    /// during this session never grew its tick: the grid had recorded that it looked once and would
-    /// not look again until the app was relaunched.
+    /// It used to skip titles already known FINISHED, on the theory that the answer could not change
+    /// on its own. It can: a mark made anywhere else (the title page, the library grid, Continue
+    /// Watching) un-finishes a title, and the poster kept its tick, dimmed, until relaunch. Before
+    /// that it had also cached the UNFINISHED answers, so a title watched during the session never
+    /// grew one. Every answer is current now.
     ///
-    /// Re-reading the rest costs one batched fetch per grid appearance, over the local store.
+    /// A mark made on THIS object while the read was in flight outranks what the read found — the
+    /// read answers a question asked before the viewer pressed.
     public func load(_ hits: [SearchHit]) async {
         guard let watch = watch() else { return }
-        let keys = Array(Set(hits.map(\.contentKey)).subtracting(finished))
+        let keys = Array(Set(hits.map(\.contentKey)))
         guard !keys.isEmpty else { return }
+        let asked = edits
         guard let states = try? await watch.progress(forContentKeys: keys, profileID: profileID())
         else { return }
-        for (key, state) in states where state.finished { finished.insert(key) }
+        for key in keys where (editedAt[key] ?? 0) <= asked {
+            if states[key]?.finished == true { finished.insert(key) } else { finished.remove(key) }
+        }
     }
 
     /// Reflect a mark the user just made, without waiting for a re-read.
     public func set(_ watched: Bool, for hit: SearchHit) {
+        edits &+= 1
+        editedAt[hit.contentKey] = edits
         if watched { finished.insert(hit.contentKey) } else { finished.remove(hit.contentKey) }
     }
 }

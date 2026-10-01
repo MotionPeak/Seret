@@ -23,6 +23,27 @@ private actor CountingWatch: WatchProgressProviding {
     func recentlyWatched(limit: Int, profileID: String) async throws -> [WatchState] { [] }
     func deleteProgress(forContentKeys keys: [String]) async throws {}
     func calls() -> Int { batchCalls }
+    /// Somewhere else — a title page, the library grid — marked it unwatched.
+    func unfinish(_ key: String) { rows[key] = nil }
+}
+
+/// Answers from a snapshot taken when the read STARTS, and holds the answer until released — a
+/// read in flight while the viewer long-presses a poster.
+private actor GatedWatch: WatchProgressProviding {
+    private var waiter: CheckedContinuation<Void, Never>?
+    private(set) var started = false
+    func progress(forContentKey key: String, profileID: String) async throws -> WatchState? { nil }
+    func progress(forContentKeys keys: [String], profileID: String) async throws -> [String: WatchState] {
+        started = true
+        await withCheckedContinuation { waiter = $0 }
+        return [:]                                       // what it read: nothing finished
+    }
+    func record(contentKey: String, sourceKey: String, positionSeconds: Double,
+                durationSeconds: Double, finished: Bool, profileID: String) async throws {}
+    func recentlyWatched(limit: Int, profileID: String) async throws -> [WatchState] { [] }
+    func deleteProgress(forContentKeys keys: [String]) async throws {}
+    func release() { waiter?.resume(); waiter = nil }
+    func hasStarted() -> Bool { started }
 }
 
 @MainActor
@@ -43,18 +64,31 @@ private actor CountingWatch: WatchProgressProviding {
         #expect(await watch.calls() == 1)
     }
 
-    /// A key already known FINISHED is never re-read — that answer cannot change on its own, and
-    /// the one thing that can un-finish it goes through `set`.
-    ///
-    /// This used to assert that NO key was re-read, which is the same cache with a bug in it: it
-    /// also remembered the unfinished ones, so a title watched during the session never grew its
-    /// tick. Re-reading only the titles whose answer could still change is what that costs.
-    @Test func doesNotRefetchATitleItAlreadyKnowsIsFinished() async {
-        let watch = CountingWatch(["movie:tmdb:1", "movie:tmdb:2"])
+    /// A finished answer was never read again — "it cannot become unfinished on its own" — but a
+    /// mark made ANYWHERE else (the title page, the library grid, Continue Watching) does exactly
+    /// that, and the poster kept its tick, dimmed, until the app was relaunched. Every load reads
+    /// the grid again; it is one batched local read.
+    @Test func aTitleUnmarkedElsewhereLosesItsTick() async {
+        let watch = CountingWatch(["movie:tmdb:1"])
         let marks = TileWatchMarks(watch: { watch }, profileID: { "" })
-        await marks.load([hit(1, .movie), hit(2, .movie)])
-        await marks.load([hit(1, .movie), hit(2, .movie)])
-        #expect(await watch.calls() == 1)
+        await marks.load([hit(1, .movie)])
+        #expect(marks.isWatched(hit(1, .movie)))
+        await watch.unfinish("movie:tmdb:1")
+        await marks.load([hit(1, .movie)])
+        #expect(!marks.isWatched(hit(1, .movie)))
+    }
+
+    /// …but a read that began before a long-press mark answers a question asked before it, and must
+    /// not undo the tick the viewer just placed.
+    @Test func aReadAlreadyInFlightDoesNotUndoAMarkJustMade() async {
+        let watch = GatedWatch()
+        let marks = TileWatchMarks(watch: { watch }, profileID: { "" })
+        let load = Task { await marks.load([hit(1, .movie)]) }
+        while !(await watch.hasStarted()) { await Task.yield() }
+        marks.set(true, for: hit(1, .movie))
+        await watch.release()
+        await load.value
+        #expect(marks.isWatched(hit(1, .movie)))
     }
 
     @Test func fetchesOnlyTheNewKeysWhenTheGridGrows() async {
@@ -124,19 +158,20 @@ private actor CountingWatch: WatchProgressProviding {
         #expect(marks.isWatched(subject) == true)
     }
 
-    /// …and a title already known finished is not re-read, so the common case stays one fetch.
-    @Test func aFinishedTitleIsNotReReadEveryTime() async {
+    /// What a grid appearance costs: ONE batched read, however many posters it holds. (Finished
+    /// titles used to be skipped to save even that, which is what kept a tick on a title marked
+    /// unwatched elsewhere — see `aTitleUnmarkedElsewhereLosesItsTick`.)
+    @Test func eachLoadIsOneBatchedReadForTheWholeGrid() async {
         let watch = MutableWatch()
-        let subject = hit(42, .movie)
-        await watch.markFinished(subject.contentKey)
+        let grid = (1...30).map { hit($0, .movie) }
+        await watch.markFinished(grid[4].contentKey)
         let marks = TileWatchMarks(watch: { watch }, profileID: { "p1" })
 
-        await marks.load([subject])
-        await marks.load([subject])
-        await marks.load([subject])
+        await marks.load(grid)
+        await marks.load(grid)
 
-        #expect(marks.isWatched(subject) == true)
-        #expect(await watch.batchReads == 1)
+        #expect(marks.isWatched(grid[4]) == true)
+        #expect(await watch.batchReads == 2)
     }
 }
 
