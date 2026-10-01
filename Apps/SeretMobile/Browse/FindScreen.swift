@@ -10,6 +10,12 @@ struct FindScreen: View {
     @State private var kind: MediaKind = .movie
 
     @Environment(AppSession.self) private var session
+    /// Changes with what For You is seeded from — the library loading or changing, the profile
+    /// resolving. See the segment load task.
+    private var seedSignature: String {
+        let size = (session.libraryStore?.movies.count ?? 0) + (session.libraryStore?.shows.count ?? 0)
+        return "\(size)-\(session.activeProfileID ?? "")"
+    }
     @Environment(AppRouter.self) private var router
     /// OPTIONAL, deliberately. A non-optional `@Environment` read of an `@Observable` TRAPS when
     /// the object is not in the environment, and it does not reliably cross a presentation
@@ -121,7 +127,9 @@ struct FindScreen: View {
                 // Keyed on kind AND segment so a Movies→Shows flip re-fires the load even when both
                 // stores sit on the same segment (else the id wouldn't change and the new kind's rails
                 // would stay stuck on the spinner).
-                .task(id: "\(kind.rawValue)/\(browse.selectedSegment.rawValue)") {
+                // …and on the library's size: a For You built before the library loaded is
+                // rebuilt with personal rails once it lands (a loaded segment is a no-op).
+                .task(id: "\(kind.rawValue)/\(browse.selectedSegment.rawValue)/\(seedSignature)") {
                     await browse.loadSegment(browse.selectedSegment)
                 }
                 // Warm the first screenful of rail posters as rails land (the id re-fires per new

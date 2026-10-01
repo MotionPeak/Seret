@@ -92,6 +92,17 @@ public final class DiscoverStore {
     public let kind: MediaKind
     private let discover: DiscoverProviding
     private let seeds: RecommendationSeedProviding?
+    /// What For You was last built from: the best seeds there were at the time.
+    private enum ForYouBasis: Int, Comparable {
+        case trending   // no seeds at all — the library had not loaded
+        case library    // library titles, but no watch history — the profile had not resolved
+        case history    // "Because you watched…" — as personal as it gets
+        static func < (a: Self, b: Self) -> Bool { a.rawValue < b.rawValue }
+    }
+    private var forYouBasis: ForYouBasis = .history
+    /// The load running for each segment. Owned by the store, NOT by whichever view asked: see
+    /// `loadSegment`.
+    private var segmentLoads: [Segment: Task<Void, Never>] = [:]
     private let now: @Sendable () -> Date
 
     /// Selected-segment state, so existing view code can read one `state`.
@@ -159,11 +170,40 @@ public final class DiscoverStore {
     /// completes** (in spec order), so the first rail appears in ~one request's time instead of
     /// after the whole segment finishes. The segment flips to `.loaded` the moment its first rail
     /// has content; if every rail comes back empty it ends `.failed`.
+    ///
+    /// **Owned by the store.** The load used to run inside the asking view's `.task`, so leaving the
+    /// segment — or anything re-keying that task — cancelled it; an ask landing while it was still
+    /// unwinding found the segment `.loading` and returned, and the cancelled load then set it back
+    /// to `.idle`. Nobody was loading any more: skeletons for good. Now the load runs to completion
+    /// in a task of its own, and every ask joins it — so a segment left mid-load is simply finished
+    /// when the viewer comes back.
     public func loadSegment(_ segment: Segment) async {
+        if let running = segmentLoads[segment] { await running.value }
+        // A For You built from less than the best seeds is rebuilt once better ones exist. The
+        // browse pages are built at launch, kept alive behind Home, so For You was routinely asked
+        // for before the library had loaded (Trending) or before the profile had resolved (library
+        // titles, no watch history) — and that was then cached as loaded, so "Because you
+        // watched…" never appeared for the rest of the session.
+        if segment == .forYou, statesBySegment[.forYou] == .loaded, forYouBasis < .history,
+           await availableForYouBasis() > forYouBasis {
+            statesBySegment[.forYou] = .idle
+        }
+        // Another ask may have started one while this one was awaiting.
+        if let running = segmentLoads[segment] { await running.value; return }
         switch statesBySegment[segment] ?? .idle {
         case .loading, .loaded: return
         case .idle, .failed: break
         }
+        let load = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.performSegmentLoad(segment)
+        }
+        segmentLoads[segment] = load
+        await load.value
+        if segmentLoads[segment] == load { segmentLoads[segment] = nil }
+    }
+
+    private func performSegmentLoad(_ segment: Segment) async {
         statesBySegment[segment] = .loading
         rowsBySegment[segment] = []
         if kind == .movie && camIDs.isEmpty {
@@ -189,10 +229,6 @@ public final class DiscoverStore {
                 if next < specs.count { addTask(next); next += 1 } else { running -= 1 }
             }
         }
-        // A cancelled load goes back to `.idle`, never stays `.loaded`. The guard at the top refuses
-        // to start from `.loaded`, so leaving Browse mid-load — the ordinary way to leave it — used
-        // to freeze the page on whichever rails happened to have finished, permanently.
-        guard !Task.isCancelled else { statesBySegment[segment] = .idle; return }
         if rowsBySegment[segment]?.isEmpty ?? true { statesBySegment[segment] = .failed }
     }
 
@@ -264,12 +300,21 @@ public final class DiscoverStore {
     private func forYouSpecs() async -> [RowSpec] {
         let d = discover, k = kind
         let seedList = await seeds?.seeds(kind: kind, limit: 10) ?? []
+        forYouBasis = seedList.isEmpty ? .trending
+            : seedList.contains(where: \.watched) ? .history : .library
         guard !seedList.isEmpty else { return trendingSpecs() }   // fallback: never blank
         return seedList.map { seed in
             let title = seed.watched ? "Because you watched \(seed.title)" : "More like \(seed.title)"
             return RowSpec(id: "rec-\(seed.tmdbID)", title: title,
                            fetch: { (try? await d.recommended(k, tmdbID: seed.tmdbID)) ?? [] })
         }
+    }
+
+    /// The best basis the seeds could give right now. Watched seeds come first, so one is enough
+    /// to tell.
+    private func availableForYouBasis() async -> ForYouBasis {
+        guard let seeds, let first = await seeds.seeds(kind: kind, limit: 1).first else { return .trending }
+        return first.watched ? .history : .library
     }
 
     // MARK: - Progressive assembly

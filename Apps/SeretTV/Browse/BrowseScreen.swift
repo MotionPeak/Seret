@@ -11,6 +11,12 @@ struct BrowseScreen: View {
     let kind: MediaKind
 
     @Environment(AppSession.self) private var session
+    /// Changes with what For You is seeded from — the library loading or changing, the profile
+    /// resolving. See the segment load task.
+    private var seedSignature: String {
+        let size = (session.libraryStore?.movies.count ?? 0) + (session.libraryStore?.shows.count ?? 0)
+        return "\(size)-\(session.activeProfileID ?? "")"
+    }
     /// OPTIONAL, deliberately. A non-optional `@Environment` read of an `@Observable` TRAPS when
     /// the object is not in the environment, and it does not reliably cross a presentation
     /// boundary — which is the `EnvironmentValues.subscript.getter → assertionFailure` SIGTRAP in
@@ -48,7 +54,10 @@ struct BrowseScreen: View {
             // Load the selected segment whenever it changes (and on first show). Keyed on kind TOO,
             // so Find's Movies→Shows flip re-fires the load even when both stores sit on the same
             // segment (else the id wouldn't change and the new kind's rails would stay stuck loading).
-            .task(id: "\(kind.rawValue)/\(browse.selectedSegment.rawValue)") {
+            // …and on the library's size, so a For You built before the library had loaded (from
+            // the Trending fallback) is rebuilt with personal rails once it lands. A loaded segment
+            // is otherwise a no-op to ask for again.
+            .task(id: "\(kind.rawValue)/\(browse.selectedSegment.rawValue)/\(seedSignature)") {
                 await browse.loadSegment(browse.selectedSegment)
             }
         } else {

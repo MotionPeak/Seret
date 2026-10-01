@@ -40,33 +40,58 @@ import DebridCore
 
     // MARK: - Browse
 
-    /// Every rail hangs, so the segment is certain to be mid-load when it is cancelled.
-    private struct HangingDiscover: DiscoverProviding {
-        private func hang() async throws -> [TMDBSearchResult] {
-            try await Task.sleep(for: .seconds(60))
-            return []
+    /// Every rail waits for the gate, so the segment is certain to be mid-load when its asker
+    /// goes away.
+    private final class GatedDiscover: DiscoverProviding, @unchecked Sendable {
+        let gate = BrowseGate()
+        private func held(_ id: Int) async throws -> [TMDBSearchResult] {
+            await gate.wait()
+            return [TMDBSearchResult(id: id, title: "T\(id)", name: nil, releaseDate: "2020-01-01",
+                                     firstAirDate: nil, posterPath: "/p.jpg", overview: nil, voteAverage: nil)]
         }
-        func nowPlayingMovies() async throws -> [TMDBSearchResult] { try await hang() }
-        func trending(_ k: MediaKind, window: TMDBTrendingWindow) async throws -> [TMDBSearchResult] { try await hang() }
-        func topRatedCurated(_ k: MediaKind) async throws -> [TMDBSearchResult] { try await hang() }
-        func newOverall(_ k: MediaKind, from: String, to: String) async throws -> [TMDBSearchResult] { try await hang() }
-        func decade(_ k: MediaKind, from: String, to: String) async throws -> [TMDBSearchResult] { try await hang() }
-        func recommended(_ k: MediaKind, tmdbID: Int) async throws -> [TMDBSearchResult] { try await hang() }
-        func newByGenre(_ k: MediaKind, _ g: Int, from: String, to: String) async throws -> [TMDBSearchResult] { try await hang() }
-        func popularByGenre(_ k: MediaKind, _ g: Int) async throws -> [TMDBSearchResult] { try await hang() }
-        func topRatedByGenre(_ k: MediaKind, _ g: Int) async throws -> [TMDBSearchResult] { try await hang() }
+        func nowPlayingMovies() async throws -> [TMDBSearchResult] { [] }
+        func trending(_ k: MediaKind, window: TMDBTrendingWindow) async throws -> [TMDBSearchResult] { try await held(1) }
+        func topRatedCurated(_ k: MediaKind) async throws -> [TMDBSearchResult] { try await held(2) }
+        func newOverall(_ k: MediaKind, from: String, to: String) async throws -> [TMDBSearchResult] { try await held(3) }
+        func decade(_ k: MediaKind, from: String, to: String) async throws -> [TMDBSearchResult] { try await held(4) }
+        func recommended(_ k: MediaKind, tmdbID: Int) async throws -> [TMDBSearchResult] { try await held(5) }
+        func newByGenre(_ k: MediaKind, _ g: Int, from: String, to: String) async throws -> [TMDBSearchResult] { try await held(100 + g) }
+        func popularByGenre(_ k: MediaKind, _ g: Int) async throws -> [TMDBSearchResult] { try await held(1_000 + g) }
+        func topRatedByGenre(_ k: MediaKind, _ g: Int) async throws -> [TMDBSearchResult] { try await held(10_000 + g) }
     }
 
-    @Test func aCancelledBrowseSegmentCanBeLoadedAgain() async {
-        let store = DiscoverStore(kind: .movie, discover: HangingDiscover())
-        let load = Task { await store.loadSegment(.popular) }
-        try? await Task.sleep(for: .seconds(0.05))
-        load.cancel()
-        await load.value
+    actor BrowseGate {
+        private var waiters: [CheckedContinuation<Void, Never>] = []
+        private var opened = false
+        func wait() async {
+            guard !opened else { return }
+            await withCheckedContinuation { waiters.append($0) }
+        }
+        func open() {
+            opened = true
+            for w in waiters { w.resume() }
+            waiters = []
+        }
+    }
 
-        // `.loaded` (set the moment the first rail lands) and `.loading` both refuse a reload, so
-        // leaving Browse mid-load froze the page on whichever rails happened to have finished.
-        #expect(store.segmentState(.popular) == .idle)
+    /// Leaving Browse mid-load used to cancel the load itself — it ran in the asking view's task —
+    /// and the page then sat on its skeletons, or on whichever rails had finished, for the session.
+    /// The store owns the load now: the asker going away does not abandon it, so the segment is
+    /// finished, every rail in, when the viewer comes back. (This test used to assert the opposite
+    /// repair — a cancelled segment falling back to `.idle` so it could be reloaded — which was a
+    /// second load of everything, and raced a re-ask into stranding the segment for good.)
+    @Test func aBrowseSegmentLeftMidLoadIsFinishedOnReturn() async {
+        let discover = GatedDiscover()
+        let store = DiscoverStore(kind: .movie, discover: discover)
+        let asker = Task { await store.loadSegment(.popular) }
+        try? await Task.sleep(for: .seconds(0.05))
+        asker.cancel()                              // the viewer leaves
+        await discover.gate.open()                  // the rails come back while they are away
+        await store.loadSegment(.popular)           // …and they return
+        await asker.value
+
+        #expect(store.segmentState(.popular) == .loaded)
+        #expect(store.rowsBySegment[.popular]?.count == DiscoverStore.genres(for: .movie).count)
     }
 
     /// Rails finish out of order. Filling a late one into its spec slot inserted it ABOVE rails the

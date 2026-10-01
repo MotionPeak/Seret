@@ -18,6 +18,11 @@ struct SegmentRails: View {
     @Environment(\.pageLeadingInset) private var pageLeadingInset
 
     private var library: LibraryStore? { injectedLibrary ?? session?.libraryStore }
+    /// Changes with what For You is seeded from — the library loading or changing, the profile
+    /// resolving. See the segment load task.
+    private var seedSignature: String {
+        "\((library?.movies.count ?? 0) + (library?.shows.count ?? 0))-\(session?.activeProfileID ?? "")"
+    }
     private var performer: PosterActionPerformer {
         PosterActionPerformer(session: session, shell: shell, library: library, marks: marks, watchlist: watchlist)
     }
@@ -30,7 +35,9 @@ struct SegmentRails: View {
             content
         }
         // Keyed on `kind` too — a Movies/Shows switch must restart the load, not reuse a stale id.
-        .task(id: "\(kind.rawValue)/\(store.selectedSegment.rawValue)") {
+        // …and on the library's size: a For You built before the library loaded is rebuilt with
+        // personal rails once it lands (a loaded segment is a no-op).
+        .task(id: "\(kind.rawValue)/\(store.selectedSegment.rawValue)/\(seedSignature)") {
             await store.loadSegment(store.selectedSegment)
         }
     }
