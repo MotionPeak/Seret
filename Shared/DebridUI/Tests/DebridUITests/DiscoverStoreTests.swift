@@ -18,11 +18,13 @@ private final class FakeDiscover: DiscoverProviding, @unchecked Sendable {
     // Unique ids are derived from the arguments (genre id / decade year), NOT a shared counter —
     // the rails are fetched concurrently, so a mutating counter would race and collide.
     func nowPlayingMovies() async throws -> [TMDBSearchResult] { [movie(7), movie(8)] }
-    /// Holds the Trending fetches until opened, so a load can be caught in flight.
+    /// Holds the Trending fetches until opened, so a load can be caught in flight — only
+    /// `gatedWindow`'s, when set, so one rail can land while the other is still fetching.
     var trendingGate: DiscoverGate?
+    var gatedWindow: TMDBTrendingWindow?
     func trending(_ kind: MediaKind, window: TMDBTrendingWindow) async throws -> [TMDBSearchResult] {
         calledTrending = true
-        if let trendingGate { await trendingGate.wait() }
+        if let trendingGate, gatedWindow == nil || gatedWindow == window { await trendingGate.wait() }
         return window == .day ? [movie(9001)] : [movie(9002)]
     }
     func topRatedCurated(_ kind: MediaKind) async throws -> [TMDBSearchResult] {
@@ -201,6 +203,55 @@ private func movie(_ id: Int) -> TMDBSearchResult {
 
         #expect((store.rowsBySegment[.forYou] ?? []).map(\.title)
                 == ["Because you watched Dune", "More like Heat"])
+    }
+
+    /// The launch race itself: the library lands WHILE For You's first build is still fetching, and
+    /// the page asks for a refresh at that moment. The refresh found the build "loading" and gave up
+    /// — and the build had been made from the seeds there were when it started: none. Trending for
+    /// the session.
+    @Test func seedsArrivingDuringTheFirstBuildStillMakeForYouPersonal() async {
+        let fake = FakeDiscover()
+        let gate = DiscoverGate()
+        fake.trendingGate = gate
+        let seeds = FakeSeeds()                                 // the first build finds no seeds
+        let store = DiscoverStore(kind: .movie, discover: fake, seeds: seeds)
+
+        let first = Task { await store.loadSegment(.forYou) }
+        for _ in 0..<200 where !fake.calledTrending { try? await Task.sleep(for: .milliseconds(5)) }
+        #expect(store.segmentState(.forYou) == .loading)
+        seeds.value = [RecommendationSeed(tmdbID: 100, title: "Dune", watched: true)]
+        let refresh = Task { await store.refreshForYouIfBetterSeeds() }   // the page's onChange
+        try? await Task.sleep(for: .milliseconds(20))
+        await gate.open()
+        await first.value
+        await refresh.value
+
+        #expect((store.rowsBySegment[.forYou] ?? []).map(\.title) == ["Because you watched Dune"])
+    }
+
+    /// …and once its first rail is on screen — the build reads "loaded" while the rest are still
+    /// coming in. The refresh joined that build and stopped there.
+    @Test func seedsArrivingAsTheFirstBuildFinishesStillMakeForYouPersonal() async {
+        let fake = FakeDiscover()
+        let gate = DiscoverGate()
+        fake.trendingGate = gate
+        fake.gatedWindow = .week                                // Today lands, This Week waits
+        let seeds = FakeSeeds()
+        let store = DiscoverStore(kind: .movie, discover: fake, seeds: seeds)
+
+        let first = Task { await store.loadSegment(.forYou) }
+        for _ in 0..<200 where store.segmentState(.forYou) != .loaded {
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        #expect((store.rowsBySegment[.forYou] ?? []).map(\.title) == ["Trending Today"])
+        seeds.value = [RecommendationSeed(tmdbID: 100, title: "Dune", watched: true)]
+        let refresh = Task { await store.refreshForYouIfBetterSeeds() }
+        try? await Task.sleep(for: .milliseconds(20))
+        await gate.open()
+        await first.value
+        await refresh.value
+
+        #expect((store.rowsBySegment[.forYou] ?? []).map(\.title) == ["Because you watched Dune"])
     }
 
     /// …and a For You built from real seeds is not rebuilt just because it is asked for again.

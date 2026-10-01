@@ -183,13 +183,17 @@ public final class DiscoverStore {
         case .loading, .loaded: return
         case .idle, .failed: break
         }
+        // The task clears its own entry before it completes, so whoever awaits it finds the
+        // registry already empty — see `refreshForYouIfBetterSeeds`, which waits in a loop. Only
+        // one load per segment is ever registered (every ask joins a running one), so the entry it
+        // clears is its own.
         let load = Task { @MainActor [weak self] in
             guard let self else { return }
             await self.performSegmentLoad(segment)
+            self.segmentLoads[segment] = nil
         }
         segmentLoads[segment] = load
         await load.value
-        if segmentLoads[segment] == load { segmentLoads[segment] = nil }
     }
 
     /// Rebuild For You when better seeds exist than it was built from — called when what seeds it
@@ -200,17 +204,24 @@ public final class DiscoverStore {
     /// no watch history) — and that was then cached for the session, so "Because you watched…"
     /// never appeared. QUIET: the rails on screen stay until the new ones are all in, then swap in
     /// one step. Emptying them first put skeletons under the viewer and took their focus with them.
+    ///
+    /// A build already under way is waited for and the seeds judged AFTER it. That build was made
+    /// from the seeds there were when it STARTED, and at launch the library usually lands while
+    /// For You's first build is still fetching: joining it and stopping there — or giving up because
+    /// it still read "loading" — kept Trending for the session.
     public func refreshForYouIfBetterSeeds() async {
+        while let running = segmentLoads[.forYou] { await running.value }
         guard statesBySegment[.forYou] == .loaded, forYouBasis < .history,
               await availableForYouBasis() > forYouBasis else { return }
-        if let running = segmentLoads[.forYou] { await running.value; return }
+        // Asking the seeds suspended: another refresh may have started a rebuild meanwhile.
+        guard segmentLoads[.forYou] == nil else { return await refreshForYouIfBetterSeeds() }
         let rebuild = Task { @MainActor [weak self] in
             guard let self else { return }
             await self.performSegmentLoad(.forYou, quietly: true)
+            self.segmentLoads[.forYou] = nil
         }
         segmentLoads[.forYou] = rebuild
         await rebuild.value
-        if segmentLoads[.forYou] == rebuild { segmentLoads[.forYou] = nil }
     }
 
     /// - Parameter quietly: build the rails without publishing anything until they are all in, and
