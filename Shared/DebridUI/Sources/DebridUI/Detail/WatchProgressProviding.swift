@@ -40,16 +40,22 @@ extension WatchProgressProviding {
     /// the resume point of whatever it landed on, and un-marking could not bring back a position
     /// that was no longer stored. It also zeroed the duration every progress bar divides by.
     ///
-    /// Marking UNWATCHED does clear the position, which is what "start over" means; carrying a
-    /// past-the-threshold position into that write would also let the finished-fraction rule in
-    /// `record` flip `finished` straight back to true.
+    /// Marking UNWATCHED clears the position — "start over" — for a title that was actually watched
+    /// to its end, or one that was only started (Continue Watching's way to clear a card); carrying
+    /// a past-the-threshold position into that write would also let the finished-fraction rule in
+    /// `record` flip `finished` straight back to true. But undoing a MARK gives the carried place
+    /// back: that is what carrying it was for, and writing 0 there destroyed the resume point of an
+    /// accidental long-press anyway — one step later, on the very press meant to undo it.
     public func setWatched(_ watched: Bool, contentKey: String, sourceKey: String,
                            profileID: String) async {
         let carried = try? await progress(forContentKey: contentKey, profileID: profileID)
+        // Finished short of the point a playhead reaches before the flag flips: a mark did that.
+        let undoesAMark = !watched && (carried?.finished ?? false)
+            && (carried.map { $0.durationSeconds > 0
+                    && $0.positionSeconds / $0.durationSeconds < WatchState.playedFraction } ?? false)
         try? await record(contentKey: contentKey,
                           sourceKey: sourceKey.isEmpty ? (carried?.sourceKey ?? "") : sourceKey,
-                          // Position only when marking WATCHED — un-marking is "start over".
-                          positionSeconds: watched ? (carried?.positionSeconds ?? 0) : 0,
+                          positionSeconds: watched || undoesAMark ? (carried?.positionSeconds ?? 0) : 0,
                           // Duration always. It costs nothing (a position of 0 is 0% of any
                           // runtime, and the finished-fraction rule reads 0 either way), and it is
                           // what tells a deliberately un-marked row apart from a rating written on

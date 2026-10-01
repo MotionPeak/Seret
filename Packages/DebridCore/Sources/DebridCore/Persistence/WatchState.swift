@@ -42,14 +42,28 @@ public struct WatchState: Sendable, Equatable {
         guard durationSeconds > 0 else { return finished ? nil : positionSeconds }
         // A FINISHED title only resumes from a point it was actually watched to — the tail.
         //
-        // Crossing the finished fraction while playing is what normally sets `finished`, and being
-        // able to pick up that last stretch is the point of resuming at all. But a manual mark also
-        // sets it, and carries the position forward so un-marking restores the viewer's place —
+        // Crossing the finish line while playing is what normally sets `finished`. But a manual mark
+        // also sets it, and carries the position forward so un-marking restores the viewer's place —
         // and that position can be anywhere. Offering it back would make "mark watched" quietly
         // mean "resume from the middle".
         if finished, positionSeconds / durationSeconds < Self.playedFraction { return nil }
-        return durationSeconds - positionSeconds > Self.resumeTailSeconds ? positionSeconds : nil
+        let remaining = durationSeconds - positionSeconds
+        // …and the finish line is now where the dialogue ENDS (the last subtitle cue, or 92%), so
+        // what is left of a finished title is its credits: stopping four minutes into an eight-
+        // minute roll offered "Resume 2:02:00" straight into them. More left than any credits
+        // run means something else set the flag — a subtitle file that stops early — and then the
+        // place is still worth keeping.
+        if finished, remaining <= max(Self.creditsAllowanceSeconds, durationSeconds * 0.1) { return nil }
+        // Nothing to come back to inside the last stretch. Never wider than the part of a SHORT
+        // file that comes before its finish line: a fixed 90 seconds is the last 14% of an
+        // eleven-minute cartoon, which then sat on Continue Watching while Play started it from 0.
+        let tail = min(Self.resumeTailSeconds, (1 - WatchThreshold.estimatedFraction) * durationSeconds)
+        return remaining > tail ? positionSeconds : nil
     }
+
+    /// The longest a credit roll plausibly runs. A finished title with less than this (or a tenth of
+    /// its runtime) left has nothing but credits to resume into.
+    public static let creditsAllowanceSeconds: Double = 720
 
     /// How far in a stored position has to be before it looks like somewhere playback actually
     /// REACHED, rather than somewhere a manual mark carried it forward from.
