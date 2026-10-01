@@ -96,7 +96,7 @@ struct TracksPanel: View {
             } else {
                 ForEach(labeled(model.audioTracks), id: \.track.id) { entry in
                     row(title: entry.label, detail: detail(entry.track),
-                        isSelected: entry.track.id == model.selectedAudioID) {
+                        isSelected: entry.track.id == model.displayedAudioID) {
                         model.selectAudio(id: entry.track.id)
                     }
                 }
@@ -108,14 +108,14 @@ struct TracksPanel: View {
 
     private var subtitleSection: some View {
         section("SUBTITLES") {
-            row(title: "Off", isSelected: model.selectedSubtitleID == nil) {
+            row(title: "Off", isSelected: model.displayedSubtitleID == nil) {
                 model.selectSubtitleOff()
             }
             if !model.embeddedTracks.isEmpty {
                 groupCaption("IN THIS FILE")
                 ForEach(labeled(model.embeddedTracks), id: \.track.id) { entry in
                     row(title: entry.label, detail: detail(entry.track),
-                        isSelected: entry.track.id == model.selectedSubtitleID) {
+                        isSelected: entry.track.id == model.displayedSubtitleID) {
                         model.selectSubtitle(id: entry.track.id)
                     }
                 }
@@ -123,7 +123,7 @@ struct TracksPanel: View {
             if !model.downloadedTracks.isEmpty {
                 groupCaption("DOWNLOADED")
                 ForEach(labeled(model.downloadedTracks), id: \.track.id) { entry in
-                    row(title: entry.label, isSelected: entry.track.id == model.selectedSubtitleID) {
+                    row(title: entry.label, isSelected: entry.track.id == model.displayedSubtitleID) {
                         model.selectSubtitle(id: entry.track.id)
                     }
                 }

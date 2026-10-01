@@ -60,7 +60,7 @@ private struct PlaybackColumns: View {
     /// The selected track's row when it is on screen, else "Off" — a seed that matches no row is
     /// dropped, and the panel would open with focus wherever the engine happened to put it.
     private var landingTarget: Landing {
-        guard let id = model.selectedSubtitleID,
+        guard let id = model.displayedSubtitleID,
               (model.embeddedTracks + model.downloadedTracks).contains(where: { $0.id == id })
         else { return .off }
         return .track(id)
@@ -78,7 +78,7 @@ private struct PlaybackColumns: View {
     private var audioColumn: some View {
         SettingsColumn(header: "AUDIO STREAMS") {
             ForEach(labeled(model.audioTracks), id: \.track.id) { entry in
-                CheckRow(title: entry.label, checked: model.selectedAudioID == entry.track.id) {
+                CheckRow(title: entry.label, checked: model.displayedAudioID == entry.track.id) {
                     model.selectAudio(id: entry.track.id)        // stay open — pick more / compare
                 }
             }
@@ -90,14 +90,14 @@ private struct PlaybackColumns: View {
 
     private var subtitlesColumn: some View {
         SettingsColumn(header: "SUBTITLES") {
-            CheckRow(title: "Off", checked: model.selectedSubtitleID == nil) { model.selectSubtitleOff() }
+            CheckRow(title: "Off", checked: model.displayedSubtitleID == nil) { model.selectSubtitleOff() }
                 .focused($landing, equals: .off)
 
             // Muxed subtitle tracks that ship inside the file.
             if !model.embeddedTracks.isEmpty {
                 groupCaption("IN THIS FILE")
                 ForEach(labeled(model.embeddedTracks), id: \.track.id) { entry in
-                    CheckRow(title: entry.label, checked: model.selectedSubtitleID == entry.track.id) {
+                    CheckRow(title: entry.label, checked: model.displayedSubtitleID == entry.track.id) {
                         model.selectSubtitle(id: entry.track.id)
                     }
                     .focused($landing, equals: .track(entry.track.id))
@@ -107,7 +107,7 @@ private struct PlaybackColumns: View {
             if !model.downloadedTracks.isEmpty {
                 groupCaption("DOWNLOADED")
                 ForEach(labeled(model.downloadedTracks), id: \.track.id) { entry in
-                    CheckRow(title: entry.label, checked: model.selectedSubtitleID == entry.track.id) {
+                    CheckRow(title: entry.label, checked: model.displayedSubtitleID == entry.track.id) {
                         model.selectSubtitle(id: entry.track.id)
                     }
                     .focused($landing, equals: .track(entry.track.id))

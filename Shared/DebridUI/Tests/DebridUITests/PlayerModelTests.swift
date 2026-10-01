@@ -937,6 +937,55 @@ import DebridCore
         #expect(engine.selectedAudioID == nil)     // no switch was requested at all
     }
 
+    // MARK: - What the settings panel ticks
+
+    /// Leaving the engine's choice alone left NOTHING ticked: the panel read the model's own pick,
+    /// which stays nil when the engine's was already right — an audio list with no checkmark.
+    @Test func thePanelTicksTheEnginesOwnAudioPick() async {
+        let engine = FakeVideoPlayerEngine()
+        let model = makeModel(request: Fixture.request(), engine: engine,
+                              trackPreferences: FakeTrackPreferences(audio: .automatic))
+        model.start(); await model.waitForIdleForTesting()
+        engine.audioTracks = [
+            MediaTrack(id: "audio/2", kind: .audio, name: "AC-3 5.1", language: "eng",
+                       codec: "a52 ", isSelected: true),
+            MediaTrack(id: "audio/3", kind: .audio, name: "AC-3 5.1", language: "eng", codec: "a52 "),
+        ]
+        engine.emit(.tracksChanged); await model.waitForIdleForTesting()
+        #expect(model.selectedAudioID == nil)
+        #expect(model.displayedAudioID == "audio/2")
+    }
+
+    /// A subtitle the engine turned on by itself — a default or forced track — showed with "Off"
+    /// ticked beside it.
+    @Test func thePanelTicksASubtitleTheEngineTurnedOn() async {
+        let engine = FakeVideoPlayerEngine()
+        let model = makeModel(request: Fixture.request(), engine: engine)
+        model.start(); await model.waitForIdleForTesting()
+        engine.subtitleTracks = [
+            MediaTrack(id: "spu/1", kind: .subtitle, name: "English (Forced)", language: "en",
+                       isSelected: true),
+        ]
+        engine.emit(.tracksChanged); await model.waitForIdleForTesting()
+        #expect(model.displayedSubtitleID == "spu/1")
+    }
+
+    /// …but once the viewer turns subtitles off, Off is what is ticked — even before the engine's
+    /// next track report clears the old track's selected flag.
+    @Test func turningSubtitlesOffTicksOffAtOnce() async {
+        let engine = FakeVideoPlayerEngine()
+        let model = makeModel(request: Fixture.request(), engine: engine)
+        model.start(); await model.waitForIdleForTesting()
+        engine.subtitleTracks = [
+            MediaTrack(id: "spu/1", kind: .subtitle, name: "English", language: "en", isSelected: true),
+        ]
+        engine.emit(.tracksChanged); await model.waitForIdleForTesting()
+
+        model.selectSubtitleOff()
+
+        #expect(model.displayedSubtitleID == nil)
+    }
+
     /// …but a genuinely bad default still gets corrected: lossless selected, AC-3 available.
     @Test func anUndecodableEngineChoiceIsStillCorrected() async {
         let engine = FakeVideoPlayerEngine()

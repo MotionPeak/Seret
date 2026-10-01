@@ -280,6 +280,30 @@ extension PlayerModel {
         rememberAudioTrack(track.id)
     }
 
+    // MARK: - What the settings panels tick
+
+    /// The audio track to show as selected: ours if we chose, else the one the engine is playing.
+    ///
+    /// The panels read `selectedAudioID`, which only records a choice WE made — and a good engine
+    /// default is deliberately left alone (`shouldOverrideEngineChoice`), so the commonest case of
+    /// all showed an audio list with nothing ticked.
+    public var displayedAudioID: String? {
+        selectedAudioID ?? audioTracks.first(where: \.isSelected)?.id
+    }
+
+    /// The subtitle to show as selected — nil is "Off".
+    ///
+    /// Falls back to the engine's own pick only while nobody has decided: a default or forced
+    /// track the engine switched on by itself showed beside a ticked "Off". Once the viewer or the
+    /// preference has spoken, the model's answer stands — including "off", which must tick at once
+    /// rather than wait for the engine's next track report to clear the old selected flag.
+    public var displayedSubtitleID: String? {
+        if selectedSubtitleID != nil || subtitlePickedByUser || subtitleOffAsserted {
+            return selectedSubtitleID
+        }
+        return subtitleTracks.first(where: \.isSelected)?.id
+    }
+
     public func selectAudio(id: String) {
         audioPickedByUser = true      // stop the automatic pick from re-deciding over them
         selectedAudioID = id

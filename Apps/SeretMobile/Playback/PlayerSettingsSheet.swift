@@ -19,7 +19,7 @@ struct PlayerSettingsSheet: View {
                         } else {
                             FlowLayout {
                                 ForEach(labeled(model.audioTracks), id: \.track.id) { e in
-                                    chip(e.label, selected: model.selectedAudioID == e.track.id) {
+                                    chip(e.label, selected: model.displayedAudioID == e.track.id) {
                                         model.selectAudio(id: e.track.id)
                                     }
                                 }
@@ -34,10 +34,10 @@ struct PlayerSettingsSheet: View {
                         // not, with nothing to say which was which.
                         VStack(alignment: .leading, spacing: Theme.Space.md) {
                             FlowLayout {
-                                chip("Off", selected: model.selectedSubtitleID == nil) { model.selectSubtitleOff() }
+                                chip("Off", selected: model.displayedSubtitleID == nil) { model.selectSubtitleOff() }
                                 // Muxed tracks shipped inside the file.
                                 ForEach(labeled(model.embeddedTracks), id: \.track.id) { e in
-                                    chip(e.label, selected: model.selectedSubtitleID == e.track.id) {
+                                    chip(e.label, selected: model.displayedSubtitleID == e.track.id) {
                                         model.selectSubtitle(id: e.track.id)
                                     }
                                 }
@@ -47,7 +47,7 @@ struct PlayerSettingsSheet: View {
                                 groupCaption("DOWNLOADED")
                                 FlowLayout {
                                     ForEach(labeled(model.downloadedTracks), id: \.track.id) { e in
-                                        chip(e.label, selected: model.selectedSubtitleID == e.track.id) {
+                                        chip(e.label, selected: model.displayedSubtitleID == e.track.id) {
                                             model.selectSubtitle(id: e.track.id)
                                         }
                                     }
