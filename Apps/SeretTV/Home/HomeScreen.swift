@@ -99,7 +99,8 @@ struct HomeScreen: View {
                                     // title you only started, so it kept the top of Home for good.
                                     .contextMenu {
                                         ContinueWatchingActions(entry: hi, home: home, session: session,
-                                                                openTitle: { openDestination(.detail(hi.item)) })
+                                                                openTitle: { openDestination(.detail(hi.item)) },
+                                                                play: { openDestination(.play($0)) })
                                     }
                             }
                         }

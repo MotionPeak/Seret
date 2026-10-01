@@ -23,11 +23,13 @@ public struct HomeItem: Identifiable, Sendable, Equatable {
     public var isResumable: Bool { source != nil }
 
     /// Build the request that resumes this entry, or nil if the source couldn't be resolved.
-    public func playbackRequest() -> PlaybackRequest? {
+    /// - Parameter fromStart: play it from 0:00 rather than resuming — "Play from Beginning".
+    public func playbackRequest(fromStart: Bool = false) -> PlaybackRequest? {
         guard let source else { return nil }
         let label = episode.map { "\(item.title) — S\($0.season)\u{00B7}E\($0.number)" } ?? item.title
-        return PlaybackRequest(item: item, source: source, resumeAt: resumeAt, label: label,
-                               contentKey: contentKey, episode: episode, fromStart: false)
+        return PlaybackRequest(item: item, source: source, resumeAt: fromStart ? nil : resumeAt,
+                               label: label, contentKey: contentKey, episode: episode,
+                               fromStart: fromStart)
     }
 }
 

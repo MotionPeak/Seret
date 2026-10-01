@@ -144,6 +144,18 @@ struct ShowDetail: View {
                           systemImage: "play.fill")
                 }
                 .buttonStyle(GoldButtonStyle())
+                // The film page has offered this all along; an episode part-way through could only
+                // be started over by dragging the player's bar back to 0:00.
+                if resume != nil {
+                    Button {
+                        onPlay(store.playRequest(source: next.source, episode: next,
+                                                 label: "\(item.title) — S\(next.season)·E\(next.number)",
+                                                 fromStart: true))
+                    } label: {
+                        Label("Start", systemImage: "gobackward")
+                    }
+                    .buttonStyle(GhostButtonStyle())
+                }
             } else if let target = store.nextEpisodeTarget() {
                 // Nothing downloaded yet — Play still starts the show.
                 Button {

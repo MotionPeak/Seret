@@ -127,6 +127,12 @@ private struct FakeWatch: WatchProgressProviding {
         #expect(req?.resumeAt == 353)                      // resumes where it left off
         #expect(req?.fromStart == false)
         #expect(req?.label == "Invincible — S4·E1")
+
+        // "Play from Beginning" on the card's long-press: the same episode and file, from 0:00.
+        let over = hi.playbackRequest(fromStart: true)
+        #expect(over?.source == src && over?.episode == episode && over?.contentKey == "show:inv:s4e1")
+        #expect(over?.fromStart == true)
+        #expect(over?.resumeAt == nil)
     }
 
     @MainActor @Test func finishedOrUnresolvedEntriesAreNotDirectlyResumable() async {

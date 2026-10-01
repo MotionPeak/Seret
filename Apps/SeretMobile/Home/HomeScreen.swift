@@ -132,7 +132,8 @@ struct HomeScreen: View {
                                     // (a tap resumes), and the marks that take it off the rail.
                                     .contextMenu {
                                         ContinueWatchingActions(entry: hi, home: home, session: session,
-                                                                openTitle: { router.detail = hi.item })
+                                                                openTitle: { router.detail = hi.item },
+                                                                play: { router.playback = PlaybackPresentation(request: $0) })
                                     }
                                 }
                             }

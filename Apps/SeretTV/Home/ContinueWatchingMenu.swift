@@ -23,12 +23,19 @@ struct ContinueWatchingActions: View {
     /// to the page of anything you were part-way through — the long-press menu HBO and Netflix both
     /// offer as "Go to series".
     var openTitle: () -> Void = {}
+    /// Plays a request — the menu's "Play from Beginning". Selecting the card resumes; starting a
+    /// film or an episode over used to mean scrubbing back to 0:00 inside the player.
+    var play: (PlaybackRequest) -> Void = { _ in }
 
     /// A show's card stands for one episode, so its marks have to say so — "Mark Watched" on a
     /// series poster reads as the whole run.
     private var scope: String { entry.item.kind == .show ? "Episode " : "" }
 
     var body: some View {
+        // Only for a card part-way through: an Up Next card already starts at the beginning.
+        if entry.resumeAt != nil, let request = entry.playbackRequest(fromStart: true) {
+            Button("Play from Beginning", systemImage: "gobackward") { play(request) }
+        }
         Button(entry.item.kind == .show ? "Go to Show" : "Go to Movie", systemImage: "info.circle") {
             openTitle()
         }

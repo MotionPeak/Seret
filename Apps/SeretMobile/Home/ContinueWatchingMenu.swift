@@ -18,11 +18,17 @@ struct ContinueWatchingActions: View {
     let session: AppSession
     /// Opens the title's page.
     var openTitle: () -> Void = {}
+    /// Plays a request — the menu's "Play from Beginning" (a tap resumes).
+    var play: (PlaybackRequest) -> Void = { _ in }
 
     /// A show's card stands for one episode, so its marks have to say so.
     private var scope: String { entry.item.kind == .show ? "Episode " : "" }
 
     var body: some View {
+        // Only for a card part-way through: an Up Next card already starts at the beginning.
+        if entry.resumeAt != nil, let request = entry.playbackRequest(fromStart: true) {
+            Button("Play from Beginning", systemImage: "gobackward") { play(request) }
+        }
         Button(entry.item.kind == .show ? "Go to Show" : "Go to Movie", systemImage: "info.circle") {
             openTitle()
         }

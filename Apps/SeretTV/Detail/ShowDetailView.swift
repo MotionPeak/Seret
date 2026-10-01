@@ -149,6 +149,17 @@ struct ShowDetailView: View {
                 }
                 .buttonStyle(SeretActionButtonStyle(prominent: true))
                 .focused($initialFocus, equals: .play)
+
+                // The film page has offered this all along; an episode part-way through could only
+                // be started over by scrubbing back to 0:00 inside the player.
+                if resume != nil {
+                    NavigationLink(value: store.playRequest(
+                        source: next.source, episode: next,
+                        label: "\(item.title) — S\(next.season)·E\(next.number)", fromStart: true)) {
+                        Label("From Start", systemImage: "gobackward")
+                    }
+                    .buttonStyle(SeretActionButtonStyle())
+                }
             } else if let target = store.nextEpisodeTarget() {
                 // Nothing downloaded yet — Play still starts the show. Without this the page has no
                 // Play at all, `.defaultFocus` has nothing to focus, and the remote goes dead.
