@@ -134,6 +134,68 @@ extension StreamingNetworkTests {
             #expect(RangeFileURLProtocol.requests.map(\.path) == ["/expired.mkv"])
         }
 
+        /// An expired link is refused on EVERY fetch, and fetches start in twos — a read and its
+        /// look-behind, or two of libvlc's readers. The second refusal found the first one's
+        /// refresh already begun, was denied a refresh of its own, and failed its read with 403
+        /// for good: the film died at the end of its read-ahead, though the refresh succeeded.
+        @Test func twoFetchesRefusedAtOnceBothWaitForTheOneRefresh() async throws {
+            RangeFileURLProtocol.reset(.init(fileSize: 64 << 20, statusByPath: ["/expired.mkv": 403]))
+            let refreshes = Calls()
+            let (entered, enter) = AsyncStream.makeStream(of: Void.self)
+            let (gate, release) = AsyncStream.makeStream(of: Void.self)
+            let s = makeSession(upstream: "https://rd.test/expired.mkv", refresh: {
+                refreshes.record()
+                enter.yield()
+                for await _ in gate { break }
+                return URL(string: "https://rd.test/fresh.mkv")!
+            })
+            let far = 40 * Self.mib
+            let nearRead = Task { try await self.read(s, 0, 4096) }
+            let farRead = Task { try await self.read(s, far, 4096) }
+            for await _ in entered { break }                         // the first refusal is refreshing…
+            for _ in 0..<200 where RangeFileURLProtocol.requests.count < 2 {
+                try await Task.sleep(for: .milliseconds(5))
+            }
+            #expect(RangeFileURLProtocol.requests.map(\.path) == ["/expired.mkv", "/expired.mkv"])
+            // …and the second is refused meanwhile. Nothing to observe while it waits, so give a
+            // refusal that would fail its read the time to do so before the refresh ends.
+            try await Task.sleep(for: .milliseconds(200))
+            release.yield()
+            #expect(try await nearRead.value == RangeFileURLProtocol.bytes(0..<4096))
+            #expect(try await farRead.value == RangeFileURLProtocol.bytes(far..<(far + 4096)))
+            #expect(refreshes.count == 1)
+            #expect(await s.upstreamFailure == nil)
+            await s.close()
+        }
+
+        /// The same race the other way round: a fetch started on the old link is refused only
+        /// after the refresh has finished. That link is already replaced, so the fetch moves to
+        /// the fresh one — it is not the fresh link being refused too.
+        @Test func aFetchOnTheOldLinkRefusedAfterTheRefreshMovesToTheFreshOne() async throws {
+            let far = 40 * Self.mib
+            RangeFileURLProtocol.reset(.init(fileSize: 64 << 20, statusByPath: ["/expired.mkv": 403],
+                                             delayByStart: [far: 0.3]))   // its refusal comes late
+            let (entered, enter) = AsyncStream.makeStream(of: Void.self)
+            let (gate, release) = AsyncStream.makeStream(of: Void.self)
+            let s = makeSession(upstream: "https://rd.test/expired.mkv", refresh: {
+                enter.yield()
+                for await _ in gate { break }
+                return URL(string: "https://rd.test/fresh.mkv")!
+            })
+            let nearRead = Task { try await self.read(s, 0, 4096) }
+            for await _ in entered { break }                         // refreshing after the first refusal…
+            let farRead = Task { try await self.read(s, far, 4096) } // …as a fetch starts on the old link
+            for _ in 0..<200 where RangeFileURLProtocol.requests.count < 2 {
+                try await Task.sleep(for: .milliseconds(5))
+            }
+            #expect(RangeFileURLProtocol.requests.map(\.path) == ["/expired.mkv", "/expired.mkv"])
+            release.yield()                                          // the refresh ends first
+            #expect(try await nearRead.value == RangeFileURLProtocol.bytes(0..<4096))
+            #expect(try await farRead.value == RangeFileURLProtocol.bytes(far..<(far + 4096)))
+            #expect(await s.upstreamFailure == nil)
+            await s.close()
+        }
+
         @Test func aRefusalThatSurvivesTheRefreshReachesTheCaller() async {
             RangeFileURLProtocol.reset(.init(statusByPath: ["/gone.mkv": 404, "/fresh.mkv": 404]))
             let s = makeSession(upstream: "https://rd.test/gone.mkv")
@@ -176,4 +238,12 @@ extension StreamingNetworkTests {
             await #expect(throws: StreamError.closed) { try await s.read(offset: 0, max: 10) }
         }
     }
+}
+
+/// How many times a closure ran, from any thread.
+private final class Calls: @unchecked Sendable {
+    private let lock = NSLock()
+    private var n = 0
+    func record() { lock.lock(); n += 1; lock.unlock() }
+    var count: Int { lock.lock(); defer { lock.unlock() }; return n }
 }

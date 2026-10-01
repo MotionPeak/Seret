@@ -20,6 +20,9 @@ final class RangeFileURLProtocol: URLProtocol, @unchecked Sendable {
         var maxBytesPerRequest: Int64 = .max
         /// A status per URL path (e.g. 403 for an expired link). Everything else is 206.
         var statusByPath: [String: Int] = [:]
+        /// Seconds the answer to a request from this byte waits before it arrives: RD answering
+        /// one connection late, after another.
+        var delayByStart: [Int64: TimeInterval] = [:]
     }
 
     private static let lock = NSLock()
@@ -55,6 +58,13 @@ final class RangeFileURLProtocol: URLProtocol, @unchecked Sendable {
         let start = Int64(range.dropFirst("bytes=".count).split(separator: "-").first ?? "0") ?? 0
         Self.lock.lock(); Self.log.append((url.path, start)); Self.lock.unlock()
 
+        guard let delay = stub.delayByStart[start] else { return answer(stub, url: url, start: start) }
+        DispatchQueue.global().asyncAfter(deadline: .now() + delay) { [self] in
+            if !isStopped { answer(stub, url: url, start: start) }
+        }
+    }
+
+    private func answer(_ stub: Stub, url: URL, start: Int64) {
         let status = stub.statusByPath[url.path] ?? 206
         guard status == 206 else {
             let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1",

@@ -30,6 +30,11 @@ actor StreamSession {
     private var playbackStarted = false
     private var headReads: [Int] = []
     private var refreshedAt: ContinuousClock.Instant?
+    /// The link refresh in flight. Every fetch RD refuses while it runs waits for its result
+    /// rather than asking for another — see `linkRefreshed(since:)`.
+    private var refresh: Task<Bool, Never>?
+    /// Which link `upstream` is: bumped by each refresh, and remembered by each fetch.
+    private var linkGeneration = 0
     private var headFailure: StreamError?
     private var closed = false
 
@@ -46,6 +51,8 @@ actor StreamSession {
     private struct ActiveFetch {
         let fetcher: UpstreamFetcher
         let start: Int64
+        /// The `linkGeneration` it was started on.
+        let link: Int
         var position: Int64
         var suspended = false
         var responded = false
@@ -150,7 +157,7 @@ actor StreamSession {
         nextFetchID += 1
         upstreamRequestCount += 1
         let fetcher = UpstreamFetcher(url: upstream, start: start, configuration: makeConfiguration())
-        fetches[id] = ActiveFetch(fetcher: fetcher, start: start, position: start)
+        fetches[id] = ActiveFetch(fetcher: fetcher, start: start, link: linkGeneration, position: start)
         log("fetch #\(id) from \(start)")
         Task { [weak self] in
             for await event in fetcher.events {
@@ -171,7 +178,7 @@ actor StreamSession {
             if usable {
                 if let total { await learnSize(total) }
                 if let type { contentType = type }
-            } else if [403, 404, 410].contains(status), await refreshUpstreamOnce() {
+            } else if [403, 404, 410].contains(status), await linkRefreshed(since: fetch.link) {
                 // The refresh is an RD call the viewer can outlast: if the session closed or this
                 // fetch was cancelled meanwhile, a new fetch would download for no one.
                 guard !closed, fetches[id] != nil else { return }
@@ -244,11 +251,35 @@ actor StreamSession {
         cache.setTotalSize(total)
     }
 
-    private func refreshUpstreamOnce() async -> Bool {
-        if let at = refreshedAt, at.duration(to: .now) < .seconds(60) { return false }
-        refreshedAt = .now
-        guard let fresh = try? await refreshUpstream() else { return false }
+    /// Whether a fetch refused on link `generation` has a newer link to try: one a refresh got
+    /// since that fetch started, the one the refresh in flight gets, or one a new refresh gets.
+    ///
+    /// An expired link is refused on EVERY fetch, and fetches start in twos — a read and its
+    /// look-behind, or two of libvlc's readers — so refusals arrive together. The second used to
+    /// find the first's refresh begun, be denied one of its own, and fail its reads with 403 for
+    /// good — while the refresh succeeded. Now it waits for that refresh, and a refusal of a
+    /// link already replaced just moves to the current one.
+    ///
+    /// A link refused within a minute of the refresh that fetched it is refused for real: asking
+    /// RD for yet another would only repeat the answer.
+    private func linkRefreshed(since generation: Int) async -> Bool {
+        if linkGeneration > generation { return true }
+        if refresh == nil {
+            if let at = refreshedAt, at.duration(to: .now) < .seconds(60) { return false }
+            refreshedAt = .now
+            refresh = Task { await installFreshLink() }
+        }
+        return await refresh?.value ?? false
+    }
+
+    private func installFreshLink() async -> Bool {
+        defer { refresh = nil }
+        guard let fresh = try? await refreshUpstream() else {
+            log("upstream link refresh failed")
+            return false
+        }
         upstream = fresh
+        linkGeneration += 1
         log("upstream link refreshed")
         return true
     }
