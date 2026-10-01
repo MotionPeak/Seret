@@ -130,6 +130,41 @@ private actor FakeMyList: MyListProviding {
         #expect(store.episodeMeta[1]?[1]?.name == "Pilot")
     }
 
+    /// A page opened on a title you did not own, then played (which adds it), kept its source-less
+    /// snapshot: back on it, Play added ANOTHER copy to Real-Debrid and started at 0:00.
+    @Test func adoptingTheOwnedItemGivesThePageItsFiles() async {
+        let store = DetailStore(item: movie("movie:tmdb:7", tmdb: 7, sources: []),
+                                details: FakeDetails(), watch: nil)
+        #expect(store.bestSource == nil)
+        await store.adopt(movie("movie:tmdb:7", tmdb: 7, sources: [source("a", "1080p")]))
+        #expect(store.bestSource?.torrentID == "a")
+        #expect(store.versions.map(\.torrentID) == ["a"])
+    }
+
+    /// Only the same title: a film and a show can share a TMDB id, and a different id is a
+    /// different film.
+    @Test func adoptingIgnoresAnyOtherTitle() async {
+        let store = DetailStore(item: movie("movie:tmdb:7", tmdb: 7, sources: []),
+                                details: FakeDetails(), watch: nil)
+        await store.adopt(movie("movie:tmdb:8", tmdb: 8, sources: [source("b", "1080p")]))
+        await store.adopt(show("show:tmdb:7", tmdb: 7, seasons: [Season(number: 1, episodes: [episode(1, 1, "t")])]))
+        #expect(store.bestSource == nil)
+        #expect(store.item.kind == .movie)
+    }
+
+    /// A show acquired from its page: the episodes it gained are playable from the rows, and the
+    /// page moves to the first season that has any.
+    @Test func adoptingAShowOpensItsFirstOwnedSeason() async {
+        let store = DetailStore(item: show("show:tmdb:9", tmdb: 9, seasons: []),
+                                details: FakeDetails(), watch: nil)
+        #expect(store.selectedSeason == 1)
+        await store.adopt(show("show:tmdb:9", tmdb: 9,
+                               seasons: [Season(number: 2, episodes: [episode(2, 1, "t21")])]))
+        #expect(store.selectedSeason == 2)
+        #expect(store.episodes(forSeason: 2).first?.isDownloaded == true)
+        #expect(store.nextEpisode()?.number == 1)
+    }
+
     /// "Download Whole Season" on a season you already have every episode of only adds a duplicate
     /// torrent, so the page hides it — but only when TMDB's list PROVES nothing is missing.
     @Test func seasonIsFullyOwnedOnlyWhenEveryListedEpisodeIsInTheLibrary() async {

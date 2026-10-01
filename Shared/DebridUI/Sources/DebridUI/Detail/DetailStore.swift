@@ -10,7 +10,8 @@ import Observation
 public final class DetailStore {
     public enum RichState: Equatable { case idle, loading, loaded, failed }
 
-    public let item: MediaItem
+    /// The title this page is about. Replaced only by `adopt(_:)`, when the library gains it.
+    public private(set) var item: MediaItem
     private let details: MediaDetailsProviding
     private let watch: WatchProgressProviding?
     /// The active profile whose progress this Detail reads/writes. nil → no active profile yet
@@ -130,6 +131,37 @@ public final class DetailStore {
 
     /// The film's original language, named for the meta line. nil leaves it off.
     public var languageName: String? { LanguageName.forTitle(originalLanguage) }
+
+    /// The page is about files you own: a film with a version, or a show with an episode. A
+    /// placeholder (a title not added yet, a Watchlist entry) has neither — and nothing to remove.
+    public var isInLibrary: Bool { !item.sources.isEmpty || !item.seasons.isEmpty }
+
+    /// The library now holds this title — take its item, files and all.
+    ///
+    /// The page used to keep the snapshot it opened with for its whole life. Opened on a title you
+    /// did not own, then played (which adds it), it still had no sources when you came back: Play
+    /// searched the indexers and added ANOTHER copy to Real-Debrid, then started at 0:00. After
+    /// "Download Whole Season" every episode still read "Not downloaded" and pressing one acquired
+    /// it again. Only the same title is adopted — same kind, same TMDB id — and only when it is
+    /// genuinely newer (the library item differs).
+    public func adopt(_ owned: MediaItem) async {
+        guard owned.kind == item.kind, let id = owned.tmdbID, id == item.tmdbID, owned != item
+        else { return }
+        let hadSeasons = !item.seasons.isEmpty
+        item = owned
+        removedSourceKeys = []                      // they described the old snapshot's files
+        // A show opened with nothing owned sat on season 1; with episodes now owned, open on the
+        // first season that has them — the same choice `init` makes for an owned show.
+        if !hadSeasons, let first = owned.seasons.sortedBySeason().first?.number,
+           !owned.seasons.contains(where: { $0.number == selectedSeason }) {
+            await selectSeason(first)
+        }
+        await loadPreferredVersion()
+        await reloadWatch()
+        // The version rows' Hebrew marks describe files; the new files have their own.
+        await loadStoredSubtitleEvidence()
+        await loadSubtitleEvidence()
+    }
 
     /// Called after a version was deleted from Real-Debrid: drop it from this screen, and retire a
     /// "play this one by default" preference that now points at nothing.

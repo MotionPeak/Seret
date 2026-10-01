@@ -188,7 +188,7 @@ struct FindScreen: View {
     /// is a source-less placeholder that `DetailStore` fills in from TMDB. Owned posters carry an
     /// In-Library badge, watched ones dim and tick, and `cam` posters get a CAM tag.
     private func tile(_ hit: SearchHit, width: CGFloat?, cam: Bool) -> some View {
-        let owned = session.libraryStore?.ownedItem(tmdbID: hit.result.id)
+        let owned = session.libraryStore?.ownedItem(tmdbID: hit.result.id, kind: hit.kind)
         let watched = marks?.isWatched(hit) ?? false
         return Button {
             router.detail = owned ?? .placeholder(for: hit)

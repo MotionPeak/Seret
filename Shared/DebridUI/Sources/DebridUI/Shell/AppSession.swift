@@ -949,7 +949,8 @@ public final class AppSession {
                                    relay: { await relay.drain() }) { onProgress in
             try await syncer.sync(onProgress: onProgress)
         }
-        model.ownedTMDBIDs = Set(library.movies.compactMap(\.tmdbID))
+        // Live, not a copy: the model is built when the shell mounts, before the library is read.
+        model.ownedLookup = { [weak library] id in library?.ownedItem(tmdbID: id, kind: .movie) != nil }
         return model
     }
 

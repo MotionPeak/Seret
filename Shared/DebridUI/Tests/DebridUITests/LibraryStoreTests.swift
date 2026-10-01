@@ -71,9 +71,22 @@ private final class FakeLibrary: LibraryProviding {
         let s = MediaItem(id: "2", kind: .show, title: "S", year: 2023, sources: [], seasons: [], tmdbID: 1399)
         let store = LibraryStore(library: FakeLibrary(cached: nil, refresh: .success([m, s])))
         await store.load()
-        #expect(store.ownedTMDBIDs == [693134, 1399])
-        #expect(store.ownedItem(tmdbID: 693134)?.id == "1")
-        #expect(store.ownedItem(tmdbID: 9999) == nil)
+        #expect(store.ownedMovieTMDBIDs == [693134])
+        #expect(store.ownedItem(tmdbID: 693134, kind: .movie)?.id == "1")
+        #expect(store.ownedItem(tmdbID: 1399, kind: .show)?.id == "2")
+        #expect(store.ownedItem(tmdbID: 9999, kind: .movie) == nil)
+    }
+
+    /// TMDB numbers films and shows separately: TV 1396 is Breaking Bad, film 1396 is Mirror.
+    /// Keyed by id alone, owning Mirror badged Breaking Bad "In Library", opened Mirror's page from
+    /// its poster — and offered "Remove from Library" against Mirror's torrent.
+    @Test func aFilmAndAShowSharingATMDBIDResolveIndependently() async {
+        let film = MediaItem(id: "movie:tmdb:1396", kind: .movie, title: "Mirror", year: 1975,
+                             sources: [], seasons: [], tmdbID: 1396)
+        let store = LibraryStore(library: FakeLibrary(cached: nil, refresh: .success([film])))
+        await store.load()
+        #expect(store.ownedItem(tmdbID: 1396, kind: .movie)?.title == "Mirror")
+        #expect(store.ownedItem(tmdbID: 1396, kind: .show) == nil)
     }
 
     @Test func retryIncrementsAttempt() {

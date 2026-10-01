@@ -31,6 +31,10 @@ public final class WatchlistModel {
     /// tmdbIDs the library already holds. Without this the owner is looking at a list of things to
     /// acquire that silently includes things they already have.
     public var ownedTMDBIDs: Set<Int> = []
+    /// Asks the library directly, so ownership is current — `ownedTMDBIDs` was a copy taken when
+    /// the model was built, which on tvOS is at launch, before the library has even been read: the
+    /// gold "in your library" check never appeared. Wins over `ownedTMDBIDs` when set.
+    @ObservationIgnored public var ownedLookup: (@MainActor (Int) -> Bool)?
 
     /// Why the last push to Letterboxd failed, if it did. Nil when there is nothing to say.
     public private(set) var relayMessage: String?
@@ -60,6 +64,7 @@ public final class WatchlistModel {
 
     public func isOwned(_ entry: WatchlistEntry) -> Bool {
         guard let id = entry.tmdbID else { return false }
+        if let ownedLookup { return ownedLookup(id) }
         return ownedTMDBIDs.contains(id)
     }
 

@@ -49,7 +49,8 @@ struct WatchlistScreen: View {
                 spin: current,
                 onWatch: { entry in
                     spin = nil
-                    guard let item = MediaItem.watchlistMovie(entry) else { return }
+                    guard let item = MediaItem.watchlistTitle(entry, library: session.libraryStore)
+                    else { return }
                     // Pushed a beat later: navigating while the cover is still on screen races its
                     // dismissal and the push is silently dropped.
                     Task { @MainActor in
@@ -202,7 +203,9 @@ private struct WatchlistTile: View {
 
     private var title: String { WatchlistName.stripYear(from: entry.name) }
 
-    private var item: MediaItem? { MediaItem.watchlistMovie(entry) }
+    @Environment(AppSession.self) private var session
+    /// The library's own item when the film is owned — see `watchlistTitle`.
+    private var item: MediaItem? { MediaItem.watchlistTitle(entry, library: session.libraryStore) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {

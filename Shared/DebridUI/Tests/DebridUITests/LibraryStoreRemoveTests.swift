@@ -108,12 +108,12 @@ private actor RecordingWatch: WatchProgressProviding {
                           sources: [], seasons: [], tmdbID: 693134)
         let store = LibraryStore(library: RemoveFakeLibrary(cached: [m]))
         await store.load()
-        #expect(store.ownedItem(tmdbID: 693134) != nil)
+        #expect(store.ownedItem(tmdbID: 693134, kind: .movie) != nil)
 
         await store.remove(m)
 
-        #expect(store.ownedItem(tmdbID: 693134) == nil)
-        #expect(store.ownedTMDBIDs.isEmpty)
+        #expect(store.ownedItem(tmdbID: 693134, kind: .movie) == nil)
+        #expect(store.ownedMovieTMDBIDs.isEmpty)
     }
 
     /// …and dropping ONE version must leave the index pointing at the trimmed item, not the one
@@ -128,6 +128,6 @@ private actor RecordingWatch: WatchProgressProviding {
 
         await store.removeVersion(m, source: src("t1"))
 
-        #expect(store.ownedItem(tmdbID: 693134)?.sources.map(\.torrentID) == ["t2"])
+        #expect(store.ownedItem(tmdbID: 693134, kind: .movie)?.sources.map(\.torrentID) == ["t2"])
     }
 }

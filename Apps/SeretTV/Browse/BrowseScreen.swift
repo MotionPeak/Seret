@@ -199,7 +199,7 @@ struct BrowseTile: View {
     private let height: CGFloat = 330
 
     var body: some View {
-        let owned = session.libraryStore?.ownedItem(tmdbID: hit.result.id)
+        let owned = session.libraryStore?.ownedItem(tmdbID: hit.result.id, kind: hit.kind)
         let watched = marks?.isWatched(hit) ?? false
         // No title label — posters already carry their title in the artwork.
         return NavigationLink(value: BrowseDestination.detail(owned ?? .placeholder(for: hit))) {

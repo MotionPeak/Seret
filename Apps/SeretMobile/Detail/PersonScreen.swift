@@ -122,7 +122,7 @@ struct PersonScreen: View {
     /// The same decision the Find grid makes: owned or not, a title opens the same page. Read live,
     /// so a title added while this page is open flips on the next render.
     private func tile(_ hit: SearchHit) -> some View {
-        let owned = session.libraryStore?.ownedItem(tmdbID: hit.result.id)
+        let owned = session.libraryStore?.ownedItem(tmdbID: hit.result.id, kind: hit.kind)
         let watched = marks?.isWatched(hit) ?? false
         return Button {
             openTitle = owned ?? .placeholder(for: hit)

@@ -25,10 +25,10 @@ struct PosterTileModel: Identifiable, Equatable {
     }
 
     /// `owned` is only ever the library's item for the SAME kind — a movie and a show can share a
-    /// TMDB id, and `LibraryStore.ownedItem(tmdbID:)` is kind-blind.
+    /// TMDB id; `LibraryStore.ownedItem(tmdbID:kind:)` keys by both.
     @MainActor
     static func hit(_ hit: SearchHit, library: LibraryStore?, isCAM: Bool) -> PosterTileModel {
-        let owned = library?.ownedItem(tmdbID: hit.result.id).flatMap { $0.kind == hit.kind ? $0 : nil }
+        let owned = library?.ownedItem(tmdbID: hit.result.id, kind: hit.kind)
         return PosterTileModel(id: hit.contentKey, title: hit.result.displayTitle,
                                caption: hit.result.year.map(String.init) ?? "",
                                posterURL: TMDBClient.imageURL(path: hit.result.posterPath, size: "w342"),

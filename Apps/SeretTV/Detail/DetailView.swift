@@ -85,7 +85,15 @@ struct DetailView: View {
         // Fires again when the player pops back to this screen (value-nav) — re-read watch state
         // so Resume · <time> reflects the position the player just recorded.
         .onAppear { Task { await store.reloadWatch() } }
-        .fullScreenCover(item: $episodePlayback) { presented in
+        // The title became yours while this page was open — played from here (which adds it), a
+        // whole season downloaded, a requested download landing. Take the library's item, files
+        // and all, or Play would acquire it AGAIN and start it from 0:00.
+        .task(id: ownedInLibrary) {
+            if let owned = ownedInLibrary { await store.adopt(owned) }
+        }
+        // A cover's dismissal does not re-fire `.onAppear`, so the download-then-play path has to
+        // re-read for itself.
+        .fullScreenCover(item: $episodePlayback, onDismiss: { Task { await store.reloadWatch() } }) { presented in
             PlayerHost(request: presented.request, app: session, backdropSize: "w1280")
         }
         .alert("Remove \u{201C}\(store.item.title)\u{201D}?", isPresented: $confirmingRemove) {
@@ -116,6 +124,11 @@ struct DetailView: View {
         } message: {
             Text(episodeError ?? "")
         }
+    }
+
+    /// The library's item for this title, read live (see the `.task(id:)` that adopts it).
+    private var ownedInLibrary: MediaItem? {
+        store.item.tmdbID.flatMap { session.libraryStore?.ownedItem(tmdbID: $0, kind: store.item.kind) }
     }
 
     private func performRemove() {

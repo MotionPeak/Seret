@@ -176,6 +176,11 @@ public struct LibraryService: Sendable {
     /// success. Any other RD/network failure throws WITHOUT rewriting the snapshot, so the next
     /// `refresh()` reconciles the UI to reality.
     public func remove(_ item: MediaItem) async throws {
+        // An item with no files is a page about a title — a Watchlist entry, a search result — not
+        // the title. It shares the library item's id, so "removing" it deleted nothing from
+        // Real-Debrid yet saved the snapshot without that id; no torrent changed, so no later
+        // refresh ever put the real title back. Refuse rather than make it vanish.
+        guard !Self.torrentIDs(for: item).isEmpty else { throw LibraryServiceError.nothingToRemove }
         for id in Self.torrentIDs(for: item) {
             do {
                 try await torrents.deleteTorrent(id: id)
@@ -258,4 +263,10 @@ public struct LibraryService: Sendable {
     static func torrentIDs(for item: MediaItem) -> [String] {
         Array(LibraryReconciler.torrentIDs(of: item))
     }
+}
+
+/// Why a library change was refused before anything was sent to Real-Debrid.
+public enum LibraryServiceError: Error, Equatable {
+    /// The item names no torrents — it is a page about a title, not files in the library.
+    case nothingToRemove
 }

@@ -92,6 +92,12 @@ struct DetailScreen: View {
             .onChange(of: store.bestSource) { _, source in
                 if store.item.kind == .movie, let source { session.prefetchPlayback(for: source) }
             }
+            // The title became yours while this page was open (played from here, a season added,
+            // a download landing): take the library's item, or Play would acquire it AGAIN and
+            // start it from 0:00.
+            .task(id: ownedInLibrary) {
+                if let owned = ownedInLibrary { await store.adopt(owned) }
+            }
             .task { await store.loadMyList(contentKey: store.item.id) }
             // Movies only — Letterboxd has no watchlist a show can go on — so a show page does not
             // pay for an object it cannot use.
@@ -115,8 +121,14 @@ struct DetailScreen: View {
                                systemImage: store.inMyList ? "checkmark" : "plus") {
                             Task { await store.toggleMyList(contentKey: store.item.id) }
                         }
-                        Button("Remove from Library", systemImage: "trash", role: .destructive) {
-                            confirmingRemove = true
+                        // Only for a title that has files. On a source-less page (a Watchlist entry,
+                        // a title not yet added) there is nothing to delete from Real-Debrid — and
+                        // "removing" it hid the real library title from Seret for good and wiped
+                        // its history.
+                        if store.isInLibrary {
+                            Button("Remove from Library", systemImage: "trash", role: .destructive) {
+                                confirmingRemove = true
+                            }
                         }
                     } label: {
                         Image(systemName: "ellipsis.circle").font(.headline)
@@ -180,6 +192,11 @@ struct DetailScreen: View {
 
     private func present(_ request: PlaybackRequest) {
         playback = PlaybackPresentation(request: request)
+    }
+
+    /// The library's item for this title, read live (see the `.task(id:)` that adopts it).
+    private var ownedInLibrary: MediaItem? {
+        store.item.tmdbID.flatMap { session.libraryStore?.ownedItem(tmdbID: $0, kind: store.item.kind) }
     }
 
     private func performRemove() {

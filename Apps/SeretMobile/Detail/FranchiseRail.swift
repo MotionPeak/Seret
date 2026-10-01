@@ -38,7 +38,7 @@ struct FranchiseRail: View {
 
     private func tile(_ part: TMDBSearchResult, number: Int) -> some View {
         // Read live, so a film added while this page is open flips to "In Library" on next render.
-        let owned = session.libraryStore?.ownedItem(tmdbID: part.id)
+        let owned = session.libraryStore?.ownedItem(tmdbID: part.id, kind: .movie)
         let isCurrent = part.id == currentTmdbID
         return Button {
             onOpen(owned ?? .placeholder(for: SearchHit(result: part, kind: .movie)))

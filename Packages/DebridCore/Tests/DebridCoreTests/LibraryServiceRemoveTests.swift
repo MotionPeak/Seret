@@ -83,6 +83,27 @@ extension MockTests {
             #expect(seen == ["B", "NONVIDEO"])
         }
 
+        /// A page about a title (a Watchlist entry, a search result) carries no files, but shares the
+        /// library item's id. "Removing" it deleted nothing from Real-Debrid yet still saved the
+        /// snapshot without that id — and since no torrent changed, no later refresh ever put the
+        /// real title back. It vanished from Seret for good while still sitting in RD.
+        @Test func anItemWithNoFilesRemovesNothingAndKeepsTheLibrary() async throws {
+            let dir = tempDir()
+            let svc = service(directory: dir)
+            try LibrarySnapshotStore(directory: dir).save(
+                LibrarySnapshot(items: [movie("movie:tmdb:7", torrents: ["A"])], seenTorrentIDs: ["A"]))
+            let box = RecordedDeletes()
+            MockURLProtocol.handler = { req in
+                if req.httpMethod == "DELETE" { box.append(req.url!.lastPathComponent) }
+                return Self.resp(req, 204)
+            }
+            await #expect(throws: LibraryServiceError.nothingToRemove) {
+                try await svc.remove(movie("movie:tmdb:7", torrents: []))
+            }
+            #expect(box.values.isEmpty)
+            #expect(svc.loadCached()?.map(\.id) == ["movie:tmdb:7"])
+        }
+
         @Test func treats404AsSuccess() async throws {
             let dir = tempDir()
             let svc = service(directory: dir)

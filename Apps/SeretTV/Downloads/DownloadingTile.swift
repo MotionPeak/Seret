@@ -62,12 +62,12 @@ struct DownloadingRailCard: View {
 
 /// Where a download tile leads: the title's page — the owned item once it has landed, otherwise a
 /// placeholder, which shows the same page with its download progress on it.
+///
+/// The shared `titleItem(in:)` decides, so the film-or-show choice is the tile's own (a film and a
+/// show can share a TMDB id) and an unidentified tile (id 0) never matches an owned title.
 @MainActor
 func downloadDestination(for tile: DownloadTile, library: LibraryStore?) -> BrowseDestination {
-    if let owned = (library?.movies ?? []).first(where: { $0.tmdbID == tile.tmdbID })
-        ?? (library?.shows ?? []).first(where: { $0.tmdbID == tile.tmdbID }) {
-        return .detail(owned)
-    }
+    if let item = tile.titleItem(in: library) { return .detail(item) }
     let isShow = tile.status.contentKey.hasPrefix("show:")
     return .detail(.placeholder(for: SearchHit(result: TMDBSearchResult(
         id: tile.tmdbID, title: isShow ? nil : tile.title, name: isShow ? tile.title : nil,

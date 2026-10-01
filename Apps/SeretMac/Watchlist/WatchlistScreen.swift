@@ -159,8 +159,10 @@ private struct WatchlistTile: View {
     /// rim as every other poster; nil when it isn't over it.
     @State private var pointer: UnitPoint?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(AppSession.self) private var session: AppSession?
 
-    private var item: MediaItem? { MediaItem.watchlistMovie(entry) }
+    /// The library's own item when the film is owned — see `watchlistTitle`.
+    private var item: MediaItem? { MediaItem.watchlistTitle(entry, library: session?.libraryStore) }
     private var title: String { WatchlistName.stripYear(from: entry.name) }
 
     var body: some View {

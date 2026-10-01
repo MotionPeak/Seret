@@ -41,7 +41,7 @@ struct SimilarRail: View {
 
     private func tile(_ title: TMDBSearchResult) -> some View {
         // Read live, so a title added while this page is open flips to "In Library" on next render.
-        let owned = session.libraryStore?.ownedItem(tmdbID: title.id)
+        let owned = session.libraryStore?.ownedItem(tmdbID: title.id, kind: parentKind)
         return Button {
             if let owned { onOpenOwned(owned) }
             else { onAddNew(SearchHit(result: title, kind: parentKind)) }

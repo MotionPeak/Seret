@@ -46,7 +46,7 @@ private struct FranchisePoster: View {
 
     var body: some View {
         let hit = SearchHit(result: part, kind: .movie)
-        let owned = session.libraryStore?.ownedItem(tmdbID: part.id)
+        let owned = session.libraryStore?.ownedItem(tmdbID: part.id, kind: .movie)
         VStack(alignment: .leading, spacing: 10) {
             NavigationLink(value: BrowseDestination.detail(owned ?? .placeholder(for: hit))) {
                 poster(owned: owned != nil)

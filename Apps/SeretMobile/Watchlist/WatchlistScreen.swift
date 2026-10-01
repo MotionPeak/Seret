@@ -90,15 +90,12 @@ struct WatchlistScreen: View {
 /// promise a page that does not exist.
 private struct WatchlistCard: View {
     @Environment(AppRouter.self) private var router
+    @Environment(AppSession.self) private var session
     let entry: WatchlistEntry
     let owned: Bool
 
-    private var item: MediaItem? {
-        guard let tmdbID = entry.tmdbID else { return nil }
-        return MediaItem(id: "movie:tmdb:\(tmdbID)", kind: .movie,
-                         title: WatchlistName.stripYear(from: entry.name), year: entry.year,
-                         sources: [], seasons: [], tmdbID: tmdbID, posterPath: entry.posterPath)
-    }
+    /// The library's own item when the film is owned — see `watchlistTitle`.
+    private var item: MediaItem? { MediaItem.watchlistTitle(entry, library: session.libraryStore) }
 
     var body: some View {
         if let item {

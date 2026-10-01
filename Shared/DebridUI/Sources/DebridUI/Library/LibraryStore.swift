@@ -233,13 +233,23 @@ public final class LibraryStore {
     /// browse page is dozens of posters and tvOS re-evaluates them on every focus move, so a large
     /// account was copying its entire library hundreds of times a second just to decide whether to
     /// draw an "In Library" badge.
-    private var ownedByTMDBID: [Int: MediaItem] = [:]
+    ///
+    /// Keyed by KIND as well as id: TMDB numbers films and shows separately, so a show and a film
+    /// can share an id (TV 1396 is Breaking Bad, film 1396 is Mirror). Keyed by id alone, owning
+    /// one gave the other an "In Library" badge, opened the wrong title's page from its poster —
+    /// and offered "Remove from Library" against the wrong torrent.
+    private var ownedByTMDBID: [OwnedKey: MediaItem] = [:]
+    private struct OwnedKey: Hashable { let kind: MediaKind; let tmdbID: Int }
 
-    /// TMDB ids of every title currently in the library — for the "In Library" badge in Browse.
-    public var ownedTMDBIDs: Set<Int> { Set(ownedByTMDBID.keys) }
+    /// TMDB ids of every FILM currently in the library.
+    public var ownedMovieTMDBIDs: Set<Int> {
+        Set(ownedByTMDBID.keys.filter { $0.kind == .movie }.map(\.tmdbID))
+    }
 
-    /// The library item for a TMDB id, if owned — so a Browse poster can open its Detail.
-    public func ownedItem(tmdbID: Int) -> MediaItem? { ownedByTMDBID[tmdbID] }
+    /// The library item for a TMDB id of the given kind, if owned — so a poster can open its page.
+    public func ownedItem(tmdbID: Int, kind: MediaKind) -> MediaItem? {
+        ownedByTMDBID[OwnedKey(kind: kind, tmdbID: tmdbID)]
+    }
 
     // MARK: - Watch state (movies only)
 
@@ -291,7 +301,9 @@ public final class LibraryStore {
     /// that no longer existed.
     private func reindexOwned() {
         // First one wins, matching the linear `first(where:)` this replaced.
-        ownedByTMDBID = Dictionary((movies + shows).compactMap { item in item.tmdbID.map { ($0, item) } },
+        ownedByTMDBID = Dictionary((movies + shows).compactMap { item in
+                                       item.tmdbID.map { (OwnedKey(kind: item.kind, tmdbID: $0), item) }
+                                   },
                                    uniquingKeysWith: { first, _ in first })
     }
 

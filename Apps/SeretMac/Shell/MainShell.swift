@@ -179,7 +179,7 @@ struct MainShell: View {
                 SurpriseReel(spin: surprise.spin,
                              onWatch: { entry in
                                  model.surprise = nil
-                                 if let item = MediaItem.watchlistMovie(entry) { model.open(.title(item)) }
+                                 if let item = MediaItem.watchlistTitle(entry, library: library) { model.open(.title(item)) }
                              },
                              onSpinAgain: {
                                  if let next = surprise.respin() { model.surprise?.spin = next }
