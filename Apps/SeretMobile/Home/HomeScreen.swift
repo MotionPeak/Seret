@@ -81,8 +81,18 @@ struct HomeScreen: View {
 
     @ViewBuilder private var content: some View {
         if let home = session.home {
-            if home.continueWatching.isEmpty && home.recentlyAdded.isEmpty {
-                if session.libraryStore?.state == .loading { loading } else { empty }
+            if home.continueWatching.isEmpty && home.recentlyAdded.isEmpty
+                && (session.downloadStore?.activeTiles.isEmpty ?? true) {
+                // A failed library said "Nothing here yet — play something" for good, and a library
+                // with titles Home had not composed yet said it for the whole first build.
+                if case .failed(let message) = session.libraryStore?.state {
+                    failed(message)
+                } else if let library = session.libraryStore,
+                          library.state == .loading || !(library.movies.isEmpty && library.shows.isEmpty) {
+                    loading
+                } else {
+                    empty
+                }
             } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: Theme.Space.xxl) {
@@ -180,6 +190,19 @@ struct HomeScreen: View {
             ShimmerView().frame(height: heroH).padding(.horizontal, Theme.Space.lg)
             ShimmerView().frame(height: 120).padding(.horizontal, Theme.Space.lg)
         }.padding(.top, Theme.Space.lg).frame(maxHeight: .infinity, alignment: .top)
+    }
+
+    private func failed(_ message: String) -> some View {
+        VStack(spacing: Theme.Space.md) {
+            Image(systemName: "exclamationmark.triangle").font(.system(size: 40))
+                .foregroundStyle(Theme.Palette.textSecondary)
+            Text(message).font(Theme.Typo.body()).foregroundStyle(Theme.Palette.textSecondary)
+                .multilineTextAlignment(.center).padding(.horizontal, Theme.Space.lg)
+            Button { session.libraryStore?.reload() } label: {
+                Label("Try Again", systemImage: "arrow.clockwise")
+            }
+            .buttonStyle(.borderedProminent).tint(Theme.Palette.gold)
+        }.frame(maxWidth: .infinity).padding(.top, 100)
     }
 
     private var empty: some View {

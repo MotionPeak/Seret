@@ -24,10 +24,20 @@ struct HomeScreen: View {
     private var homeStore: HomeStore? { session.home }
 #endif
 
-    /// True once there's anything to show.
+    /// True once there's anything to show — a download under way counts: a first title being fetched
+    /// into an empty library is exactly when the viewer wants to see it.
     private var homeReady: Bool {
         guard let h = homeStore else { return false }
+        if !(session.downloadStore?.activeTiles.isEmpty ?? true) { return true }
         return !(h.continueWatching.isEmpty && h.recentlyAdded.isEmpty)
+    }
+
+    /// Nothing on Home YET: the library is still being read, or it has titles that Home has not
+    /// composed yet. Both used to show "Nothing here yet — play something", for the whole first
+    /// build of a cold launch.
+    private var stillLoading: Bool {
+        guard let library = session.libraryStore else { return false }
+        return library.state == .loading || !(library.movies.isEmpty && library.shows.isEmpty)
     }
 
     var body: some View {
@@ -95,9 +105,30 @@ struct HomeScreen: View {
                 }
                 .padding(.vertical, 40)
             }
+        } else if case .failed(let message) = session.libraryStore?.state {
+            failed(message)
+        } else if stillLoading {
+            SeretLoader()
         } else {
             empty
         }
+    }
+
+    /// The library could not be read (offline, Real-Debrid down, signed out) and there is no cached
+    /// copy. Home used to say "Nothing here yet — play something" about it, for good: the error and
+    /// its Try Again only existed in My Library.
+    private func failed(_ message: String) -> some View {
+        VStack(spacing: 22) {
+            Image(systemName: "exclamationmark.triangle").font(.system(size: 54))
+                .foregroundStyle(Theme.Palette.textSecondary)
+            Text(message).bodyText().foregroundStyle(Theme.Palette.textSecondary)
+                .multilineTextAlignment(.center).frame(maxWidth: 900)
+            Button { session.libraryStore?.retry() } label: {
+                Label("Try Again", systemImage: "arrow.clockwise")
+            }
+            .buttonStyle(SeretActionButtonStyle(prominent: true))
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     /// Where a Continue Watching card goes: straight into the film, or — only when the file can no
