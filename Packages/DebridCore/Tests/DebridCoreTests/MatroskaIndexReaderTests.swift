@@ -108,6 +108,10 @@ extension MockTests {
             })
         }
 
+        /// Serves `file` the way Real-Debrid's download servers do. Including their one quirk: a range
+        /// that runs past the end of the file is answered with a Content-Length for the WHOLE range,
+        /// then the connection closes after the bytes that exist — which URLSession reports as a
+        /// failed transfer. Every index lies at the end of its file, so this is the read that matters.
         private static func serve(_ file: [UInt8], log: RangeLog) -> (URLRequest) throws -> (HTTPURLResponse, Data) {
             { request in
                 let range = request.value(forHTTPHeaderField: "Range")
@@ -118,9 +122,11 @@ extension MockTests {
                     return (HTTPURLResponse(url: request.url!, statusCode: 416, httpVersion: nil,
                                             headerFields: nil)!, Data())
                 }
-                let end = min(bounds.count > 1 ? bounds[1] : file.count - 1, file.count - 1)
+                let requestedEnd = bounds.count > 1 ? bounds[1] : file.count - 1
+                if requestedEnd >= file.count { throw URLError(.networkConnectionLost) }
                 return (HTTPURLResponse(url: request.url!, statusCode: 206, httpVersion: nil,
-                                        headerFields: nil)!, Data(file[start...end]))
+                                        headerFields: ["Content-Range": "bytes \(start)-\(requestedEnd)/\(file.count)"])!,
+                        Data(file[start...requestedEnd]))
             }
         }
 

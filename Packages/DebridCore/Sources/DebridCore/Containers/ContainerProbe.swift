@@ -31,7 +31,7 @@ public struct ContainerProbe: Sendable {
     public func tracks(at url: URL) async -> Outcome? {
         let head: [UInt8]
         switch await read(url, from: 0) {
-        case .bytes(let bytes): head = bytes
+        case .bytes(let bytes, _): head = bytes
         case .pastEnd: return .unreadable            // an empty file
         case .failed: return nil
         }
@@ -48,7 +48,7 @@ public struct ContainerProbe: Sendable {
                 return .tracks(tracks)
             }
             switch await read(url, from: offset) {
-            case .bytes(let tail):
+            case .bytes(let tail, _):
                 return MatroskaTrackReader.readTracksElement(tail).map(Outcome.tracks) ?? .unreadable
             case .pastEnd:
                 return .unreadable                   // the SeekHead points past the end: a broken file
@@ -70,21 +70,23 @@ public struct ContainerProbe: Sendable {
     /// only as far as its own length — a few hundred KB at the end of a 60 GB file. nil when the
     /// file is not Matroska, has no index, or a read fails; the caller falls back, nothing retries.
     public func index(at url: URL) async -> MatroskaIndex? {
-        guard case .bytes(let head) = await read(url, from: 0),
+        guard case .bytes(let head, let fileSize) = await read(url, from: 0),
               let layout = MatroskaIndexReader.layout(head),
-              let tracksAt = layout.tracksAt, let cuesAt = layout.cuesAt,
-              let tracksBytes = await element(MatroskaTrackReader.ID.tracks, at: tracksAt, in: url,
-                                              head: head, cap: Self.window)
+              let tracksAt = layout.tracksAt, let cuesAt = layout.cuesAt
+        else { return nil }
+        let file = FileRef(url: url, head: head, size: fileSize)
+        guard let tracksBytes = await element(MatroskaTrackReader.ID.tracks, at: tracksAt, in: file,
+                                              cap: Self.window)
         else { return nil }
         let tracks = MatroskaIndexReader.subtitleTracks(tracksBytes)
         var chapters: [MatroskaIndex.Chapter] = []
         if let chaptersAt = layout.chaptersAt,
-           let bytes = await element(MatroskaIndexReader.ID.chapters, at: chaptersAt, in: url,
-                                     head: head, cap: Self.window) {
+           let bytes = await element(MatroskaIndexReader.ID.chapters, at: chaptersAt, in: file,
+                                     cap: Self.window) {
             chapters = MatroskaIndexReader.chapters(bytes)
         }
-        guard let cuesBytes = await element(MatroskaIndexReader.ID.cues, at: cuesAt, in: url,
-                                            head: head, cap: Self.maxIndexBytes) else { return nil }
+        guard let cuesBytes = await element(MatroskaIndexReader.ID.cues, at: cuesAt, in: file,
+                                            cap: Self.maxIndexBytes) else { return nil }
         let ends = MatroskaIndexReader.lineEnds(cuesBytes, timecodeScale: layout.timecodeScale)
         let subtitles = tracks.keys.sorted().compactMap { number -> MatroskaIndex.SubtitleTrack? in
             guard let track = tracks[number] else { return nil }
@@ -96,19 +98,36 @@ public struct ContainerProbe: Sendable {
     /// The whole element `id` starting at `offset`: from the first window when it lies inside it,
     /// else one read to learn its length and, when it is longer than that read, one more for the
     /// rest. nil when it is not that element, is longer than `cap`, or a read fails.
-    private func element(_ id: UInt32, at offset: Int, in url: URL, head: [UInt8], cap: Int) async -> [UInt8]? {
+    private func element(_ id: UInt32, at offset: Int, in file: FileRef, cap: Int) async -> [UInt8]? {
+        let head = file.head
         if offset < head.count,
            let length = MatroskaIndexReader.elementLength(Array(head[offset...]), expecting: id),
            length <= head.count - offset {
             return Array(head[offset..<(offset + length)])
         }
-        guard case .bytes(let first) = await read(url, from: offset),
+        guard case .bytes(let first, _) = await read(file, from: offset, length: Self.window),
               let length = MatroskaIndexReader.elementLength(first, expecting: id), length <= cap
         else { return nil }
         if length <= first.count { return Array(first.prefix(length)) }
-        guard case .bytes(let whole) = await read(url, from: offset, length: length),
+        guard case .bytes(let whole, _) = await read(file, from: offset, length: length),
               whole.count >= length else { return nil }
         return Array(whole.prefix(length))
+    }
+
+    /// A file being read: its first window, and its size when the server said.
+    private struct FileRef {
+        let url: URL
+        let head: [UInt8]
+        let size: Int?
+    }
+
+    /// A read that never asks past the end of the file. Real-Debrid answers a range running past
+    /// it with a Content-Length for the whole range, then closes after the bytes that exist — a
+    /// "failed" transfer, for exactly the read the index needs, since the index ends the file.
+    private func read(_ file: FileRef, from offset: Int, length: Int) async -> RangedReadResult {
+        guard let size = file.size else { return await read(file.url, from: offset, length: length) }
+        guard offset < size else { return .pastEnd }
+        return await read(file.url, from: offset, length: min(length, size - offset))
     }
 
     private func read(_ url: URL, from offset: Int, length: Int = ContainerProbe.window) async -> RangedReadResult {
@@ -128,7 +147,8 @@ public struct ContainerProbe: Sendable {
 
 /// What one ranged GET came back with.
 private enum RangedReadResult: Sendable {
-    case bytes([UInt8])
+    /// `fileSize` is the total in the response's Content-Range, when the server sent one.
+    case bytes([UInt8], fileSize: Int?)
     /// `416`: the range starts past the end of the file. A fact about the file, not the network.
     case pastEnd
     case failed
@@ -173,6 +193,13 @@ private final class RangedRead: NSObject, URLSessionDataDelegate, @unchecked Sen
         if stop { dataTask.cancel() }
     }
 
+    /// The total from `Content-Range: bytes 0-262143/37093984052`. nil when absent or "*".
+    static func fileSize(of response: URLResponse?) -> Int? {
+        guard let header = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Range"),
+              let total = header.split(separator: "/").last else { return nil }
+        return Int(total.trimmingCharacters(in: .whitespaces))
+    }
+
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         let status = (task.response as? HTTPURLResponse)?.statusCode
         lock.lock()
@@ -181,7 +208,7 @@ private final class RangedRead: NSObject, URLSessionDataDelegate, @unchecked Sen
         if status == 416 {
             result = .pastEnd
         } else if !refused, status == 206, complete {
-            result = .bytes(Array(buffer.prefix(cap)))
+            result = .bytes(Array(buffer.prefix(cap)), fileSize: Self.fileSize(of: task.response))
         } else {
             result = .failed
         }
