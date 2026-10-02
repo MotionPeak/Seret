@@ -58,18 +58,71 @@ public struct ContainerProbe: Sendable {
         }
     }
 
-    private func read(_ url: URL, from offset: Int) async -> RangedReadResult {
+    // MARK: - The index
+
+    /// The largest index read. The biggest measured was 1.8 MB (a disc with 37 subtitle tracks); a
+    /// file claiming far more is corrupt, and is not worth the bandwidth mid-film.
+    public static let maxIndexBytes = 16 << 20
+
+    /// The file's own subtitle timetable and chapters, for `FilmEnding`.
+    ///
+    /// The first window (the layout), then the track list, the chapters and the index, each read
+    /// only as far as its own length — a few hundred KB at the end of a 60 GB file. nil when the
+    /// file is not Matroska, has no index, or a read fails; the caller falls back, nothing retries.
+    public func index(at url: URL) async -> MatroskaIndex? {
+        guard case .bytes(let head) = await read(url, from: 0),
+              let layout = MatroskaIndexReader.layout(head),
+              let tracksAt = layout.tracksAt, let cuesAt = layout.cuesAt,
+              let tracksBytes = await element(MatroskaTrackReader.ID.tracks, at: tracksAt, in: url,
+                                              head: head, cap: Self.window)
+        else { return nil }
+        let tracks = MatroskaIndexReader.subtitleTracks(tracksBytes)
+        var chapters: [MatroskaIndex.Chapter] = []
+        if let chaptersAt = layout.chaptersAt,
+           let bytes = await element(MatroskaIndexReader.ID.chapters, at: chaptersAt, in: url,
+                                     head: head, cap: Self.window) {
+            chapters = MatroskaIndexReader.chapters(bytes)
+        }
+        guard let cuesBytes = await element(MatroskaIndexReader.ID.cues, at: cuesAt, in: url,
+                                            head: head, cap: Self.maxIndexBytes) else { return nil }
+        let ends = MatroskaIndexReader.lineEnds(cuesBytes, timecodeScale: layout.timecodeScale)
+        let subtitles = tracks.keys.sorted().compactMap { number -> MatroskaIndex.SubtitleTrack? in
+            guard let track = tracks[number] else { return nil }
+            return MatroskaIndex.SubtitleTrack(track: track, lineEnds: ends[number] ?? [])
+        }
+        return MatroskaIndex(subtitles: subtitles, chapters: chapters)
+    }
+
+    /// The whole element `id` starting at `offset`: from the first window when it lies inside it,
+    /// else one read to learn its length and, when it is longer than that read, one more for the
+    /// rest. nil when it is not that element, is longer than `cap`, or a read fails.
+    private func element(_ id: UInt32, at offset: Int, in url: URL, head: [UInt8], cap: Int) async -> [UInt8]? {
+        if offset < head.count,
+           let length = MatroskaIndexReader.elementLength(Array(head[offset...]), expecting: id),
+           length <= head.count - offset {
+            return Array(head[offset..<(offset + length)])
+        }
+        guard case .bytes(let first) = await read(url, from: offset),
+              let length = MatroskaIndexReader.elementLength(first, expecting: id), length <= cap
+        else { return nil }
+        if length <= first.count { return Array(first.prefix(length)) }
+        guard case .bytes(let whole) = await read(url, from: offset, length: length),
+              whole.count >= length else { return nil }
+        return Array(whole.prefix(length))
+    }
+
+    private func read(_ url: URL, from offset: Int, length: Int = ContainerProbe.window) async -> RangedReadResult {
         // The offset came out of the file. However it was bounded upstream, the arithmetic here
         // must not be what traps.
-        guard offset >= 0, offset <= Int.max - Self.window else { return .pastEnd }
+        guard offset >= 0, length > 0, offset <= Int.max - length else { return .pastEnd }
         var request = URLRequest(url: url)
-        request.setValue("bytes=\(offset)-\(offset + Self.window - 1)", forHTTPHeaderField: "Range")
+        request.setValue("bytes=\(offset)-\(offset + length - 1)", forHTTPHeaderField: "Range")
         let settings = configuration()
         settings.timeoutIntervalForRequest = 15
         // The request timeout is only the longest SILENCE: a server trickling a byte a second
         // would hold one of the few read slots for good.
         settings.timeoutIntervalForResource = 30
-        return await RangedRead(cap: Self.window).run(request, configuration: settings)
+        return await RangedRead(cap: length).run(request, configuration: settings)
     }
 }
 

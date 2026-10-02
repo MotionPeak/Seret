@@ -82,6 +82,7 @@ public enum MatroskaTrackReader {
         static let seekPosition: UInt32 = 0x53AC
         static let tracks: UInt32 = 0x1654AE6B
         static let trackEntry: UInt32 = 0xAE
+        static let trackNumber: UInt32 = 0xD7
         static let trackType: UInt32 = 0x83
         static let codecID: UInt32 = 0x86
         static let language: UInt32 = 0x22B59C
@@ -169,9 +170,17 @@ public enum MatroskaTrackReader {
     }
 
     static func entries(in bytes: [UInt8], from: Int, to: Int) -> [ContainerTrack] {
-        var tracks: [ContainerTrack] = []
+        numberedEntries(in: bytes, from: from, to: to).map(\.track)
+    }
+
+    /// The tracks with the number each one is addressed by elsewhere in the file (the index, the
+    /// blocks). nil when an entry carries none — legal for nothing but a broken file.
+    static func numberedEntries(in bytes: [UInt8], from: Int, to: Int)
+        -> [(number: UInt64?, track: ContainerTrack)] {
+        var tracks: [(number: UInt64?, track: ContainerTrack)] = []
         children(bytes, from: from, to: to) { entry, entryEnd in
             guard entry.id == ID.trackEntry else { return }
+            var number: UInt64?
             var type: UInt64?
             var codec: String?
             var language: String?
@@ -182,6 +191,7 @@ public enum MatroskaTrackReader {
             children(bytes, from: entry.dataOffset, to: entryEnd) { field, fieldEnd in
                 let start = field.dataOffset
                 switch field.id {
+                case ID.trackNumber: number = uint(bytes, from: start, to: fieldEnd)
                 case ID.trackType: type = uint(bytes, from: start, to: fieldEnd)
                 case ID.codecID: codec = text(bytes, from: start, to: fieldEnd)
                 case ID.language: language = text(bytes, from: start, to: fieldEnd)
@@ -208,8 +218,8 @@ public enum MatroskaTrackReader {
             if kind == .video, let frameDuration, frameDuration > 0 {
                 fps = ((1e9 / Double(frameDuration)) * 1000).rounded() / 1000
             }
-            tracks.append(ContainerTrack(kind: kind, language: code, codec: codec, name: name,
-                                         isForced: forced, frameRate: fps))
+            tracks.append((number, ContainerTrack(kind: kind, language: code, codec: codec, name: name,
+                                                  isForced: forced, frameRate: fps)))
         }
         return tracks
     }

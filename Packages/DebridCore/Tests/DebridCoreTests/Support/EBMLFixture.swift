@@ -48,10 +48,12 @@ enum EBML {
         var name: String? = nil
         var forced = false
         var frameDuration: UInt64? = nil
+        var number: UInt64? = nil
     }
 
     static func trackEntry(_ t: Track) -> [UInt8] {
-        var payload = uint(ID.trackType, t.type) + string(ID.codecID, t.codec)
+        var payload = (t.number.map { uint(ID.trackNumber, $0) } ?? [])
+            + uint(ID.trackType, t.type) + string(ID.codecID, t.codec)
         if let language = t.language { payload += string(ID.language, language) }
         if let bcp47 = t.bcp47 { payload += string(ID.languageBCP47, bcp47) }
         if let name = t.name { payload += string(ID.name, name) }
@@ -92,5 +94,63 @@ enum EBML {
         let info = element(0x1549A966, uint(0x2AD7B1, 1_000_000))
         return header() + idBytes(ID.segment) + unknownSize + seekHead + info
             + element(ID.cluster, [0x81])
+    }
+
+    // MARK: - Index and chapters
+
+    typealias X = MatroskaIndexReader.ID
+
+    /// One Cues entry: a block of `track` at `time` ticks, lasting `duration` ticks when given.
+    struct Cue {
+        var time: UInt64
+        var track: UInt64
+        var duration: UInt64? = nil
+    }
+
+    static func cues(_ points: [Cue]) -> [UInt8] {
+        element(X.cues, points.flatMap { cue in
+            element(X.cuePoint, uint(X.cueTime, cue.time)
+                + element(X.cueTrackPositions, uint(X.cueTrack, cue.track)
+                    + uint(0xF1, 0)                                   // CueClusterPosition
+                    + (cue.duration.map { uint(X.cueDuration, $0) } ?? [])))
+        })
+    }
+
+    static func chapters(_ editions: [[(start: UInt64, title: String?)]]) -> [UInt8] {
+        element(X.chapters, editions.flatMap { atoms in
+            element(X.editionEntry, atoms.flatMap { atom in
+                element(X.chapterAtom, uint(X.chapterTimeStart, atom.start)
+                    + (atom.title.map { element(X.chapterDisplay, string(X.chapString, $0)) } ?? []))
+            })
+        })
+    }
+
+    /// A whole file laid out the way mkvmerge writes one: SeekHead, Info, Tracks and Chapters up
+    /// front, `mediaBytes` of Cluster, then the Cues at the end. The SeekHead names all three.
+    static func indexedFile(tracks entries: [Track], cues points: [Cue]?,
+                            chapters editions: [[(start: UInt64, title: String?)]] = [],
+                            timecodeScale: UInt64 = 1_000_000, mediaBytes: Int = 0,
+                            cuesPayloadOverride: [UInt8]? = nil) -> [UInt8] {
+        let info = element(X.info, uint(X.timecodeScale, timecodeScale))
+        let tracksBytes = tracks(entries)
+        let chaptersBytes = editions.isEmpty ? [] : chapters(editions)
+        let cluster = element(ID.cluster, [UInt8](repeating: 0, count: max(1, mediaBytes)))
+        let cuesBytes = cuesPayloadOverride ?? points.map(cues) ?? []
+        func seekHead(_ entries: [(UInt32, UInt64)]) -> [UInt8] {
+            element(ID.seekHead, entries.flatMap { id, position in
+                element(ID.seek, element(ID.seekID, idBytes(id)) + uint64(ID.seekPosition, position))
+            })
+        }
+        var named: [UInt32] = [ID.tracks]
+        if !chaptersBytes.isEmpty { named.append(X.chapters) }
+        if !cuesBytes.isEmpty { named.append(X.cues) }
+        let headLength = UInt64(seekHead(named.map { ($0, 0) }).count)
+        let tracksAt = headLength + UInt64(info.count)
+        let chaptersAt = tracksAt + UInt64(tracksBytes.count)
+        let cuesAt = chaptersAt + UInt64(chaptersBytes.count) + UInt64(cluster.count)
+        let positions: [UInt32: UInt64] = [ID.tracks: tracksAt, X.chapters: chaptersAt, X.cues: cuesAt]
+        let children = seekHead(named.map { ($0, positions[$0]!) }) + info + tracksBytes + chaptersBytes
+            + cluster + cuesBytes
+        return header() + idBytes(ID.segment) + unknownSize + children
     }
 }
