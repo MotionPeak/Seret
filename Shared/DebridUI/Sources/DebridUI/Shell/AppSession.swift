@@ -715,8 +715,10 @@ public final class AppSession {
                                          finished: finished, profileID: target)
             },
             subtitles: subtitlesProvider,
-            // Where the credits start, for the watched line and the rating prompt. Keyless.
+            // Where the film ends, for the watched line and the rating prompt: the file's own
+            // subtitle index first, then where TheIntroDB (keyless) says the credits start.
             credits: TheIntroDBClient(),
+            readIndex: { await ContainerProbe().index(at: $0) },
             details: detailsProvider,
             trackPreferences: trackPreferences,
             // Authoritative resume: the saved position is re-read at load time so playback can't

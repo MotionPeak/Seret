@@ -57,6 +57,7 @@ extension PlayerModel {
         upNextDismissed = false
         upNextSecondsRemaining = 0
         contentEndTime = nil
+        filmEndFromFile = false
     }
 
     /// Swap the playing episode to the next in series order and reload from the start, in-place (no

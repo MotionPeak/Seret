@@ -519,6 +519,11 @@ public final class PlayerModel {
     var creditsStartTime: Double?
     /// Asks where a film's credits start. nil → the database is never consulted.
     let credits: CreditsLocating?
+    /// Reads the playing file's own subtitle index and chapters (`ContainerProbe.index`).
+    let readIndex: (@Sendable (URL) async -> MatroskaIndex?)?
+    /// `contentEndTime` came from the file's own subtitle index. It is then the file's timeline
+    /// itself, and a subtitle downloaded afterwards — another release's timing — does not replace it.
+    var filmEndFromFile = false
     /// The once-a-film lookup of where it ends has begun. Survives `reload()` on purpose: another
     /// version of the same film ends in the same place, and a second lookup would only spend a
     /// second subtitle download.
@@ -628,6 +633,7 @@ public final class PlayerModel {
          recordProgress: @escaping (_ contentKey: String, _ sourceKey: String, _ position: Double, _ duration: Double, _ finished: Bool) async -> Void,
          subtitles: SubtitleProvider?,
          credits: CreditsLocating? = nil,
+         readIndex: (@Sendable (URL) async -> MatroskaIndex?)? = nil,
          details: MediaDetailsProviding? = nil,
          trackPreferences: TrackPreferenceStoring? = nil,
          resolveResume: ((String) async -> Double?)? = nil,
@@ -683,6 +689,7 @@ public final class PlayerModel {
         self.recordProgress = recordProgress
         self.subtitles = subtitles
         self.credits = credits
+        self.readIndex = readIndex
         self.nowPlaying = nowPlaying
         self.recordTracks = recordTracks
         self.subtitleRows = Self.freshSubtitleRows(hasAccount: subtitles != nil)

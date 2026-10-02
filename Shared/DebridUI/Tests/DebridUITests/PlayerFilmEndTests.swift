@@ -49,8 +49,25 @@ import DebridCore
         """
     }
 
+    /// The file's own index, as `ContainerProbe.index` would read it.
+    final class FakeIndex: @unchecked Sendable {
+        var index: MatroskaIndex?
+        private(set) var asked: [URL] = []
+        func read(_ url: URL) -> MatroskaIndex? { asked.append(url); return index }
+
+        /// An English track of a film's worth of lines, the last leaving the screen at `lastLine`.
+        static func english(lastLine: Double, chapters: [MatroskaIndex.Chapter] = []) -> MatroskaIndex {
+            let lines = stride(from: 300.0, to: lastLine, by: 5).map { $0 } + [lastLine]
+            return MatroskaIndex(
+                subtitles: [.init(track: ContainerTrack(kind: .subtitle, language: "en", name: "English"),
+                                  lineEnds: lines)],
+                chapters: chapters)
+        }
+    }
+
     private func model(_ recorder: Recorder, engine: FakeVideoPlayerEngine,
                        subtitles: FakeSubtitleProvider?, credits: FakeCredits? = nil,
+                       index: FakeIndex? = nil,
                        request: PlaybackRequest = Fixture.request()) -> PlayerModel {
         PlayerModel(request: request, engine: engine,
                     unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
@@ -58,7 +75,8 @@ import DebridCore
                         recorder.finishedFlags.append(finished)
                     },
                     subtitles: subtitles,
-                    credits: credits)
+                    credits: credits,
+                    readIndex: index.map { fake in { @Sendable url in fake.read(url) } })
     }
 
     private func tick(_ m: PlayerModel, _ engine: FakeVideoPlayerEngine, at position: Double,
@@ -187,6 +205,107 @@ import DebridCore
 
         await tick(m, engine, at: 6901)
         #expect(recorder.finishedFlags.last == true)
+        await m.teardown()
+    }
+
+    // MARK: - The file's own subtitle
+
+    /// The file playing knows best: its own English subtitle is timed to THIS file, so there is
+    /// nothing to correct and nothing to download.
+    @Test func theFilesOwnSubtitleSaysWhereTheFilmEnds() async {
+        let recorder = Recorder(), engine = FakeVideoPlayerEngine()
+        let subs = subtitles(lastLineEndingAt: 6000)
+        let credits = FakeCredits()
+        let index = FakeIndex()
+        index.index = FakeIndex.english(lastLine: 7000)
+        let m = model(recorder, engine: engine, subtitles: subs, credits: credits, index: index)
+        m.start(); await m.waitForIdleForTesting()
+
+        await tick(m, engine, at: 3600)
+
+        #expect(index.asked == [URL(string: "https://cdn/x.mkv")!])
+        #expect(m.contentEndTime == 7000)
+        #expect(subs.searchedLanguages.isEmpty, "no download")
+        #expect(credits.asked.isEmpty, "no database")
+        await tick(m, engine, at: 6999)
+        #expect(recorder.finishedFlags.last == false)
+        await tick(m, engine, at: 7000)
+        #expect(recorder.finishedFlags.last == true)
+        await m.teardown()
+    }
+
+    @Test func anEndCreditsChapterInTheFileIsWhereTheFilmIsOver() async {
+        let recorder = Recorder(), engine = FakeVideoPlayerEngine()
+        let index = FakeIndex()
+        index.index = FakeIndex.english(lastLine: 6900, chapters: [.init(start: 6950, title: "End Credits")])
+        let m = model(recorder, engine: engine, subtitles: nil, index: index)
+        m.start(); await m.waitForIdleForTesting()
+
+        await tick(m, engine, at: 3600)
+
+        #expect(m.creditsStartTime == 6950)
+        await tick(m, engine, at: 6949)
+        #expect(recorder.finishedFlags.last == false)
+        await tick(m, engine, at: 6950)
+        #expect(recorder.finishedFlags.last == true)
+        await m.teardown()
+    }
+
+    /// A subtitle the viewer downloaded is another release's timing; the file's own wins, even
+    /// when the download comes later.
+    @Test func theFilesOwnTimingIsNotReplacedByADownload() async {
+        let recorder = Recorder(), engine = FakeVideoPlayerEngine()
+        let subs = subtitles(lastLineEndingAt: 6500)
+        let index = FakeIndex()
+        index.index = FakeIndex.english(lastLine: 7000)
+        let m = model(recorder, engine: engine, subtitles: subs, index: index)
+        m.start(); await m.waitForIdleForTesting()
+        m.contentEndTime = 6500                         // downloaded before halfway
+
+        await tick(m, engine, at: 3600)
+        #expect(m.contentEndTime == 7000)
+
+        await m.requestSubtitle(language: "en")         // …and another download after
+        #expect(m.contentEndTime == 7000)
+        await m.teardown()
+    }
+
+    /// Good Will Hunting: the file's English track runs on through the credits song, so it cannot
+    /// say where the film stopped. A subtitle from another release would be guessing too — the
+    /// database is still asked, then the estimate stands.
+    @Test func aFileWhoseSubtitleRunsIntoTheCreditsFallsBackWithoutADownload() async {
+        let recorder = Recorder(), engine = FakeVideoPlayerEngine()
+        let subs = subtitles(lastLineEndingAt: 6800)
+        let credits = FakeCredits()
+        let index = FakeIndex()
+        index.index = FakeIndex.english(lastLine: feature - 10)
+        let m = model(recorder, engine: engine, subtitles: subs, credits: credits, index: index)
+        m.start(); await m.waitForIdleForTesting()
+
+        await tick(m, engine, at: 3600)
+
+        #expect(m.contentEndTime == nil)
+        #expect(credits.asked.count == 1)
+        #expect(subs.searchedLanguages.isEmpty)
+        await tick(m, engine, at: feature - 5 * 60)
+        #expect(recorder.finishedFlags.last == true)
+        await m.teardown()
+    }
+
+    /// An MP4, or a file with no index: everything else is tried, as before.
+    @Test func aFileWithNoIndexFallsBackToTheDatabaseThenADownload() async {
+        let recorder = Recorder(), engine = FakeVideoPlayerEngine()
+        let subs = subtitles(lastLineEndingAt: 7000)
+        let credits = FakeCredits()
+        let index = FakeIndex()
+        let m = model(recorder, engine: engine, subtitles: subs, credits: credits, index: index)
+        m.start(); await m.waitForIdleForTesting()
+
+        await tick(m, engine, at: 3600)
+
+        #expect(index.asked.count == 1)
+        #expect(credits.asked.count == 1)
+        #expect(m.contentEndTime == 7000)
         await m.teardown()
     }
 

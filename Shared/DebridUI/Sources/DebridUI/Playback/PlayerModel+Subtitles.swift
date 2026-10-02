@@ -241,7 +241,9 @@ extension PlayerModel {
         // The cues tell us when the dialogue ends → drives "Up Next" at content-end rather than at
         // the file end, which on a TV rip is minutes of credits later.
         let lastCue = SubtitleTiming.lastCueEndSeconds(in: text)
-        contentEndTime = lastCue
+        // …unless the file's own index already said: that is this file's timeline, and this
+        // subtitle is some release's.
+        if !filmEndFromFile { contentEndTime = lastCue }
         subtitleRetimeFactor = nil
         // The same text, read once for two questions: when the dialogue ends, and what the lines
         // are. Keyed by the file that is about to be attached, which is what the panel looks up.
@@ -259,7 +261,7 @@ extension PlayerModel {
         guard (try? corrected.write(to: destination, atomically: true, encoding: encoding)) != nil
         else { return url }        // a failed write must not cost the viewer the subtitle entirely
         // Every cue moved, including the last one Up Next keys off.
-        contentEndTime = SubtitleTiming.lastCueEndSeconds(in: corrected) ?? lastCue
+        if !filmEndFromFile { contentEndTime = SubtitleTiming.lastCueEndSeconds(in: corrected) ?? lastCue }
         subtitleRetimeFactor = factor
         // The corrected copy is the file the engine gets, so it is the one whose cue times the
         // panel must show — every cue moved.
