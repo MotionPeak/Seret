@@ -715,6 +715,8 @@ public final class AppSession {
                                          finished: finished, profileID: target)
             },
             subtitles: subtitlesProvider,
+            // Where the credits start, for the watched line and the rating prompt. Keyless.
+            credits: TheIntroDBClient(),
             details: detailsProvider,
             trackPreferences: trackPreferences,
             // Authoritative resume: the saved position is re-read at load time so playback can't

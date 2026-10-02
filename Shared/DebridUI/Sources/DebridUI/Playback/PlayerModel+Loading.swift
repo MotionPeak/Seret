@@ -254,6 +254,7 @@ extension PlayerModel {
             }
         }
         maybeShowUpNext()
+        measureFilmEndIfDue()
         pushNowPlaying()
     }
 
@@ -544,6 +545,7 @@ extension PlayerModel {
         seekDispatchTask?.cancel()
         loadWatchdog?.cancel()
         subtitleFallbackTask?.cancel()          // else it spends OpenSubtitles quota on a dead engine
+        filmEndTask?.cancel()                   // …and so would this
         subtitleAttachTimeoutTask?.cancel()
         cancelSubtitleShift()
         // A sync outliving the player would keep pulling a stream nobody is watching, for minutes.
@@ -566,7 +568,7 @@ extension PlayerModel {
         engine.stop()
         // Progress before the stream cache: its close writes the resume region to flash (up to
         // 56 MiB), and the Detail page reloads "Resume · …" as soon as the player is gone.
-        await recordCurrentProgress()
+        await recordCurrentProgress(leaving: true)
         if let handle = streamHandle, let streamProxy {
             streamHandle = nil
             await streamProxy.close(handle)          // keep the resume region for next time

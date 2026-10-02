@@ -514,6 +514,16 @@ public final class PlayerModel {
     /// won't fire while a line is still being spoken — but no longer triggers it directly (the last
     /// line is often well before the credits). nil → use the credits-lead estimate alone.
     var contentEndTime: Double?
+    /// Where the credits start, when TheIntroDB knows (see `PlayerModel+FilmEnd`). Evidence for the
+    /// watched line alongside `contentEndTime`; nil for most films.
+    var creditsStartTime: Double?
+    /// Asks where a film's credits start. nil → the database is never consulted.
+    let credits: CreditsLocating?
+    /// The once-a-film lookup of where it ends has begun. Survives `reload()` on purpose: another
+    /// version of the same film ends in the same place, and a second lookup would only spend a
+    /// second subtitle download.
+    var filmEndMeasured = false
+    var filmEndTask: Task<Void, Never>?
     var upNextDismissed = false
     var upNextTask: Task<Void, Never>?
     let upNextCountdownStart = 10
@@ -538,11 +548,11 @@ public final class PlayerModel {
     /// episode swap replaces both underneath it otherwise, and the flag would describe the
     /// incoming episode rather than the one just finished.
     ///
-    /// `contentEndTime` — the last subtitle cue — is what makes this better than any fraction: it
-    /// is where the dialogue ends, which is where the film is over.
+    /// `contentEndTime` — the last subtitle cue — and `creditsStartTime` are what make this better
+    /// than any fraction: where the dialogue ends and the credits begin is where the film is over.
     func hasReachedEnd(at position: Double, duration: Double) -> Bool {
         WatchThreshold.hasReachedEnd(position: position, duration: duration,
-                                     lastSubtitleCue: contentEndTime)
+                                     lastSubtitleCue: contentEndTime, creditsStart: creditsStartTime)
     }
 
     /// Whether this playhead leaves a place worth coming back to: `WatchState.resumePosition`'s rule
@@ -617,6 +627,7 @@ public final class PlayerModel {
          unrestrict: @escaping (String) async throws -> URL,
          recordProgress: @escaping (_ contentKey: String, _ sourceKey: String, _ position: Double, _ duration: Double, _ finished: Bool) async -> Void,
          subtitles: SubtitleProvider?,
+         credits: CreditsLocating? = nil,
          details: MediaDetailsProviding? = nil,
          trackPreferences: TrackPreferenceStoring? = nil,
          resolveResume: ((String) async -> Double?)? = nil,
@@ -671,6 +682,7 @@ public final class PlayerModel {
         self.unrestrict = unrestrict
         self.recordProgress = recordProgress
         self.subtitles = subtitles
+        self.credits = credits
         self.nowPlaying = nowPlaying
         self.recordTracks = recordTracks
         self.subtitleRows = Self.freshSubtitleRows(hasAccount: subtitles != nil)
@@ -1021,6 +1033,8 @@ public final class PlayerModel {
         await finishTask?.value
         // …and a tick starts the progress write without awaiting it, on purpose.
         await progressSaveTask?.value
+        // So does the halfway lookup of where the film ends.
+        await filmEndTask?.value
         // A handler can start a new load (retry, the next episode) — let that one land too.
         if awaitingLoad { await loadTask?.value }
     }

@@ -83,10 +83,46 @@ import Foundation
         #expect(at == feature - 5 * 60)
     }
 
-    @Test func creditsPastTheEndOfThisFileStillLeaveThirtySeconds() {
-        let at = WatchThreshold.finishedAt(duration: feature, lastSubtitleCue: nil,
-                                           creditsStart: feature + 600)
-        #expect(at == feature - 30)
+    /// Evidence for a LONGER cut — an extended edition's subtitle, its credits — ends after this
+    /// file does. Believed, it pushed "watched" to the final frame, and leaving during the credits
+    /// never logged the film at all.
+    @Test func evidencePastTheEndOfThisFileIsAnotherCutAndIgnored() {
+        #expect(WatchThreshold.finishedAt(duration: feature, lastSubtitleCue: nil,
+                                          creditsStart: feature + 600) == feature - 5 * 60)
+        #expect(WatchThreshold.finishedAt(duration: feature, lastSubtitleCue: feature + 600)
+                == feature - 5 * 60)
+    }
+
+    /// A subtitle timed a few seconds loose at the very end is captioning the credits, not another
+    /// cut — the thirty-second tail still applies.
+    @Test func aLastLineJustPastTheEndIsStillThisFile() {
+        #expect(WatchThreshold.finishedAt(duration: feature, lastSubtitleCue: feature + 20)
+                == feature - 30)
+    }
+
+    // MARK: - Leaving the player
+
+    /// The estimate sits five minutes out so the rating never asks during the film. But someone who
+    /// LEAVES six minutes out, with nothing saying where this film ends, is in its credits by any
+    /// likelihood — and was never logged at all.
+    @Test func leavingInTheLastStretchWithNoEvidenceCountsAsWatched() {
+        #expect(WatchThreshold.hasLeftAtTheEnd(position: feature - 6 * 60, duration: feature,
+                                               lastSubtitleCue: nil))
+        #expect(!WatchThreshold.hasLeftAtTheEnd(position: 0.9 * feature, duration: feature,
+                                                lastSubtitleCue: nil))
+    }
+
+    /// With evidence, leaving before the dialogue ends is leaving the film.
+    @Test func leavingBeforeTheKnownEndIsNotWatched() {
+        let lastLine = feature - 3 * 60
+        #expect(!WatchThreshold.hasLeftAtTheEnd(position: feature - 6 * 60, duration: feature,
+                                                lastSubtitleCue: lastLine))
+        #expect(WatchThreshold.hasLeftAtTheEnd(position: lastLine, duration: feature,
+                                               lastSubtitleCue: lastLine))
+    }
+
+    @Test func leavingAnUnmeasuredFileIsNotWatched() {
+        #expect(!WatchThreshold.hasLeftAtTheEnd(position: 0, duration: 0, lastSubtitleCue: nil))
     }
 
     @Test func aPositionPastTheThresholdCountsAsWatched() {

@@ -129,11 +129,18 @@ extension PlayerModel {
     /// the episode ACTUALLY playing. It used to prefer a Trakt `stop` hook that received only a
     /// fraction, which meant local state was never written here at all — the tick was the only
     /// thing recording, and with Trakt's API app gone that hook wrote nowhere.
-    func recordCurrentProgress() async {
+    ///
+    /// `leaving` is the player closing for good: someone who stops in the last stretch of a film
+    /// with nothing saying where it ends has seen its end (`WatchThreshold.hasLeftAtTheEnd`).
+    func recordCurrentProgress(leaving: Bool = false) async {
         // Never a place the viewer did not reach. See `playheadSettled`.
         guard playheadSettled else { return }
-        await recordProgress(contentKey, WatchKey.source(currentSource), position, duration,
-                             hasReachedEnd(at: position, duration: duration))
+        let watched = leaving
+            ? WatchThreshold.hasLeftAtTheEnd(position: position, duration: duration,
+                                             lastSubtitleCue: contentEndTime,
+                                             creditsStart: creditsStartTime)
+            : hasReachedEnd(at: position, duration: duration)
+        await recordProgress(contentKey, WatchKey.source(currentSource), position, duration, watched)
     }
 
     /// Finalise the episode playing RIGHT NOW, then let the caller swap without waiting.
