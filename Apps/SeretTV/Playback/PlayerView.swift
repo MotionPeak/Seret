@@ -277,8 +277,8 @@ struct PlayerView: View {
 
     /// The stars are up and own the remote — only once the viewer has pressed Up to answer.
     ///
-    /// The prompt arrives while the film is still playing (its credits, or 92% of the runtime when
-    /// no subtitle says where the dialogue ends), and it used to mount the stars at once with focus
+    /// The prompt arrives while the film is still playing (its credits, or five minutes from the
+    /// end when nothing says where the film ends), and it used to mount the stars at once with focus
     /// seeded on the first one. The viewer's next Select — meant to pause — filed 1/10 to Letterboxd,
     /// and the arrows moved between stars instead of skipping. Until Up, the prompt is an invitation
     /// and the remote keeps doing what it was doing.

@@ -27,9 +27,9 @@ private final class ProgressGate {
 /// Player regressions found by reviewing fix/polish-sweep-2026-10-01 against itself. The resume
 /// rule here is the REAL one — the store row's `resumePosition`, exactly what AppSession wires —
 /// because the existing fakes return raw positions and so could not see the first of these. And
-/// the row is written the way `LocalWatchProvider.record` writes it: the player's `finished` ORed
-/// with the store's own subtitle-blind finish line (the fake once passed `finished` straight
-/// through, which hid a late-cue drop restarting from 0:00 — see `PlayerStoreBackedTests`).
+/// the row is written the way `LocalWatchProvider.record` writes it: the player's `finished`, as
+/// given. (The store used to OR its own subtitle-blind finish line on top, which a straight
+/// pass-through hid — see `PlayerStoreBackedTests` — until that OR was removed.)
 @MainActor
 @Suite struct PlayerReviewRegressionTests {
 
@@ -45,8 +45,7 @@ private final class ProgressGate {
                     unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
                     recordProgress: { key, source, position, duration, finished in
                         await MainActor.run {
-                            let stored = finished || WatchThreshold.hasReachedEnd(
-                                position: position, duration: duration, lastSubtitleCue: nil)
+                            let stored = finished
                             store.writes.append((position, stored))
                             store.rows[key] = WatchState(contentKey: key, sourceKey: source,
                                                          positionSeconds: position,
@@ -68,8 +67,9 @@ private final class ProgressGate {
         let model = makeModel(store: store, engine: engine)
         model.start(); await model.waitForIdleForTesting()
         engine.emit(.state(.playing))
-        engine.emit(.time(.init(position: 6799, duration: 7200)))
-        engine.emit(.time(.init(position: 6800, duration: 7200)))
+        // Four minutes from the end of a two-hour film: inside the credits by any measure.
+        engine.emit(.time(.init(position: 6959, duration: 7200)))
+        engine.emit(.time(.init(position: 6960, duration: 7200)))
         await model.waitForIdleForTesting()
 
         engine.emit(.state(.ended)); await model.waitForIdleForTesting()
@@ -286,7 +286,9 @@ extension SwiftDataSuite {
             engine.emit(.time(.init(position: 5601, duration: 6000)))
             await model.waitForIdleForTesting()
             let row = try await p.progress(forContentKey: "m1", profileID: "p1")
-            #expect(row?.finished == true, "the title lost its finish")
+            // Not finished: the dialogue runs to 5900. The store used to say otherwise — its own
+            // 92% line, ORed over the player's — which is what asked for a rating mid-film.
+            #expect(row?.finished == false, "finished before the dialogue ended")
             #expect((row?.positionSeconds ?? 0) >= 5600, "the place: \(String(describing: row?.positionSeconds))")
             #expect(model.reopenAt == nil)
             await model.teardown()
@@ -330,7 +332,8 @@ extension SwiftDataSuite {
             engine.emit(.time(.init(position: 5601, duration: 6000)))
             await model.waitForIdleForTesting()
             let row = try await p.progress(forContentKey: "m1", profileID: "p1")
-            #expect(row?.finished == true, "the title lost its finish")
+            #expect((row?.positionSeconds ?? 0) >= 5600, "the place: \(String(describing: row?.positionSeconds))")
+            #expect(row?.finished == false, "finished before the dialogue ended")
             await model.teardown()
         }
 

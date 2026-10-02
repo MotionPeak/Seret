@@ -48,7 +48,7 @@ public struct WatchState: Sendable, Equatable {
         // mean "resume from the middle".
         if finished, positionSeconds / durationSeconds < Self.playedFraction { return nil }
         let remaining = durationSeconds - positionSeconds
-        // …and the finish line is now where the dialogue ENDS (the last subtitle cue, or 92%), so
+        // …and the finish line is now where the dialogue ENDS (the last subtitle cue, the credits, or five minutes out), so
         // what is left of a finished title is its credits: stopping four minutes into an eight-
         // minute roll offered "Resume 2:02:00" straight into them. More left than any credits
         // run means something else set the flag — a subtitle file that stops early — and then the

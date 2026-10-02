@@ -478,8 +478,8 @@ extension PlayerModel {
         // tick un-finished it). But a finish line drawn EARLY — a subtitle file that stops at 82% —
         // leaves more than any credits run, and asking "past the finish line?" instead closed a
         // film with a quarter of an hour still to play. The reopen resumes at the playhead itself:
-        // the store, finishing titles at its own subtitle-blind line, can answer "no place" for a
-        // drop the player knows is mid-dialogue.
+        // the store is a write behind the player, and once answered "no place" for a drop the
+        // player knew was mid-dialogue.
         if stoppedShortOfTheEnd, recordKeepsAPlace(at: position, duration: duration),
            interruptedAt.map({ abs(position - $0) > 30 }) ?? true {
             let place = position

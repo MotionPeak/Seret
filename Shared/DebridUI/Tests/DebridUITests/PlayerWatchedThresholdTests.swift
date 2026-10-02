@@ -47,8 +47,14 @@ import DebridCore
     }
 
     @Test func aFilmWithNoSubtitleIsWatchedOnceTheEstimateIsPassed() async {
-        let r = await tick(at: 0.93 * feature)
+        let r = await tick(at: feature - 5 * 60 + 1)
         #expect(r.finishedFlags.last == true)
+    }
+
+    /// Where the rating prompt used to appear: 93% in, minutes of the film still to play.
+    @Test func aFilmWithNoSubtitleIsStillOnTenMinutesFromTheEnd() async {
+        let r = await tick(at: 0.93 * feature)
+        #expect(r.finishedFlags.last == false)
     }
 
     /// The whole point of asking the player: with a subtitle loaded, the last spoken line is the

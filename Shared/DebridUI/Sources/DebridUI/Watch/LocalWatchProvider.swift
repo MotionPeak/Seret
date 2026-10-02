@@ -28,11 +28,6 @@ public struct LocalWatchProvider: WatchProgressProviding, Sendable {
         self.push = push
     }
 
-    /// Fraction of runtime past which a title counts as watched WHEN NOBODY KNOWS BETTER. The
-    /// player passes `finished` itself, because only it knows where the dialogue ends; this is the
-    /// estimate for everything else. `WatchThreshold` owns the number.
-    public static var finishedFraction: Double { WatchThreshold.estimatedFraction }
-
     /// Hand rows recorded before a profile resolved to `owner` — see
     /// `LocalWatchStore.adoptUnprofiledProgress`. Idempotent; runs once per launch.
     public func adoptUnprofiledProgress(into owner: String) async throws {
@@ -50,20 +45,16 @@ public struct LocalWatchProvider: WatchProgressProviding, Sendable {
 
     public func record(contentKey: String, sourceKey: String, positionSeconds: Double,
                        durationSeconds: Double, finished: Bool, profileID: String) async throws {
-        // No subtitle cue here: this is the path for callers with no player. The player knows
-        // where the dialogue ends and passes `finished` itself; the two are ORed, so an early
-        // last cue finishes the title early — but a LATE one (dialogue past 92%) does not hold
-        // the flag back: this line lands first. The player does not ask the store where to
-        // reopen after a drop for exactly that reason (`PlayerModel.reopenAt`). Duration 0 (a
-        // manual mark) yields no threshold at all, which is what stops every manual mark dividing
-        // by zero.
-        let reachedEnd = WatchThreshold.hasReachedEnd(position: positionSeconds,
-                                                      duration: durationSeconds,
-                                                      lastSubtitleCue: nil)
+        // `finished` is the caller's verdict, stored as given. The player works it out from where
+        // the film actually ends (`WatchThreshold`, fed the last subtitle line and the credits
+        // timestamp); a manual mark says so outright. This used to OR the store's own
+        // subtitle-blind line on top, and that line always landed first — so every film counted
+        // as watched, and asked for its rating, ten minutes before the end of a two-hour feature
+        // whatever the player knew.
         let crossedIntoFinished = try await store.write(
             contentKey: contentKey, sourceKey: sourceKey,
             positionSeconds: positionSeconds, durationSeconds: durationSeconds,
-            finished: finished || reachedEnd, profileID: profileID)
+            finished: finished, profileID: profileID)
 
         // Only on the edge, so re-saving position on an already watched film cannot file a second
         // diary entry for one viewing. The rating and play count are read back rather than passed

@@ -28,19 +28,21 @@ extension SwiftDataSuite {
             #expect(state?.positionSeconds == 120)
         }
 
-        /// The fallback cutoff, for callers with no player to tell them where the dialogue ends —
-        /// a manual mark, the web server. `WatchThreshold` owns the number; this asserts the
-        /// provider actually asks it rather than keeping a fraction of its own.
-        @Test func passingTheWatchedThresholdMarksItFinished() async throws {
+        /// The player is the one that knows where the film ends — the last subtitle line, where
+        /// the credits start. The store used to OR its own subtitle-blind line on top, so every
+        /// film counted as watched (and asked for a rating) at 92% of its runtime: ten minutes
+        /// before the end of a two-hour feature, whatever the player said.
+        @Test func theCallersVerdictOnFinishedIsTheOneStored() async throws {
             let p = try provider()
+            // 95% in, and the player says the film is still on.
             try await p.record(contentKey: "movie:tmdb:7", sourceKey: "T1#1",
-                               positionSeconds: 551, durationSeconds: 600,
+                               positionSeconds: 570, durationSeconds: 600,
                                finished: false, profileID: "p1")
             #expect(try await p.progress(forContentKey: "movie:tmdb:7", profileID: "p1")?.finished == false)
 
             try await p.record(contentKey: "movie:tmdb:7", sourceKey: "T1#1",
-                               positionSeconds: 553, durationSeconds: 600,
-                               finished: false, profileID: "p1")
+                               positionSeconds: 575, durationSeconds: 600,
+                               finished: true, profileID: "p1")
             #expect(try await p.progress(forContentKey: "movie:tmdb:7", profileID: "p1")?.finished == true)
         }
 

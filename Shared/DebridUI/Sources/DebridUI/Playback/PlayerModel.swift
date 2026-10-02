@@ -83,8 +83,8 @@ public final class PlayerModel {
             // on `isBuffering` turning over the Retry screen.
             if isBuffering { isBuffering = false }
             // A failure MID-FILM keeps its place for Retry and Try Another Version, as a recovered
-            // drop does (`reopenAt`). Asked instead, the store — finishing titles at its own
-            // subtitle-blind line — answered "nowhere" late in a film whose dialogue runs past it:
+            // drop does (`reopenAt`). Asked instead, the store — which then finished titles at its
+            // own subtitle-blind line — answered "nowhere" late in a film whose dialogue ran past it:
             // Retry restarted it from 0:00 and its first tick marked it unwatched again.
             if playheadSettled, position > 0, reopenAt == nil { reopenAt = position }
         }
@@ -466,9 +466,9 @@ public final class PlayerModel {
     var interruptedAt: Double?
     /// Where a recovery reopen (see `finish()`) resumes: the playhead the drop happened at, held
     /// until the reopened stream is really playing there — so a Retry after a failed reopen comes
-    /// back to it too. NOT the store's resume point: the store marks a title finished at its own
-    /// subtitle-blind line, so between that line and a later last cue it answers "no place", and
-    /// the reopen started the film again from 0:00.
+    /// back to it too. NOT the store's resume point: the store once marked a title finished at its
+    /// own subtitle-blind line, so between that line and a later last cue it answered "no place",
+    /// and the reopen started the film again from 0:00. The playhead stays the safer answer.
     var reopenAt: Double?
     /// Bumped by every `reload()` — a new media on its way. Work that awaits across a reload (see
     /// `finish()`) compares it to learn that what it was handling is gone.
@@ -547,9 +547,8 @@ public final class PlayerModel {
 
     /// Whether this playhead leaves a place worth coming back to: `WatchState.resumePosition`'s rule
     /// over the row `recordCurrentProgress` writes, with the PLAYER's finish line (it knows where
-    /// the dialogue ends). The store can still disagree — it also marks a title finished at its own
-    /// subtitle-blind line — which is why a recovery reopens at the playhead (`reopenAt`) rather
-    /// than asking the store where to resume.
+    /// the dialogue ends). A recovery still reopens at the playhead (`reopenAt`) rather than asking
+    /// the store where to resume: the store's row is a write behind, and once disagreed outright.
     func recordKeepsAPlace(at position: Double, duration: Double) -> Bool {
         WatchState(contentKey: contentKey, sourceKey: "", positionSeconds: position,
                    durationSeconds: duration, finished: hasReachedEnd(at: position, duration: duration),
