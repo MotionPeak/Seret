@@ -10,11 +10,18 @@ import Foundation
     /// Good Will Hunting: 126 minutes.
     private let feature: Double = 126 * 60
 
-    @Test func aFilmWithNoSubtitleIsWatchedNearTheEndRatherThanAtFourFifths() {
+    /// 92% of a two-hour feature is ten minutes from its end — the rating prompt then asked about
+    /// a film that was still playing. With nothing to say where the film ends, five minutes out is
+    /// inside the credits of nearly any feature, and late is the side to err on.
+    @Test func aFilmWithNoSubtitleIsWatchedFiveMinutesFromTheEnd() {
         let at = WatchThreshold.finishedAt(duration: feature, lastSubtitleCue: nil)
-        #expect(at == 0.92 * feature)
-        // ~10 minutes from the end, not the ~25 the old fraction gave.
-        #expect(feature - (at ?? 0) < 11 * 60)
+        #expect(at == feature - 5 * 60)
+    }
+
+    /// Five minutes is most of a short film; the fraction keeps the fallback near the end there.
+    @Test func aShortFileWithNoSubtitleStillUsesTheFraction() {
+        let short: Double = 20 * 60
+        #expect(WatchThreshold.finishedAt(duration: short, lastSubtitleCue: nil) == 0.92 * short)
     }
 
     @Test func theEndOfTheDialogueIsWhereAFilmIsWatched() {
@@ -34,7 +41,7 @@ import Foundation
     /// A partial or badly-timed subtitle file is not evidence the film ended there.
     @Test func aSubtitleEndingLongBeforeTheRuntimeIsNotTreatedAsTheCredits() {
         let at = WatchThreshold.finishedAt(duration: feature, lastSubtitleCue: 40 * 60)
-        #expect(at == 0.92 * feature)
+        #expect(at == feature - 5 * 60)
     }
 
     @Test func aFileWithNoMeasuredRuntimeHasNoThreshold() {
@@ -48,6 +55,38 @@ import Foundation
         let short: Double = 60
         let at = WatchThreshold.finishedAt(duration: short, lastSubtitleCue: 59)
         #expect(at == 0.92 * short)
+    }
+
+    // MARK: - Where the credits start (TheIntroDB)
+
+    @Test func whereTheCreditsStartIsWhereAFilmIsWatched() {
+        let credits: Double = 120 * 60
+        let at = WatchThreshold.finishedAt(duration: feature, lastSubtitleCue: nil,
+                                           creditsStart: credits)
+        #expect(at == credits)
+    }
+
+    /// A final scene with no dialogue: the last line is spoken, the film carries on. The later of
+    /// the two is the one that is past the film.
+    @Test func withBothTheLaterOfTheLastLineAndTheCreditsWins() {
+        let lastLine: Double = 116 * 60, credits: Double = 120 * 60
+        #expect(WatchThreshold.finishedAt(duration: feature, lastSubtitleCue: lastLine,
+                                          creditsStart: credits) == credits)
+        #expect(WatchThreshold.finishedAt(duration: feature, lastSubtitleCue: credits,
+                                          creditsStart: lastLine) == credits)
+    }
+
+    /// Crowdsourced timestamps can belong to a different cut of the film.
+    @Test func creditsStartingImplausiblyEarlyAreIgnored() {
+        let at = WatchThreshold.finishedAt(duration: feature, lastSubtitleCue: nil,
+                                           creditsStart: 30 * 60)
+        #expect(at == feature - 5 * 60)
+    }
+
+    @Test func creditsPastTheEndOfThisFileStillLeaveThirtySeconds() {
+        let at = WatchThreshold.finishedAt(duration: feature, lastSubtitleCue: nil,
+                                           creditsStart: feature + 600)
+        #expect(at == feature - 30)
     }
 
     @Test func aPositionPastTheThresholdCountsAsWatched() {
