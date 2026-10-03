@@ -51,6 +51,11 @@ struct LetterboxdCard: View {
                     Text(model.settings.username)
                         .foregroundStyle(Theme.Palette.textPrimary)
                 }
+                // Set on the iPhone or the Mac, like the username — typed once, read here.
+                if model.settings.hasPartner {
+                    Text("Also showing \(model.settings.partnerDisplayName)'s watchlist")
+                        .settingsCaption()
+                }
 
                 // Always present, so the card always has something the remote can land on —
                 // whatever else is or isn't set up.

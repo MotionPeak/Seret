@@ -149,6 +149,23 @@ private struct LetterboxdForm: View {
             }
 
             Section {
+                TextField("Username", text: Binding(
+                    get: { model.settings.partnerUsername },
+                    set: { var s = model.settings; s.partnerUsername = $0; model.update(s) }),
+                          prompt: Text("nogap"))
+                    .autocorrectionDisabled()
+                TextField("Name", text: Binding(
+                    get: { model.settings.partnerName },
+                    set: { var s = model.settings; s.partnerName = $0; model.update(s) }),
+                          prompt: Text("Noga"))
+            } header: {
+                Text("Also Show the Watchlist Of")
+            } footer: {
+                Text("Their public watchlist is shown with yours, as one list. Nothing is written to their account.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+
+            Section {
                 HStack {
                     TextField("Seret server", text: Binding(
                         get: { model.settings.serverURL },

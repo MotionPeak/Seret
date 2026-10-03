@@ -70,7 +70,12 @@ struct WatchlistScreen: View {
     private func status(_ model: WatchlistModel) -> some View {
         switch model.phase {
         case .idle:
-            EmptyView()
+            // The other person's list could not be read; the owner's is fine, so a footnote.
+            if let message = model.partnerMessage {
+                Text(message)
+                    .font(.footnote)
+                    .foregroundStyle(Theme.Palette.textSecondary)
+            }
         case .syncing(let done, let total):
             HStack(spacing: 10) {
                 ProgressView()

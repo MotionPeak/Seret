@@ -17,6 +17,24 @@ struct LetterboxdSettingsSection: View {
         model.settings.isEnabled && !model.settings.username.isEmpty && profileID?.isEmpty == false
     }
 
+    /// A second public watchlist, shown merged with the owner's. Read only — nothing is ever
+    /// written to that account, which the footnote says so nobody has to wonder.
+    @ViewBuilder private var partnerFields: some View {
+        TextField("Also show the watchlist of (username)", text: Binding(
+            get: { model.settings.partnerUsername },
+            set: { var s = model.settings; s.partnerUsername = $0; model.update(s) }))
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+        if !model.settings.partnerUsername.trimmingCharacters(in: .whitespaces).isEmpty {
+            TextField("Their name, e.g. Noga", text: Binding(
+                get: { model.settings.partnerName },
+                set: { var s = model.settings; s.partnerName = $0; model.update(s) }))
+            Text("Their watchlist is shown with yours. Nothing is written to their account.")
+                .font(.footnote)
+                .foregroundStyle(Theme.Palette.textSecondary)
+        }
+    }
+
     var body: some View {
         Section("Letterboxd") {
             Toggle("Import my ratings", isOn: Binding(
@@ -49,6 +67,8 @@ struct LetterboxdSettingsSection: View {
             .disabled(model.settings.serverURL.trimmingCharacters(in: .whitespaces).isEmpty)
 
             if let connection { connectionStatus(connection) }
+
+            partnerFields
 
             switch model.phase {
             case .idle:

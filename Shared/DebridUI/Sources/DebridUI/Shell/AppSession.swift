@@ -952,6 +952,63 @@ public final class AppSession {
         return built
     }
 
+    /// The owner's list and the partner's, as the one list every screen shows.
+    ///
+    /// Keyed apart from the owner's pipeline so changing the partner never rebuilds the owner's
+    /// syncer — two actors over one file would interleave their load-mutate-saves. The partner's
+    /// syncer is never given a relay: that is what keeps their account read-only.
+    private struct CombinedPipeline {
+        let ownerUsername: String
+        let partnerKey: String
+        let combined: CombinedWatchlist
+        /// Kept so a screen can be seeded from disk synchronously, as it was before.
+        let partnerStore: WatchlistStore?
+    }
+
+    private var combinedPipeline: CombinedPipeline?
+
+    private func combinedWatchlist(settings: LetterboxdSettings,
+                                   owner: WatchlistPipeline) -> CombinedPipeline {
+        let partnerKey = settings.hasPartner
+            ? "\(settings.trimmedPartnerUsername.lowercased())|\(settings.partnerDisplayName)" : ""
+        if let existing = combinedPipeline, existing.ownerUsername == owner.username,
+           existing.partnerKey == partnerKey {
+            return existing
+        }
+
+        var partner: WatchlistSyncer?
+        var partnerStore: WatchlistStore?
+        if settings.hasPartner {
+            let store = WatchlistStore(fileURL: WatchlistStore.partnerURL(
+                username: settings.trimmedPartnerUsername))
+            partnerStore = store
+            let ownerSyncer = owner.syncer
+            partner = WatchlistSyncer(
+                reader: LetterboxdProfileReader(http: HTTPClient(),
+                                                username: settings.trimmedPartnerUsername),
+                // Films already matched on the owner's list are not searched again.
+                resolver: KnownFirstTitleResolver(
+                    known: { await ownerSyncer.cached() },
+                    fallback: TMDBWatchlistTitleResolver(tmdb: TMDBClient(apiKey: Secrets.tmdbAPIKey))),
+                store: store)
+        }
+        let combined = CombinedWatchlist(owner: owner.syncer, partner: partner,
+                                         partnerName: settings.hasPartner ? settings.partnerDisplayName : nil)
+        let built = CombinedPipeline(ownerUsername: owner.username, partnerKey: partnerKey,
+                                     combined: combined, partnerStore: partnerStore)
+        combinedPipeline = built
+        return built
+    }
+
+    /// The combined list for the settings as they stand now — read per call, so a partner set on
+    /// the iPhone reaches a TV whose toggle was built before it arrived.
+    private func currentCombinedWatchlist() -> CombinedWatchlist {
+        let settingsStore = UbiquitousLetterboxdSettingsStore()
+        let settings = settingsStore.load()
+        return combinedWatchlist(settings: settings,
+                                 owner: pipeline(for: settingsStore, username: settings.username)).combined
+    }
+
     public func makeWatchlistModel() -> WatchlistModel? {
         guard let library = libraryStore else { return nil }
 
@@ -959,12 +1016,17 @@ public final class AppSession {
         settingsStore.synchronize()
         let settings = settingsStore.load()
         let built = pipeline(for: settingsStore, username: settings.username)
-        let (store, syncer, relay) = (built.store, built.syncer, built.relay)
+        let relay = built.relay
+        let both = combinedWatchlist(settings: settings, owner: built)
+        let combined = both.combined
+        let cached = WatchlistMerge.combine(owner: built.store.load(),
+                                            partner: both.partnerStore?.load() ?? [])
 
-        let model = WatchlistModel(cached: store.load(), settings: settings,
-                                   remove: { slug in await syncer.remove(slug: slug) },
-                                   relay: { await relay.drain() }) { onProgress in
-            try await syncer.sync(onProgress: onProgress)
+        let model = WatchlistModel(cached: cached, settings: settings,
+                                   remove: { slug in await combined.remove(slug: slug) },
+                                   relay: { await relay.drain() },
+                                   status: { await combined.status() }) { onProgress in
+            try await combined.sync(onProgress: onProgress)
         }
         // Live, not a copy: the model is built when the shell mounts, before the library is read.
         model.ownedLookup = { [weak library] id in library?.ownedItem(tmdbID: id, kind: .movie) != nil }
@@ -984,17 +1046,20 @@ public final class AppSession {
 
         let settingsStore = UbiquitousLetterboxdSettingsStore()
         settingsStore.synchronize()
-        let built = pipeline(for: settingsStore, username: settingsStore.load().username)
-        let (syncer, relay) = (built.syncer, built.relay)
+        let relay = pipeline(for: settingsStore, username: settingsStore.load().username).relay
 
+        // Each call asks for the combined list as the settings stand NOW: this object lives as
+        // long as the app, and a partner added on the iPhone must reach it without a relaunch.
         let marks = WatchlistMarks(
-            entries: { await syncer.cached() },
-            add: { film in
-                await syncer.add(tmdbID: film.tmdbID, title: film.title, year: film.year,
-                                 posterPath: film.posterPath)
+            entries: { [weak self] in await self?.currentCombinedWatchlist().cached() ?? [] },
+            add: { [weak self] film in
+                await self?.currentCombinedWatchlist().add(tmdbID: film.tmdbID, title: film.title,
+                                                           year: film.year,
+                                                           posterPath: film.posterPath) ?? []
             },
-            remove: { slug in await syncer.remove(slug: slug) },
-            relay: { await relay.drain() })
+            remove: { [weak self] slug in await self?.currentCombinedWatchlist().remove(slug: slug) ?? [] },
+            relay: { await relay.drain() },
+            status: { [weak self] in await self?.currentCombinedWatchlist().status() ?? .solo })
         watchlistMarks = marks
         return marks
     }

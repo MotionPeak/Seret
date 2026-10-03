@@ -71,10 +71,10 @@ struct WatchlistScreen: View {
             }
             Button("Cancel", role: .cancel) { pendingRemoval = nil }
         } message: { entry in
-            // Letterboxd is told too now, through the server — but only if one is configured,
-            // and the copy should not promise what an unconfigured setup cannot do.
-            Text("\(WatchlistName.stripYear(from: entry.name)) will be removed from your "
-                 + "Letterboxd watchlist.")
+            // Worded by whose list the film is on: only the owner's Letterboxd can be written,
+            // so a partner's film is hidden here and stays on theirs.
+            Text(model?.removalMessage(for: entry)
+                 ?? "\(WatchlistName.stripYear(from: entry.name)) will be removed from your Letterboxd watchlist.")
         }
         .task {
 #if DEBUG
@@ -149,6 +149,14 @@ struct WatchlistScreen: View {
                         .calloutText()
                         .lineLimit(1)
                         .foregroundStyle(Theme.Palette.destructive)
+                }
+                // The other person's list could not be read. Secondary, not red: the owner's own
+                // list is fine and nothing they asked for failed.
+                if let message = model.partnerMessage {
+                    Text(message)
+                        .calloutText()
+                        .lineLimit(1)
+                        .foregroundStyle(Theme.Palette.textSecondary)
                 }
             case .syncing(let done, let total):
                 ProgressView().tint(Theme.Palette.gold)

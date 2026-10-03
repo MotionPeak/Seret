@@ -73,7 +73,7 @@ struct WatchlistScreen: View {
                 pendingRemoval = nil
             }
         } message: {
-            Text("It's removed on Letterboxd too.")
+            Text(pendingRemoval.map { model.removalMessage(for: $0) } ?? "")
         }
     }
 
@@ -107,6 +107,14 @@ struct WatchlistScreen: View {
                     Label(message, systemImage: "exclamationmark.triangle.fill")
                         .font(Theme.Typo.body())
                         .foregroundStyle(Theme.Palette.destructive)
+                        .lineLimit(1)
+                }
+                // The other person's list could not be read. Not destructive-red: the owner's own
+                // list is fine and nothing they asked for failed.
+                if let message = model.partnerMessage {
+                    Text(message)
+                        .font(Theme.Typo.body())
+                        .foregroundStyle(Theme.Palette.textSecondary)
                         .lineLimit(1)
                 }
             case .syncing(let done, let total):

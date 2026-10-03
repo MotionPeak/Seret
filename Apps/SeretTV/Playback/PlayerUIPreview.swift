@@ -27,6 +27,8 @@ import DebridCore
 ///   - `manualsync` / `manualsyncpressed` — sync-to-a-line, before and after the press
 ///   - `home`      — the Home screen whole: hero, Continue Watching rail, Recently Added grid
 ///   - `watchlist` — the Letterboxd watchlist grid: matched, owned, and unmatched tiles together
+///   - `watchlistpartner` — the same grid with a partner's list that could not be read: the
+///     secondary line beside the count, never an error over the grid
 ///   - `spin` — the watchlist randomiser, mid-reel and landed
 ///   - `serverprobe` — can this Apple TV actually reach SeretServer? Names ATS and local-network
 ///     refusals separately from an unreachable server
@@ -64,6 +66,7 @@ struct PlayerUIPreview: View {
         case "manualsyncpressed":   ManualSyncPanelPreview(pressed: true)
         case "home":                HomeScreenPreview()
         case "watchlist":           WatchlistScreenPreview()
+        case "watchlistpartner":    WatchlistScreenPreview(partnerUnreadable: true)
         case "letterboxd":          LetterboxdCardPreview()
         case "letterboxdtoast":     LetterboxdToastPreview()
         case "letterboxdrating":    LetterboxdRatingPreview(existing: nil)
@@ -1211,16 +1214,27 @@ private struct HomeScreenPreview: View {
 /// column metrics can be compared to My Library's by eye.
 private struct WatchlistScreenPreview: View {
     @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()))
-    @State private var model = WatchlistScreenPreview.makeModel()
+    @State private var model: WatchlistModel
+
+    init(partnerUnreadable: Bool = false) {
+        _model = State(initialValue: Self.makeModel(partnerUnreadable: partnerUnreadable))
+    }
 
     var body: some View {
         NavigationStack { WatchlistScreen(previewModel: model) }
             .environment(session)
+            // The screen's own `.task` does not run in preview mode, so the status is read here.
+            .task { await model.refreshStatus() }
     }
 
-    private static func makeModel() -> WatchlistModel {
+    private static func makeModel(partnerUnreadable: Bool) -> WatchlistModel {
+        let partner = WatchlistCombinedStatus(
+            membership: WatchlistMembership(owner: WatchlistPreviewFixture.entries, partner: []),
+            partnerName: "Noga",
+            partnerError: "Couldn't read Noga's watchlist — the profile is private, renamed or gone.")
         let model = WatchlistModel(cached: WatchlistPreviewFixture.entries,
-                                   settings: LetterboxdSettings(username: "preview")) { _ in
+                                   settings: LetterboxdSettings(username: "preview"),
+                                   status: { partnerUnreadable ? partner : .solo }) { _ in
             WatchlistPreviewFixture.entries
         }
         // Two of them are already in the library.
@@ -1354,7 +1368,8 @@ private struct LetterboxdCardPreview: View {
     @State private var model = LetterboxdImportModel(
         settingsStore: InMemoryLetterboxdSettingsStore(
             LetterboxdSettings(username: "thebigshin", isEnabled: false,
-                               serverURL: "192.168.1.179:8080")),
+                               serverURL: "192.168.1.179:8080",
+                               partnerUsername: "nogap", partnerName: "Noga")),
         run: { _, _ in LetterboxdImporter.Summary(scanned: 0, needingWork: 0, written: 0,
                                                   conflicts: 0, unresolved: 0) })
 
