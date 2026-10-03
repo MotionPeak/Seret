@@ -15,13 +15,22 @@ public struct LetterboxdSettings: Sendable, Codable, Equatable {
     /// It rides the same iCloud key-value store as the username, and for the same reason: it is
     /// typed once on the iPhone and read on the TV.
     public var serverURL: String
+    /// A second public profile whose watchlist is shown merged with the owner's, e.g. "nogap".
+    ///
+    /// Read-only, always: nothing is ever written to this account. Writing needs a browser signed
+    /// in to it, and the one on the server is signed in to the owner's. Empty means none.
+    public var partnerUsername: String
+    /// What to call them in a sentence — "Noga". Falls back to the username when empty.
+    public var partnerName: String
 
     public init(username: String = "", isEnabled: Bool = false, lastImportAt: Date? = nil,
-                serverURL: String = "") {
+                serverURL: String = "", partnerUsername: String = "", partnerName: String = "") {
         self.username = username
         self.isEnabled = isEnabled
         self.lastImportAt = lastImportAt
         self.serverURL = serverURL
+        self.partnerUsername = partnerUsername
+        self.partnerName = partnerName
     }
 
     /// Decoded leniently, because this blob is persisted and the store falls back to defaults when
@@ -36,6 +45,27 @@ public struct LetterboxdSettings: Sendable, Codable, Equatable {
         isEnabled = try c.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? false
         lastImportAt = try c.decodeIfPresent(Date.self, forKey: .lastImportAt)
         serverURL = try c.decodeIfPresent(String.self, forKey: .serverURL) ?? ""
+        partnerUsername = try c.decodeIfPresent(String.self, forKey: .partnerUsername) ?? ""
+        partnerName = try c.decodeIfPresent(String.self, forKey: .partnerName) ?? ""
+    }
+
+    /// The partner's username as it should be read, or empty.
+    public var trimmedPartnerUsername: String {
+        partnerUsername.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// True when there is a second list to read. The owner's own username does not count: reading
+    /// one list twice would only crawl Letterboxd twice to show the same films.
+    public var hasPartner: Bool {
+        let partner = trimmedPartnerUsername
+        guard !partner.isEmpty else { return false }
+        let owner = username.trimmingCharacters(in: .whitespacesAndNewlines)
+        return partner.caseInsensitiveCompare(owner) != .orderedSame
+    }
+
+    public var partnerDisplayName: String {
+        let name = partnerName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? trimmedPartnerUsername : name
     }
 
     /// `serverURL` parsed into something that can actually be sent to.
