@@ -80,15 +80,20 @@ public final class WatchlistMarks {
     private let addFilm: WatchlistFilmAdding
     private let removeSlug: WatchlistRemoving
     private let relay: WatchlistRelaying
+    /// Whose list each film is on. Only read to word a removal: a partner's account is never
+    /// written to, so taking one of their films off merely hides it here.
+    private let status: @Sendable () async -> WatchlistCombinedStatus
 
     public init(entries: @escaping WatchlistMirrorReading,
                 add: @escaping WatchlistFilmAdding,
                 remove: @escaping WatchlistRemoving,
-                relay: @escaping WatchlistRelaying) {
+                relay: @escaping WatchlistRelaying,
+                status: @escaping @Sendable () async -> WatchlistCombinedStatus = { .solo }) {
         self.entries = entries
         self.addFilm = add
         self.removeSlug = remove
         self.relay = relay
+        self.status = status
     }
 
     /// Inert, for the single render before the shell's real object exists. Static so a body
@@ -117,6 +122,12 @@ public final class WatchlistMarks {
         // cancels an unsent add deletes the row outright, leaving nothing behind to say that
         // Letterboxd was never involved.
         let cancelsAnUnsentChange = Self.cancels(rows[film.tmdbID], byAsking: wanted)
+        // Also before the write, and for the same reason: once hidden, a partner's film still
+        // says whose it was, but asking first costs nothing and cannot be wrong.
+        var partner: (name: String, ownerHolds: Bool)?
+        if !wanted {
+            partner = Self.partnerHolding(film, row: rows[film.tmdbID], status: await status())
+        }
 
         inFlight.insert(film.tmdbID)
         defer { inFlight.remove(film.tmdbID) }
@@ -139,7 +150,7 @@ public final class WatchlistMarks {
         let settled = await entries()
         absorb(settled)
         record(outcome, for: film, added: wanted, mirror: settled,
-               cancelled: cancelsAnUnsentChange)
+               cancelled: cancelsAnUnsentChange, partner: partner)
     }
 
     private func absorb(_ mirror: [WatchlistEntry]) {
@@ -158,14 +169,51 @@ public final class WatchlistMarks {
         return added ? row.needsRemovalPush : row.needsAddPush
     }
 
-    private func record(_ outcome: WatchlistPushRelay.Outcome, for film: WatchlistFilm,
-                        added: Bool, mirror: [WatchlistEntry], cancelled: Bool) {
-        let verb = added ? "Added to" : "Removed from"
+    /// The partner's name, and whether the owner's list holds the film too — or nil when the
+    /// partner's list does not hold it at all.
+    private static func partnerHolding(_ film: WatchlistFilm, row: WatchlistEntry?,
+                                       status: WatchlistCombinedStatus)
+        -> (name: String, ownerHolds: Bool)? {
+        guard let name = status.partnerName else { return nil }
+        let probe = row ?? WatchlistEntry(slug: WatchlistEntry.localSlug(forTMDB: film.tmdbID),
+                                          name: film.title, year: film.year, position: 0,
+                                          tmdbID: film.tmdbID)
+        let held = status.membership.holders(of: probe)
+        return held.partner ? (name, held.owner) : nil
+    }
 
+    private func record(_ outcome: WatchlistPushRelay.Outcome, for film: WatchlistFilm,
+                        added: Bool, mirror: [WatchlistEntry], cancelled: Bool,
+                        partner: (name: String, ownerHolds: Bool)? = nil) {
         // The mirror does not reflect what was asked, so the change did not take at all — and there
         // is nothing true to say about a write that never happened. Silence beats a sentence
         // describing someone else's outcome.
         guard contains(tmdbID: film.tmdbID) == added else { return }
+
+        // Only the partner's list held it, and nothing is ever written to their account — so the
+        // relay has nothing of this film's to report, and any sentence naming Letterboxd as having
+        // changed would be false.
+        if let partner, !partner.ownerHolds {
+            lastOutcome = Outcome(tmdbID: film.tmdbID, added: false,
+                                  message: "Hidden in Seret — \(partner.name)'s Letterboxd is unchanged",
+                                  isFailure: false)
+            return
+        }
+
+        recordOwners(outcome, for: film, added: added, mirror: mirror, cancelled: cancelled)
+
+        // Shared: the owner's half went wherever it went, and the partner's list keeps the film.
+        if let partner, let last = lastOutcome, last.tmdbID == film.tmdbID, !last.isFailure {
+            lastOutcome = Outcome(tmdbID: last.tmdbID, added: last.added,
+                                  message: "\(last.message) · still on \(partner.name)'s",
+                                  isFailure: false)
+        }
+    }
+
+    /// The owner's list's three sentences, unchanged from before there was a partner.
+    private func recordOwners(_ outcome: WatchlistPushRelay.Outcome, for film: WatchlistFilm,
+                              added: Bool, mirror: [WatchlistEntry], cancelled: Bool) {
+        let verb = added ? "Added to" : "Removed from"
 
         // The two halves cancelled, so nothing of this film's was in that drain — a failure it
         // reports belongs to some other film, and naming Letterboxd here would describe a write
