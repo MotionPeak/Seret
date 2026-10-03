@@ -262,7 +262,7 @@ struct SurpriseReel: View {
                         .padding(.bottom, 44)
                     CoverFlowReel(position: position, entries: spin.reel, winnerIndex: spin.winnerIndex,
                                   landed: landed, cardSize: card, flat: reduceMotion)
-                        .frame(width: geo.size.width, height: card.height * 1.36)
+                        .frame(width: geo.size.width, height: card.height * SurpriseReelLayout.reelHeightFactor)
                         .opacity(ready ? 1 : 0.35)
                         .animation(Theme.Motion.fade, value: ready)
                     winnerCopy
@@ -403,39 +403,7 @@ struct SurpriseReel: View {
     }
 }
 
-/// The reel's sizes: big, but always fitting — cards scale with the window so the whole visible
-/// flow (the centre card and three either side) stays inside it.
-enum SurpriseReelLayout {
-    static func cardSize(windowWidth: CGFloat, windowHeight: CGFloat) -> CGSize {
-        let width = min(280, max(170, windowWidth * 0.19), max(170, windowHeight * 0.3))
-        return CGSize(width: width, height: width * 1.5)
-    }
-
-    /// Horizontal centre of a card `r` places from the middle (fractional while moving): the
-    /// centre gap is wide, the side cards stack tighter, as in Cover Flow.
-    static func x(r: Double, cardWidth: CGFloat) -> CGFloat {
-        let centreGap = cardWidth * 0.82, sideStep = cardWidth * 0.36
-        let a = abs(r)
-        let distance = a <= 1 ? a * centreGap : centreGap + (a - 1) * sideStep
-        return CGFloat(r < 0 ? -distance : distance)
-    }
-
-    /// The turn toward the middle: ±50° beyond the first neighbour, 0 at the centre.
-    static func angle(r: Double) -> Double { max(-1, min(1, r)) * -50 }
-
-    static func scale(r: Double) -> CGFloat {
-        let a = abs(r)
-        return CGFloat(1 - 0.14 * min(a, 1) - 0.03 * max(0, a - 1))
-    }
-
-    /// Fully visible to three places out, gone by four.
-    static func opacity(r: Double) -> Double {
-        let a = abs(r)
-        return a <= 3 ? 1 : max(0, 1 - (a - 3))
-    }
-}
-
-/// The flowing strip itself. `Animatable` on `position`, so while it spins SwiftUI re-lays it out on
+/// The flowing strip itself (geometry: `SurpriseReelLayout`, shared with the Apple TV's reel). `Animatable` on `position`, so while it spins SwiftUI re-lays it out on
 /// every frame from the in-between position — each card turns through the middle and away again,
 /// rather than tweening straight from its start pose to its end pose.
 private struct CoverFlowReel: View, Animatable {
@@ -451,15 +419,9 @@ private struct CoverFlowReel: View, Animatable {
         set { position = newValue }
     }
 
-    private var visible: [Int] {
-        guard !entries.isEmpty else { return [] }
-        let centre = Int(position.rounded())
-        return Array(max(0, centre - 5)...min(entries.count - 1, centre + 5))
-    }
-
     var body: some View {
         ZStack {
-            ForEach(visible, id: \.self) { index in
+            ForEach(SurpriseReelLayout.visibleIndices(position: position, count: entries.count), id: \.self) { index in
                 let r = Double(index) - position
                 let isWinner = landed && index == winnerIndex
                 ReelCard(entry: entries[index], size: cardSize, isWinner: isWinner, dimmed: landed && !isWinner)

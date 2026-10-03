@@ -1,6 +1,6 @@
 import CoreGraphics
+import DebridUI
 import Testing
-@testable import Seret
 
 @Suite struct SurpriseReelLayoutTests {
     /// The owner's report: the reel was cut off by the window edges. Everything visible — the
@@ -13,7 +13,19 @@ import Testing
             + card.width * SurpriseReelLayout.scale(r: 3) / 2
         #expect(edge * 2 < CGFloat(width))
         // And the reel plus its mirror fits vertically, with room for the copy under it.
-        #expect(card.height * 1.36 + 150 + 60 < CGFloat(height))
+        #expect(card.height * SurpriseReelLayout.reelHeightFactor + 150 + 60 < CGFloat(height))
+    }
+
+    /// The Apple TV's screen is a fixed 1920×1080, and its copy under the reel is taller than the
+    /// Mac's — focusable buttons are big on a TV. The label, the reel with its mirror and that copy
+    /// must still fit inside the title-safe area (60 pt top and bottom).
+    @Test func theTVLayoutFitsInsideTheTitleSafeArea() {
+        let card = SurpriseReelLayout.cardSize(windowWidth: 1920, windowHeight: 1080)
+        let label: CGFloat = 40 + 44, copy: CGFloat = 280
+        #expect(label + card.height * SurpriseReelLayout.reelHeightFactor + copy < 1080 - 120)
+        let edge = SurpriseReelLayout.x(r: 3, cardWidth: card.width)
+            + card.width * SurpriseReelLayout.scale(r: 3) / 2
+        #expect(edge * 2 < 1920 - 180)
     }
 
     @Test func cardsAreBigAtAnOrdinaryWindowSize() {
@@ -44,5 +56,14 @@ import Testing
         #expect(SurpriseReelLayout.opacity(r: 3) == 1)
         #expect(SurpriseReelLayout.opacity(r: 3.5) == 0.5)
         #expect(SurpriseReelLayout.opacity(r: -4) == 0)
+    }
+
+    /// Only the cards near the middle are drawn — the reel is ~34 long and every drawn card is two
+    /// posters (it and its mirror).
+    @Test func onlyTheCardsAroundTheMiddleAreDrawn() {
+        #expect(SurpriseReelLayout.visibleIndices(position: 0, count: 34) == Array(0...5))
+        #expect(SurpriseReelLayout.visibleIndices(position: 10.4, count: 34) == Array(5...15))
+        #expect(SurpriseReelLayout.visibleIndices(position: 33, count: 34) == Array(28...33))
+        #expect(SurpriseReelLayout.visibleIndices(position: 0, count: 0).isEmpty)
     }
 }
