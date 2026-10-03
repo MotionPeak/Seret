@@ -3,8 +3,8 @@ import Foundation
 /// Answers from films already matched before searching TMDB.
 ///
 /// Built for a partner's watchlist: Letterboxd renders one film's name identically on everyone's
-/// list, so a film the owner's list already resolved needs no second search — and a first sync of
-/// someone else's list is otherwise a TMDB request per film, spaced out by the syncer's delay.
+/// list, so a film the owner's list already resolved needs no second search. It saves TMDB
+/// requests, not time: the syncer still spaces every pending film by its delay, whoever answered.
 ///
 /// Exact name AND year only. A near match is a guess, and a wrong id here would put the wrong
 /// poster on the list with nothing to say it was guessed.

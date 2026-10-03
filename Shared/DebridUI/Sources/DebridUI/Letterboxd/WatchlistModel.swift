@@ -110,10 +110,11 @@ public final class WatchlistModel {
     public func syncIfStale() async {
         // Always attempted, even when the crawl is skipped: a change made while the server was
         // off is still waiting, and opening the screen is the natural moment to retry it.
-        await pushPending()
-        // Before the stale gate: a fresh list skips the crawl, and the screen still has to word a
-        // removal by whose list a film is on.
+        // First of all: the grid already shows the partner's films from disk, a fresh list skips the
+        // crawl, and the push below can take a whole HTTP timeout when the server is unreachable —
+        // a removal confirmed in that window must still be worded by whose list the film is on.
         await refreshStatus()
+        await pushPending()
         if let last = settings.lastImportAt, now().timeIntervalSince(last) < minimumInterval { return }
         await syncNow()
     }

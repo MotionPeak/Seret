@@ -92,4 +92,13 @@ private func row(_ slug: String, _ position: Int, tmdb: Int? = nil,
         #expect(membership.holders(of: row("hidden", 0, tmdb: 4)) == .init(owner: false, partner: true))
         #expect(WatchlistMembership.empty.holders(of: add) == .init(owner: false, partner: false))
     }
+
+    /// A film the owner already took off is not "on the owner's list" for wording: removing it
+    /// again writes nothing to the owner's account. The partner's hidden rows still count — the
+    /// film is still on their Letterboxd, whatever this device shows.
+    @Test func anOwnerRowTheOwnerRemovedDoesNotCountAsHeld() {
+        let membership = WatchlistMembership(owner: [row("speed", 0, tmdb: 1, removed: true)],
+                                             partner: [row("speed", 0, tmdb: 1)])
+        #expect(membership.holders(of: row("speed", 0, tmdb: 1)) == .init(owner: false, partner: true))
+    }
 }

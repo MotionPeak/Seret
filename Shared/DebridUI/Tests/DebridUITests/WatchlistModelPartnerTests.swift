@@ -78,4 +78,22 @@ private let settings = LetterboxdSettings(username: "thebigshin", isEnabled: tru
         #expect(model.removalMessage(for: hers) == "Heat will be removed from your Letterboxd watchlist.")
         #expect(model.partnerMessage == nil)
     }
+
+    /// The push drain can take a whole HTTP timeout when the server is unreachable, and the grid
+    /// already shows the partner's films from disk — so whose list a film is on is read first.
+    @Test func theStatusIsReadBeforeThePushDrain() async {
+        let order = CallOrder()
+        let model = WatchlistModel(cached: [hers], settings: settings,
+                                   relay: { order.note("relay"); return .idle },
+                                   status: { order.note("status"); return withNoga() }) { _ in [] }
+        await model.syncIfStale()
+        #expect(order.calls.first == "status")
+    }
+}
+
+private final class CallOrder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _calls: [String] = []
+    func note(_ call: String) { lock.withLock { _calls.append(call) } }
+    var calls: [String] { lock.withLock { _calls } }
 }

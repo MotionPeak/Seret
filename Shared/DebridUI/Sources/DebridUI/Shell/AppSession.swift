@@ -969,8 +969,9 @@ public final class AppSession {
 
     private func combinedWatchlist(settings: LetterboxdSettings,
                                    owner: WatchlistPipeline) -> CombinedPipeline {
-        let partnerKey = settings.hasPartner
-            ? "\(settings.trimmedPartnerUsername.lowercased())|\(settings.partnerDisplayName)" : ""
+        // The username only: the name is read live, and a key that changed with it would build a
+        // second syncer over the same file every time the partner was renamed.
+        let partnerKey = settings.hasPartner ? settings.trimmedPartnerUsername.lowercased() : ""
         if let existing = combinedPipeline, existing.ownerUsername == owner.username,
            existing.partnerKey == partnerKey {
             return existing
@@ -992,12 +993,22 @@ public final class AppSession {
                     fallback: TMDBWatchlistTitleResolver(tmdb: TMDBClient(apiKey: Secrets.tmdbAPIKey))),
                 store: store)
         }
-        let combined = CombinedWatchlist(owner: owner.syncer, partner: partner,
-                                         partnerName: settings.hasPartner ? settings.partnerDisplayName : nil)
+        let combined = CombinedWatchlist(owner: owner.syncer, partner: partner, partnerName: {
+            let current = UbiquitousLetterboxdSettingsStore().load()
+            return current.hasPartner ? current.partnerDisplayName : nil
+        })
         let built = CombinedPipeline(ownerUsername: owner.username, partnerKey: partnerKey,
                                      combined: combined, partnerStore: partnerStore)
         combinedPipeline = built
         return built
+    }
+
+    /// The owner's push relay for the settings as they stand now. Per call, like the combined list:
+    /// a relay captured once keeps marking pushes through the previous owner syncer after the
+    /// username changes, while everything else writes through the new one — two actors, one file.
+    private func currentWatchlistRelay() -> WatchlistPushRelay {
+        let settingsStore = UbiquitousLetterboxdSettingsStore()
+        return pipeline(for: settingsStore, username: settingsStore.load().username).relay
     }
 
     /// The combined list for the settings as they stand now — read per call, so a partner set on
@@ -1016,7 +1027,6 @@ public final class AppSession {
         settingsStore.synchronize()
         let settings = settingsStore.load()
         let built = pipeline(for: settingsStore, username: settings.username)
-        let relay = built.relay
         let both = combinedWatchlist(settings: settings, owner: built)
         let cached = WatchlistMerge.combine(owner: built.store.load(),
                                             partner: both.partnerStore?.load() ?? [])
@@ -1028,7 +1038,9 @@ public final class AppSession {
                                    remove: { [weak self] slug in
                                        await self?.currentCombinedWatchlist().remove(slug: slug) ?? []
                                    },
-                                   relay: { await relay.drain() },
+                                   relay: { [weak self] in
+                                       await self?.currentWatchlistRelay().drain() ?? .idle
+                                   },
                                    status: { [weak self] in
                                        await self?.currentCombinedWatchlist().status() ?? .solo
                                    }) { [weak self] onProgress in
@@ -1053,8 +1065,6 @@ public final class AppSession {
 
         let settingsStore = UbiquitousLetterboxdSettingsStore()
         settingsStore.synchronize()
-        let relay = pipeline(for: settingsStore, username: settingsStore.load().username).relay
-
         // Each call asks for the combined list as the settings stand NOW: this object lives as
         // long as the app, and a partner added on the iPhone must reach it without a relaunch.
         let marks = WatchlistMarks(
@@ -1065,7 +1075,7 @@ public final class AppSession {
                                                            posterPath: film.posterPath) ?? []
             },
             remove: { [weak self] slug in await self?.currentCombinedWatchlist().remove(slug: slug) ?? [] },
-            relay: { await relay.drain() },
+            relay: { [weak self] in await self?.currentWatchlistRelay().drain() ?? .idle },
             status: { [weak self] in await self?.currentCombinedWatchlist().status() ?? .solo })
         watchlistMarks = marks
         return marks

@@ -89,4 +89,59 @@ private func film(_ tmdb: Int) -> WatchlistFilm {
         #expect(sut.contains(tmdbID: 2))
         #expect(sut.lastOutcome?.message == "Added to your watchlist — Letterboxd hasn't been told yet")
     }
+
+    /// Reading whose list a film is on is a suspension point, and a second press landing inside
+    /// it must still be refused — or both removals run and the relay can post the same one twice.
+    @Test func aSecondPressWhileTheStatusIsReadIsIgnored() async {
+        let gate = StatusGate()
+        let removals = RemovalCount()
+        let row = WatchlistEntry(slug: "heat", name: "heat (1994)", year: 1994, position: 0,
+                                 tmdbID: 2, resolvedAt: Date())
+        let sut = WatchlistMarks(entries: { [row] }, add: { _ in [row] },
+                                 remove: { _ in removals.bump(); return [] },
+                                 relay: { .idle },
+                                 status: { await gate.hold(); return .solo })
+        await sut.load()
+
+        async let first: Void = sut.toggle(film: film(2))
+        await gate.waitForArrival()
+        // A second press. With the guard in place it returns at once; without it, it reaches the
+        // gate too and is released along with the first.
+        let second = Task { await sut.toggle(film: film(2)) }
+        for _ in 0..<20 { await Task.yield() }
+        await gate.open()
+        await first
+        await second.value
+        #expect(removals.value == 1)
+    }
+}
+
+private actor StatusGate {
+    private var arrived = false
+    private var arrival: CheckedContinuation<Void, Never>?
+    private var waiting: [CheckedContinuation<Void, Never>] = []
+    private var opened = false
+
+    func hold() async {
+        if opened { return }
+        arrived = true
+        arrival?.resume(); arrival = nil
+        await withCheckedContinuation { waiting.append($0) }
+    }
+    func waitForArrival() async {
+        if arrived { return }
+        await withCheckedContinuation { arrival = $0 }
+    }
+    func open() {
+        opened = true
+        waiting.forEach { $0.resume() }
+        waiting = []
+    }
+}
+
+private final class RemovalCount: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+    func bump() { lock.withLock { count += 1 } }
+    var value: Int { lock.withLock { count } }
 }

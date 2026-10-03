@@ -122,15 +122,18 @@ public final class WatchlistMarks {
         // cancels an unsent add deletes the row outright, leaving nothing behind to say that
         // Letterboxd was never involved.
         let cancelsAnUnsentChange = Self.cancels(rows[film.tmdbID], byAsking: wanted)
-        // Also before the write, and for the same reason: once hidden, a partner's film still
-        // says whose it was, but asking first costs nothing and cannot be wrong.
-        var partner: (name: String, ownerHolds: Bool)?
-        if !wanted {
-            partner = Self.partnerHolding(film, row: rows[film.tmdbID], status: await status())
-        }
+        let row = rows[film.tmdbID]
 
+        // Claimed BEFORE the first suspension point — reading the status below is one — or a
+        // second press landing inside it passes the guard too and the relay can post twice.
         inFlight.insert(film.tmdbID)
         defer { inFlight.remove(film.tmdbID) }
+
+        // Also before the write, and for the same reason as `cancels`: read the evidence first.
+        var partner: (name: String, ownerHolds: Bool)?
+        if !wanted {
+            partner = Self.partnerHolding(film, row: row, status: await status())
+        }
         if wanted { onWatchlist.insert(film.tmdbID) } else { onWatchlist.remove(film.tmdbID) }
 
         let stored: [WatchlistEntry]

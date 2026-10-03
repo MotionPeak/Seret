@@ -29,14 +29,23 @@ public struct WatchlistCombinedStatus: Sendable, Equatable {
 public actor CombinedWatchlist {
     private let owner: WatchlistSyncer
     private let partner: WatchlistSyncer?
-    private let partnerName: String?
+    /// Read when needed rather than fixed at init: renaming the partner must not rebuild their
+    /// syncer — a second actor over the same file would interleave load-mutate-saves with the first.
+    private let name: @Sendable () -> String?
     private var partnerError: String?
 
-    public init(owner: WatchlistSyncer, partner: WatchlistSyncer?, partnerName: String?) {
+    public init(owner: WatchlistSyncer, partner: WatchlistSyncer?,
+                partnerName: @escaping @Sendable () -> String?) {
         self.owner = owner
         self.partner = partner
-        self.partnerName = partner == nil ? nil : partnerName
+        self.name = partnerName
     }
+
+    public init(owner: WatchlistSyncer, partner: WatchlistSyncer?, partnerName: String?) {
+        self.init(owner: owner, partner: partner, partnerName: { partnerName })
+    }
+
+    private var partnerName: String? { partner == nil ? nil : name() }
 
     public func cached() async -> [WatchlistEntry] {
         WatchlistMerge.combine(owner: await owner.cached(), partner: await partner?.cached() ?? [])
@@ -75,12 +84,18 @@ public actor CombinedWatchlist {
     ///
     /// Each mirror is matched by slug or TMDB id, and asked to remove ITS OWN row: a film the owner
     /// added in Seret has a placeholder slug that the partner's mirror has never heard of.
+    ///
+    /// The id is looked up in the mirrors themselves, not only the merged list: a screen built
+    /// earlier can hold a slug the merged list no longer shows — the partner's, after the owner
+    /// re-added the film and their placeholder row took over — and a removal by that slug that
+    /// found no id would hide nothing and let the film straight back.
     public func remove(slug: String) async -> [WatchlistEntry] {
-        let target = await cached().first { $0.slug == slug }
-        let id = target?.tmdbID
+        let syncers = [owner] + (partner.map { [$0] } ?? [])
+        var mirrors: [[WatchlistEntry]] = []
+        for syncer in syncers { mirrors.append(await syncer.cached()) }
+        let id = mirrors.joined().first { $0.slug == slug && $0.tmdbID != nil }?.tmdbID
 
-        for syncer in [owner] + (partner.map { [$0] } ?? []) {
-            let rows = await syncer.cached()
+        for (syncer, rows) in zip(syncers, mirrors) {
             if let row = rows.first(where: { $0.slug == slug || (id != nil && $0.tmdbID == id) }) {
                 await syncer.remove(slug: row.slug)
             }

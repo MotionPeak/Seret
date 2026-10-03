@@ -24,9 +24,14 @@ public struct WatchlistMembership: Sendable, Equatable {
 
     public static let empty = WatchlistMembership(owner: [], partner: [])
 
+    /// A row the owner removed does not count as held by the owner: removing that film again
+    /// writes nothing to the owner's account, and saying it would is the wording this exists to get
+    /// right. A partner's hidden rows DO count — the film is still on their Letterboxd, whatever
+    /// this device shows.
     public init(owner: [WatchlistEntry], partner: [WatchlistEntry]) {
-        ownerSlugs = Set(owner.map(\.slug))
-        ownerIDs = Set(owner.compactMap(\.tmdbID))
+        let held = owner.filter { !$0.isRemoved }
+        ownerSlugs = Set(held.map(\.slug))
+        ownerIDs = Set(held.compactMap(\.tmdbID))
         partnerSlugs = Set(partner.map(\.slug))
         partnerIDs = Set(partner.compactMap(\.tmdbID))
     }

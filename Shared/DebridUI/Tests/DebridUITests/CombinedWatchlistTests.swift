@@ -160,4 +160,21 @@ private func syncer(_ slugs: [String], error: (any Error)? = nil) -> WatchlistSy
         #expect(status.membership.holders(of: bySlug["shared"]!) == .init(owner: true, partner: true))
         #expect(status.membership.holders(of: bySlug["c"]!) == .init(owner: false, partner: true))
     }
+
+    /// A screen built before the owner re-added a partner's film still holds the partner's slug,
+    /// which the merged list no longer carries — the owner's placeholder row represents it now.
+    /// Removing by that slug must still find the film, or it comes straight back.
+    @Test func removingByASlugTheMergedListNoLongerShowsStillRemovesTheFilm() async throws {
+        let owner = syncer([])
+        let partner = syncer(["x"])
+        let combined = CombinedWatchlist(owner: owner, partner: partner, partnerName: "Noga")
+        _ = try await combined.sync(onProgress: nil)
+        let id = try #require(await partner.cached().first?.tmdbID)
+        _ = await combined.remove(slug: "x")
+        _ = await combined.add(tmdbID: id, title: "x", year: 1994, posterPath: nil)
+        #expect(await combined.cached().first?.slug == WatchlistEntry.localSlug(forTMDB: id))
+
+        let after = await combined.remove(slug: "x")
+        #expect(after.filter { !$0.isRemoved }.isEmpty)
+    }
 }
