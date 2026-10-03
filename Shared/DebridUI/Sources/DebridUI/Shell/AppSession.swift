@@ -1018,15 +1018,22 @@ public final class AppSession {
         let built = pipeline(for: settingsStore, username: settings.username)
         let relay = built.relay
         let both = combinedWatchlist(settings: settings, owner: built)
-        let combined = both.combined
         let cached = WatchlistMerge.combine(owner: built.store.load(),
                                             partner: both.partnerStore?.load() ?? [])
 
+        // Every call asks for the combined list as the settings stand NOW, not as they stood when
+        // the screen was built: the tab keeps its model alive, so a partner added in Settings
+        // would otherwise never be read until the app was relaunched (seen in the simulator).
         let model = WatchlistModel(cached: cached, settings: settings,
-                                   remove: { slug in await combined.remove(slug: slug) },
+                                   remove: { [weak self] slug in
+                                       await self?.currentCombinedWatchlist().remove(slug: slug) ?? []
+                                   },
                                    relay: { await relay.drain() },
-                                   status: { await combined.status() }) { onProgress in
-            try await combined.sync(onProgress: onProgress)
+                                   status: { [weak self] in
+                                       await self?.currentCombinedWatchlist().status() ?? .solo
+                                   }) { [weak self] onProgress in
+            guard let combined = await self?.currentCombinedWatchlist() else { return [] }
+            return try await combined.sync(onProgress: onProgress)
         }
         // Live, not a copy: the model is built when the shell mounts, before the library is read.
         model.ownedLookup = { [weak library] id in library?.ownedItem(tmdbID: id, kind: .movie) != nil }
