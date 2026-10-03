@@ -60,4 +60,11 @@ import Foundation
         #expect(tried.isResolved == true)
         #expect(tried.tmdbID == nil)
     }
+
+    @Test func aPartnersFileIsNamedForThemAndCannotNameAPath() {
+        #expect(WatchlistStore.partnerFileName(username: " NogaP ")
+                == "letterboxd-watchlist-partner-nogap.json")
+        #expect(WatchlistStore.partnerFileName(username: "../x/é")
+                == "letterboxd-watchlist-partner-___x__.json")
+    }
 }
