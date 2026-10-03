@@ -384,20 +384,24 @@ struct SurpriseReel: View {
 
     /// The winner's backdrop and logo — fetched while the reel spins, so both are ready to fade in
     /// the moment it lands. A failure just leaves the plain background and the text title.
+    ///
+    /// The writes are behind cancellation checks: "Spin Again" cancels this run and the next one
+    /// resets the state at once, so a late answer for the OLD winner would otherwise put its
+    /// backdrop and logo under the new one.
     private func loadWinnerArt() async {
+        let backdropPath: String?, logo: String?
         if let artOverride {
-            logoPath = artOverride.logoPath
-            if let url = TMDBClient.imageURL(path: artOverride.backdropPath, size: "w1280") {
-                _ = await ImageMemoryCache.load(url)
-                backdropURL = url
-            }
-            return
+            (backdropPath, logo) = artOverride
+        } else {
+            guard let tmdbID = spin.winner.tmdbID, let details = session?.detailsProvider,
+                  let film = try? await details.movieDetails(tmdbID: tmdbID) else { return }
+            (backdropPath, logo) = (film.preferredBackdropPath, film.logoPath)
         }
-        guard let tmdbID = spin.winner.tmdbID, let details = session?.detailsProvider,
-              let film = try? await details.movieDetails(tmdbID: tmdbID) else { return }
-        logoPath = film.logoPath
-        if let url = TMDBClient.imageURL(path: film.preferredBackdropPath, size: "w1280") {
+        guard !Task.isCancelled else { return }
+        logoPath = logo
+        if let url = TMDBClient.imageURL(path: backdropPath, size: "w1280") {
             _ = await ImageMemoryCache.load(url)
+            guard !Task.isCancelled else { return }
             backdropURL = url
         }
     }

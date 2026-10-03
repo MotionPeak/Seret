@@ -47,6 +47,7 @@ struct WatchlistScreen: View {
         .fullScreenCover(item: $spin) { current in
             WatchlistSpinScreen(
                 spin: current,
+                details: session.detailsProvider,
                 onWatch: { entry in
                     spin = nil
                     guard let item = MediaItem.watchlistTitle(entry, library: session.libraryStore)

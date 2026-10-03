@@ -29,7 +29,8 @@ import DebridCore
 ///   - `watchlist` — the Letterboxd watchlist grid: matched, owned, and unmatched tiles together
 ///   - `watchlistpartner` — the same grid with a partner's list that could not be read: the
 ///     secondary line beside the count, never an error over the grid
-///   - `spin` — the watchlist randomiser, mid-reel and landed
+///   - `spin` — Surprise Me's Cover Flow reel, mid-turn and landed on Whiplash with its backdrop
+///   - `spinnoart` — the same landing with no TMDB art: text title, plain background
 ///   - `serverprobe` — can this Apple TV actually reach SeretServer? Names ATS and local-network
 ///     refusals separately from an unreachable server
 ///   - `letterboxd` — the Settings Letterboxd card with the import blocked, between two cards
@@ -73,6 +74,7 @@ struct PlayerUIPreview: View {
         case "letterboxdrerating":  LetterboxdRatingPreview(existing: 7)
         case "letterboxdinvite":    LetterboxdRatingPreview(existing: nil, invite: true)
         case "spin":                WatchlistSpinPreview()
+        case "spinnoart":           WatchlistSpinPreview(withArt: false)
         case "serverprobe":         ServerReachabilityPreview()
         default:           ScrubBarPreview()
         }
@@ -1426,27 +1428,35 @@ private final class InMemoryLetterboxdSettingsStore: LetterboxdSettingsStoring, 
 
 // MARK: - Watchlist randomiser
 
-/// The spinner on the same real posters the watchlist preview uses, so the reel, the centre
-/// marker and the landed result can be watched without a Letterboxd account.
+/// The Cover Flow reel on the same real posters the watchlist preview uses, so the spin, the gold
+/// frame, the backdrop fading in and the landed result can be watched without a Letterboxd
+/// account. `-uiPreview spin` always lands on Whiplash, with its real TMDB backdrop and logo, so
+/// screenshots are comparable run to run (it spins for ~3.4 s once the posters are in, so a
+/// screenshot ~2 s after launch catches it mid-turn); `-uiPreview spinnoart` lands with no art at
+/// all — the text title on the plain background. "Spin Again" re-runs the same landing, which is
+/// also the check that a re-spin onto the same film restarts the reel.
 private struct WatchlistSpinPreview: View {
-    @State private var spin: WatchlistRandomizer.Spin? = {
-        var generator = SystemRandomNumberGenerator()
-        return WatchlistRandomizer.spin(over: WatchlistPreviewFixture.entries, using: &generator)
-    }()
+    var withArt = true
+    @State private var spin = Self.fixedSpin()
+
+    /// Whiplash's TMDB art, fetched once from TMDB for this fixture.
+    private static let whiplashBackdrop = "/fRGxZuo7jJUWQsVg9PREb98Aclp.jpg"
+    private static let whiplashLogo = "/kTmh3W4iWQnNUcnYNgxgOVhpzCe.png"
+
+    private static func fixedSpin() -> WatchlistRandomizer.Spin {
+        // Only films with a poster ride the reel, as `WatchlistRandomizer` builds it.
+        let films = WatchlistPreviewFixture.entries.filter { $0.posterPath != nil }
+        let reel = (0..<34).map { films[$0 % films.count] }
+        let winnerIndex = reel.indices.last { reel[$0].tmdbID == 244786 && $0 <= 30 } ?? 30
+        return WatchlistRandomizer.Spin(winner: reel[winnerIndex], reel: reel, winnerIndex: winnerIndex)
+    }
 
     var body: some View {
-        ZStack {
-            CanvasBackground()
-            if let spin {
-                WatchlistSpinScreen(spin: spin, onWatch: { _ in }, onSpinAgain: {
-                    var generator = SystemRandomNumberGenerator()
-                    self.spin = WatchlistRandomizer.spin(over: WatchlistPreviewFixture.entries,
-                                                         using: &generator)
-                }, onClose: {})
-            } else {
-                Text("no eligible films").foregroundStyle(Theme.Palette.textSecondary)
-            }
-        }
+        WatchlistSpinScreen(spin: spin, details: nil, onWatch: { _ in },
+                            onSpinAgain: { spin = Self.fixedSpin() }, onClose: {},
+                            artOverride: withArt
+                                ? (backdropPath: Self.whiplashBackdrop, logoPath: Self.whiplashLogo)
+                                : (backdropPath: nil, logoPath: nil))
     }
 }
 
