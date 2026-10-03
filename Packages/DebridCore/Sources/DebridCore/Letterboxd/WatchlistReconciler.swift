@@ -86,4 +86,48 @@ public enum WatchlistReconciler {
         let sameQuestion = previous.name.caseInsensitiveCompare(crawledName) == .orderedSame
         return sameQuestion ? previous.resolvedAt : nil
     }
+
+    /// Applies what the owner did to the mirror WHILE a sync was suspended onto what that sync
+    /// built — a three-way merge, with `base` the mirror the sync started from and `latest` the
+    /// mirror as it stands when the sync is about to save.
+    ///
+    /// The syncer is an actor that awaits TMDB once per new film, so `remove`, `add` and the push
+    /// marks run in the middle of a sync. Saving the sync's own snapshot threw every one of them
+    /// away: a removal made mid-sync came back, a push recorded mid-sync was sent again.
+    ///
+    /// Only a DIFFERENCE between `base` and `latest` is carried. Copying `latest` wholesale would
+    /// undo this sync's own decisions — a pushed add retired because the crawl now holds it would
+    /// be marked local again from the stale copy on disk.
+    public static func carryLocalChanges(base: [WatchlistEntry], latest: [WatchlistEntry],
+                                         into merged: [WatchlistEntry]) -> [WatchlistEntry] {
+        let before = Dictionary(base.map { ($0.slug, $0) }, uniquingKeysWith: { first, _ in first })
+        let now = Dictionary(latest.map { ($0.slug, $0) }, uniquingKeysWith: { first, _ in first })
+
+        // Deleted meanwhile — an unsent add taken back. The sync carried it; it must not return.
+        var result = merged.filter { before[$0.slug] == nil || now[$0.slug] != nil }
+
+        for (index, row) in result.enumerated() {
+            guard let was = before[row.slug], let current = now[row.slug] else { continue }
+            if was.removedAt != current.removedAt { result[index].removedAt = current.removedAt }
+            if was.removalPushedAt != current.removalPushedAt { result[index].removalPushedAt = current.removalPushedAt }
+            if was.addedLocallyAt != current.addedLocallyAt { result[index].addedLocallyAt = current.addedLocallyAt }
+            if was.addPushedAt != current.addPushedAt { result[index].addPushedAt = current.addPushedAt }
+        }
+
+        // Added meanwhile. A row the crawl already brought in is the same film, so its local
+        // marks are taken and no second row is made.
+        let present = Set(result.map(\.slug))
+        for row in latest where before[row.slug] == nil {
+            if present.contains(row.slug) {
+                guard let index = result.firstIndex(where: { $0.slug == row.slug }) else { continue }
+                result[index].removedAt = row.removedAt
+                result[index].removalPushedAt = row.removalPushedAt
+                result[index].addedLocallyAt = row.addedLocallyAt
+                result[index].addPushedAt = row.addPushedAt
+            } else {
+                result.append(row)
+            }
+        }
+        return result.sorted { $0.position < $1.position }
+    }
 }

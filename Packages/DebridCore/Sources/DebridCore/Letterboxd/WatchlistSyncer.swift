@@ -139,8 +139,10 @@ public actor WatchlistSyncer {
         // empty screen after a network blip reads as "your watchlist is gone".
         let crawled = try await reader.watchlist()
 
-        var merged = WatchlistReconciler.merge(crawled: crawled, into: store.load(),
-                                               crawledAt: crawledAt)
+        // Kept: the resolve loop below suspends once per new film, and the owner's own edits land
+        // in those gaps. This is what tells them apart from the sync's work when it saves.
+        let base = store.load()
+        var merged = WatchlistReconciler.merge(crawled: crawled, into: base, crawledAt: crawledAt)
 
         // Only what has never been tried. A film TMDB does not know stays unresolved rather than
         // being searched again on every sync forever.
@@ -173,6 +175,9 @@ public actor WatchlistSyncer {
             }
         }
 
+        // Re-read and fold in whatever changed meanwhile. No await between this read and the save,
+        // so nothing can slip in after it.
+        merged = WatchlistReconciler.carryLocalChanges(base: base, latest: store.load(), into: merged)
         store.save(merged)
         return merged
     }

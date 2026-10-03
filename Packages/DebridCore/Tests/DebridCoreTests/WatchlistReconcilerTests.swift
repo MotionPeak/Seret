@@ -210,4 +210,21 @@ import Foundation
 
         #expect(merged.isEmpty)
     }
+
+    /// Only what changed on disk DURING the sync is carried — never the sync's own decisions. Here
+    /// the merge retired a pushed add (the crawl now speaks for it), and nothing touched the row
+    /// meanwhile, so the stale on-disk value must not bring the local-add mark back.
+    @Test func carryingKeepsTheSyncsOwnDecisionsWhereNothingChangedMeanwhile() {
+        var pushedAdd = WatchlistEntry.locallyAdded(tmdbID: 603, title: "The Matrix", year: 1999,
+                                                    posterPath: nil, position: 0)
+        pushedAdd = WatchlistEntry(slug: "the-matrix", name: pushedAdd.name, year: 1999, position: 0,
+                                   tmdbID: 603, resolvedAt: Date(),
+                                   addedLocallyAt: Date(), addPushedAt: Date())
+        var settled = pushedAdd
+        settled.addedLocallyAt = nil
+
+        let carried = WatchlistReconciler.carryLocalChanges(base: [pushedAdd], latest: [pushedAdd],
+                                                            into: [settled])
+        #expect(carried.first?.addedLocallyAt == nil)
+    }
 }
