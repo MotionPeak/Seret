@@ -39,6 +39,14 @@ public final class WatchlistModel {
     /// Why the last push to Letterboxd failed, if it did. Nil when there is nothing to say.
     public private(set) var relayMessage: String?
 
+    /// Whose list each film is on, and whether the partner's list could be read. The grid never
+    /// shows it — the two lists are one list on screen — but a removal has to be worded by it.
+    public private(set) var combinedStatus: WatchlistCombinedStatus = .solo
+
+    /// Why the partner's list could not be read, if it could not. A secondary line, never
+    /// `.failed`: the owner's list is fine, and an error over it would say otherwise.
+    public var partnerMessage: String? { combinedStatus.partnerError }
+
     private let settings: LetterboxdSettings
     private let minimumInterval: TimeInterval
     private let now: @Sendable () -> Date
@@ -47,6 +55,7 @@ public final class WatchlistModel {
     @ObservationIgnored private var syncTask: Task<Void, Never>?
     private let removeSlug: WatchlistRemoving
     private let relay: WatchlistRelaying
+    private let status: @Sendable () async -> WatchlistCombinedStatus
 
     public init(cached: [WatchlistEntry],
                 settings: LetterboxdSettings,
@@ -54,6 +63,7 @@ public final class WatchlistModel {
                 now: @escaping @Sendable () -> Date = { Date() },
                 remove: @escaping WatchlistRemoving = { _ in [] },
                 relay: @escaping WatchlistRelaying = { .idle },
+                status: @escaping @Sendable () async -> WatchlistCombinedStatus = { .solo },
                 run: @escaping WatchlistSyncRunning) {
         self.allEntries = cached
         self.settings = settings
@@ -62,6 +72,31 @@ public final class WatchlistModel {
         self.run = run
         self.removeSlug = remove
         self.relay = relay
+        self.status = status
+    }
+
+    /// Re-reads whose list each film is on. Cheap — two small files, no network.
+    public func refreshStatus() async {
+        combinedStatus = await status()
+    }
+
+    /// The confirmation's sentence for taking `entry` off the list.
+    ///
+    /// Only the owner's Letterboxd can be written to, so a partner's film is hidden here and stays
+    /// on their list — and the owner should be told that before agreeing, not after.
+    public func removalMessage(for entry: WatchlistEntry) -> String {
+        let title = WatchlistName.stripYear(from: entry.name)
+        let fromOwners = "\(title) will be removed from your Letterboxd watchlist."
+        guard let name = combinedStatus.partnerName else { return fromOwners }
+        let held = combinedStatus.membership.holders(of: entry)
+        switch (held.owner, held.partner) {
+        case (false, true):
+            return "\(title) will be hidden in Seret. It stays on \(name)'s Letterboxd watchlist."
+        case (true, true):
+            return "\(fromOwners) It stays on \(name)'s, hidden here."
+        default:
+            return fromOwners
+        }
     }
 
     public func isOwned(_ entry: WatchlistEntry) -> Bool {
@@ -76,6 +111,9 @@ public final class WatchlistModel {
         // Always attempted, even when the crawl is skipped: a change made while the server was
         // off is still waiting, and opening the screen is the natural moment to retry it.
         await pushPending()
+        // Before the stale gate: a fresh list skips the crawl, and the screen still has to word a
+        // removal by whose list a film is on.
+        await refreshStatus()
         if let last = settings.lastImportAt, now().timeIntervalSince(last) < minimumInterval { return }
         await syncNow()
     }
@@ -95,6 +133,7 @@ public final class WatchlistModel {
         }
         let stored = await removeSlug(entry.slug)
         if !stored.isEmpty { allEntries = stored }
+        await refreshStatus()
         await pushPending()
     }
 
@@ -148,10 +187,12 @@ public final class WatchlistModel {
             }
             allEntries = result
             phase = .idle
+            await refreshStatus()
         } catch {
             // Deliberately keeps `allEntries`: stale beats empty, and a blank screen after a network
             // blip reads as "your watchlist is gone".
             phase = .failed(LetterboxdImportModel.message(for: error))
+            await refreshStatus()
         }
     }
 }
