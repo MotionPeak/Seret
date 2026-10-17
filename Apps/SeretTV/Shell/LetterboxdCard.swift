@@ -33,6 +33,13 @@ struct LetterboxdCard: View {
                 set: { var s = model.settings; s.isEnabled = $0; model.update(s) })
     }
 
+    /// Synced like the rest, so it reads the same on every device. Films the player sees to their
+    /// credits log regardless — this is about marks only.
+    private var logsMarks: Binding<Bool> {
+        Binding(get: { model.settings.logsMarkedFilms },
+                set: { var s = model.settings; s.logsMarkedFilms = $0; model.update(s) })
+    }
+
     /// Why the import cannot run, in the owner's terms. Nil when it can.
     ///
     /// This is shown instead of a disabled button, never alongside one: a control the remote
@@ -60,6 +67,10 @@ struct LetterboxdCard: View {
                 // Always present, so the card always has something the remote can land on —
                 // whatever else is or isn't set up.
                 Toggle("Import my ratings", isOn: isEnabled)
+
+                Toggle("Log films I mark watched", isOn: logsMarks)
+                Text("Films you finish in the player are always logged.")
+                    .settingsCaption()
 
                 phaseContent
                 pushStatus

@@ -11,6 +11,12 @@ public protocol WatchProgressProviding: Sendable {
     func progress(forContentKeys keys: [String], profileID: String) async throws -> [String: WatchState]
     func record(contentKey: String, sourceKey: String, positionSeconds: Double,
                 durationSeconds: Double, finished: Bool, profileID: String) async throws
+    /// The same write, made because somebody said so — Mark Watched / Unwatched — rather than
+    /// because a playhead got there. A mark is not a viewing (the owner skims, then marks), so the
+    /// local store does not log it to Letterboxd unless asked to. Said outright rather than guessed
+    /// from the position: a skim leaves the playhead near the end, which looked like playback.
+    func recordMark(contentKey: String, sourceKey: String, positionSeconds: Double,
+                    durationSeconds: Double, finished: Bool, profileID: String) async throws
     /// Continue-Watching feed for one profile: unfinished rows with progress, newest first.
     func recentlyWatched(limit: Int, profileID: String) async throws -> [WatchState]
     /// Titles finished most recently, newest first — what says which episode of a show is up next.
@@ -21,6 +27,15 @@ public protocol WatchProgressProviding: Sendable {
 }
 
 extension WatchProgressProviding {
+    /// Default: a mark is just a write. Only the local store mirrors to Letterboxd, so only it
+    /// has anything to tell apart.
+    public func recordMark(contentKey: String, sourceKey: String, positionSeconds: Double,
+                           durationSeconds: Double, finished: Bool, profileID: String) async throws {
+        try await record(contentKey: contentKey, sourceKey: sourceKey,
+                         positionSeconds: positionSeconds, durationSeconds: durationSeconds,
+                         finished: finished, profileID: profileID)
+    }
+
     /// Default: nothing finished is known, so a show's card is its part-way episode only. The local
     /// store, the one real implementation, answers properly.
     public func recentlyFinished(limit: Int, profileID: String) async throws -> [WatchState] { [] }
@@ -59,8 +74,8 @@ extension WatchProgressProviding {
         let undoesAMark = !watched && (carried?.finished ?? false)
             && (carried.map { $0.durationSeconds > 0
                     && $0.positionSeconds / $0.durationSeconds < WatchState.playedFraction } ?? false)
-        try? await record(contentKey: contentKey,
-                          sourceKey: sourceKey.isEmpty ? (carried?.sourceKey ?? "") : sourceKey,
+        try? await recordMark(contentKey: contentKey,
+                              sourceKey: sourceKey.isEmpty ? (carried?.sourceKey ?? "") : sourceKey,
                           positionSeconds: watched || undoesAMark ? (carried?.positionSeconds ?? 0) : 0,
                           // Duration always. It costs nothing (a position of 0 is 0% of any
                           // runtime, and the finished-fraction rule reads 0 either way), and it is

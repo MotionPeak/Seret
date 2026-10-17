@@ -43,8 +43,24 @@ public struct LocalWatchProvider: WatchProgressProviding, Sendable {
         try await store.states(forContentKeys: keys, profileID: profileID)
     }
 
+    /// What the player's tick records.
     public func record(contentKey: String, sourceKey: String, positionSeconds: Double,
                        durationSeconds: Double, finished: Bool, profileID: String) async throws {
+        try await write(contentKey: contentKey, sourceKey: sourceKey,
+                        positionSeconds: positionSeconds, durationSeconds: durationSeconds,
+                        finished: finished, profileID: profileID, isMark: false)
+    }
+
+    public func recordMark(contentKey: String, sourceKey: String, positionSeconds: Double,
+                           durationSeconds: Double, finished: Bool, profileID: String) async throws {
+        try await write(contentKey: contentKey, sourceKey: sourceKey,
+                        positionSeconds: positionSeconds, durationSeconds: durationSeconds,
+                        finished: finished, profileID: profileID, isMark: true)
+    }
+
+    private func write(contentKey: String, sourceKey: String, positionSeconds: Double,
+                       durationSeconds: Double, finished: Bool, profileID: String,
+                       isMark: Bool) async throws {
         // `finished` is the caller's verdict, stored as given. The player works it out from where
         // the film actually ends (`WatchThreshold`, fed the last subtitle line and the credits
         // timestamp); a manual mark says so outright. This used to OR the store's own
@@ -65,15 +81,14 @@ public struct LocalWatchProvider: WatchProgressProviding, Sendable {
         // with no row is a first viewing by definition.
         let rating = try? await store.rating(forContentKey: contentKey, profileID: profileID)
         let rollup = try? await store.rollup(forContentKey: contentKey, profileID: profileID)
-        // Did a playhead put it here, or did somebody just say so? Any finish that came from
-        // playback has a position at least four fifths in — the watched threshold is never lower
-        // than that, cue-driven or not — while a Continue Watching tile being long-pressed
-        // carries whatever fraction it was left at, which is exactly why it was still on the rail.
-        let fromPlayback = durationSeconds > 0
-            && positionSeconds >= WatchThreshold.plausibleCueFraction * durationSeconds
+        // Did a playhead put it here, or did somebody just say so? The caller says. This used to be
+        // guessed from the position — four fifths in counted as playback — but a skim leaves the
+        // playhead wherever it stopped, often near the end, and the mark that followed was logged
+        // as a viewing. A mark is held for no rating (nobody is in front of a film to be asked)
+        // and is logged only when the owner turned that on.
         await push.recordFinish(contentKey: contentKey, rating: rating ?? nil,
                                 plays: rollup?.plays ?? 1, at: Date(),
-                                fromPlayback: fromPlayback)
+                                fromPlayback: !isMark)
     }
 
     public func recentlyWatched(limit: Int, profileID: String) async throws -> [WatchState] {

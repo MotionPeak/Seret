@@ -180,6 +180,9 @@ private struct LetterboxdForm: View {
                     .disabled(model.settings.serverURL.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
                 if let connection { connectionStatus(connection) }
+                Toggle("Log films I mark watched", isOn: Binding(
+                    get: { model.settings.logsMarkedFilms },
+                    set: { var s = model.settings; s.logsMarkedFilms = $0; model.update(s) }))
                 if model.pendingPushes > 0 {
                     Label("\(model.pendingPushes) watch\(model.pendingPushes == 1 ? "" : "es") waiting to send",
                           systemImage: "tray.and.arrow.up")
@@ -192,7 +195,7 @@ private struct LetterboxdForm: View {
             } header: {
                 Text("Diary and Watchlist Writes")
             } footer: {
-                Text("Writes go through your Seret server, which is signed in to Letterboxd. If it can't be reached, they wait here and are sent later.")
+                Text("Writes go through your Seret server, which is signed in to Letterboxd. If it can't be reached, they wait here and are sent later. Films you finish in the player are always logged; ones you mark watched only when the switch is on.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
         }

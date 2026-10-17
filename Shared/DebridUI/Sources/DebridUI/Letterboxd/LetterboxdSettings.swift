@@ -22,15 +22,21 @@ public struct LetterboxdSettings: Sendable, Codable, Equatable {
     public var partnerUsername: String
     /// What to call them in a sentence — "Noga". Falls back to the username when empty.
     public var partnerName: String
+    /// Whether marking a film watched by hand files a Letterboxd diary entry. Off: a mark is often
+    /// a skim, and a diary entry says you watched it. A film the player sees to its credits logs
+    /// regardless — this is about marks only.
+    public var logsMarkedFilms: Bool
 
     public init(username: String = "", isEnabled: Bool = false, lastImportAt: Date? = nil,
-                serverURL: String = "", partnerUsername: String = "", partnerName: String = "") {
+                serverURL: String = "", partnerUsername: String = "", partnerName: String = "",
+                logsMarkedFilms: Bool = false) {
         self.username = username
         self.isEnabled = isEnabled
         self.lastImportAt = lastImportAt
         self.serverURL = serverURL
         self.partnerUsername = partnerUsername
         self.partnerName = partnerName
+        self.logsMarkedFilms = logsMarkedFilms
     }
 
     /// Decoded leniently, because this blob is persisted and the store falls back to defaults when
@@ -47,6 +53,7 @@ public struct LetterboxdSettings: Sendable, Codable, Equatable {
         serverURL = try c.decodeIfPresent(String.self, forKey: .serverURL) ?? ""
         partnerUsername = try c.decodeIfPresent(String.self, forKey: .partnerUsername) ?? ""
         partnerName = try c.decodeIfPresent(String.self, forKey: .partnerName) ?? ""
+        logsMarkedFilms = try c.decodeIfPresent(Bool.self, forKey: .logsMarkedFilms) ?? false
     }
 
     /// The partner's username as it should be read, or empty.

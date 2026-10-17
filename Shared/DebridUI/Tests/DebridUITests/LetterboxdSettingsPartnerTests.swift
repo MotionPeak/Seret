@@ -17,6 +17,21 @@ import Foundation
         #expect(!decoded.hasPartner)
     }
 
+    /// Logging marks is opt-in: the blob already on every device predates the switch, and must
+    /// read as off.
+    @Test func aBlobWrittenBeforeTheMarkSwitchDoesNotLogMarks() throws {
+        let old = Data(#"{"username":"thebigshin","isEnabled":true,"serverURL":"192.168.1.179:8080"}"#.utf8)
+        #expect(try JSONDecoder().decode(LetterboxdSettings.self, from: old).logsMarkedFilms == false)
+        #expect(LetterboxdSettings().logsMarkedFilms == false)
+    }
+
+    @Test func theMarkSwitchSurvivesARoundTrip() throws {
+        let settings = LetterboxdSettings(username: "thebigshin", logsMarkedFilms: true)
+        let decoded = try JSONDecoder().decode(LetterboxdSettings.self,
+                                               from: JSONEncoder().encode(settings))
+        #expect(decoded.logsMarkedFilms)
+    }
+
     @Test func partnerFieldsSurviveARoundTrip() throws {
         let settings = LetterboxdSettings(username: "thebigshin", partnerUsername: "nogap",
                                           partnerName: "Noga")

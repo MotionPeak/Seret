@@ -35,6 +35,9 @@ public actor LetterboxdPushCoordinator {
     private let relay: any LetterboxdRelaying
     private let loggedElsewhere: @Sendable (Int) -> Bool
     private let isEnabled: @Sendable () -> Bool
+    /// Whether a film marked watched by hand is logged too — `LetterboxdSettings.logsMarkedFilms`,
+    /// re-read per mark so flipping the switch on the iPhone counts on the TV straight away.
+    private let logsMarks: @Sendable () -> Bool
     /// Told only about entries that landed, so a view can confirm one. Optional because the push
     /// works perfectly well with nobody listening.
     private let signal: LetterboxdPushSignal?
@@ -56,12 +59,14 @@ public actor LetterboxdPushCoordinator {
                 relay: any LetterboxdRelaying,
                 loggedElsewhere: @escaping @Sendable (Int) -> Bool,
                 isEnabled: @escaping @Sendable () -> Bool,
+                logsMarks: @escaping @Sendable () -> Bool = { false },
                 signal: LetterboxdPushSignal? = nil,
                 ratingHold: TimeInterval = 120) {
         self.outbox = outbox
         self.relay = relay
         self.loggedElsewhere = loggedElsewhere
         self.isEnabled = isEnabled
+        self.logsMarks = logsMarks
         self.signal = signal
         self.ratingHold = ratingHold
     }
@@ -75,6 +80,9 @@ public actor LetterboxdPushCoordinator {
     public func recordFinish(contentKey: String, rating: Int?, plays: Int, at: Date,
                              fromPlayback: Bool = true) async {
         guard isEnabled() else { return }
+        // A mark is often a skim, and a diary entry says you watched it — so a mark is logged only
+        // when the owner asked for that. Watched in Seret either way; this is only the mirror.
+        guard fromPlayback || logsMarks() else { return }
         // Letterboxd has no television, and a parsed-title key is not a TMDB id. Neither can ever
         // be written, so neither is queued — a permanent failure in the queue blocks what follows.
         guard let tmdbID = LetterboxdContentKey.tmdbID(fromMovieKey: contentKey) else { return }

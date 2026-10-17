@@ -47,12 +47,14 @@ extension SwiftDataSuite {
         }
 
         /// A long-press on a Continue Watching tile is a manual mark, not a film reaching its
-        /// credits — its position is nowhere near the end. The diary entry goes out at once.
+        /// credits — its position is nowhere near the end. With marks logged, the diary entry goes
+        /// out at once.
         @Test func markingAPartlyWatchedTitleWatchedIsNotHeldForARating() async throws {
             let relay = CapturingRelay()
             let push = LetterboxdPushCoordinator(outbox: InMemoryLetterboxdOutbox(), relay: relay,
                                                  loggedElsewhere: { _ in false },
-                                                 isEnabled: { true }, ratingHold: 60)
+                                                 isEnabled: { true }, logsMarks: { true },
+                                                 ratingHold: 60)
             let c = try ModelContainer(for: WatchProgress.self,
                                        configurations: ModelConfiguration(isStoredInMemoryOnly: true))
             let p = LocalWatchProvider(store: LocalWatchStore(modelContainer: c),
@@ -67,6 +69,57 @@ extension SwiftDataSuite {
             await push.waitForPendingSend()
 
             #expect(await relay.count == 1)
+        }
+
+        /// The owner skims a film, then marks it watched — and did not want a diary entry for a
+        /// skim. Marks stay in Seret unless the setting says otherwise.
+        @Test func aMarkIsNotLoggedWhenMarksAreNotLogged() async throws {
+            let relay = CapturingRelay()
+            let outbox = InMemoryLetterboxdOutbox()
+            let push = LetterboxdPushCoordinator(outbox: outbox, relay: relay,
+                                                 loggedElsewhere: { _ in false },
+                                                 isEnabled: { true }, logsMarks: { false },
+                                                 ratingHold: 60)
+            let c = try ModelContainer(for: WatchProgress.self,
+                                       configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+            let p = LocalWatchProvider(store: LocalWatchStore(modelContainer: c),
+                                       profileID: { "p1" }, push: push)
+            try await p.record(contentKey: "movie:tmdb:73", sourceKey: "T1#1",
+                               positionSeconds: 2000, durationSeconds: 6000,
+                               finished: false, profileID: "p1")
+
+            await p.setWatched(true, contentKey: "movie:tmdb:73", sourceKey: "T1#1",
+                               profileID: "p1")
+            await push.waitForPendingSend()
+
+            #expect(try await outbox.all().isEmpty)
+            #expect(await relay.count == 0)
+            #expect(try await p.progress(forContentKey: "movie:tmdb:73", profileID: "p1")?.finished == true)
+        }
+
+        /// A skim leaves the playhead wherever it stopped — often near the end. Guessing from the
+        /// position called that playback, so the mark logged anyway. A mark says it is a mark.
+        @Test func aMarkAfterSkimmingNearTheEndIsStillAMark() async throws {
+            let relay = CapturingRelay()
+            let outbox = InMemoryLetterboxdOutbox()
+            let push = LetterboxdPushCoordinator(outbox: outbox, relay: relay,
+                                                 loggedElsewhere: { _ in false },
+                                                 isEnabled: { true }, logsMarks: { false },
+                                                 ratingHold: 60)
+            let c = try ModelContainer(for: WatchProgress.self,
+                                       configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+            let p = LocalWatchProvider(store: LocalWatchStore(modelContainer: c),
+                                       profileID: { "p1" }, push: push)
+            // Skimmed to 85%, short of where the player calls it watched.
+            try await p.record(contentKey: "movie:tmdb:73", sourceKey: "T1#1",
+                               positionSeconds: 5100, durationSeconds: 6000,
+                               finished: false, profileID: "p1")
+
+            await p.setWatched(true, contentKey: "movie:tmdb:73", sourceKey: "T1#1",
+                               profileID: "p1")
+            await push.waitForPendingSend()
+
+            #expect(try await outbox.all().isEmpty)
         }
 
         /// ...while a film that actually played to its credits IS held, so the viewer can rate it.

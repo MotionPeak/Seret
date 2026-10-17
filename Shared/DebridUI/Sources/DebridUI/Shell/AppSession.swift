@@ -404,6 +404,7 @@ public final class AppSession {
                     .contains(tmdbID: tmdbID)
             },
             isEnabled: { UbiquitousLetterboxdSettingsStore().load().serverBaseURL != nil },
+            logsMarks: { UbiquitousLetterboxdSettingsStore().load().logsMarkedFilms },
             signal: signal)
     }
 

@@ -209,10 +209,12 @@ private actor HangingRelay: LetterboxdRelaying {
     private func coordinator(relay: FakeRelay,
                              outbox: any LetterboxdOutbox = InMemoryLetterboxdOutbox(),
                              hold: TimeInterval = 60,
+                             logsMarks: Bool = true,
                              signal: LetterboxdPushSignal? = nil) -> LetterboxdPushCoordinator {
         LetterboxdPushCoordinator(outbox: outbox, relay: relay,
                                   loggedElsewhere: { _ in false },
-                                  isEnabled: { true }, signal: signal, ratingHold: hold)
+                                  isEnabled: { true }, logsMarks: { logsMarks },
+                                  signal: signal, ratingHold: hold)
     }
 
     @Test func aFinishedFilmIsHeldBackRatherThanSentAtOnce() async throws {
@@ -359,6 +361,47 @@ private actor HangingRelay: LetterboxdRelaying {
 
         #expect(await relay.count == 1)
         #expect(await signal.ratingPrompt == nil)
+    }
+
+    /// Marking a film watched is not watching it — the owner skims, then marks. Unless they asked
+    /// for marks to be logged, nothing is queued at all.
+    @Test func aMarkIsNotLoggedUnlessMarksAreLogged() async throws {
+        let relay = FakeRelay()
+        let outbox = InMemoryLetterboxdOutbox()
+        let push = coordinator(relay: relay, outbox: outbox, logsMarks: false)
+
+        await push.recordFinish(contentKey: "movie:tmdb:73", rating: nil, plays: 1, at: Date(),
+                                fromPlayback: false)
+        await push.waitForPendingSend()
+
+        #expect(try await outbox.all().isEmpty)
+        #expect(await relay.count == 0)
+    }
+
+    /// The setting is about marks only. A film the player saw to its credits logs as it always has.
+    @Test func aFilmFinishedInThePlayerLogsWhateverTheSetting() async throws {
+        let outbox = InMemoryLetterboxdOutbox()
+        let push = coordinator(relay: FakeRelay(), outbox: outbox, logsMarks: false)
+
+        await push.recordFinish(contentKey: "movie:tmdb:73", rating: nil, plays: 1, at: Date())
+
+        #expect(try await outbox.all().count == 1)
+    }
+
+    /// Off unless the owner turns it on — the default a coordinator gets when nobody says.
+    @Test func marksAreNotLoggedByDefault() async throws {
+        let relay = FakeRelay()
+        let outbox = InMemoryLetterboxdOutbox()
+        let push = LetterboxdPushCoordinator(outbox: outbox, relay: relay,
+                                             loggedElsewhere: { _ in false },
+                                             isEnabled: { true }, ratingHold: 0)
+
+        await push.recordFinish(contentKey: "movie:tmdb:73", rating: nil, plays: 1, at: Date(),
+                                fromPlayback: false)
+        await push.waitForPendingSend()
+
+        #expect(await relay.count == 0)          // sent would leave the outbox empty too
+        #expect(try await outbox.all().isEmpty)
     }
 
     /// An episode never reaches Letterboxd, so nothing should be asking the viewer to rate one.

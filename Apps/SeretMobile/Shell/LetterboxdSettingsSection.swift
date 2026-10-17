@@ -68,6 +68,11 @@ struct LetterboxdSettingsSection: View {
 
             if let connection { connectionStatus(connection) }
 
+            // A mark is often a skim. Films finished in the player log regardless.
+            Toggle("Log films I mark watched", isOn: Binding(
+                get: { model.settings.logsMarkedFilms },
+                set: { var s = model.settings; s.logsMarkedFilms = $0; model.update(s) }))
+
             partnerFields
 
             switch model.phase {
