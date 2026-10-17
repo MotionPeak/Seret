@@ -34,9 +34,15 @@ final class LoopbackStreamServer: @unchecked Sendable {
 
     deinit { listener?.cancel() }
 
-    var isRunning: Bool {
-        lock.lock(); defer { lock.unlock() }
-        return listener?.state == .ready
+    /// Whether a connection to the port libvlc was given is actually accepted.
+    ///
+    /// Asked of the socket, not of the listener: the system may take a suspended app's listening
+    /// socket back (TN2277) without the listener ever leaving `ready`. Measured on the Apple TV
+    /// (vlc.log, 2026-10-14…17) — five "Playback failed." after the app sat idle, libvlc refused
+    /// every time, and not one "listener failed" line, so `listenerFailed` never ran.
+    func isAccepting() -> Bool {
+        guard let port = lock.withLock({ boundPort }) else { return false }
+        return Self.acceptsConnections(onLoopbackPort: port.rawValue)
     }
 
     /// Listen on 127.0.0.1 at a free port, and return it.
@@ -100,6 +106,16 @@ final class LoopbackStreamServer: @unchecked Sendable {
         }
     }
 
+    /// What the system does to a suspended app (see `isAccepting`): the socket goes, the listener
+    /// is not told. For tests — nothing else can make that happen on demand.
+    func dropListenerSilently() {
+        let listener = lock.withLock { self.listener }
+        listener?.stateUpdateHandler = nil
+        listener?.cancel()
+        // The socket closes on the listener's queue, a moment later; a test reads the result next.
+        for _ in 0..<200 where isAccepting() { usleep(5_000) }
+    }
+
     func stop() {
         lock.lock(); let listener = self.listener; self.listener = nil; lock.unlock()
         listener?.cancel()
@@ -123,6 +139,34 @@ final class LoopbackStreamServer: @unchecked Sendable {
             fired = true
             return true
         }
+    }
+
+    /// One TCP connect to 127.0.0.1:`port`. Loopback answers at once either way, so the timeout
+    /// only guards a backlog so full the handshake is never answered. The server sees a connection
+    /// that sends nothing and closes, and drops it without a log line.
+    private static func acceptsConnections(onLoopbackPort port: UInt16, timeoutMs: Int32 = 500) -> Bool {
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        guard fd >= 0 else { return false }
+        defer { close(fd) }
+        _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
+        var address = sockaddr_in()
+        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_port = port.bigEndian
+        address.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
+        let connected = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        if connected == 0 { return true }
+        guard errno == EINPROGRESS else { return false }        // ECONNREFUSED: nobody listening
+        var poll = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
+        guard Darwin.poll(&poll, 1, timeoutMs) == 1 else { return false }
+        var error: Int32 = 0
+        var length = socklen_t(MemoryLayout<Int32>.size)
+        guard getsockopt(fd, SOL_SOCKET, SO_ERROR, &error, &length) == 0 else { return false }
+        return error == 0
     }
 
     // MARK: - Connections

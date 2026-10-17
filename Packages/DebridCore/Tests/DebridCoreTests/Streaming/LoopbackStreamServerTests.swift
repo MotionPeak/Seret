@@ -78,10 +78,21 @@ extension StreamingNetworkTests {
         @Test func aListenerTheSystemTookBackIsReplacedOnTheSamePort() async throws {
             let (url, server, session) = try await serve()
             try await server.listenAgain()                           // what a failure after `ready` runs
-            #expect(server.isRunning)
+            #expect(server.isAccepting())
             let (data, response) = try await get(url, range: "bytes=0-9")
             #expect(response.statusCode == 206)
             #expect(data == RangeFileURLProtocol.bytes(0..<10))
+            await session.close(); server.stop()
+        }
+
+        /// Measured on the Apple TV (vlc.log, 2026-10-14…17): after the app sat suspended, libvlc's
+        /// connection was refused five times while the listener never reported a failure — so its
+        /// `state` is no evidence. Only a connection says whether the port still answers.
+        @Test func aSocketTakenBackWithoutAWordIsNotAccepting() async throws {
+            let (_, server, session) = try await serve()
+            #expect(server.isAccepting())
+            server.dropListenerSilently()
+            #expect(!server.isAccepting())
             await session.close(); server.stop()
         }
 

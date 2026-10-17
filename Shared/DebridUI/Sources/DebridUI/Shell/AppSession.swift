@@ -114,6 +114,7 @@ public final class AppSession {
     /// The stream cache in front of RD for every player. One per signed-in session.
     private var streamProxy: StreamProxy?
     private var memoryWarningObserver: (any NSObjectProtocol)?
+    private var foregroundObserver: (any NSObjectProtocol)?
 
     /// Where the stream cache writes its diagnostics. The apps point it at `vlc.log` (SeretPlayer's
     /// DiagnosticsLog), which DebridUI cannot import.
@@ -443,6 +444,18 @@ public final class AppSession {
                 MainActor.assumeIsolated {
                     let proxy = self?.streamProxy
                     Task { await proxy?.trimMemory() }
+                }
+            }
+        }
+        // The system may take a suspended app's listening socket back without a word, and a film
+        // paused across that keeps the proxy's URL. Before the screen is back, make it answer.
+        if foregroundObserver == nil {
+            foregroundObserver = NotificationCenter.default.addObserver(
+                forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    let proxy = self?.streamProxy
+                    Task { await proxy?.revive() }
                 }
             }
         }

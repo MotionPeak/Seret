@@ -50,6 +50,39 @@ extension StreamingNetworkTests {
             await p.close(a); await p.close(b)
         }
 
+        /// The bug behind "after a while idle it won't play until I relaunch": the system took the
+        /// suspended app's listening socket back without telling the listener, so the next open
+        /// handed libvlc a port that refused it — "Playback failed.", and Retry got the same port.
+        /// The open must find out for itself, and come back on the SAME port.
+        @Test func anOpenAfterTheSocketWasTakenBackSilentlyStillPlays() async throws {
+            let p = proxy()
+            let first = await p.open(upstream: URL(string: "https://rd.test/f.mkv")!, fileKey: "t#1",
+                                     refreshUpstream: { URL(string: "https://rd.test/f.mkv")! })
+            await p.close(first)
+            await p.dropListenerSilently()
+            let second = await p.open(upstream: URL(string: "https://rd.test/f.mkv")!, fileKey: "t#1",
+                                      refreshUpstream: { URL(string: "https://rd.test/f.mkv")! })
+            #expect(second.url.host == "127.0.0.1")
+            #expect(second.url.port == first.url.port)
+            #expect(try await get(second.url, "bytes=0-9").1 == 206)
+            await p.close(second)
+        }
+
+        /// A film paused across the suspension keeps the URL it was given; its next reconnect has
+        /// to find the server there. Coming back to the foreground is the moment to make sure.
+        @Test func revivingBringsAPausedFilmsURLBack() async throws {
+            let p = proxy()
+            let handle = await p.open(upstream: URL(string: "https://rd.test/f.mkv")!, fileKey: "t#1",
+                                      refreshUpstream: { URL(string: "https://rd.test/f.mkv")! })
+            _ = try await get(handle.url, "bytes=0-9")
+            await p.dropListenerSilently()
+            await p.revive()
+            let (data, status) = try await get(handle.url, "bytes=0-9")
+            #expect(status == 206)
+            #expect(data == RangeFileURLProtocol.bytes(0..<10))
+            await p.close(handle)
+        }
+
         @Test func aClosedStreamIsGone() async throws {
             let p = proxy()
             let handle = await p.open(upstream: URL(string: "https://rd.test/f.mkv")!, fileKey: "t#1",

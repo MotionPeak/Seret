@@ -127,16 +127,45 @@ public actor StreamProxy: StreamProxying {
     func session(_ id: UUID) -> StreamSession? { sessions[id] }
 
     #if canImport(Network)
-    /// The server, started on first use and restarted if it died. nil when it cannot start —
-    /// the caller then plays RD's link directly, exactly as before this cache existed.
+    /// The server, started on first use and restored if it stopped answering. nil when it cannot
+    /// start — the caller then plays RD's link directly, exactly as before this cache existed.
+    ///
+    /// "Answering" is a real connection, every time: after the app sat suspended the system had
+    /// taken the socket back while the listener still read `ready`, and an open trusting that
+    /// handed libvlc a dead port — "Playback failed." until the app was relaunched, Retry included.
     private func ensureServer() async -> UInt16? {
-        if let port, server?.isRunning == true { return port }
         if let starting { return await starting.value }
-        let start = Task { await startServer() }
+        if let port, server?.isAccepting() == true { return port }
+        let start = Task { await restoreServer() }
         starting = start
         let port = await start.value
         starting = nil
         return port
+    }
+
+    /// Run on the way back to the foreground. A film paused across the suspension keeps the URL it
+    /// was given, and its next reconnect has to find the server there — not wait for an open.
+    public func revive() async {
+        guard server != nil else { return }                      // nothing played yet: nothing to keep
+        _ = await ensureServer()
+    }
+
+    /// See `LoopbackStreamServer.dropListenerSilently`. For tests.
+    func dropListenerSilently() { server?.dropListenerSilently() }
+
+    /// Back on the port already handed out when there is one — a paused player's reconnect is
+    /// addressed to it — else on a fresh one.
+    private func restoreServer() async -> UInt16? {
+        if let server, let port {
+            log("127.0.0.1:\(port) refuses connections; listening on it again")
+            do {
+                try await server.listenAgain()
+                if server.isAccepting() { return port }
+            } catch {
+                log("could not listen on \(port) again: \(error)")
+            }
+        }
+        return await startServer()
     }
 
     private func startServer() async -> UInt16? {
