@@ -734,7 +734,7 @@ private struct EpisodeStripExpanded: View {
                 .overlay {
                     if isCurrent {
                         RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .strokeBorder(Color.white.opacity(0.85), lineWidth: 4)
+                            .strokeBorder(Theme.Palette.strokeStrong, lineWidth: 4)
                     } else if !ep.isPlayable {
                         RoundedRectangle(cornerRadius: 10, style: .continuous).fill(.black.opacity(0.45))
                             .overlay {

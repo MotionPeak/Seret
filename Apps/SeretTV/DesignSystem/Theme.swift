@@ -24,6 +24,9 @@ enum Theme {
         static let glass    = Color.white.opacity(0.17)
         /// Dividers and resting outlines.
         static let hairline = Color.white.opacity(0.10)
+        /// An outline that has to be seen: the current item in a strip, a focused text block, the
+        /// in-file Hebrew seal.
+        static let strokeStrong = Color.white.opacity(0.85)
 
         static let textPrimary   = Color(hex: 0xF5F6F8)
         static let textSecondary = Color(hex: 0xA3AAB8)
@@ -43,7 +46,7 @@ enum Theme {
         static let ratingMid   = SeretPalette.ratingMid
         static let ratingBad   = SeretPalette.ratingBad
 
-        /// The logo mark and the "Hebrew in the file" seal: white to a cool silver.
+        /// The logo mark: white to a cool silver.
         static let silverGradient = LinearGradient(
             colors: [Color.white, Color(hex: 0xC9CEDA)],
             startPoint: .topLeading, endPoint: .bottomTrailing)

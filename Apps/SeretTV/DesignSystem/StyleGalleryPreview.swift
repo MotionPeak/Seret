@@ -4,10 +4,11 @@ import SwiftUI
 /// Every design-system style on one page, for screenshot verification: posters in
 /// `FocusCardStyle`, a row of `ExpandingIconButtonStyle` actions after a primary pill, the pills,
 /// `ProgressLine`, the Hebrew marks and the brand mark. `-uiPreview styles` lands focus on the
-/// Trailer button (so one expanded button sits among resting circles); `-uiPreview stylescard`
-/// lands it on the second poster.
+/// Trailer button (so one expanded button sits among resting circles); `-uiPreview stylesplain`
+/// on the plain Versions pill (focused white beside a resting Resume CTA); `-uiPreview
+/// stylescard` on the second poster.
 struct StyleGalleryPreview: View {
-    enum Spot: Hashable { case play, trailer, watchlist, watched, more, poster(Int), pill(Int) }
+    enum Spot: Hashable { case play, trailer, watchlist, watched, more, versions, poster(Int), pill(Int) }
 
     let initialFocus: Spot
     @FocusState private var focus: Spot?
@@ -65,6 +66,7 @@ struct StyleGalleryPreview: View {
                 .buttonStyle(SeretActionButtonStyle(destructive: true))
             Button("Versions") {}
                 .buttonStyle(SeretActionButtonStyle())
+                .focused($focus, equals: .versions)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .focusSection()

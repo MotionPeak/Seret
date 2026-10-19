@@ -345,7 +345,7 @@ private struct SettingsRowButtonStyle: ButtonStyle {
         var body: some View {
             configuration.label
                 .padding(.horizontal, 18).padding(.vertical, 10)
-                .background(focused ? AnyShapeStyle(Color.white.opacity(0.18)) : AnyShapeStyle(.clear),
+                .background(focused ? AnyShapeStyle(Theme.Palette.glass) : AnyShapeStyle(.clear),
                             in: Capsule())
                 .overlay { if focused { Capsule().strokeBorder(Theme.Palette.focus, lineWidth: 3) } }
                 .scaleEffect(focused ? 1.02 : 1)

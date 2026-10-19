@@ -37,8 +37,8 @@ import DebridCore
 ///     that DO take focus, so "can the remote reach it?" is answerable from a screenshot
 ///   - `letterboxdrating` / `letterboxdrerating` — the post-credits rating prompt, unrated and
 ///     already rated 7. Prints what the press produced, so a screenshot answers it
-///   - `styles` / `stylescard` — every design-system style on one page, focus on an expanding
-///     icon button or on a poster (see `StyleGalleryPreview`)
+///   - `styles` / `stylesplain` / `stylescard` — every design-system style on one page, focus on
+///     an expanding icon button, a plain action pill or a poster (see `StyleGalleryPreview`)
 ///
 /// Not compiled into release builds.
 struct PlayerUIPreview: View {
@@ -80,6 +80,7 @@ struct PlayerUIPreview: View {
         case "serverprobe":         ServerReachabilityPreview()
         case "styles":              StyleGalleryPreview(initialFocus: .trailer)
         case "stylescard":          StyleGalleryPreview(initialFocus: .poster(1))
+        case "stylesplain":         StyleGalleryPreview(initialFocus: .versions)
         default:           ScrubBarPreview()
         }
     }

@@ -2,9 +2,14 @@ import SwiftUI
 
 /// Primary / secondary action button for Detail & Add, with an explicit focus state so it never
 /// falls back to the default tvOS capsule (which can render white-on-white when focused).
-///   prominent   → white pill, dark text (the Play / Resume CTA)
-///   default     → glass pill, white text; white pill, dark text when focused
+///
+/// As in Plex, EVERY action rests as glass with white content, and focus alone turns a button
+/// solid white with dark content. A resting white CTA beside a focused white button would leave
+/// two candidates for "where am I", so the CTA is only slightly heavier at rest:
+///   prominent   → glass pill + a faint white outline + semibold text (the Play / Resume CTA)
+///   default     → glass pill, medium text
 ///   destructive → red text on glass, red fill on focus (Remove keeps its intent)
+/// Focused (non-destructive): white pill, `onFocus` text, 1.04 lift.
 /// NavigationLinks pick this up too (the Play CTAs are value-nav links).
 struct SeretActionButtonStyle: ButtonStyle {
     var prominent = false
@@ -22,10 +27,13 @@ struct SeretActionButtonStyle: ButtonStyle {
 
         var body: some View {
             configuration.label
-                .font(.seret(Theme.Typography.cardSize, .semibold))
+                .font(.seret(Theme.Typography.cardSize, prominent ? .semibold : .medium))
                 .foregroundStyle(textColor)
                 .padding(.horizontal, 30).padding(.vertical, 16)
                 .background(fill, in: Capsule())
+                // Always present, faded out on focus — the CTA's only resting distinction.
+                .overlay(Capsule().strokeBorder(Color.white.opacity(0.35), lineWidth: 1.5)
+                    .opacity(prominent && !focused ? 1 : 0))
                 .scaleEffect(focused ? Theme.Anim.buttonFocusScale : 1)
                 .opacity(configuration.isPressed ? 0.7 : 1)
                 .animation(Theme.Anim.focus, value: focused)
@@ -35,24 +43,18 @@ struct SeretActionButtonStyle: ButtonStyle {
 
         private var textColor: Color {
             if destructive { return focused ? .white : redColor }
-            if focused || prominent { return Theme.Palette.onFocus }
-            return Theme.Palette.textPrimary
+            return focused ? Theme.Palette.onFocus : Theme.Palette.textPrimary
         }
 
-        /// A resting prominent button is white too, so focus has to be told apart by more than the
-        /// 1.04 lift: at rest the white is held back a little (it reads as a light grey on navy),
-        /// focused it is the full white every other focused control uses.
         private var fill: Color {
             if destructive { return focused ? redColor : Theme.Palette.glass }
-            if focused { return Theme.Palette.focus }
-            if prominent { return Theme.Palette.focus.opacity(0.82) }
-            return Theme.Palette.glass
+            return focused ? Theme.Palette.focus : Theme.Palette.glass
         }
     }
 }
 
-/// The primary CTA — a white pill with dark text (`SeretActionButtonStyle(prominent: true)`), under
-/// the name the title page and player use for it.
+/// The primary CTA (`SeretActionButtonStyle(prominent: true)`): glass with a faint outline at
+/// rest, a white pill with dark text when focused — under the name the title page and player use.
 struct PrimaryPillButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         SeretActionButtonStyle(prominent: true).makeBody(configuration: configuration)
@@ -79,7 +81,7 @@ struct SeretRowStyle: ButtonStyle {
         var body: some View {
             configuration.label
                 .padding(.horizontal, 22).padding(.vertical, 16)
-                .background(focused ? AnyShapeStyle(Color.white.opacity(0.18))
+                .background(focused ? AnyShapeStyle(Theme.Palette.glass)
                                     : AnyShapeStyle(Theme.Palette.surface2),
                             in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)

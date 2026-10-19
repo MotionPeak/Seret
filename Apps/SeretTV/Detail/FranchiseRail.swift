@@ -79,7 +79,7 @@ private struct FranchisePoster: View {
         .overlay {
             if isCurrent {
                 RoundedRectangle(cornerRadius: Theme.Layout.posterCorner, style: .continuous)
-                    .strokeBorder(Color.white.opacity(0.85), lineWidth: 4)
+                    .strokeBorder(Theme.Palette.strokeStrong, lineWidth: 4)
             }
         }
         .overlay(alignment: .topLeading) {

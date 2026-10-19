@@ -209,7 +209,7 @@ struct SubtitleBrowser: View {
             Text(subtitleDetail(ranked.result))
                 .font(.seretCaption).foregroundStyle(Theme.Palette.textSecondary)
         }
-        .padding(14)
+        // No padding of its own: `SeretRowStyle` pads the row.
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 

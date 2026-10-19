@@ -4,7 +4,7 @@ import SwiftUI
 /// fill and text by focus + selection, so it never renders white-on-white the way a
 /// default/bordered tvOS button does:
 ///   focused             → white pill, dark text
-///   selected (no focus) → white 18% pill, white text
+///   selected (no focus) → glass pill, white text
 ///   otherwise           → white 8% pill, secondary text
 ///
 /// Usage: `Button(title) { … }.buttonStyle(SeretPillStyle(selected: isSelected))`
@@ -34,7 +34,7 @@ struct SeretPillStyle: ButtonStyle {
         }
         private var fill: Color {
             if focused { return Theme.Palette.focus }
-            return Color.white.opacity(selected ? 0.18 : 0.08)
+            return selected ? Theme.Palette.glass : Color.white.opacity(0.08)
         }
     }
 }
