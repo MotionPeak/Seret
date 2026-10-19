@@ -75,6 +75,16 @@ import DebridCore
         #expect(PreviewSubject(item: Self.movie).remainingMinutes == nil)
     }
 
+    @Test func anUnstartedEntryHasNoRemainingMinutes() {
+        let unstarted = Self.home(Self.show, fraction: 0, episode: Self.ep(2, 1),
+                                  subtitle: "S2 · E1", upNext: true)
+        #expect(PreviewSubject(home: unstarted, runtimeMinutes: 52).remainingMinutes == nil)
+        let negative = Self.home(Self.movie, fraction: -0.2, episode: nil, subtitle: "")
+        #expect(PreviewSubject(home: negative, runtimeMinutes: 52).remainingMinutes == nil)
+        let started = Self.home(Self.movie, fraction: 0.5, episode: nil, subtitle: "")
+        #expect(PreviewSubject(home: started, runtimeMinutes: 52).remainingMinutes == 26)
+    }
+
     @Test func searchHitParsesYearAndKeepsKindAndIDs() {
         let result = TMDBSearchResult(id: 99, title: "Dune", name: nil, releaseDate: "2024-05-01",
                                       firstAirDate: nil, posterPath: "/d.jpg", overview: "Sand.",
@@ -102,6 +112,8 @@ import DebridCore
         #expect(year("") == nil)
         #expect(year(nil) == nil)
         #expect(year("abcd-01-01") == nil)
+        #expect(year("+123-01-01") == nil)
+        #expect(year("-123") == nil)
         #expect(year("1999") == 1999)
     }
 

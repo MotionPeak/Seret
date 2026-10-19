@@ -1,4 +1,5 @@
 import Foundation
+import Testing
 
 /// A one-shot latch for deterministic async tests: waiters suspend until `open()`, and a waiter
 /// arriving after it opened returns at once. No clocks anywhere.
@@ -35,4 +36,17 @@ actor AsyncCounter {
 /// Lets queued main-actor work run. Bounded; never sleeps.
 @MainActor func settle(_ passes: Int = 30) async {
     for _ in 0..<passes { await Task.yield() }
+}
+
+/// Waits for `condition` by yielding in a loop - a positive check waits for the thing to happen
+/// instead of guessing how many yields it takes, so a starved CPU only slows it down. Bounded so a
+/// real failure still ends; records an issue when the cap is hit.
+@MainActor func until(_ message: Comment = "condition never became true", cap: Int = 10_000,
+                      sourceLocation: SourceLocation = #_sourceLocation,
+                      _ condition: () -> Bool) async {
+    for _ in 0..<cap {
+        if condition() { return }
+        await Task.yield()
+    }
+    Issue.record(message, sourceLocation: sourceLocation)
 }

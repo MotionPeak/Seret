@@ -52,7 +52,9 @@ public struct PreviewSubject: Identifiable, Hashable, Sendable {
         }
         let watched = min(max(home.fraction, 0), 1)
         fraction = home.fraction
-        if let runtimeMinutes, runtimeMinutes > 0 {
+        // An unstarted entry (up-next, fraction 0) has nothing "left" to report: it shows its
+        // runtime elsewhere, never "52m left".
+        if let runtimeMinutes, runtimeMinutes > 0, home.fraction > 0 {
             remainingMinutes = Int((Double(runtimeMinutes) * (1 - watched)).rounded())
         } else {
             remainingMinutes = nil
@@ -79,10 +81,10 @@ public struct PreviewSubject: Identifiable, Hashable, Sendable {
     }
 
     /// The leading four digits of a TMDB date. A short or non-numeric string is "no year", not a
-    /// guess (`"20"` must not become the year 20).
+    /// guess (`"20"` must not become the year 20, nor `"+123"` 123).
     private static func year(from date: String?) -> Int? {
         guard let prefix = date?.prefix(4), prefix.count == 4,
-              prefix.allSatisfy(\.isASCII), let year = Int(prefix) else { return nil }
+              prefix.allSatisfy({ ("0"..."9").contains($0) }), let year = Int(prefix) else { return nil }
         return year
     }
 }

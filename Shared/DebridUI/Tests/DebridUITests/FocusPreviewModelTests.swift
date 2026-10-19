@@ -38,7 +38,8 @@ private final class GatedSleeper: @unchecked Sendable {
         #expect(model.shown == nil)                  // a was superseded
         await sleeper.gates[1].open(); await settle()
         #expect(model.shown == nil)                  // b was superseded
-        await sleeper.gates[2].open(); await settle()
+        await sleeper.gates[2].open()
+        await until { model.shown == c }
         #expect(model.shown == c)
     }
 
@@ -83,7 +84,7 @@ private final class GatedSleeper: @unchecked Sendable {
         })
         model.focus(Self.subject("a"))
         await seen.wait(atLeast: 1)
-        await settle()
+        await until { model.shown?.id == "a" }
         #expect(box.d == .milliseconds(150))
         #expect(model.shown?.id == "a")
     }

@@ -22,6 +22,9 @@ private final class GatedDetails: MediaDetailsProviding, @unchecked Sendable {
         }
         await entered.increment()
         if let gate { await gate.wait() }
+        // A fetch whose own task was cancelled must fail, so a caller's cancellation leaking into
+        // the shared fetch is observable.
+        try Task.checkCancellation()
         if shouldFail { throw Boom() }
         let images = TMDBImageSet(backdrops: [TMDBImageRef(filePath: "/clean\(tmdbID).jpg", languageCode: nil)],
                                   logos: [TMDBImageRef(filePath: "/logo\(tmdbID).png", languageCode: "en")])
@@ -142,7 +145,8 @@ private final class GatedDetails: MediaDetailsProviding, @unchecked Sendable {
         await settle()
         first.cancel()
         await gate.open()
-        #expect(await second.value != nil)
+        #expect(await second.value?.logoPath == "/logo7.png")
         #expect(store.art(for: .movie, tmdbID: 7) != nil)
+        #expect(fake.calls == [7])
     }
 }
