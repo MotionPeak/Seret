@@ -20,7 +20,7 @@ struct BackdropBackground: View {
                 if let image = phase.image {
                     image.resizable().aspectRatio(contentMode: .fill).transition(.opacity)
                 } else {
-                    ZStack { Color.black; ProgressView().tint(Theme.Palette.gold) }
+                    ZStack { Color.black; ProgressView().tint(Theme.Palette.textPrimary) }
                 }
             }
         } else {

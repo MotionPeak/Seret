@@ -44,7 +44,7 @@ struct LibraryScreen: View {
     private func message(_ text: String, systemImage: String,
                          action: (label: String, run: () -> Void)?) -> some View {
         VStack(spacing: 28) {
-            Image(systemName: systemImage).font(.system(size: 64)).foregroundStyle(Theme.Palette.gold)
+            Image(systemName: systemImage).font(.system(size: 64)).foregroundStyle(Theme.Palette.textSecondary)
             Text(text).sectionTitle().multilineTextAlignment(.center).frame(maxWidth: 700)
                 .foregroundStyle(Theme.Palette.textSecondary)
             if let action {

@@ -92,7 +92,7 @@ struct MovieDetailView: View {
             Text(metaLine).calloutText().foregroundStyle(Theme.Palette.textSecondary)
             if let franchise = store.franchise {
                 Text("Film \(franchise.position) of \(franchise.count)  ·  \(franchise.name)")
-                    .calloutText().foregroundStyle(Theme.Palette.gold)
+                    .calloutText().foregroundStyle(Theme.Palette.textPrimary)
             }
             if !store.directors.isEmpty {
                 CreditNamesRow(label: store.directors.count == 1 ? "Director" : "Directors",
@@ -348,7 +348,7 @@ struct MovieDetailView: View {
                         HStack(spacing: 16) {
                             Image(systemName: store.isActive(src) ? "checkmark.circle.fill" : "circle")
                                 .foregroundStyle(store.isActive(src)
-                                                 ? Theme.Palette.gold : Theme.Palette.textSecondary)
+                                                 ? Theme.Palette.focus : Theme.Palette.textSecondary)
                             QualityChips(parsed: src.parsed)
                             if hebrew == .matched { HebrewBadge(.matched) }
                             Spacer()

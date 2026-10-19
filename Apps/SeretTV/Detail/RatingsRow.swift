@@ -2,7 +2,7 @@ import DebridCore
 import DebridUI
 import SwiftUI
 
-/// Aggregate scores as Gold-Glass chips (tvOS sizing): a gold IMDb wordmark, the 🍅 tomato,
+/// Aggregate scores as glass chips (tvOS sizing): IMDb's yellow wordmark, the 🍅 tomato,
 /// Metacritic's color-coded square (green/yellow/red), and Letterboxd's three dots.
 ///
 /// Each service keeps its own units — IMDb out of ten, two percentages, Letterboxd out of five —
@@ -12,6 +12,9 @@ struct RatingsRow: View {
     let ratings: OMDbRatings?
     /// Letterboxd's community score, on its own 0.5–5 scale. Films only — Letterboxd has no shows.
     var letterboxd: LetterboxdFilmRating?
+
+    /// IMDb's own wordmark yellow. A brand colour, like Metacritic's bands — not an accent.
+    private static let imdbYellow = Color(hex: 0xF5C518)
 
     var body: some View {
         if ratings?.hasAny == true || letterboxd != nil {
@@ -23,7 +26,7 @@ struct RatingsRow: View {
                                 .font(.seret(15, .bold))
                                 .foregroundStyle(.black)
                                 .padding(.horizontal, 7).padding(.vertical, 3)
-                                .background(Theme.Palette.goldGradient,
+                                .background(Self.imdbYellow,
                                             in: RoundedRectangle(cornerRadius: 5, style: .continuous))
                             value(String(format: "%.1f", imdb))
                         }

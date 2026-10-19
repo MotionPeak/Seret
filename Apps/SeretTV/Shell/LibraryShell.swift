@@ -127,7 +127,7 @@ struct LibraryShell: View {
                 SideMenu(selected: tab,
                          profileName: session.activeProfiles?.activeProfile?.name ?? "Profile",
                          profileAvatar: session.activeProfiles?.activeProfile?.avatar ?? "",
-                         profileColorTag: session.activeProfiles?.activeProfile?.colorTag ?? "gold",
+                         profileColorTag: session.activeProfiles?.activeProfile?.colorTag ?? Theme.Palette.defaultColorTag,
                          focus: $menuFocus,
                          expanded: menuExpanded,
                          onSelect: select,

@@ -20,7 +20,7 @@ struct SettingsCard<Content: View>: View {
         VStack(alignment: .leading, spacing: 20) {
             Label(title, systemImage: icon)
                 .font(.seret(.title3, .bold))
-                .foregroundStyle(Theme.Palette.gold)
+                .foregroundStyle(Theme.Palette.textPrimary)
             content
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -48,6 +48,6 @@ struct SettingsStatus: View {
     var body: some View {
         Label(text, systemImage: good ? "checkmark.circle.fill" : "circle.dashed")
             .font(.seret(.callout, .semibold))
-            .foregroundStyle(good ? Theme.Palette.gold : Theme.Palette.textSecondary)
+            .foregroundStyle(good ? Theme.Palette.textPrimary : Theme.Palette.textSecondary)
     }
 }

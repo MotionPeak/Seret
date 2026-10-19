@@ -70,7 +70,7 @@ struct VersionList: View {
     private func header(_ title: String, _ caption: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title).font(.seret(.caption1, .bold)).tracking(1.2)
-                .foregroundStyle(Theme.Palette.gold)
+                .foregroundStyle(Theme.Palette.textPrimary)
             Text(caption).font(.seretCaption2)
                 .foregroundStyle(Theme.Palette.textSecondary)
         }

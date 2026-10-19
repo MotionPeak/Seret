@@ -2,7 +2,7 @@ import DebridCore
 import DebridUI
 import SwiftUI
 
-/// One focusable poster tile. The poster itself is the `.card` (tvOS focus lift + ring); the title
+/// One focusable poster tile. The poster itself is the `FocusCardStyle` button (lift + white ring); the title
 /// sits *below* the card as plain text — no grey caption box — so the grid reads cleanly.
 struct PosterCard: View {
     let item: MediaItem
@@ -18,7 +18,7 @@ struct PosterCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             NavigationLink(value: item) { poster }
-                .buttonStyle(.card)
+                .buttonStyle(FocusCardStyle())
                 .focused($focused)
                 .libraryTitleMenu(for: item, session: session, onRemove: onRemove)
             // The title ties to its poster: it brightens when the card is focused, so the focused
@@ -47,7 +47,7 @@ struct PosterCard: View {
             if watched {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 34))
-                    .foregroundStyle(Theme.Palette.gold)
+                    .foregroundStyle(Theme.Palette.focus)
                     .background(Circle().fill(.black.opacity(0.55)))
                     .padding(12)
                     .accessibilityLabel("Watched")

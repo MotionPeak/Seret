@@ -115,7 +115,7 @@ struct SettingsView: View {
 
     // MARK: - Controls
 
-    /// A labelled row of focusable Gold-Glass pills (a `.segmented` picker clips longer labels like
+    /// A labelled row of focusable pills (a `.segmented` picker clips longer labels like
     /// "Monospace" on tvOS). Pills size to their text, so nothing clips.
     @ViewBuilder
     private func pillRow<T: Hashable>(_ title: String, _ options: [T],

@@ -19,13 +19,13 @@ struct AddProfileScreen: View {
     init(editing: ProfileDTO? = nil) {
         self.editing = editing
         _name = State(initialValue: editing?.name ?? "")
-        _color = State(initialValue: editing?.colorTag ?? "gold")
+        _color = State(initialValue: editing?.colorTag ?? Theme.Palette.defaultColorTag)
         _avatar = State(initialValue: editing.map { ProfileAvatars.token($0.avatar) }
                         ?? (ProfileAvatars.all.first ?? ProfileAvatars.fallback))
     }
 
     private let columns = [GridItem(.adaptive(minimum: 130), spacing: 28)]
-    private let palette = ["gold", "blue", "green", "red", "purple"]
+    private let palette = [Theme.Palette.defaultColorTag, "blue", "green", "red", "purple"]
     private var count: Int { session.activeProfiles?.roster.count ?? 0 }
     private var canDelete: Bool { editing != nil && count > 1 }
     private var finalName: String {
@@ -41,8 +41,7 @@ struct AddProfileScreen: View {
                     VStack(spacing: 24) {
                         Text(editing == nil ? "Add Profile" : "Edit Profile")
                             .screenTitle().foregroundStyle(Theme.Palette.textPrimary)
-                        ProfileAvatarImage(token: avatar, diameter: 170, colorTag: color)
-                            .goldGlow(20, opacity: 0.25)
+                        AvatarCircle(token: avatar, diameter: 170, colorTag: color)
                         TextField("Name (optional)", text: $name)
                             .frame(maxWidth: 560).font(.seretTitle3)
                             .padding(.vertical, 10).padding(.horizontal, 24)
@@ -51,7 +50,7 @@ struct AddProfileScreen: View {
                         HStack(spacing: 24) {
                             Button("Cancel") { dismiss() }
                             Button(editing == nil ? "Create" : "Save") { save() }
-                                .buttonStyle(.borderedProminent).tint(Theme.Palette.gold)
+                                .buttonStyle(SeretActionButtonStyle(prominent: true))
                             if canDelete {
                                 Button("Delete", role: .destructive) { showingDeleteConfirm = true }
                                     .confirmationDialog(
@@ -78,9 +77,9 @@ struct AddProfileScreen: View {
                     LazyVGrid(columns: columns, spacing: 28) {
                         ForEach(ProfileAvatars.all, id: \.self) { e in
                             Button { avatar = e } label: {
-                                ProfileAvatarImage(token: e, diameter: 104, colorTag: color)
+                                AvatarCircle(token: e, diameter: 104, colorTag: color)
                                     .overlay(Circle().strokeBorder(
-                                        avatar == e ? Theme.Palette.gold : .clear, lineWidth: 5))
+                                        avatar == e ? Theme.Palette.focus : .clear, lineWidth: 5))
                             }
                             .buttonStyle(BareButtonStyle())
                             .focusEffectDisabled()
@@ -101,7 +100,7 @@ struct AddProfileScreen: View {
         HStack(spacing: 22) {
             ForEach(palette, id: \.self) { tag in
                 Button { color = tag } label: {
-                    Circle().fill(Theme.Palette.color(for: tag)).frame(width: 56, height: 56)
+                    Circle().fill(Theme.Palette.avatarFill(for: tag)).frame(width: 56, height: 56)
                         .overlay(Circle().strokeBorder(color == tag ? Theme.Palette.textPrimary : .clear, lineWidth: 4))
                 }
                 .buttonStyle(BareButtonStyle())

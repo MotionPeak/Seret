@@ -1,11 +1,11 @@
 import SwiftUI
 
-/// A Gold Glass pill button style for in-content selectors (segment / filter rows). Explicitly
-/// controls BOTH fill and text by focus + selection, so it never renders white-on-white the way
-/// a default/bordered tvOS button does:
-///   focused           → solid gold pill, black text
-///   selected (no focus)→ faint gold pill, gold text
-///   otherwise          → faint white pill, secondary text
+/// A pill button style for in-content selectors (segment / filter rows). Explicitly controls BOTH
+/// fill and text by focus + selection, so it never renders white-on-white the way a
+/// default/bordered tvOS button does:
+///   focused             → white pill, dark text
+///   selected (no focus) → white 18% pill, white text
+///   otherwise           → white 8% pill, secondary text
 ///
 /// Usage: `Button(title) { … }.buttonStyle(SeretPillStyle(selected: isSelected))`
 struct SeretPillStyle: ButtonStyle {
@@ -24,18 +24,17 @@ struct SeretPillStyle: ButtonStyle {
                 .foregroundStyle(textColor)
                 .padding(.horizontal, 28).padding(.vertical, 12)
                 .background(fill, in: Capsule())
-                .scaleEffect(focused ? 1.06 : 1)
+                .scaleEffect(focused ? Theme.Anim.buttonFocusScale : 1)
                 .opacity(configuration.isPressed ? 0.7 : 1)
                 .animation(Theme.Anim.focus, value: focused)
         }
         private var textColor: Color {
-            if focused { return .black }
-            return selected ? Theme.Palette.gold : Theme.Palette.textSecondary
+            if focused { return Theme.Palette.onFocus }
+            return selected ? Theme.Palette.textPrimary : Theme.Palette.textSecondary
         }
-        private var fill: AnyShapeStyle {
-            if focused { return AnyShapeStyle(Theme.Palette.goldGradient) }
-            if selected { return AnyShapeStyle(Theme.Palette.gold.opacity(0.18)) }
-            return AnyShapeStyle(Color.white.opacity(0.08))
+        private var fill: Color {
+            if focused { return Theme.Palette.focus }
+            return Color.white.opacity(selected ? 0.18 : 0.08)
         }
     }
 }

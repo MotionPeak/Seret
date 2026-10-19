@@ -13,19 +13,17 @@ struct PlayTriangle: Shape {
     }
 }
 
-/// Gold play-triangle logo. Size via `.frame`.
+/// White/silver play-triangle logo. Size via `.frame`.
 struct SeretMark: View {
-    var glow: Bool = true
     var body: some View {
         GeometryReader { geo in
             let corner = geo.size.width * 0.14
             PlayTriangle()
-                .fill(Theme.Palette.markGradient)
+                .fill(Theme.Palette.silverGradient)
                 .overlay(
-                    PlayTriangle().stroke(Theme.Palette.markGradient,
+                    PlayTriangle().stroke(Theme.Palette.silverGradient,
                                           style: StrokeStyle(lineWidth: corner, lineJoin: .round))
                 )
-                .shadow(color: glow ? Theme.Palette.goldGlow : .clear, radius: glow ? geo.size.width * 0.22 : 0)
         }
         .aspectRatio(1, contentMode: .fit)
     }
@@ -38,9 +36,8 @@ struct Wordmark: View {
         VStack(spacing: 12) {
             Text("סֶרֶט")
                 .font(.system(size: hebrewSize, weight: .bold))
-                .foregroundStyle(Theme.Palette.gold)
+                .foregroundStyle(Theme.Palette.textPrimary)
                 .environment(\.layoutDirection, .rightToLeft)
-                .shadow(color: Theme.Palette.goldGlow, radius: hebrewSize * 0.4)
             Text("SERET")
                 .font(.system(size: hebrewSize * 0.3, weight: .semibold))
                 .tracking(hebrewSize * 0.14)

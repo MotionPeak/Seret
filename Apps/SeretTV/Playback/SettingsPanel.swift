@@ -28,7 +28,7 @@ struct SettingsPanel: View {
                 // Dark translucent backdrop — matches the native player.
                 RoundedRectangle(cornerRadius: 24)
                     .fill(Theme.Palette.canvas.opacity(0.92))
-                    .overlay(RoundedRectangle(cornerRadius: 24).stroke(Theme.Palette.gold.opacity(0.18), lineWidth: 1))
+                    .overlay(RoundedRectangle(cornerRadius: 24).stroke(Theme.Palette.hairline, lineWidth: 1))
             )
             .padding(.horizontal, Theme.Layout.contentMargin)
             .padding(.top, 40)                // sits at the top of the screen
@@ -294,7 +294,7 @@ private struct SettingsColumn<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text(header).font(.seret(.caption1, .bold))
-                .foregroundStyle(Theme.Palette.gold)
+                .foregroundStyle(Theme.Palette.textSecondary)
                 .tracking(1.2)
                 .padding(.leading, 30)        // align with the rows below
             ScrollView(.vertical, showsIndicators: false) {
@@ -324,7 +324,7 @@ private struct CheckRow: View {
             HStack(spacing: 10) {
                 Image(systemName: "checkmark")
                     .font(.seret(.callout, .bold))
-                    .foregroundStyle(Theme.Palette.gold)
+                    .foregroundStyle(Theme.Palette.textPrimary)
                     .opacity(checked ? 1 : 0)
                 Text(title).font(.seretCallout)
                 Spacer(minLength: 0)
@@ -335,8 +335,8 @@ private struct CheckRow: View {
     }
 }
 
-/// A settings row's focus look: the same gold-glass treatment as the app's other buttons (a soft
-/// gold-tinted fill + gold border + a subtle lift) — not the stark white rectangle it had before.
+/// A settings row's focus look: the same treatment as the app's other rows (a glass fill + a white
+/// ring + a subtle lift) — not the stark white rectangle it had before, which hid the checkmark.
 private struct SettingsRowButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View { Row(configuration: configuration) }
     private struct Row: View {
@@ -345,9 +345,9 @@ private struct SettingsRowButtonStyle: ButtonStyle {
         var body: some View {
             configuration.label
                 .padding(.horizontal, 18).padding(.vertical, 10)
-                .background(focused ? AnyShapeStyle(Theme.Palette.gold.opacity(0.18)) : AnyShapeStyle(.clear),
+                .background(focused ? AnyShapeStyle(Color.white.opacity(0.18)) : AnyShapeStyle(.clear),
                             in: Capsule())
-                .overlay { if focused { Capsule().strokeBorder(Theme.Palette.gold, lineWidth: 2) } }
+                .overlay { if focused { Capsule().strokeBorder(Theme.Palette.focus, lineWidth: 3) } }
                 .scaleEffect(focused ? 1.02 : 1)
                 .opacity(configuration.isPressed ? 0.7 : 1)
                 .animation(Theme.Anim.focus, value: focused)

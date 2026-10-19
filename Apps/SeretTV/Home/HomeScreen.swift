@@ -94,7 +94,7 @@ struct HomeScreen: View {
                                     LandscapeProgressCard(title: hi.item.title,
                                                           subtitle: hi.isUpNext ? "Next · \(hi.subtitle)" : hi.subtitle,
                                                           imageURL: backdropURL(hi.item), fraction: hi.fraction)
-                                }.buttonStyle(.card)
+                                }.buttonStyle(FocusCardStyle())
                                     // Press-and-hold to clear it: the rail had no way to remove a
                                     // title you only started, so it kept the top of Home for good.
                                     .contextMenu {
@@ -189,7 +189,7 @@ struct HomeScreen: View {
                 VStack(alignment: .leading, spacing: 14) {
                     Text(f.isUpNext ? "Up Next · \(f.subtitle)"
                          : f.subtitle.isEmpty ? "Continue Watching" : "Continue · \(f.subtitle)")
-                        .eyebrow().foregroundStyle(Theme.Palette.gold)
+                        .eyebrow().foregroundStyle(Theme.Palette.textSecondary)
                     Text(f.item.title).heroTitle()
                         .foregroundStyle(Theme.Palette.textPrimary).lineLimit(2)
                     HStack(spacing: 16) {
@@ -225,7 +225,7 @@ struct HomeScreen: View {
 
     private var empty: some View {
         VStack(spacing: 18) {
-            SeretMark(glow: false).frame(width: 90).opacity(0.5)
+            SeretMark().frame(width: 90).opacity(0.5)
             Text("Nothing here yet").sectionTitle().foregroundStyle(Theme.Palette.textSecondary)
             Text("Play something and it'll show up here.").bodyText()
                 .foregroundStyle(Theme.Palette.textSecondary)

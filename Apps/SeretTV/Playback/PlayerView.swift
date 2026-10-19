@@ -374,7 +374,7 @@ struct LetterboxdLoggedBar: View {
         HStack(spacing: 18) {
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 26, weight: .semibold))
-                .foregroundStyle(Theme.Palette.gold)
+                .foregroundStyle(Theme.Palette.textPrimary)
             Text("Logged to Letterboxd")
                 .font(.seret(24, .semibold))
                 .foregroundStyle(.white)
@@ -415,7 +415,7 @@ struct LetterboxdRatingBar: View {
         VStack(spacing: 14) {
             Text("LOGGING TO LETTERBOXD")
                 .font(.seret(.caption1, .semibold)).kerning(1.5)
-                .foregroundStyle(Theme.Palette.gold)
+                .foregroundStyle(Theme.Palette.textSecondary)
             Text(shown > 0 ? "Rate it \(shown)/10" : "Rate it?")
                 .font(.seret(26, .semibold))
                 .foregroundStyle(.white)
@@ -464,11 +464,11 @@ struct LetterboxdRatingInvite: View {
         VStack(spacing: 12) {
             Text("LOGGING TO LETTERBOXD")
                 .font(.seret(.caption1, .semibold)).kerning(1.5)
-                .foregroundStyle(Theme.Palette.gold)
+                .foregroundStyle(Theme.Palette.textSecondary)
             HStack(spacing: 12) {
                 Image(systemName: "chevron.up.circle.fill")
                     .font(.system(size: 30, weight: .semibold))
-                    .foregroundStyle(Theme.Palette.gold)
+                    .foregroundStyle(Theme.Palette.textPrimary)
                 Text(current.map { "Press up to change your \($0)/10" } ?? "Press up to rate it")
                     .font(.seret(26, .semibold))
                     .foregroundStyle(.white)
@@ -501,9 +501,8 @@ private struct RatingStarStyle: ButtonStyle {
 
         var body: some View {
             configuration.label
-                .foregroundStyle(filled || focused ? Theme.Palette.gold : Color.white.opacity(0.45))
+                .foregroundStyle(filled || focused ? Theme.Palette.focus : Color.white.opacity(0.45))
                 .scaleEffect(focused ? 1.35 : 1)
-                .shadow(color: focused ? Theme.Palette.gold.opacity(0.55) : .clear, radius: 12)
                 .animation(Theme.Anim.focus, value: focused)
         }
     }
@@ -524,7 +523,7 @@ struct AutoSyncBar: View {
             if let fraction = banner.fraction {
                 ZStack(alignment: .leading) {
                     Capsule().fill(.white.opacity(0.16))
-                    Capsule().fill(Theme.Palette.goldGradient)
+                    Capsule().fill(Theme.Palette.focus)
                         // A floor, so the bar reads as started rather than as broken while the
                         // first seconds of audio are still arriving.
                         .frame(width: max(10, Self.trackWidth * fraction))
@@ -535,7 +534,7 @@ struct AutoSyncBar: View {
         }
         .padding(.horizontal, 34).padding(.vertical, 20)
         .background(.black.opacity(0.72), in: Capsule())
-        .overlay(Capsule().strokeBorder(Theme.Palette.gold.opacity(0.22)))
+        .overlay(Capsule().strokeBorder(Theme.Palette.hairline))
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .padding(.top, 50)
         .allowsHitTesting(false)
@@ -551,7 +550,7 @@ struct AutoSyncBar: View {
 
     private var tint: Color {
         switch banner.mood {
-        case .measuring: Theme.Palette.gold
+        case .measuring: Theme.Palette.textPrimary
         case .synced:    .green
         case .failed:    .orange
         }
@@ -688,7 +687,7 @@ private struct EpisodeStripExpanded: View {
                     HStack(spacing: 22) {
                         ForEach(model.seasonEpisodes) { ep in
                             Button { if let owned = ep.owned { model.play(owned); onPlay() } } label: { card(ep) }
-                                .buttonStyle(.card)
+                                .buttonStyle(FocusCardStyle(cornerRadius: 10))
                                 .disabled(!ep.isPlayable)
                                 .id(ep.id)
                                 .focused($focused, equals: ep.id)
@@ -735,7 +734,7 @@ private struct EpisodeStripExpanded: View {
                 .overlay {
                     if isCurrent {
                         RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .strokeBorder(Theme.Palette.gold, lineWidth: 4)
+                            .strokeBorder(Color.white.opacity(0.85), lineWidth: 4)
                     } else if !ep.isPlayable {
                         RoundedRectangle(cornerRadius: 10, style: .continuous).fill(.black.opacity(0.45))
                             .overlay {

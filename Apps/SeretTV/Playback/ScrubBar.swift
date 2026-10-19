@@ -4,7 +4,7 @@ import DebridUI
 /// The player's transport bar.
 ///
 /// At rest it is a 3pt hairline that does not compete with the picture. The moment the viewer
-/// touches the remote it lifts into a gold-outlined glass slab, the track triples in thickness,
+/// touches the remote it lifts into an outlined glass slab, the track triples in thickness,
 /// the handle becomes the Seret play mark and the target timecode floats above it. That state
 /// change IS the scrub-mode indicator — the old bar looked identical whether you were scrubbing or
 /// watching, which is what made scrubbing feel like nothing was happening.
@@ -58,7 +58,7 @@ struct ScrubBar: View {
         // hint came and went.
         .overlay(alignment: .bottom) {
             HStack(spacing: 10) {
-                ProgressView().controlSize(.small).tint(Theme.Palette.gold)
+                ProgressView().controlSize(.small).tint(Theme.Palette.textPrimary)
                 Text("Loading…").font(.seretCaption).foregroundStyle(Theme.Palette.textSecondary)
             }
             .fixedSize()
@@ -78,7 +78,7 @@ struct ScrubBar: View {
                 .fill(.white.opacity(0.05))
                 .overlay(
                     RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .strokeBorder(Theme.Palette.gold.opacity(0.35), lineWidth: 1)
+                        .strokeBorder(Theme.Palette.hairline, lineWidth: 1)
                 )
                 .opacity(expanded ? 1 : 0)
         }
@@ -96,7 +96,7 @@ struct ScrubBar: View {
                     : 0
 
                 Capsule()
-                    .fill(Theme.Palette.gold)
+                    .fill(Theme.Palette.focus)
                     .frame(width: headX, height: trackHeight)
                     .frame(maxHeight: .infinity, alignment: .center)
 
@@ -121,13 +121,13 @@ struct ScrubBar: View {
     @ViewBuilder private var handle: some View {
         if model.isScrubbing {
             PlayTriangle()
-                .fill(Theme.Palette.goldBright)
+                .fill(Theme.Palette.focus)
                 .frame(width: 26, height: 26)
                 .overlay(alignment: .bottom) {
                     Text(Timecode.format(model.scrubTarget))
                         .font(.seret(30, .semibold))
                         .monospacedDigit()
-                        .foregroundStyle(Theme.Palette.goldBright)
+                        .foregroundStyle(Theme.Palette.textPrimary)
                         .fixedSize()
                         .offset(y: -38)
                 }
@@ -136,11 +136,11 @@ struct ScrubBar: View {
             // no pause affordance at rest at all.
             Image(systemName: "pause.fill")
                 .font(.system(size: 15, weight: .bold))
-                .foregroundStyle(Theme.Palette.canvas)
+                .foregroundStyle(Theme.Palette.onFocus)
                 .frame(width: 22, height: 22)
-                .background(Theme.Palette.gold, in: Circle())
+                .background(Theme.Palette.focus, in: Circle())
         } else {
-            Circle().fill(Theme.Palette.gold).frame(width: 14, height: 14)
+            Circle().fill(Theme.Palette.focus).frame(width: 14, height: 14)
         }
     }
 }

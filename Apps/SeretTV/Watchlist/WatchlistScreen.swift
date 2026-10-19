@@ -160,7 +160,7 @@ struct WatchlistScreen: View {
                         .foregroundStyle(Theme.Palette.textSecondary)
                 }
             case .syncing(let done, let total):
-                ProgressView().tint(Theme.Palette.gold)
+                ProgressView().tint(Theme.Palette.textPrimary)
                 Text(total > 0 ? "Matching \(done) of \(total)…" : "Reading your watchlist…")
                     .calloutText()
                     .foregroundStyle(Theme.Palette.textSecondary)
@@ -184,7 +184,7 @@ struct WatchlistScreen: View {
     /// Centered full-canvas state, matching `LibraryScreen`'s.
     private func message(_ text: String, systemImage: String) -> some View {
         VStack(spacing: 28) {
-            Image(systemName: systemImage).font(.system(size: 64)).foregroundStyle(Theme.Palette.gold)
+            Image(systemName: systemImage).font(.system(size: 64)).foregroundStyle(Theme.Palette.textSecondary)
             Text(text).sectionTitle().multilineTextAlignment(.center).frame(maxWidth: 700)
                 .foregroundStyle(Theme.Palette.textSecondary)
         }
@@ -193,7 +193,7 @@ struct WatchlistScreen: View {
 }
 
 /// One watchlist film — `PosterCard`'s shape, so the grid reads as the same grid it is everywhere
-/// else: the poster is the `.card` (focus lift + ring), the title sits below it as plain text and
+/// else: the poster is the `FocusCardStyle` button (focus lift + ring), the title sits below it as plain text and
 /// brightens with focus.
 ///
 /// A film that resolved to nothing is still shown — as a plain card, not a link. Hiding it would
@@ -220,7 +220,7 @@ private struct WatchlistTile: View {
         VStack(alignment: .leading, spacing: 12) {
             if let item {
                 NavigationLink(value: BrowseDestination.detail(item)) { poster }
-                    .buttonStyle(.card)
+                    .buttonStyle(FocusCardStyle())
                     .focused($focused)
                     .contextMenu { removeButton }
             } else {
@@ -253,11 +253,11 @@ private struct WatchlistTile: View {
         .clipShape(RoundedRectangle(cornerRadius: Theme.Layout.posterCorner, style: .continuous))
         .overlay(alignment: .topTrailing) {
             if owned {
-                // The same gold ✓ a watched title carries elsewhere: on a list of things to
+                // The same white ✓ a watched title carries elsewhere: on a list of things to
                 // acquire, "you already have this" is the one thing worth marking.
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 34))
-                    .foregroundStyle(Theme.Palette.gold)
+                    .foregroundStyle(Theme.Palette.focus)
                     .background(Circle().fill(.black.opacity(0.55)))
                     .padding(12)
                     .accessibilityLabel("In your library")

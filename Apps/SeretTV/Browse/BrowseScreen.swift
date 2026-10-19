@@ -217,7 +217,7 @@ struct BrowseTile: View {
         return NavigationLink(value: BrowseDestination.detail(owned ?? .placeholder(for: hit))) {
             poster(owned: owned != nil, watched: watched)
         }
-        .buttonStyle(.card)
+        .buttonStyle(FocusCardStyle())
         // Press and hold to say you have seen it. `PosterCard` in the library grid already proves
         // this works on a `.card` NavigationLink with the Siri remote.
         .contextMenu {
@@ -285,13 +285,13 @@ struct BrowseTile: View {
             if watched {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 28, weight: .bold))
-                    .foregroundStyle(.black, Theme.Palette.gold)
+                    .foregroundStyle(Theme.Palette.onFocus, Theme.Palette.focus)
                     .padding(10)
                     .accessibilityLabel("Watched")
             } else if owned {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 28, weight: .bold))
-                    .foregroundStyle(.black, .yellow)
+                    .foregroundStyle(Theme.Palette.onFocus, Theme.Palette.textSecondary)
                     .padding(10)
             } else if cam {
                 Text("CAM")

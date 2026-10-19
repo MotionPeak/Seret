@@ -10,7 +10,7 @@ import SwiftUI
 /// reel interrupted half-way still names the film the picker chose.
 ///
 /// Its posters and the winner's backdrop load first, then the reel runs — every card turning in 3D
-/// as it passes through the middle, with a mirror under it — and settles the winner in the gold
+/// as it passes through the middle, with a mirror under it — and settles the winner in the white
 /// frame. The winner's own backdrop then fades in behind everything, drifting, with its logo art
 /// over it. Reduce Motion shows the winner straight away, flat. The geometry is
 /// `SurpriseReelLayout`, shared with the Mac so the two reels stay one design.
@@ -51,7 +51,7 @@ struct WatchlistSpinScreen: View {
                     Spacer(minLength: 0)
                     Text("Surprise Me")
                         .eyebrow()
-                        .foregroundStyle(Theme.Palette.gold)
+                        .foregroundStyle(Theme.Palette.textSecondary)
                         .padding(.bottom, 44)
                     CoverFlowReel(position: position, entries: spin.reel, winnerIndex: spin.winnerIndex,
                                   landed: landed, cardSize: card, flat: reduceMotion)
@@ -79,8 +79,6 @@ struct WatchlistSpinScreen: View {
         ZStack {
             // Opaque: the watchlist grid must not show through the reel.
             Theme.Palette.canvas
-            RadialGradient(colors: [Theme.Palette.gold.opacity(0.10), .clear],
-                           center: .center, startRadius: 0, endRadius: 900)
             if landed, let backdropURL {
                 DriftingBackdrop(url: backdropURL, drifts: !reduceMotion)
                     .opacity(0.55)
@@ -266,8 +264,7 @@ private struct ReelCard: View {
                 .overlay {
                     if isWinner {
                         RoundedRectangle(cornerRadius: Self.corner, style: .continuous)
-                            .strokeBorder(Theme.Palette.goldGradient, lineWidth: 4)
-                            .goldGlow(26, opacity: 0.7)
+                            .strokeBorder(Theme.Palette.focus, lineWidth: 4)
                             .transition(.opacity)
                     }
                 }

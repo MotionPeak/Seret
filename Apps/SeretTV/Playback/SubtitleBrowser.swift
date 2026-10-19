@@ -74,16 +74,16 @@ struct SubtitleBrowser: View {
     private func failureBanner(_ failure: PlayerModel.SubtitlePickFailure) -> some View {
         HStack(spacing: 12) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(Theme.Palette.gold)
+                .foregroundStyle(Theme.Palette.textPrimary)
             Text(failure.message)
                 .font(.seretCallout)
                 .foregroundStyle(Theme.Palette.textPrimary)
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 22).padding(.vertical, 14)
-        .background(Theme.Palette.gold.opacity(0.14), in: RoundedRectangle(cornerRadius: 14))
+        .background(Theme.Palette.glass, in: RoundedRectangle(cornerRadius: 14))
         .overlay(RoundedRectangle(cornerRadius: 14)
-            .strokeBorder(Theme.Palette.gold.opacity(0.45), lineWidth: 1))
+            .strokeBorder(Theme.Palette.hairline, lineWidth: 1))
     }
 
     private var languagePills: some View {
@@ -135,7 +135,7 @@ struct SubtitleBrowser: View {
         switch model.subtitleSearchState {
         case .idle, .searching:
             HStack(spacing: 12) {
-                ProgressView().tint(Theme.Palette.gold)
+                ProgressView().tint(Theme.Palette.textPrimary)
                 Text("Searching…").foregroundStyle(Theme.Palette.textSecondary)
             }
             .frame(maxWidth: .infinity, alignment: .center)
@@ -170,12 +170,18 @@ struct SubtitleBrowser: View {
                         } label: {
                             row(ranked)
                         }
-                        .buttonStyle(.card)
+                        // A full-width list row, not a picture: `FocusCardStyle`'s 1.08 lift
+                        // pushed both ends of the row out past the list and clipped them.
+                        .buttonStyle(SeretRowStyle())
                         .focused($focused, equals: "sub-\(ranked.result.fileID)")
                     }
                 }
                 .padding(.vertical, 8)
+                // Room inside the scroll view for the focused row's lift and ring, which it
+                // otherwise clips at both ends; cancelled outside so the rows stay aligned.
+                .padding(.horizontal, 24)
             }
+            .padding(.horizontal, -24)
             .focusSection()
         }
     }
@@ -190,8 +196,8 @@ struct SubtitleBrowser: View {
                 }
                 Spacer()
                 if pickingFileID == ranked.result.fileID {
-                    ProgressView().controlSize(.small).tint(Theme.Palette.gold)
-                    Text("Adding\u{2026}").font(.seretCaption).foregroundStyle(Theme.Palette.gold)
+                    ProgressView().controlSize(.small).tint(Theme.Palette.textPrimary)
+                    Text("Adding\u{2026}").font(.seretCaption).foregroundStyle(Theme.Palette.textPrimary)
                 } else if let downloads = ranked.result.downloadCount {
                     Label(downloads.formatted(.number), systemImage: "arrow.down.circle")
                         .font(.seretCaption).foregroundStyle(Theme.Palette.textSecondary)
@@ -218,7 +224,7 @@ struct SubtitleBrowser: View {
     private func badge(_ quality: SubtitleMatch.Quality) -> some View {
         let (text, color): (String, Color) = switch quality {
         case .perfect:   ("✓ Perfect match", Color.green)
-        case .good:      ("Same release group", Theme.Palette.gold)
+        case .good:      ("Same release group", Theme.Palette.textPrimary)
         case .uncertain: ("Different source", Theme.Palette.textSecondary)
         }
         return Text(text)

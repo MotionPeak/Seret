@@ -60,7 +60,7 @@ struct SideMenu: View {
     private var profileRow: some View {
         Button(action: onProfile) {
             HStack(spacing: 0) {
-                ProfileAvatarImage(token: profileAvatar, diameter: 52, colorTag: profileColorTag)
+                AvatarCircle(token: profileAvatar, diameter: 52, colorTag: profileColorTag)
                     .frame(width: Self.railWidth)
                 Text(profileName)
                     .navLabel()
@@ -88,11 +88,13 @@ struct SideMenuScrim: View {
         // The opaque plateau has to clear the WIDEST menu label, not the panel edge. It used to end
         // at 0.24 while the labels run past that, so a rail title behind the menu ("Trending Now")
         // read straight through "Search". 0.96 also left 4% of the page showing under the text.
+        // Drawn in the opaque canvas, not `scrim`: that token is a 66% wash, which would let the
+        // page read through the labels again.
         LinearGradient(
             stops: [
-                .init(color: Theme.Palette.scrim, location: 0),
-                .init(color: Theme.Palette.scrim, location: 0.32),
-                .init(color: Theme.Palette.scrim.opacity(0.0), location: 0.58),
+                .init(color: Theme.Palette.canvas, location: 0),
+                .init(color: Theme.Palette.canvas, location: 0.32),
+                .init(color: Theme.Palette.canvas.opacity(0.0), location: 0.58),
             ],
             startPoint: .leading, endPoint: .trailing)
         .ignoresSafeArea()

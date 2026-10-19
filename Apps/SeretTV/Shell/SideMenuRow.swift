@@ -34,11 +34,11 @@ struct SideMenuRow: View {
         .buttonStyle(SideMenuRowStyle(selected: selected))
     }
 
-    /// The gold marker beside the active row. Present in the hierarchy at all times, for the same
+    /// The white marker beside the active row. Present in the hierarchy at all times, for the same
     /// reason the label is.
     private var accentBar: some View {
         RoundedRectangle(cornerRadius: 3, style: .continuous)
-            .fill(Theme.Palette.gold)
+            .fill(Theme.Palette.focus)
             .frame(width: 5, height: 44)
             .opacity(selected && expanded ? 1 : 0)
             .padding(.trailing, 11)
@@ -62,15 +62,15 @@ struct SideMenuRowStyle: ButtonStyle {
         var body: some View {
             configuration.label
                 .foregroundStyle(tint)
-                .background(focused ? Theme.Palette.gold.opacity(0.16) : .clear,
+                .background(focused ? Theme.Palette.focus : .clear,
                             in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 .opacity(configuration.isPressed ? 0.7 : 1)
                 .animation(Theme.Anim.focus, value: focused)
         }
 
         private var tint: Color {
-            if focused { return Theme.Palette.goldBright }
-            if selected { return Theme.Palette.gold }
+            if focused { return Theme.Palette.onFocus }
+            if selected { return Theme.Palette.textPrimary }
             return Theme.Palette.textSecondary
         }
     }

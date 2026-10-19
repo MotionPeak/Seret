@@ -51,7 +51,7 @@ private struct FranchisePoster: View {
             NavigationLink(value: BrowseDestination.detail(owned ?? .placeholder(for: hit))) {
                 poster(owned: owned != nil)
             }
-            .buttonStyle(.card)
+            .buttonStyle(FocusCardStyle())
             .focused($focused)
             Text("\(number). \(part.displayTitle)")
                 .cardTitle()
@@ -79,7 +79,7 @@ private struct FranchisePoster: View {
         .overlay {
             if isCurrent {
                 RoundedRectangle(cornerRadius: Theme.Layout.posterCorner, style: .continuous)
-                    .strokeBorder(Theme.Palette.gold, lineWidth: 4)
+                    .strokeBorder(Color.white.opacity(0.85), lineWidth: 4)
             }
         }
         .overlay(alignment: .topLeading) {
@@ -94,7 +94,7 @@ private struct FranchisePoster: View {
             if owned {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 22, weight: .bold))
-                    .foregroundStyle(.black, .yellow)
+                    .foregroundStyle(Theme.Palette.onFocus, Theme.Palette.textSecondary)
                     .padding(8)
                     .accessibilityLabel("In Library")
             }

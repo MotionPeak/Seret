@@ -75,7 +75,7 @@ struct VersionsScreen: View {
         switch model?.phase ?? .loading {
         case .loading:
             HStack(spacing: 16) {
-                ProgressView().controlSize(.large).tint(Theme.Palette.gold)
+                ProgressView().controlSize(.large).tint(Theme.Palette.textPrimary)
                 Text("Finding versions…").font(.seret(.title3, .medium))
                     .foregroundStyle(Theme.Palette.textSecondary)
             }

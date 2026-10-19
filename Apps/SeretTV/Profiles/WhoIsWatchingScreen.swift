@@ -64,7 +64,7 @@ struct ProfileAvatar: View {
     let profile: ProfileDTO
     var body: some View {
         VStack(spacing: 18) {
-            ProfileAvatarImage(token: profile.avatar, diameter: 200, colorTag: profile.colorTag)
+            AvatarCircle(token: profile.avatar, diameter: 200, colorTag: profile.colorTag)
             Text(profile.name).cardTitle().foregroundStyle(Theme.Palette.textPrimary)
         }
     }

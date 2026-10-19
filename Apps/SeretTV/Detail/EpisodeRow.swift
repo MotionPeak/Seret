@@ -146,20 +146,10 @@ struct EpisodeRow: View {
 
     @ViewBuilder private var progressBar: some View {
         if isWatched {
-            bar(fraction: 1, color: Theme.Palette.gold)
+            ProgressLine(fraction: 1, height: 5)
         } else if let w = watch, w.durationSeconds > 0, w.positionSeconds > 0 {
-            bar(fraction: w.positionSeconds / w.durationSeconds, color: Theme.Palette.gold)
+            ProgressLine(fraction: w.positionSeconds / w.durationSeconds, height: 5)
         }
-    }
-
-    private func bar(fraction: Double, color: Color) -> some View {
-        GeometryReader { geo in
-            ZStack(alignment: .leading) {
-                Color.black.opacity(0.4)
-                Capsule().fill(color).frame(width: geo.size.width * min(max(fraction, 0), 1))
-            }
-        }
-        .frame(height: 5)
     }
 }
 
@@ -231,7 +221,7 @@ struct EpisodeCardText: View {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(title).cardTitle().lineLimit(2, reservesSpace: true)
                 if isWatched {
-                    Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.Palette.gold)
+                    Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.Palette.focus)
                 }
             }
             Text(meta).font(.seret(Theme.Typography.captionSize, .medium))

@@ -14,7 +14,7 @@ struct UserRatingRow: View {
                 HStack(spacing: 16) {
                     Text("YOUR RATING")
                         .font(.seret(.caption1, .semibold)).kerning(1.5)
-                        .foregroundStyle(Theme.Palette.gold)
+                        .foregroundStyle(Theme.Palette.textSecondary)
                     if let rating = store.userRating {
                         Text("\(rating)/10")
                             .font(.seret(.caption1, .semibold))
@@ -52,7 +52,7 @@ struct UserRatingRow: View {
 /// A chrome-free star. `.card` (the old style) drew tvOS's grey rounded platter behind every star,
 /// so the row read as ten grey boxes instead of a rating; a custom `ButtonStyle` is the only way to
 /// suppress that platter (see `BareButtonStyle`). The star supplies its own focus cue instead —
-/// gold tint, scale and glow, matching the rest of the Gold Glass controls.
+/// white and a scale lift, matching the rest of the app's controls.
 private struct StarButtonStyle: ButtonStyle {
     let filled: Bool
 
@@ -68,10 +68,9 @@ private struct StarButtonStyle: ButtonStyle {
         var body: some View {
             configuration.label
                 .foregroundStyle(filled || focused
-                                 ? AnyShapeStyle(Theme.Palette.gold)
+                                 ? AnyShapeStyle(Theme.Palette.focus)
                                  : AnyShapeStyle(Theme.Palette.textSecondary))
                 .scaleEffect(focused ? 1.35 : 1)
-                .goldGlow(focused ? 16 : 0, opacity: 0.45)
                 .opacity(configuration.isPressed ? 0.6 : 1)
                 .animation(Theme.Anim.focus, value: focused)
         }

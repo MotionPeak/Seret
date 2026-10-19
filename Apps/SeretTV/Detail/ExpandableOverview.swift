@@ -33,7 +33,7 @@ struct ExpandableOverview: View {
                 if isTruncated {
                     Text("MORE")
                         .font(.seret(Theme.Typography.captionSize, .bold)).tracking(1.5)
-                        .foregroundStyle(Theme.Palette.gold)
+                        .foregroundStyle(Theme.Palette.textPrimary)
                 }
             }
             .frame(maxWidth: maxWidth, alignment: .leading)
@@ -80,7 +80,7 @@ private struct OverviewButtonStyle: ButtonStyle {
                 .background(RoundedRectangle(cornerRadius: 18, style: .continuous)
                     .fill(Color.white.opacity(focused ? 0.12 : 0)))
                 .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .strokeBorder(Theme.Palette.goldBright.opacity(focused ? 0.9 : 0), lineWidth: 2))
+                    .strokeBorder(Color.white.opacity(focused ? 0.85 : 0), lineWidth: 2))
                 // Cancel the padding so the text stays aligned with the rest of the page at rest.
                 .padding(.horizontal, -18).padding(.vertical, -12)
                 .scaleEffect(focused ? 1.02 : 1)

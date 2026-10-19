@@ -86,7 +86,7 @@ struct SignInView: View {
     private func failure(_ message: String) -> some View {
         VStack(spacing: 32) {
             Image(systemName: "exclamationmark.triangle")
-                .font(.system(size: 72)).foregroundStyle(Theme.Palette.gold)
+                .font(.system(size: 72)).foregroundStyle(Theme.Palette.textPrimary)
             Text(message).font(.seretTitle2).multilineTextAlignment(.center).frame(maxWidth: 800)
             HStack(spacing: 24) {
                 Button("Try Again") { model.retry() }

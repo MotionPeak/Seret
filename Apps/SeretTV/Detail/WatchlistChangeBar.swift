@@ -12,7 +12,7 @@ struct WatchlistChangeBar: View {
         HStack(spacing: 18) {
             Image(systemName: glyph)
                 .font(.system(size: 26, weight: .semibold))
-                .foregroundStyle(outcome.isFailure ? .orange : Theme.Palette.gold)
+                .foregroundStyle(outcome.isFailure ? .orange : Theme.Palette.textPrimary)
             Text(outcome.message)
                 .font(.seret(24, .semibold))
                 .foregroundStyle(.white)

@@ -1,59 +1,90 @@
 import DebridUI
 import SwiftUI
 
-/// tvOS "Gold Glass" tokens.
+/// tvOS tokens — a near-black navy canvas with white as the ONLY highlight colour.
 ///
-/// The brand colours live once, in `DebridUI.SeretPalette`, so they cannot drift between the two
-/// apps. `Palette` re-exposes them under the name every view already uses (`Theme.Palette.gold`),
-/// which is why sharing them did not touch a single call site.
+/// The Apple TV app no longer shares the brand palette with mobile and Mac: `DebridUI.SeretPalette`
+/// keeps its warm brand colours for those apps, and this namespace owns every colour the TV draws. Focus,
+/// selection and progress are white; resting controls are translucent white glass; there are no
+/// glows. The old warm tokens were removed outright (not renamed) so the compiler found every use.
 ///
-/// The type ramp (`Typography`), `Layout` and `Anim` stay here on purpose: they are tuned for a
-/// ten-foot viewing distance and have nothing meaningful in common with the handheld values.
+/// The type ramp (`Typography`), `Layout` and `Anim` stay here too: they are tuned for a ten-foot
+/// viewing distance and have nothing meaningful in common with the handheld values.
 enum Theme {
     enum Palette {
-        static let gold        = SeretPalette.gold
-        static let goldLight   = SeretPalette.goldLight
-        static let goldBright  = SeretPalette.goldBright
-        static let goldDeep    = SeretPalette.goldDeep
-        static let goldGlow    = SeretPalette.goldGlow
-        static let canvas      = SeretPalette.canvas
-        static let surface1    = SeretPalette.surface1
-        static let surface2    = SeretPalette.surface2
-        static let chipFill    = SeretPalette.chipFill
-        static let textPrimary = SeretPalette.textPrimary
+        /// Page background.
+        static let canvas   = Color(hex: 0x0A0D14)
+        /// Placeholders and rows at rest.
+        static let surface1 = Color(hex: 0x141925)
+        static let surface2 = Color(hex: 0x1C2230)
+        /// The side menu panel and side sheets: `panelTop` → `panelBottom`, top to bottom.
+        static let panelTop    = Color(hex: 0x181D2A, alpha: 0.97)
+        static let panelBottom = Color(hex: 0x0A0D15, alpha: 0.97)
+        /// Circular buttons and chips at rest.
+        static let glass    = Color.white.opacity(0.17)
+        /// Dividers and resting outlines.
+        static let hairline = Color.white.opacity(0.10)
+
+        static let textPrimary   = Color(hex: 0xF5F6F8)
+        static let textSecondary = Color(hex: 0xA3AAB8)
+        static let textTertiary  = Color(hex: 0x6E7687)
+
+        /// The accent: focus outlines, the selected pill, progress and scrub fills.
+        static let focus   = Color.white
+        /// Text and icons drawn ON a `focus` fill.
+        static let onFocus = Color(hex: 0x0B0F17)
+        /// The wash behind an open side menu.
+        static let scrim   = Color(hex: 0x04070E, alpha: 0.66)
+
+        /// Destructive intent (Remove, Disconnect, Sign Out).
         static let destructive = SeretPalette.destructive
-        static let scrim       = SeretPalette.scrim
+        /// Critic-score bands — the chips keep their own colours.
         static let ratingGood  = SeretPalette.ratingGood
         static let ratingMid   = SeretPalette.ratingMid
         static let ratingBad   = SeretPalette.ratingBad
 
-        static let goldGradient = SeretPalette.goldGradient
-        static let markGradient = SeretPalette.markGradient
+        /// The logo mark and the "Hebrew in the file" seal: white to a cool silver.
+        static let silverGradient = LinearGradient(
+            colors: [Color.white, Color(hex: 0xC9CEDA)],
+            startPoint: .topLeading, endPoint: .bottomTrailing)
 
-        // --- Deliberately NOT shared: these differ from mobile on purpose. ---
+        /// A profile avatar with no colour of its own.
+        static let avatarGradient = LinearGradient(
+            colors: [Color(hex: 0x5B7CFA), Color(hex: 0x7B5CF0)],
+            startPoint: .topLeading, endPoint: .bottomTrailing)
 
-        /// 0.10 here, 0.09 on mobile.
-        static let hairline = Color.white.opacity(0.10)
-        /// Lighter than mobile's, which sits in a three-step ramp; this one has to read across a
-        /// room.
-        static let textSecondary = Color(hex: 0x9A9AA0)
-        /// The radius scales with the screen — 1300 on a TV against mobile's 520.
-        static let canvasGlow = RadialGradient(
-            colors: [Color(hex: 0xEBC11D, alpha: 0.16), .clear],
-            center: .init(x: 0.85, y: -0.1), startRadius: 0, endRadius: 1300)
+        /// The colour tag a new profile starts on. A tag `color(for:)` does not know — including
+        /// the warm one older profiles were created with — draws as the default indigo.
+        static let defaultColorTag = "indigo"
 
-        /// Maps a profile's `colorTag` to its avatar color; defaults to gold.
-        static func color(for tag: String) -> Color { SeretPalette.color(for: tag) }
+        /// An avatar circle's fill: the named colour when the tag has one, the indigo gradient
+        /// otherwise.
+        static func avatarFill(for tag: String) -> AnyShapeStyle {
+            switch tag {
+            case "blue", "green", "red", "purple": AnyShapeStyle(color(for: tag))
+            default:                               AnyShapeStyle(avatarGradient)
+            }
+        }
+
+        /// Maps a profile's `colorTag` to its avatar colour; defaults to indigo.
+        ///
+        /// Deliberately not `SeretPalette.color(for:)`, whose default is the mobile brand colour
+        /// the TV no longer draws. The named colours match it so a profile looks alike everywhere.
+        static func color(for tag: String) -> Color {
+            switch tag {
+            case "blue":   return Color(hex: 0x3B82F6)
+            case "green":  return Color(hex: 0x22C55E)
+            case "red":    return destructive
+            case "purple": return Color(hex: 0xA855F7)
+            default:       return Color(hex: 0x6C6CF5)
+            }
+        }
     }
 }
 
-/// Full-screen Gold Glass canvas wash (black + faint gold glow). Behind screen content.
+/// The full-screen canvas behind screen content: flat navy, no wash.
 struct CanvasBackground: View {
     var body: some View {
-        ZStack {
-            Theme.Palette.canvas
-            Theme.Palette.canvasGlow
-        }
-        .ignoresSafeArea()
+        Theme.Palette.canvas.ignoresSafeArea()
     }
 }

@@ -37,6 +37,8 @@ import DebridCore
 ///     that DO take focus, so "can the remote reach it?" is answerable from a screenshot
 ///   - `letterboxdrating` / `letterboxdrerating` — the post-credits rating prompt, unrated and
 ///     already rated 7. Prints what the press produced, so a screenshot answers it
+///   - `styles` / `stylescard` — every design-system style on one page, focus on an expanding
+///     icon button or on a poster (see `StyleGalleryPreview`)
 ///
 /// Not compiled into release builds.
 struct PlayerUIPreview: View {
@@ -76,6 +78,8 @@ struct PlayerUIPreview: View {
         case "spin":                WatchlistSpinPreview()
         case "spinnoart":           WatchlistSpinPreview(withArt: false)
         case "serverprobe":         ServerReachabilityPreview()
+        case "styles":              StyleGalleryPreview(initialFocus: .trailer)
+        case "stylescard":          StyleGalleryPreview(initialFocus: .poster(1))
         default:           ScrubBarPreview()
         }
     }
@@ -276,7 +280,7 @@ private struct SideMenuPreview: View {
                 .focusSection()
             SideMenuScrim(visible: startExpanded)
             SideMenu(selected: selected, profileName: "Shahar",
-                     profileAvatar: "", profileColorTag: "gold",
+                     profileAvatar: "", profileColorTag: Theme.Palette.defaultColorTag,
                      focus: $focus,
                      expanded: startExpanded,
                      onSelect: { if $0.isPage { selected = $0 } },
@@ -300,7 +304,7 @@ private struct SideMenuPreview: View {
                             .fill(Theme.Palette.surface2)
                             .frame(width: 220, height: 330)
                     }
-                    .buttonStyle(.card)
+                    .buttonStyle(FocusCardStyle())
                     .focused($pageFocus, equals: i)
                 }
             }
@@ -382,7 +386,7 @@ private struct EpisodeVersionsPreview: View {
                         .font(.seretTitle3)
                 }
                 Text("hasAlternateVersions: \(rows.first?.hasAlternateVersions == true ? "YES" : "NO")")
-                    .font(.seretTitle3).foregroundStyle(Theme.Palette.gold)
+                    .font(.seretTitle3).foregroundStyle(Theme.Palette.textPrimary)
                 if let row = rows.first {
                     EpisodeRow(store: store, row: row)
                 }
@@ -1211,7 +1215,7 @@ private struct HomeScreenPreview: View {
 /// without a Letterboxd account or a signed-in session.
 ///
 /// The fixture carries all three tile states on purpose: ordinary matched films, one already in the
-/// library (the gold ✓), and one that resolved to nothing — the grey box whose population this
+/// library (the white ✓), and one that resolved to nothing — the grey box whose population this
 /// change is meant to shrink. Real TMDB poster paths, so the grid loads actual artwork and the
 /// column metrics can be compared to My Library's by eye.
 private struct WatchlistScreenPreview: View {
@@ -1335,7 +1339,7 @@ private struct LetterboxdRatingPreview: View {
                 // rather than leaving it to be inferred from the stars.
                 Text(picked)
                     .font(.seret(22, .semibold))
-                    .foregroundStyle(Theme.Palette.gold)
+                    .foregroundStyle(Theme.Palette.textPrimary)
             }
         }
         .letterboxdDiaryBar(signal: signal, contentKey: "movie:tmdb:73") { state in
@@ -1428,7 +1432,7 @@ private final class InMemoryLetterboxdSettingsStore: LetterboxdSettingsStoring, 
 
 // MARK: - Watchlist randomiser
 
-/// The Cover Flow reel on the same real posters the watchlist preview uses, so the spin, the gold
+/// The Cover Flow reel on the same real posters the watchlist preview uses, so the spin, the white
 /// frame, the backdrop fading in and the landed result can be watched without a Letterboxd
 /// account. `-uiPreview spin` always lands on Whiplash, with its real TMDB backdrop and logo, so
 /// screenshots are comparable run to run (it spins for ~3.4 s once the posters are in, so a

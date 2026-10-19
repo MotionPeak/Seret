@@ -2,9 +2,10 @@ import SwiftUI
 import UIKit
 
 extension View {
-    /// Soft gold bloom behind a view. A `radius` of 0 disables it.
-    func goldGlow(_ radius: CGFloat, opacity: Double = 0.5) -> some View {
-        shadow(color: Theme.Palette.gold.opacity(radius > 0 ? opacity : 0), radius: radius)
+    /// The one shadow the TV draws: a soft drop under a focused card, lifting it off the page.
+    /// Nothing glows — at rest there is no shadow at all.
+    func liftShadow(_ focused: Bool) -> some View {
+        shadow(color: .black.opacity(focused ? 0.55 : 0), radius: focused ? 22 : 0, y: focused ? 18 : 0)
     }
 }
 
@@ -241,18 +242,18 @@ struct PosterPlaceholder: View {
                     .font(.system(size: 44))
                     .foregroundStyle(Theme.Palette.textSecondary.opacity(0.45))
             } else {
-                ProgressView().tint(Theme.Palette.gold)
+                ProgressView().tint(Theme.Palette.textPrimary)
             }
         }
     }
 }
 
-/// A centered, on-brand loading state (gold spinner + optional label) for full-screen waits.
+/// A centered, on-brand loading state (white spinner + optional label) for full-screen waits.
 struct SeretLoader: View {
     var label: String?
     var body: some View {
         VStack(spacing: 20) {
-            ProgressView().tint(Theme.Palette.gold).controlSize(.large)
+            ProgressView().tint(Theme.Palette.textPrimary).controlSize(.large)
             if let label {
                 Text(label).calloutText().foregroundStyle(Theme.Palette.textSecondary)
             }

@@ -6,7 +6,7 @@ import UIKit
 
 /// A "Trailer" button for tvOS: resolves the title's trailer to a playable stream on appear and
 /// plays it full-screen in-app (AVPlayer). It shows IMMEDIATELY (a disabled loading pill, so the
-/// action row doesn't shift when the trailer resolves) in the same gold-glass style as the other
+/// action row doesn't shift when the trailer resolves) in the same glass style as the other
 /// action buttons; once the in-app stream is ready it becomes a normal, pressable Trailer button.
 /// If extraction fails it removes itself — we never deep-link to the YouTube app (dead end on tvOS).
 struct TrailerButton: View {

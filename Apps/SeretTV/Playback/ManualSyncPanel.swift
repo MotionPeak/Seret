@@ -43,7 +43,7 @@ struct ManualSyncPanel: View {
             RoundedRectangle(cornerRadius: 24)
                 .fill(Theme.Palette.canvas.opacity(0.92))
                 .overlay(RoundedRectangle(cornerRadius: 24)
-                    .stroke(Theme.Palette.gold.opacity(0.18), lineWidth: 1))
+                    .stroke(Theme.Palette.hairline, lineWidth: 1))
         )
     }
 
@@ -63,7 +63,7 @@ struct ManualSyncPanel: View {
                 HStack(alignment: .firstTextBaseline, spacing: 16) {
                     Text(isSelected ? "▸" : " ")
                         .font(.seretCallout)
-                        .foregroundStyle(Theme.Palette.gold)
+                        .foregroundStyle(Theme.Palette.textPrimary)
                     Text(cue.text.isEmpty ? "—" : cue.text)
                         .font(isSelected ? .seretTitle3 : .seretCallout)
                         .foregroundStyle(isSelected ? Theme.Palette.textPrimary
@@ -95,7 +95,7 @@ struct ManualSyncPanel: View {
                         Text(String(format: "%+.1fs", offset))
                             .font(.seretTitle)
                             .monospacedDigit()
-                        // Dimmed by OPACITY, not by a palette colour: this sits on the gold fill,
+                        // Dimmed by OPACITY, not by a palette colour: this sits on the white fill,
                         // where textSecondary — a grey tuned for the dark canvas — is barely
                         // legible. Inheriting the button's own dark foreground keeps the contrast.
                         Text(offset >= 0 ? "subtitles now show later"

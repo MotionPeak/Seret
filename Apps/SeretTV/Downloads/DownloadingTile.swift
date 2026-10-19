@@ -56,7 +56,7 @@ struct DownloadingRailCard: View {
         NavigationLink(value: destination) {
             DownloadingTile(tile: tile)
         }
-        .buttonStyle(.card)
+        .buttonStyle(FocusCardStyle())
     }
 }
 

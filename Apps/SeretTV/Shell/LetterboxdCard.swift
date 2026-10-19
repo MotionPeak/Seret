@@ -170,7 +170,7 @@ struct LetterboxdCard: View {
             EmptyView()
         case .testing:
             HStack(spacing: 10) {
-                ProgressView().tint(Theme.Palette.gold)
+                ProgressView().tint(Theme.Palette.textPrimary)
                 Text("Testing…").settingsCaption()
             }
         case .reachable(let address):

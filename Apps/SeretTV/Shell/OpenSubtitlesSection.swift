@@ -49,7 +49,7 @@ struct OpenSubtitlesSection: View {
                 if case .ready(let address) = status {
                     Text(address)
                         .font(.seret(.callout, .semibold)).monospaced()
-                        .foregroundStyle(Theme.Palette.gold)
+                        .foregroundStyle(Theme.Palette.textPrimary)
                 }
                 // Hidden while pairing is available so it does not compete with the QR, and shown
                 // outright when it is the only way in.
