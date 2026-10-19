@@ -35,10 +35,6 @@ extension Theme {
         /// AsyncImage crossfade from placeholder → loaded artwork.
         static let imageFade = Animation.easeOut(duration: 0.35)
 
-        /// Transitional alias for the side menu's open/close. The side-menu rework replaces its
-        /// last use with `panelOpen`/`panelClose`; do not add new ones.
-        static let panel = panelOpen
-
         /// Focus scale for posters, cards and pills.
         static let focusScale: CGFloat = 1.08
         /// Focus scale for text buttons — a pill full of words reads as jumping at 1.08.

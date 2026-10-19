@@ -20,6 +20,8 @@ import DebridCore
 ///     and the screenshot after says where focus went
 ///   - `sidemenu`  — the side menu EXPANDED over a stand-in page
 ///   - `sidemenucollapsed` — the same menu at rest, for an A/B of the two states
+///   - `sidemenucollapsedfocus` — at rest with a row focused (the white circle)
+///   - `sidemenulive` — the menu driven by the shell's open/close rules, for a remote walkthrough
 ///   - `opensubtitles` — the OpenSubtitles pairing card: QR, LAN address, keyboard fallback
 ///   - `gridfade`  — a pre-scrolled grid under a pinned header, for tuning the top fade
 ///   - `person`    — the person page: header, As Actor / As Director, ranked credits
@@ -62,6 +64,8 @@ struct PlayerUIPreview: View {
         case "detailwatchlisted": MovieDetailPreview(onWatchlist: true)
         case "sidemenu":            SideMenuPreview(startExpanded: true)
         case "sidemenucollapsed":   SideMenuPreview(startExpanded: false)
+        case "sidemenucollapsedfocus": SideMenuPreview(startExpanded: false, focusMenu: true)
+        case "sidemenulive":        SideMenuPreview(live: true)
         case "opensubtitles":       OpenSubtitlesPreview()
         case "gridfade":            GridTopFadePreview()
         case "person":              PersonScreenPreview()
@@ -274,49 +278,92 @@ private struct OpenSubtitlesPreview: View {
 
 // MARK: - Side menu
 
-/// Both menu states over a stand-in page, so the rail/panel geometry and the label reveal can be
-/// screenshot-verified without a signed-in session or the focus engine.
+/// Both menu states over a stand-in page, so the capsule/panel geometry and the label reveal can be
+/// screenshot-verified without a signed-in session or the focus engine. `focusMenu` puts focus on
+/// a row of the COLLAPSED capsule — the state tvOS can leave behind after a selection — to show its
+/// white circle.
+///
+/// `live` (`-uiPreview sidemenulive`) instead drives the menu with `LibraryShell`'s own open/close
+/// rules — `.onMoveCommand`, the focus-entry/exit handler, `pageHasHeldFocus`, Menu-to-open and
+/// collapse-on-select — so the remote walkthrough can run without a signed-in session. Keep those
+/// rules in step with the shell's.
 private struct SideMenuPreview: View {
-    let startExpanded: Bool
+    var startExpanded = false
+    var focusMenu = false
+    var live = false
 
     @FocusState private var focus: SideMenuItem?
     @FocusState private var pageFocus: Int?
-    @State private var selected: SideMenuItem = .movies
+    @State private var selected: SideMenuItem = .home
+    @State private var menuExpanded = false
+    @State private var pageHasHeldFocus = false
+
+    private var expanded: Bool { live ? menuExpanded : startExpanded }
 
     var body: some View {
         ZStack(alignment: .leading) {
             CanvasBackground()
             fakePage
-                .padding(.leading, SideMenu.railWidth)
+                .sideMenuContentInset()
                 .focusSection()
-            SideMenuScrim(visible: startExpanded)
+            SideMenuScrim(visible: expanded)
             SideMenu(selected: selected, profileName: "Shahar",
                      profileAvatar: "", profileColorTag: Theme.Palette.defaultColorTag,
                      focus: $focus,
-                     expanded: startExpanded,
-                     onSelect: { if $0.isPage { selected = $0 } },
+                     expanded: expanded,
+                     onSelect: { item in
+                         guard item.isPage else { return }
+                         selected = item
+                         menuExpanded = false
+                     },
                      onProfile: {})
+            .onMoveCommand { _ in if live && focus != nil { menuExpanded = true } }
         }
         // Content claims initial focus so the menu starts CLOSED. `.defaultFocus` is the only one
         // of the three candidates that actually wins here — `prefersDefaultFocus(in:)` (leaf or
         // container) loses to tvOS's top-leading heuristic, which the menu always satisfies.
         .defaultFocus($pageFocus, 0)
-        .onAppear { if startExpanded { focus = .movies } }
+        .onExitCommand(perform: !live || menuExpanded ? nil : {
+            focus = selected
+            menuExpanded = true
+        })
+        .onChange(of: focus) { _, new in
+            guard live else { return }
+            if new == nil {
+                pageHasHeldFocus = true
+                menuExpanded = false
+            } else if pageHasHeldFocus {
+                menuExpanded = true
+            }
+        }
+        .onAppear {
+            if !live { selected = .movies }
+            if startExpanded || focusMenu { focus = .movies }
+        }
+        .task {
+            guard live else { return }
+            try? await Task.sleep(for: .milliseconds(800))
+            if focus == nil { pageHasHeldFocus = true }
+        }
     }
 
-    /// Focusable stand-in posters, so initial focus has somewhere real to land.
+    /// Focusable stand-in posters, so initial focus has somewhere real to land. Live, two rails
+    /// (so LEFT can be tried from different heights) titled with the selected page, so a selection
+    /// shows on screen.
     private var fakePage: some View {
         VStack(alignment: .leading, spacing: 30) {
-            Text("Trending Now").sectionTitle()
-            HStack(spacing: 36) {
-                ForEach(0..<6, id: \.self) { i in
-                    Button {} label: {
-                        RoundedRectangle(cornerRadius: Theme.Layout.posterCorner, style: .continuous)
-                            .fill(Theme.Palette.surface2)
-                            .frame(width: 220, height: 330)
+            Text(live ? selected.title : "Trending Now").sectionTitle()
+            ForEach(0..<(live ? 2 : 1), id: \.self) { rail in
+                HStack(spacing: 36) {
+                    ForEach(0..<6, id: \.self) { i in
+                        Button {} label: {
+                            RoundedRectangle(cornerRadius: Theme.Layout.posterCorner, style: .continuous)
+                                .fill(Theme.Palette.surface2)
+                                .frame(width: 220, height: 330)
+                        }
+                        .buttonStyle(FocusCardStyle())
+                        .focused($pageFocus, equals: rail * 10 + i)
                     }
-                    .buttonStyle(FocusCardStyle())
-                    .focused($pageFocus, equals: i)
                 }
             }
         }

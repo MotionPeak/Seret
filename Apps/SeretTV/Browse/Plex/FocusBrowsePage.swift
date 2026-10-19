@@ -7,8 +7,10 @@ import SwiftUI
 /// stored statics, and a rail must read these without naming the page's `Rails` type.
 enum FocusBrowseLayout {
     /// Where titles, the header text and the first tile start, measured inside the shell's content
-    /// area (which already clears the side menu).
-    static let leadingInset: CGFloat = 90
+    /// area — which starts at `SideMenu.footprint` (150) from the screen edge. 30 puts them at 180,
+    /// ~50pt clear of the collapsed capsule's right edge (128): the mockup's 170, plus room for a
+    /// focused poster's 1.08 lift.
+    static let leadingInset: CGFloat = 30
     /// The fixed preview header, from the top of the safe area to the top of the rail area.
     static let headerHeight: CGFloat = 470
     /// Header text starts this far below the safe area — 60 + 50 = the mockup's 110.

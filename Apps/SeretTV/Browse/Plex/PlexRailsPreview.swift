@@ -43,7 +43,7 @@ struct PlexRailsPreview: View {
             rail("Recently Added Shows", id: "shows", PlexRailsFixture.shows)
         }
         // The shell's content inset, so x positions match the real app.
-        .padding(.leading, SideMenu.railWidth)
+        .sideMenuContentInset()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(CanvasBackground())
         .overlay(alignment: .topTrailing) {

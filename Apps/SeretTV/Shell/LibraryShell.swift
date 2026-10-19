@@ -2,8 +2,8 @@ import DebridCore
 import DebridUI
 import SwiftUI
 
-/// The signed-in root: an HBO-style left side menu over the switched content. The menu is a
-/// full-height overlay — content is inset by the collapsed rail and never moves when the menu
+/// The signed-in root: a Plex-style floating side menu over the switched content. The menu is an
+/// overlay — content is inset by the collapsed capsule's footprint and never moves when the menu
 /// opens. One root NavigationStack OUTSIDE the content so Detail / the player still cover
 /// everything cleanly.
 struct LibraryShell: View {
@@ -96,9 +96,9 @@ struct LibraryShell: View {
             NavigationStack(path: $path) {
                 pages
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    // Content clears the rail. This sits on the ROOT content only — pushed
-                    // destinations are separate views and stay full-bleed.
-                    .padding(.leading, SideMenu.railWidth)
+                    // Content clears the collapsed capsule. This sits on the ROOT content only —
+                    // pushed destinations are separate views and stay full-bleed.
+                    .sideMenuContentInset()
                     .navigationDestination(for: BrowseDestination.self) { dest in
                         switch dest {
                         case .detail(let item): detailDestination(item)

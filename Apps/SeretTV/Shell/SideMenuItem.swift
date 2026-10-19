@@ -40,6 +40,35 @@ enum SideMenuItem: String, CaseIterable, Identifiable {
     /// Rows rendered as a group under the profile. `settings` is pinned to the bottom separately.
     static let mainRows: [SideMenuItem] = [.search, .home, .movies, .shows, .watchlist, .library]
 
+    /// A titled group of rows in the expanded panel. Collapsed, the headers take no height, so the
+    /// capsule is just the icons.
+    enum Section: CaseIterable {
+        case discover, yours
+
+        var title: String {
+            switch self {
+            case .discover: return "Discover"
+            case .yours:    return "Yours"
+            }
+        }
+    }
+
+    /// The panel group this row belongs to; `nil` for rows that sit above or outside the groups.
+    var section: Section? {
+        switch self {
+        case .movies, .shows:      return .discover
+        case .watchlist, .library: return .yours
+        default:                   return nil
+        }
+    }
+
+    /// The section whose header is drawn directly above this row — set only on the FIRST main row
+    /// of each section, so every header appears once.
+    var startsSection: Section? {
+        guard let section, let index = Self.mainRows.firstIndex(of: self) else { return nil }
+        return index == 0 || Self.mainRows[index - 1].section != section ? section : nil
+    }
+
     /// Whether selecting this row switches the page (as opposed to pushing or presenting).
     var isPage: Bool { self != .search && self != .profile }
 }

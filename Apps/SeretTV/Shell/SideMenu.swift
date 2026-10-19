@@ -1,8 +1,13 @@
 import DebridUI
 import SwiftUI
 
-/// The left navigation. At rest it is a 120pt icon rail; when focus lands in it the panel widens
-/// and labels fade in beside a **fixed** icon column, so nothing on screen shifts.
+/// The left navigation, Plex style. At rest it is a floating glass capsule of icons, vertically
+/// centred at the left edge; when the menu opens, the capsule's background grows into a floating
+/// rounded panel, labels and section headers fade in beside a **fixed** icon column, and a single
+/// white pill slides to the focused row.
+///
+/// Every row is ONE view in both states and a focus target in both — see `SideMenuRow`. Collapsed,
+/// row frames stay capsule-wide, so the menu never overlaps the page geometrically.
 ///
 /// The scrim is NOT drawn here — it belongs to the shell, because it has to cover content this
 /// view does not own.
@@ -12,94 +17,232 @@ struct SideMenu: View {
     let profileAvatar: String
     let profileColorTag: String
     var focus: FocusState<SideMenuItem?>.Binding
-    /// Whether the panel is widened. Owned by the shell, NOT derived from `focus` here — tvOS parks
-    /// focus on this rail unprompted (it is the top-leading view) and refuses to hand it back after
+    /// Whether the panel is open. Owned by the shell, NOT derived from `focus` here — tvOS parks
+    /// focus on this menu unprompted (it is the top-leading view) and refuses to hand it back after
     /// a selection, so focus-presence would keep the menu open over the page you just chose.
     let expanded: Bool
     let onSelect: (SideMenuItem) -> Void
     let onProfile: () -> Void
 
-    static let railWidth: CGFloat = 120
-    static let panelWidth: CGFloat = 470
-    /// Row pitch. The VStack has zero spacing, so this IS the gap between rows.
-    static let rowHeight: CGFloat = 96
+    /// The collapsed capsule's width — also the width of the fixed icon column in both states.
+    static let capsuleWidth: CGFloat = 92
+    /// The open panel's width.
+    static let panelWidth: CGFloat = 560
+    /// How much of the screen's leading edge the collapsed menu claims: capsule (36 + 92) plus a
+    /// gutter. Root pages start here, measured from the SCREEN edge — see `sideMenuContentInset()`.
+    static let footprint: CGFloat = 150
+    /// The capsule and panel's distance from the screen's leading edge (inside the TV's overscan).
+    static let leadingGap: CGFloat = 36
+    /// The open panel's distance from the top and bottom of the screen.
+    static let panelInset: CGFloat = 40
+    /// Row pitch, collapsed and open. The column has zero spacing, so this IS the gap between rows.
+    static let collapsedRowHeight: CGFloat = 60
+    static let rowHeight: CGFloat = 68
+    /// The white focus marker: a circle behind the icon when collapsed, a full-row pill when open.
+    static let pillCircle: CGFloat = 56
+    static let pillHeight: CGFloat = 62
+    static let pillInset: CGFloat = 14
+
+    /// The row the pill sits on. Kept at the last focused row while focus is in the page, so when
+    /// focus comes back the pill fades in where it is rather than sliding in from a stale spot.
+    @State private var pillItem: SideMenuItem?
+
+    private var focusedItem: SideMenuItem? { focus.wrappedValue }
+    private var morph: Animation { expanded ? Theme.Anim.panelOpen : Theme.Anim.panelClose }
 
     var body: some View {
+        column
+            .frame(width: expanded ? Self.panelWidth : Self.capsuleWidth)
+            // Collapsed, the column hugs its rows and sits centred; open, it fills the panel.
+            .frame(maxHeight: expanded ? .infinity : nil)
+            .backgroundPreferenceValue(SideMenuRowBoundsKey.self) { bounds in pill(in: bounds) }
+            .background { SideMenuPanelBackground(expanded: expanded) }
+            .frame(maxHeight: .infinity)
+            .animation(morph, value: expanded)
+            // ONE focus target spanning the full height, so LEFT from the first item of any row
+            // lands here. A section widens a target; it does not trap focus. Its width is the
+            // capsule's when collapsed, so it never covers the page.
+            .focusSection()
+            // …and where LEFT lands is the page you are on, as in every Apple TV app. Left to
+            // geometry it was whichever row sat level with the focused control: Library from Home's
+            // Resume, Movies from a card a little higher — so Select from the menu opened a
+            // different page each time. `.userInitiated` is what applies it to a press, not just to
+            // launch focus.
+            .defaultFocus(focus, selected, priority: .userInitiated)
+            .padding(.leading, Self.leadingGap)
+            .padding(.vertical, Self.panelInset)
+            // A layout-only wrapper (not focusable, not a section) so the menu can sit in the
+            // overscan margin the page's safe area keeps clear.
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .ignoresSafeArea()
+            .onAppear { if pillItem == nil { pillItem = focusedItem ?? selected } }
+            .onChange(of: focusedItem) { _, new in
+                guard let new else { return }
+                withAnimation(Theme.Anim.pill) { pillItem = new }
+            }
+    }
+
+    private var column: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Profiles are switched off — the rail starts at Search. See `ProfilesFeature`.
+            // Profiles are switched off — the menu starts at Search. See `ProfilesFeature`.
             if ProfilesFeature.isEnabled {
                 profileRow
-                Spacer().frame(height: 58)
             }
             ForEach(SideMenuItem.mainRows) { item in
-                SideMenuRow(item: item, selected: item == selected, expanded: expanded) {
-                    onSelect(item)
+                if let section = item.startsSection {
+                    SideMenuSectionHeader(title: section.title, expanded: expanded)
                 }
-                .focused(focus, equals: item)
+                row(item)
             }
+            // Open, this pushes Settings to the bottom of the panel; collapsed, it takes nothing.
             Spacer(minLength: 0)
-            SideMenuRow(item: .settings, selected: selected == .settings, expanded: expanded) {
-                onSelect(.settings)
-            }
-            .focused(focus, equals: .settings)
+                .frame(maxHeight: expanded ? .infinity : 0)
+            SideMenuDivider(expanded: expanded)
+            row(.settings)
         }
-        .padding(.vertical, 60)
-        .frame(width: expanded ? Self.panelWidth : Self.railWidth, alignment: .topLeading)
-        .frame(maxHeight: .infinity, alignment: .top)
-        .animation(Theme.Anim.panel, value: expanded)
-        // ONE focus target spanning the full height, so LEFT from the first item of any row lands
-        // here. A section widens a target; it does not trap focus.
-        .focusSection()
-        // …and where LEFT lands is the page you are on, as in every Apple TV app. Left to geometry
-        // it was whichever row sat level with the focused control: Library from Home's Resume,
-        // Movies from a card a little higher — so Select from the menu opened a different page
-        // each time. `.userInitiated` is what applies it to a press, not just to launch focus.
-        .defaultFocus(focus, selected, priority: .userInitiated)
+        .padding(.vertical, expanded ? 30 : 16)
+    }
+
+    private func row(_ item: SideMenuItem) -> some View {
+        SideMenuRow(item: item, selected: item == selected, expanded: expanded) {
+            onSelect(item)
+        }
+        .focused(focus, equals: item)
+        .anchorPreference(key: SideMenuRowBoundsKey.self, value: .bounds) { [item: $0] }
+    }
+
+    /// The single white pill. One persistent view whose frame follows the focused row, so it
+    /// slides rather than fading between rows.
+    private func pill(in bounds: [SideMenuItem: Anchor<CGRect>]) -> some View {
+        GeometryReader { proxy in
+            if let item = pillItem, let anchor = bounds[item] {
+                let rect = proxy[anchor]
+                let width = expanded ? rect.width - 2 * Self.pillInset : Self.pillCircle
+                let height = expanded ? Self.pillHeight : Self.pillCircle
+                Capsule(style: .continuous)
+                    .fill(Theme.Palette.focus)
+                    .frame(width: width, height: height)
+                    .offset(x: expanded ? rect.minX + Self.pillInset
+                                        : rect.minX + (Self.capsuleWidth - Self.pillCircle) / 2,
+                            y: rect.midY - height / 2)
+                    .opacity(focusedItem == nil ? 0 : 1)
+                    .animation(Theme.Anim.focus, value: focusedItem == nil)
+            }
+        }
     }
 
     private var profileRow: some View {
         Button(action: onProfile) {
             HStack(spacing: 0) {
-                AvatarCircle(token: profileAvatar, diameter: 52, colorTag: profileColorTag)
-                    .frame(width: Self.railWidth)
-                Text(profileName)
-                    .navLabel()
-                    .fixedSize()
-                    .lineLimit(1)
-                    .opacity(expanded ? 1 : 0)
+                AvatarCircle(token: profileAvatar, diameter: 48, colorTag: profileColorTag)
+                    .frame(width: Self.capsuleWidth)
+                SideMenuLabel(text: profileName, expanded: expanded)
             }
-            .frame(width: expanded ? Self.panelWidth : Self.railWidth,
-                   height: Self.rowHeight, alignment: .leading)
+            .frame(width: expanded ? Self.panelWidth : Self.capsuleWidth,
+                   height: expanded ? Self.rowHeight + 16 : Self.collapsedRowHeight + 8,
+                   alignment: .leading)
             .clipped()
         }
-        .buttonStyle(SideMenuRowStyle(selected: false))
+        .buttonStyle(SideMenuRowStyle(selected: false, expanded: expanded))
         // Bound to the SAME focus state as every other row — without this, focusing the avatar
         // leaves the menu collapsed while looking focused.
         .focused(focus, equals: .profile)
+        .anchorPreference(key: SideMenuRowBoundsKey.self, value: .bounds) { [.profile: $0] }
     }
 }
 
-/// The dimming wash behind an open menu. A left-to-right gradient rather than a flat panel, so the
-/// page reads as *under* the menu instead of being replaced by it.
+/// Every row's bounds, keyed by item, so the menu can draw ONE pill at the focused row.
+struct SideMenuRowBoundsKey: PreferenceKey {
+    static let defaultValue: [SideMenuItem: Anchor<CGRect>] = [:]
+
+    static func reduce(value: inout [SideMenuItem: Anchor<CGRect>],
+                       nextValue: () -> [SideMenuItem: Anchor<CGRect>]) {
+        value.merge(nextValue()) { $1 }
+    }
+}
+
+/// The capsule that grows into the panel: one rounded rectangle whose frame and corner animate
+/// with the menu. Glass at rest; the near-opaque navy panel fill when open, so labels sit on the
+/// panel rather than on the page.
+private struct SideMenuPanelBackground: View {
+    let expanded: Bool
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: expanded ? 32 : SideMenu.capsuleWidth / 2,
+                                     style: .continuous)
+        shape
+            .fill(.ultraThinMaterial)
+            .overlay {
+                shape.fill(LinearGradient(colors: [Theme.Palette.panelTop, Theme.Palette.panelBottom],
+                                          startPoint: .top, endPoint: .bottom))
+                    .opacity(expanded ? 1 : 0.72)
+            }
+            .overlay { shape.strokeBorder(Theme.Palette.hairline, lineWidth: 1) }
+            .shadow(color: .black.opacity(expanded ? 0.5 : 0.35),
+                    radius: expanded ? 40 : 15, y: expanded ? 30 : 8)
+    }
+}
+
+/// "Discover" / "Yours" above their rows, with a hairline rule. Always in the hierarchy; collapsed
+/// it has zero height and is invisible, open it grows to 44.
+private struct SideMenuSectionHeader: View {
+    let title: String
+    let expanded: Bool
+
+    var body: some View {
+        HStack(spacing: 16) {
+            Text(title)
+                .font(.seret(22, .medium))
+                .foregroundStyle(Theme.Palette.textTertiary)
+                .fixedSize()
+            Rectangle()
+                .fill(Theme.Palette.hairline)
+                .frame(height: 1)
+        }
+        .padding(.leading, 30)
+        .padding(.trailing, 34)
+        .padding(.top, 8)
+        .frame(width: expanded ? SideMenu.panelWidth : SideMenu.capsuleWidth,
+               height: expanded ? 44 : 0, alignment: .leading)
+        .opacity(expanded ? 1 : 0)
+        .clipped()
+        .accessibilityHidden(true)
+    }
+}
+
+/// The rule above Settings: a short line inside the capsule, the panel's width when open.
+private struct SideMenuDivider: View {
+    let expanded: Bool
+
+    var body: some View {
+        Rectangle()
+            .fill(Theme.Palette.hairline)
+            .frame(width: expanded ? SideMenu.panelWidth - 60 : 40, height: 1)
+            .frame(width: expanded ? SideMenu.panelWidth : SideMenu.capsuleWidth)
+            .padding(.vertical, 10)
+    }
+}
+
+/// The dimming wash behind an open menu: a flat scrim over the whole page. The open panel has its
+/// own near-opaque fill, so the labels sit on the panel, not on the washed page.
 struct SideMenuScrim: View {
     let visible: Bool
 
     var body: some View {
-        // The opaque plateau has to clear the WIDEST menu label, not the panel edge. It used to end
-        // at 0.24 while the labels run past that, so a rail title behind the menu ("Trending Now")
-        // read straight through "Search". 0.96 also left 4% of the page showing under the text.
-        // Drawn in the opaque canvas, not `scrim`: that token is a 66% wash, which would let the
-        // page read through the labels again.
-        LinearGradient(
-            stops: [
-                .init(color: Theme.Palette.canvas, location: 0),
-                .init(color: Theme.Palette.canvas, location: 0.32),
-                .init(color: Theme.Palette.canvas.opacity(0.0), location: 0.58),
-            ],
-            startPoint: .leading, endPoint: .trailing)
-        .ignoresSafeArea()
-        .opacity(visible ? 1 : 0)
-        .animation(Theme.Anim.panel, value: visible)
-        .allowsHitTesting(false)
+        Theme.Palette.scrim
+            .ignoresSafeArea()
+            .opacity(visible ? 1 : 0)
+            .animation(visible ? Theme.Anim.panelOpen : Theme.Anim.panelClose, value: visible)
+            .allowsHitTesting(false)
+    }
+}
+
+extension View {
+    /// Starts a root page at `SideMenu.footprint` from the SCREEN's leading edge, clear of the
+    /// collapsed capsule. The capsule sits in the overscan margin, so the inset ignores the leading
+    /// safe area rather than adding to it. Root pages only — pushed pages stay full-bleed.
+    func sideMenuContentInset() -> some View {
+        padding(.leading, SideMenu.footprint)
+            .ignoresSafeArea(.container, edges: .leading)
     }
 }
