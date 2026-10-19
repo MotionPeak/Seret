@@ -39,6 +39,9 @@ import DebridCore
 ///     already rated 7. Prints what the press produced, so a screenshot answers it
 ///   - `styles` / `stylesplain` / `stylescard` — every design-system style on one page, focus on
 ///     an expanding icon button, a plain action pill or a poster (see `StyleGalleryPreview`)
+///   - `plexrails` — a `FocusBrowsePage` with three rails of real TMDB art: the preview header
+///     (logo, meta, synopsis), the ultrablur backdrop, focus on the first poster. `plexrailsnoart`
+///     starts on a tile with no art at all and a Hebrew title (see `PlexRailsPreview`)
 ///
 /// Not compiled into release builds.
 struct PlayerUIPreview: View {
@@ -81,6 +84,8 @@ struct PlayerUIPreview: View {
         case "styles":              StyleGalleryPreview(initialFocus: .trailer)
         case "stylescard":          StyleGalleryPreview(initialFocus: .poster(1))
         case "stylesplain":         StyleGalleryPreview(initialFocus: .versions)
+        case "plexrails":           PlexRailsPreview()
+        case "plexrailsnoart":      PlexRailsPreview(noArtFirst: true)
         default:           ScrubBarPreview()
         }
     }

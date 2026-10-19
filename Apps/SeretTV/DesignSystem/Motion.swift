@@ -19,6 +19,9 @@ extension Theme {
         static let panelClose = Animation.timingCurve(0.4, 0, 0.2, 1, duration: 0.34)
         /// The white selection pill sliding between rows.
         static let pill = Animation.timingCurve(0.2, 0.9, 0.2, 1, duration: 0.30)
+        /// A browse page scrolling the newly focused rail up to the top of the rail area — the
+        /// mockup's rows-track curve: unhurried, so the whole page glides rather than jumps.
+        static let railScroll = Animation.timingCurve(0.2, 0.8, 0.2, 1, duration: 0.5)
         /// The page backdrop cross-fading to the newly focused title.
         static let backdrop = Animation.easeInOut(duration: 0.6)
         /// The focus preview's text leaving…
