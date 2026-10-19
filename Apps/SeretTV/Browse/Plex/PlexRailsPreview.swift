@@ -15,14 +15,15 @@ import SwiftUI
 /// - `plexrailsnoart` starts focused ON that tile, mid-rail, through the page's `initialFocus`
 ///   hook (not the tvOS top-leading default), so its header and the canvas fallback show at launch.
 /// - `plexrailsinsert` starts in the second rail and, 4 s in, inserts a rail above it — the page
-///   must bring the focused rail back to the top.
+///   must bring the focused rail back to the top. `plexrailsinsertearly` inserts it 300ms after focus
+///   first lands, while the initial-focus scroll is still settling.
 /// - Every tile carries a context menu and an outside `.plexFocusID`, stacked on `PosterTile`;
 ///   a long-press menu action is echoed top-right.
 ///
 /// The details fake answers after 300ms, so the page's settle (logo budget, late art) is
 /// exercised the way a real TMDB round trip exercises it.
 struct PlexRailsPreview: View {
-    enum Variant { case standard, noArt, insert }
+    enum Variant { case standard, noArt, insert, insertEarly }
     var variant = Variant.standard
 
     @State private var preview = FocusPreviewModel()
@@ -30,6 +31,7 @@ struct PlexRailsPreview: View {
     /// `insert`: a rail that arrives late, ABOVE the focused one.
     @State private var lateRail = false
     @State private var log = ""
+    @State private var earlyInsertScheduled = false
 
     var body: some View {
         FocusBrowsePage(preview: preview, art: art, initialFocus: initialFocus) {
@@ -65,7 +67,7 @@ struct PlexRailsPreview: View {
         // Mid-rail, NOT the tvOS default (top-leading) — proves the page's focus hook.
         case .noArt:    tileID("continue", PlexRailsFixture.hebrew)
         // In the second rail, so a rail inserted above it has to move the page.
-        case .insert:   tileID("movies", PlexRailsFixture.movies[0])
+        case .insert, .insertEarly: tileID("movies", PlexRailsFixture.movies[0])
         }
     }
 
@@ -73,7 +75,20 @@ struct PlexRailsPreview: View {
         switch variant {
         case .standard: PlexRailsFixture.continueWatching[0].subject
         case .noArt:    PlexRailsFixture.hebrew.subject
-        case .insert:   PlexRailsFixture.movies[0].subject
+        case .insert, .insertEarly: PlexRailsFixture.movies[0].subject
+        }
+    }
+
+    /// `insertEarly`: 300ms after focus first lands — inside the settle window of the page's
+    /// initial-focus scroll, which is exactly when rails streaming in from a load arrive. Timed from
+    /// the focus rather than from appear, because a rail inserted before focus resolves would push
+    /// the initial-focus target out of the lazy stack before it ever took focus.
+    private func scheduleEarlyInsert() {
+        guard variant == .insertEarly, !earlyInsertScheduled else { return }
+        earlyInsertScheduled = true
+        Task {
+            try? await Task.sleep(for: .milliseconds(300))
+            lateRail = true
         }
     }
 
@@ -84,7 +99,7 @@ struct PlexRailsPreview: View {
             ForEach(entries) { entry in
                 PosterTile(posterPath: entry.subject.posterPath, title: entry.subject.title,
                            progress: entry.progress, chip: entry.chip, watched: entry.watched,
-                           onFocus: { preview.focus(entry.subject) }, action: { log = "Played \(entry.subject.title)" })
+                           onFocus: { preview.focus(entry.subject); scheduleEarlyInsert() }, action: { log = "Played \(entry.subject.title)" })
                     // Stacked on the tile from outside: the page's focus hook and a context menu.
                     .plexFocusID(tileID(id, entry))
                     .contextMenu {

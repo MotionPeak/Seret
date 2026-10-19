@@ -26,7 +26,8 @@ enum FocusBrowseLayout {
     /// logo, before it shows the title as text. The header's own fade covers most of it.
     static let logoBudget: Duration = .milliseconds(200)
     /// How long the backdrop waits for the art's (usually textless) backdrop before falling back
-    /// to the tile's own — so a first view fades once to the right plate, not twice.
+    /// to the tile's own — so a first view fades once to the right plate, not twice. Measured from
+    /// the settle's start, so it includes the logo hold.
     static let backdropArtBudget: Duration = .milliseconds(700)
 }
 
@@ -66,6 +67,14 @@ struct FocusBrowsePage<Rails: View>: View {
     @State private var focusedRow: String?
     /// When the page last scrolled a row to the top — re-alignment waits for that to finish.
     @State private var lastRowScroll = ContinuousClock.now
+    /// The focused row's latest offset from the top of the rail area (see `FocusedRowOffsetKey`).
+    @State private var focusedRowOffset: CGFloat?
+    /// A re-alignment deferred until the page's own scroll has finished.
+    @State private var pendingRealign: Task<Void, Never>?
+    /// Whether any subject has been shown since the page appeared (or since it last had none). Not
+    /// the same as "a backdrop is up": a title with no art shows the canvas, and the next title
+    /// after it is not a first appearance.
+    @State private var hasShownSubject = false
     @FocusState private var focusedID: String?
 
     init(preview: FocusPreviewModel, art: TitleArtStore?, initialFocus: String? = nil,
@@ -107,10 +116,8 @@ struct FocusBrowsePage<Rails: View>: View {
                 // The focused row moved without a focus change — a row was inserted (or resized)
                 // above it. Put it back at the top, once any scroll of our own has finished.
                 .onPreferenceChange(FocusedRowOffsetKey.self) { offset in
-                    guard let offset, abs(offset) > 1, let row = focusedRow,
-                          ContinuousClock.now - lastRowScroll > Self.scrollSettle else { return }
-                    lastRowScroll = .now
-                    withAnimation(Theme.Anim.railScroll) { proxy.scrollTo(row, anchor: .top) }
+                    focusedRowOffset = offset
+                    realignFocusedRow(proxy)
                 }
             }
             // Rails run to the bottom of the screen, so the next rail's title peeks in.
@@ -140,6 +147,25 @@ struct FocusBrowsePage<Rails: View>: View {
         .ignoresSafeArea()
     }
 
+    /// Puts the focused row back at the top when something moved it — or, while the page's own
+    /// scroll is still running, re-checks once that scroll is over. Never drops the request: rails
+    /// streaming in right after the initial-focus scroll are exactly the ones that must be caught.
+    private func realignFocusedRow(_ proxy: ScrollViewProxy) {
+        guard let offset = focusedRowOffset, abs(offset) > 1, let row = focusedRow else { return }
+        let since = ContinuousClock.now - lastRowScroll
+        if since >= Self.scrollSettle {
+            lastRowScroll = .now
+            withAnimation(Theme.Anim.railScroll) { proxy.scrollTo(row, anchor: .top) }
+        } else if pendingRealign == nil {
+            let remaining = Self.scrollSettle - since
+            pendingRealign = Task { @MainActor in
+                try? await Task.sleep(for: remaining)
+                pendingRealign = nil
+                realignFocusedRow(proxy)       // reads the LATEST offset, not the one that queued it
+            }
+        }
+    }
+
     private func artFor(_ subject: PreviewSubject) -> TitleArt? {
         guard let art, let id = subject.tmdbID else { return nil }
         return art.art(for: subject.kind, tmdbID: id)
@@ -153,19 +179,22 @@ struct FocusBrowsePage<Rails: View>: View {
             holdingTitleFor = nil
             backdropPath = nil
             lastSettledID = nil
+            hasShownSubject = false
             return
         }
+        let start = ContinuousClock.now
         let sameTitle = subject.id == lastSettledID
         lastSettledID = subject.id
+        // The very first subject (nothing on screen yet) draws at once: its title as text, its
+        // tile's own backdrop. A better plate or the logo cross-fade in when they arrive.
+        let first = !hasShownSubject
+        hasShownSubject = true
         guard let store = art, let tmdbID = subject.tmdbID, artFor(subject) == nil else {
             // Art cached (logo and backdrop known now), or nothing to fetch.
             holdingTitleFor = nil
             backdropPath = artFor(subject)?.backdropPath ?? subject.backdropPath
             return
         }
-        // The very first subject (nothing on screen yet) draws at once: its title as text, its
-        // tile's own backdrop. A better plate or the logo cross-fade in when they arrive.
-        let first = backdropPath == nil
         if first { backdropPath = subject.backdropPath }
 
         // Store-owned loads: these run to completion even if this settle is superseded.
@@ -184,7 +213,10 @@ struct FocusBrowsePage<Rails: View>: View {
         }
         holdingTitleFor = nil
 
-        await FocusSettle.wait(for: artLoad, upTo: FocusBrowseLayout.backdropArtBudget)
+        // Both budgets run from the settle's start: the backdrop waits at most `backdropArtBudget`
+        // in all, not the logo hold plus that.
+        let backdropBudget = FocusBrowseLayout.backdropArtBudget - (ContinuousClock.now - start)
+        await FocusSettle.wait(for: artLoad, upTo: max(.zero, backdropBudget))
         guard !Task.isCancelled else { return }
         backdropPath = artFor(subject)?.backdropPath ?? subject.backdropPath
         guard artFor(subject) == nil else { return }
@@ -208,7 +240,7 @@ enum FocusSettle {
             await withCheckedContinuation { continuation in
                 once.set(continuation)
                 Task { await task.value; once.resume() }
-                Task { try? await Task.sleep(for: limit); once.resume() }
+                once.setTimer(Task { try? await Task.sleep(for: limit); once.resume() })
             }
         } onCancel: {
             once.resume()
@@ -224,7 +256,20 @@ enum FocusSettle {
     private final class ResumeOnce: @unchecked Sendable {
         private let lock = NSLock()
         private var continuation: CheckedContinuation<Void, Never>?
+        private var timer: Task<Void, Never>?
         private var resumed = false
+
+        /// The budget's sleeper, cancelled as soon as anything resumes so it does not linger.
+        func setTimer(_ timer: Task<Void, Never>) {
+            lock.lock()
+            if resumed {
+                lock.unlock()
+                timer.cancel()
+                return
+            }
+            self.timer = timer
+            lock.unlock()
+        }
 
         func set(_ continuation: CheckedContinuation<Void, Never>) {
             lock.lock()
@@ -241,8 +286,11 @@ enum FocusSettle {
             lock.lock()
             resumed = true
             let continuation = self.continuation
+            let timer = self.timer
             self.continuation = nil
+            self.timer = nil
             lock.unlock()
+            timer?.cancel()
             continuation?.resume()
         }
     }
