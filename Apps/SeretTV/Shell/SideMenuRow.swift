@@ -79,12 +79,16 @@ struct SideMenuRowStyle: ButtonStyle {
             configuration.label
                 .foregroundStyle(tint)
                 .background(alignment: .leading) {
-                    // Drawn at the pill's open geometry, past the row's capsule-wide frame.
+                    // The pill's geometry rule, past the row's capsule-wide frame: full row when
+                    // open, the icon circle when collapsed — so it shrinks WITH the panel's morph
+                    // instead of overhanging the closing panel.
                     Capsule(style: .continuous)
                         .fill(Theme.Palette.glassFaint)
-                        .frame(width: SideMenu.panelWidth - 2 * SideMenu.pillInset,
-                               height: SideMenu.pillHeight)
-                        .offset(x: SideMenu.pillInset)
+                        .frame(width: expanded ? SideMenu.panelWidth - 2 * SideMenu.pillInset
+                                               : SideMenu.pillCircle,
+                               height: expanded ? SideMenu.pillHeight : SideMenu.pillCircle)
+                        .offset(x: expanded ? SideMenu.pillInset
+                                            : (SideMenu.capsuleWidth - SideMenu.pillCircle) / 2)
                         .opacity(selected && expanded && !focused ? 1 : 0)
                 }
                 .opacity(configuration.isPressed ? 0.7 : 1)
