@@ -9,7 +9,8 @@ enum FocusBrowseLayout {
     /// Where titles, the header text and the first tile start, measured inside the shell's content
     /// area — which starts at `SideMenu.footprint` (150) from the screen edge. 30 puts them at 180,
     /// ~50pt clear of the collapsed capsule's right edge (128): the mockup's 170, plus room for a
-    /// focused poster's 1.08 lift.
+    /// focused poster's 1.08 lift. It is also each rail's TRAILING content padding, so changing it
+    /// moves where a rail's last tile stops too.
     static let leadingInset: CGFloat = 30
     /// The fixed preview header, from the top of the safe area to the top of the rail area.
     static let headerHeight: CGFloat = 470

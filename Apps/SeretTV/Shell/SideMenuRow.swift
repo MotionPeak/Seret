@@ -23,11 +23,15 @@ struct SideMenuRow: View {
                     .frame(width: SideMenu.capsuleWidth)
                 SideMenuLabel(text: item.title, expanded: expanded)
             }
-            // Collapsed, the frame is the capsule's width, so a row never reaches over the page.
-            .frame(width: expanded ? SideMenu.panelWidth : SideMenu.capsuleWidth,
+            // ⚠️ The row's FRAME — its focus geometry — is the capsule's width in BOTH states; the
+            // label just draws past it when the panel is open. A panel-wide frame (36–596) put
+            // nearly every page item "under" the row rather than to its right, so RIGHT from a
+            // row whose band met nothing beyond 596 went nowhere: a dead remote on the real
+            // Movies page (Movies row between the genre pills and the first rail). Kept narrow,
+            // the page's focus section (x ≥ 150) is always strictly to the right of every row.
+            .frame(width: SideMenu.capsuleWidth,
                    height: expanded ? SideMenu.rowHeight : SideMenu.collapsedRowHeight,
                    alignment: .leading)
-            .clipped()
         }
         .buttonStyle(SideMenuRowStyle(selected: selected, expanded: expanded))
     }
@@ -74,15 +78,18 @@ struct SideMenuRowStyle: ButtonStyle {
         var body: some View {
             configuration.label
                 .foregroundStyle(tint)
-                .background {
+                .background(alignment: .leading) {
+                    // Drawn at the pill's open geometry, past the row's capsule-wide frame.
                     Capsule(style: .continuous)
-                        .fill(Color.white.opacity(0.08))
-                        .padding(.horizontal, SideMenu.pillInset)
-                        .padding(.vertical, (SideMenu.rowHeight - SideMenu.pillHeight) / 2)
+                        .fill(Theme.Palette.glassFaint)
+                        .frame(width: SideMenu.panelWidth - 2 * SideMenu.pillInset,
+                               height: SideMenu.pillHeight)
+                        .offset(x: SideMenu.pillInset)
                         .opacity(selected && expanded && !focused ? 1 : 0)
                 }
                 .opacity(configuration.isPressed ? 0.7 : 1)
-                .animation(Theme.Anim.focus, value: focused)
+                // The pill's curve, so the tint and the sliding pill arrive together.
+                .animation(Theme.Anim.pill, value: focused)
         }
 
         private var tint: Color {

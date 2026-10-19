@@ -22,6 +22,8 @@ enum Theme {
         static let panelBottom = Color(hex: 0x0A0D15, alpha: 0.97)
         /// Circular buttons and chips at rest.
         static let glass    = Color.white.opacity(0.17)
+        /// A faint resting fill: the side menu's current-page row while the panel is open.
+        static let glassFaint = Color.white.opacity(0.08)
         /// Dividers and resting outlines.
         static let hairline = Color.white.opacity(0.10)
         /// An outline that has to be seen: the current item in a strip, a focused text block, the

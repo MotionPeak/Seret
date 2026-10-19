@@ -6,8 +6,9 @@ import SwiftUI
 /// rounded panel, labels and section headers fade in beside a **fixed** icon column, and a single
 /// white pill slides to the focused row.
 ///
-/// Every row is ONE view in both states and a focus target in both — see `SideMenuRow`. Collapsed,
-/// row frames stay capsule-wide, so the menu never overlaps the page geometrically.
+/// Every row is ONE view in both states and a focus target in both — see `SideMenuRow`. Row frames
+/// stay capsule-wide in BOTH states (labels draw past them when open), so the menu never overlaps
+/// the page geometrically and RIGHT from any row always finds the page.
 ///
 /// The scrim is NOT drawn here — it belongs to the shell, because it has to cover content this
 /// view does not own.
@@ -43,8 +44,10 @@ struct SideMenu: View {
     static let pillHeight: CGFloat = 62
     static let pillInset: CGFloat = 14
 
-    /// The row the pill sits on. Kept at the last focused row while focus is in the page, so when
-    /// focus comes back the pill fades in where it is rather than sliding in from a stale spot.
+    /// The row the pill sits on. While focus is in the page it stays (invisible) on the last focused
+    /// row — moving it then would show as a jump while it fades out. When focus comes back it is
+    /// set UNANIMATED to whichever row focus entered and only fades in there, so it never slides in
+    /// from a stale row. Only moves between rows WITHIN the menu slide.
     @State private var pillItem: SideMenuItem?
 
     private var focusedItem: SideMenuItem? { focus.wrappedValue }
@@ -76,15 +79,24 @@ struct SideMenu: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             .ignoresSafeArea()
             .onAppear { if pillItem == nil { pillItem = focusedItem ?? selected } }
-            .onChange(of: focusedItem) { _, new in
+            .onChange(of: focusedItem) { old, new in
                 guard let new else { return }
-                withAnimation(Theme.Anim.pill) { pillItem = new }
+                if old == nil {
+                    // Focus entering from the page: no slide from wherever the pill was parked.
+                    var entry = Transaction()
+                    entry.disablesAnimations = true
+                    withTransaction(entry) { pillItem = new }
+                } else {
+                    withAnimation(Theme.Anim.pill) { pillItem = new }
+                }
             }
     }
 
     private var column: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Profiles are switched off — the menu starts at Search. See `ProfilesFeature`.
+            // ⚠️ Re-enabling Profiles needs spacing between the avatar row and Search (the old
+            // rail had a 58pt gap); the column has zero spacing, so they would touch.
             if ProfilesFeature.isEnabled {
                 profileRow
             }
@@ -117,7 +129,8 @@ struct SideMenu: View {
         GeometryReader { proxy in
             if let item = pillItem, let anchor = bounds[item] {
                 let rect = proxy[anchor]
-                let width = expanded ? rect.width - 2 * Self.pillInset : Self.pillCircle
+                // Open, the pill spans the panel, not the row: rows keep a capsule-wide frame.
+                let width = expanded ? Self.panelWidth - 2 * Self.pillInset : Self.pillCircle
                 let height = expanded ? Self.pillHeight : Self.pillCircle
                 Capsule(style: .continuous)
                     .fill(Theme.Palette.focus)
@@ -138,10 +151,10 @@ struct SideMenu: View {
                     .frame(width: Self.capsuleWidth)
                 SideMenuLabel(text: profileName, expanded: expanded)
             }
-            .frame(width: expanded ? Self.panelWidth : Self.capsuleWidth,
+            // Capsule-wide in both states, like every row — see `SideMenuRow`.
+            .frame(width: Self.capsuleWidth,
                    height: expanded ? Self.rowHeight + 16 : Self.collapsedRowHeight + 8,
                    alignment: .leading)
-            .clipped()
         }
         .buttonStyle(SideMenuRowStyle(selected: false, expanded: expanded))
         // Bound to the SAME focus state as every other row — without this, focusing the avatar
@@ -206,7 +219,9 @@ private struct SideMenuSectionHeader: View {
                height: expanded ? 44 : 0, alignment: .leading)
         .opacity(expanded ? 1 : 0)
         .clipped()
-        .accessibilityHidden(true)
+        // A heading for VoiceOver when it is on screen; nothing while it is collapsed away.
+        .accessibilityHidden(!expanded)
+        .accessibilityAddTraits(expanded ? .isHeader : [])
     }
 }
 
