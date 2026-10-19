@@ -39,6 +39,10 @@ public final class AppSession {
     /// On-demand TMDB detail provider for the Detail screen (nil while signed out).
     public private(set) var detailsProvider: MediaDetailsProviding?
 
+    /// Logo / backdrop / genre facts for the focus-driven preview header. Built once alongside
+    /// `detailsProvider` and shared by every screen, so its cache outlives page changes.
+    public private(set) var titleArt: TitleArtStore?
+
     /// Loads a person + their filmography. Nil while signed out — the TMDB client is built at
     /// sign-in, like every other provider here.
     public private(set) var personCredits: PersonCreditsProviding?
@@ -225,6 +229,7 @@ public final class AppSession {
         genreBrowsing = nil
         trailers = nil
         detailsProvider = nil
+        titleArt = nil
         ratingsProvider = nil
         letterboxdRatingProvider = nil
         watchStore = nil
@@ -540,7 +545,9 @@ public final class AppSession {
             Task { await store.loadActive() }
             Task { await downloadNotifier.requestAuthorization() }
         }
-        detailsProvider = TMDBDetailsService(client: tmdb)
+        let detailsService = TMDBDetailsService(client: tmdb)
+        detailsProvider = detailsService
+        titleArt = TitleArtStore(details: detailsService)
         personCredits = TMDBPersonService(client: tmdb)
         let omdbKey = Secrets.omdbAPIKey
         ratingsProvider = omdbKey.isEmpty ? nil
