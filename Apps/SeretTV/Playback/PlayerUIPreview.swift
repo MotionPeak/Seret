@@ -41,7 +41,9 @@ import DebridCore
 ///     an expanding icon button, a plain action pill or a poster (see `StyleGalleryPreview`)
 ///   - `plexrails` — a `FocusBrowsePage` with three rails of real TMDB art: the preview header
 ///     (logo, meta, synopsis), the ultrablur backdrop, focus on the first poster. `plexrailsnoart`
-///     starts on a tile with no art at all and a Hebrew title (see `PlexRailsPreview`)
+///     starts (via the page's focus hook) on a mid-rail tile with no art and a Hebrew title;
+///     `plexrailsinsert` starts in the second rail and inserts a rail above it 4 s in (see
+///     `PlexRailsPreview`)
 ///
 /// Not compiled into release builds.
 struct PlayerUIPreview: View {
@@ -85,7 +87,8 @@ struct PlayerUIPreview: View {
         case "stylescard":          StyleGalleryPreview(initialFocus: .poster(1))
         case "stylesplain":         StyleGalleryPreview(initialFocus: .versions)
         case "plexrails":           PlexRailsPreview()
-        case "plexrailsnoart":      PlexRailsPreview(noArtFirst: true)
+        case "plexrailsnoart":      PlexRailsPreview(variant: .noArt)
+        case "plexrailsinsert":     PlexRailsPreview(variant: .insert)
         default:           ScrubBarPreview()
         }
     }

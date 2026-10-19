@@ -86,7 +86,7 @@ private struct PosterTileArt: View {
             }
         }
         .frame(width: PosterTileMetrics.width, height: PosterTileMetrics.height)
-        .overlay { if tile.watched { Color.black.opacity(0.45) } }
+        .overlay { if tile.watched { Theme.Palette.artDim } }
         .overlay(alignment: .bottom) {
             if let progress = tile.progress, progress > 0 {
                 ProgressLine(fraction: progress, height: 6)
@@ -111,7 +111,7 @@ private struct PosterTileArt: View {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 34))
                     .foregroundStyle(Theme.Palette.focus)
-                    .background(Circle().fill(.black.opacity(0.55)))
+                    .background(Circle().fill(Theme.Palette.badgeBacking))
                     .padding(12)
                     .accessibilityLabel("Watched")
             }

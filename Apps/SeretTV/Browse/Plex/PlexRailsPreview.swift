@@ -10,23 +10,33 @@ import SwiftUI
 /// The fixture covers what the header and tiles must cope with: a film with a logo (Whiplash —
 /// the first tile, focused at launch), films and shows without one (the title as text), tiles
 /// with progress and chips, a watched tile, and one title with NOTHING — no poster, no backdrop,
-/// no synopsis, no TMDB match — and a Hebrew name. `-uiPreview plexrailsnoart` puts that one
-/// first, so its header and the canvas fallback are on screen at launch.
+/// no synopsis, no TMDB match — and a Hebrew name.
 ///
-/// The details fake answers after 300ms, so the page's settle (wait for art, then switch once)
-/// is exercised the way a real TMDB round trip exercises it.
+/// - `plexrailsnoart` starts focused ON that tile, mid-rail, through the page's `initialFocus`
+///   hook (not the tvOS top-leading default), so its header and the canvas fallback show at launch.
+/// - `plexrailsinsert` starts in the second rail and, 4 s in, inserts a rail above it — the page
+///   must bring the focused rail back to the top.
+/// - Every tile carries a context menu and an outside `.plexFocusID`, stacked on `PosterTile`;
+///   a long-press menu action is echoed top-right.
+///
+/// The details fake answers after 300ms, so the page's settle (logo budget, late art) is
+/// exercised the way a real TMDB round trip exercises it.
 struct PlexRailsPreview: View {
-    var noArtFirst = false
+    enum Variant { case standard, noArt, insert }
+    var variant = Variant.standard
 
     @State private var preview = FocusPreviewModel()
     @State private var art = TitleArtStore(details: PlexRailsFixture.Details())
+    /// `insert`: a rail that arrives late, ABOVE the focused one.
+    @State private var lateRail = false
+    @State private var log = ""
 
     var body: some View {
-        let continueRail = noArtFirst
-            ? [PlexRailsFixture.hebrew] + PlexRailsFixture.continueWatching.filter { $0 != PlexRailsFixture.hebrew }
-            : PlexRailsFixture.continueWatching
-        FocusBrowsePage(preview: preview, art: art) {
-            rail("Continue Watching", id: "continue", continueRail)
+        FocusBrowsePage(preview: preview, art: art, initialFocus: initialFocus) {
+            if lateRail {
+                rail("Arrived Late", id: "late", Array(PlexRailsFixture.shows.reversed()))
+            }
+            rail("Continue Watching", id: "continue", PlexRailsFixture.continueWatching)
             rail("Recently Added Movies", id: "movies", PlexRailsFixture.movies)
             rail("Recently Added Shows", id: "shows", PlexRailsFixture.shows)
         }
@@ -34,17 +44,57 @@ struct PlexRailsPreview: View {
         .padding(.leading, SideMenu.railWidth)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(CanvasBackground())
-        .onAppear {
-            if let first = continueRail.first { preview.showImmediately(first.subject) }
+        .overlay(alignment: .topTrailing) {
+            // What the context menu did, so a screenshot can prove it fired.
+            if !log.isEmpty {
+                Text(log).font(.seret(22, .semibold)).foregroundStyle(Theme.Palette.onFocus)
+                    .padding(12).background(Theme.Palette.focus, in: Capsule()).padding(40)
+            }
+        }
+        .onAppear { preview.showImmediately(initialSubject) }
+        .task {
+            guard variant == .insert else { return }
+            try? await Task.sleep(for: .seconds(4))
+            lateRail = true      // a plain store update, as rails arriving from a load are
         }
     }
+
+    private var initialFocus: String {
+        switch variant {
+        case .standard: tileID("continue", PlexRailsFixture.continueWatching[0])
+        // Mid-rail, NOT the tvOS default (top-leading) — proves the page's focus hook.
+        case .noArt:    tileID("continue", PlexRailsFixture.hebrew)
+        // In the second rail, so a rail inserted above it has to move the page.
+        case .insert:   tileID("movies", PlexRailsFixture.movies[0])
+        }
+    }
+
+    private var initialSubject: PreviewSubject {
+        switch variant {
+        case .standard: PlexRailsFixture.continueWatching[0].subject
+        case .noArt:    PlexRailsFixture.hebrew.subject
+        case .insert:   PlexRailsFixture.movies[0].subject
+        }
+    }
+
+    private func tileID(_ rail: String, _ entry: PlexRailsFixture.Entry) -> String { "\(rail)/\(entry.id)" }
 
     private func rail(_ title: String, id: String, _ entries: [PlexRailsFixture.Entry]) -> some View {
         PlexRail(title: title, id: id) {
             ForEach(entries) { entry in
                 PosterTile(posterPath: entry.subject.posterPath, title: entry.subject.title,
                            progress: entry.progress, chip: entry.chip, watched: entry.watched,
-                           onFocus: { preview.focus(entry.subject) }, action: {})
+                           onFocus: { preview.focus(entry.subject) }, action: { log = "Played \(entry.subject.title)" })
+                    // Stacked on the tile from outside: the page's focus hook and a context menu.
+                    .plexFocusID(tileID(id, entry))
+                    .contextMenu {
+                        Button("Mark Watched", systemImage: "checkmark.circle") {
+                            log = "Marked \(entry.subject.title) watched"
+                        }
+                        Button("Remove", systemImage: "trash", role: .destructive) {
+                            log = "Removed \(entry.subject.title)"
+                        }
+                    }
             }
         }
     }

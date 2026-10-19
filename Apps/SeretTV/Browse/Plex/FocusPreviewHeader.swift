@@ -11,34 +11,46 @@ import SwiftUI
 struct FocusPreviewHeader: View {
     let subject: PreviewSubject?
     let art: TitleArt?
+    /// Leave the title slot empty for now: the page is giving the logo a moment to arrive, so a
+    /// title does not appear only to be replaced by its logo a beat later. Never longer than the
+    /// page's logo budget; everything else in the header shows regardless.
+    var holdTitle = false
 
     /// Width of the text block, from the mockup.
     static let width: CGFloat = 920
 
+    /// Whether a subject was already on screen. The first one (a page appearing, or
+    /// `showImmediately` onto an empty header) is drawn at once; only a change of subject fades.
+    @State private var hadSubject = false
+
     var body: some View {
         ZStack(alignment: .topLeading) {
             if let subject {
-                PreviewHeaderContent(subject: subject, art: art)
+                PreviewHeaderContent(subject: subject, art: art, holdTitle: holdTitle)
                     .id(subject.id)
-                    .transition(.asymmetric(
-                        insertion: .opacity.combined(with: .offset(y: 8))
-                            .animation(Theme.Anim.previewIn.delay(0.18)),
-                        removal: .opacity.combined(with: .offset(y: 8))
-                            .animation(Theme.Anim.previewOut)))
+                    .transition(hadSubject ? Self.change : .identity)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .onChange(of: subject?.id, initial: true) { _, id in hadSubject = id != nil }
     }
+
+    /// The old text leaves, then the new rises 8pt into place.
+    private static let change = AnyTransition.asymmetric(
+        insertion: .opacity.combined(with: .offset(y: 8)).animation(Theme.Anim.previewIn.delay(0.18)),
+        removal: .opacity.combined(with: .offset(y: 8)).animation(Theme.Anim.previewOut))
 }
 
 private struct PreviewHeaderContent: View {
     let subject: PreviewSubject
     let art: TitleArt?
+    let holdTitle: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             PreviewLogo(title: subject.title,
-                        url: TMDBClient.imageURL(path: art?.logoPath, size: "w500"))
+                        url: TMDBClient.imageURL(path: art?.logoPath, size: "w500"),
+                        holdTitle: holdTitle)
                 .frame(height: 170, alignment: .bottomLeading)
 
             if let episode = subject.episodeLine {
@@ -75,12 +87,14 @@ private struct PreviewHeaderContent: View {
 
 /// The title's logo art, or its name as text until (or unless) the logo can be drawn.
 ///
-/// The text is never left out while a logo loads — an empty header block is worse than a title
-/// that turns into its logo — and the page warms the logo before it switches subjects, so the
-/// usual case finds it in the cache and draws the logo on the first frame.
+/// While a logo is on its way the page may hold the slot empty for a moment (`holdTitle`, at most
+/// its 200ms logo budget, which the header's own fade mostly hides). After that the title shows
+/// as text, and a logo that arrives later cross-fades in over it — an empty header block is worse
+/// than a title that turns into its logo.
 private struct PreviewLogo: View {
     let title: String
     let url: URL?
+    let holdTitle: Bool
 
     @State private var loaded: UIImage?
 
@@ -93,6 +107,8 @@ private struct PreviewLogo: View {
                     .aspectRatio(contentMode: .fit)
                     .frame(maxWidth: 600, maxHeight: 170, alignment: .bottomLeading)
                     .transition(.opacity)
+            } else if holdTitle {
+                Color.clear
             } else {
                 // Leading-aligned and never forced left-to-right: a Hebrew title lays out
                 // right-to-left within its line, as it should.
@@ -111,7 +127,10 @@ private struct PreviewLogo: View {
         .task(id: url) {
             loaded = nil
             guard let url else { return }
-            loaded = await ImageMemoryCache.load(url)
+            let image = await ImageMemoryCache.load(url)
+            // A cancelled load belongs to a url this view no longer shows.
+            guard !Task.isCancelled else { return }
+            loaded = image
         }
     }
 }
@@ -124,7 +143,7 @@ enum PreviewMeta {
         if let year = subject.year { items.append(String(year)) }
         items.append(subject.kind == .movie ? "Movie" : "Series")
         if let vote = art?.voteAverage, vote > 0 {
-            items.append("★ " + vote.formatted(.number.precision(.fractionLength(1))))
+            items.append("★ " + vote.formatted(Self.rating))
         }
         switch subject.kind {
         case .movie:
@@ -140,6 +159,11 @@ enum PreviewMeta {
         items.append(contentsOf: (art?.genres ?? []).prefix(2))
         return items
     }
+
+    /// One decimal, always with a point ("8.4", never "8,4" under a comma-decimal region).
+    private static let rating = FloatingPointFormatStyle<Double>.number
+        .precision(.fractionLength(1))
+        .locale(Locale(identifier: "en_US_POSIX"))
 
     /// The subject's own figure when it has one; otherwise, for a film part-watched, the share of
     /// the runtime still to go.

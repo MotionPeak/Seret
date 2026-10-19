@@ -38,6 +38,12 @@ enum Theme {
         static let onFocus = Color(hex: 0x0B0F17)
         /// The wash behind an open side menu.
         static let scrim   = Color(hex: 0x04070E, alpha: 0.66)
+        /// Laid over a poster to say "finished": a watched tile's dim.
+        static let artDim = Color.black.opacity(0.45)
+        /// The disc behind a badge drawn on artwork (the watched ✓).
+        static let badgeBacking = Color.black.opacity(0.55)
+        /// The near-black a browse page's legibility shade fades from, over the backdrop art.
+        static let shadeInk = Color(hex: 0x080A11)
 
         /// Destructive intent (Remove, Disconnect, Sign Out).
         static let destructive = SeretPalette.destructive

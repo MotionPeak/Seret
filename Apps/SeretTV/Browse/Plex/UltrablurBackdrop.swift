@@ -17,34 +17,32 @@ import UIKit
 /// looks the same and costs a texture.
 ///
 /// **It never flashes while focus glides.** A new title's plate is shown only once its images
-/// are in memory; until then the previous plate stays up, and the switch is a true cross-fade
-/// (the new plate fades in OVER the old one, so the screen never dips to the canvas mid-fade).
-/// A nil path fades to the plain canvas.
+/// are in memory; until then the previous plate stays up. Every plate is its own layer with its
+/// own opacity, keyed by a serial number, and each new one fades in OVER whatever is already
+/// there — so a change that lands mid-fade never restarts or pops the plate below it: that plate
+/// just carries on fading in underneath. A plate is removed only once the one above it has fully
+/// covered it. A nil path is a plate too — plain canvas — so "no art" fades the same way.
 struct UltrablurBackdrop: View {
     let backdropPath: String?
 
-    /// Fully opaque, underneath: the plate the current one is fading in over.
-    @State private var base: String?
-    /// The plate on screen (or fading in).
-    @State private var top: String?
-    /// Covers both plates with the canvas when there is nothing to show.
-    @State private var empty = true
+    /// Bottom to top. Usually one; two or three while fades overlap.
+    @State private var plates: [BackdropPlate] = []
+    @State private var nextSerial = 0
 
     var body: some View {
         ZStack {
             Theme.Palette.canvas
-            if let base {
-                UltrablurPlate(path: base)
-                    .id(base)
-                    .transition(.identity)
+            ForEach(plates) { plate in
+                Group {
+                    if let path = plate.path {
+                        UltrablurPlate(path: path)
+                    } else {
+                        Theme.Palette.canvas
+                    }
+                }
+                // In: fades over what is below. Out: only ever removed once covered, so instantly.
+                .transition(.asymmetric(insertion: .opacity, removal: .identity))
             }
-            if let top {
-                UltrablurPlate(path: top)
-                    .id(top)
-                    // In over the base; out instantly, because by then the base IS this plate.
-                    .transition(.asymmetric(insertion: .opacity, removal: .identity))
-            }
-            Theme.Palette.canvas.opacity(empty ? 1 : 0)
             LegibilityShade()
         }
         .ignoresSafeArea()
@@ -54,42 +52,37 @@ struct UltrablurBackdrop: View {
     }
 
     private func show(_ path: String?) async {
-        guard let path else {
-            withAnimation(Theme.Anim.backdrop) { empty = true }
-            // Drop the plates once the cover is opaque, so the next title fades in from the canvas
-            // rather than through the one before it.
-            try? await Task.sleep(for: .seconds(0.7))
-            guard !Task.isCancelled else { return }
-            base = nil
-            top = nil
-            return
-        }
-        guard path != top || empty else { return }
+        // Already the plate on top (or, for nil, nothing has ever been shown): nothing to do.
+        if let top = plates.last { guard top.path != path else { return } } else if path == nil { return }
         // Hold the current plate until this one can draw — never fade towards an empty layer.
-        await UltrablurPlates.warm(path)
+        if let path { await UltrablurPlates.warm(path) }
         guard !Task.isCancelled else { return }
-        if path == top {
-            // Back to the plate still sitting under the cover: just lift the cover.
-            withAnimation(Theme.Anim.backdrop) { empty = false }
-            return
-        }
-        if empty {
-            // Coming from the canvas: nothing to cross-fade from, so the cover goes at once and the
-            // new plate alone does the fade — two fades stacked would ease in twice as slowly.
+
+        let plate = BackdropPlate(serial: nextSerial, path: path)
+        nextSerial += 1
+        withAnimation(Theme.Anim.backdrop) { plates.append(plate) }
+
+        // Once this plate is fully opaque, everything under it is invisible: drop it. Unstructured
+        // on purpose — a newer path cancels this task, and the plates below must still go.
+        let serial = plate.serial
+        Task { @MainActor in
+            try? await Task.sleep(for: Self.coverDelay)
+            guard let index = plates.firstIndex(where: { $0.serial == serial }), index > 0 else { return }
             var instant = Transaction()
             instant.disablesAnimations = true
-            withTransaction(instant) {
-                base = nil
-                empty = false
-            }
-            withAnimation(Theme.Anim.backdrop) { top = path }
-        } else {
-            withAnimation(Theme.Anim.backdrop) {
-                base = top
-                top = path
-            }
+            withTransaction(instant) { plates.removeFirst(index) }
         }
     }
+
+    /// The backdrop fade plus a margin, so a plate is fully opaque before what it covers goes.
+    private static let coverDelay: Duration = .milliseconds(750)
+}
+
+/// One layer of the backdrop stack: a title's art, or (nil) the plain canvas.
+private struct BackdropPlate: Identifiable {
+    let serial: Int
+    let path: String?
+    var id: Int { serial }
 }
 
 /// One title's two layers. Reads both images from the caches synchronously, so a plate the
@@ -137,7 +130,7 @@ private struct UltrablurPlate: View {
 /// Darkens the leading third and the bottom of the screen so white text and posters always read
 /// over any art. Values from the approved mockup.
 private struct LegibilityShade: View {
-    private static let ink = Color(hex: 0x080A11)
+    private static let ink = Theme.Palette.shadeInk
 
     var body: some View {
         ZStack {
@@ -163,7 +156,8 @@ private struct LegibilityShade: View {
 enum UltrablurPlates {
     private static let washes: NSCache<NSString, UIImage> = {
         let cache = NSCache<NSString, UIImage>()
-        cache.countLimit = 60         // 300×169 bitmaps, ~200 KB each
+        // Costed in decoded bytes like `ImageMemoryCache`, so pressure evicts by real size.
+        cache.totalCostLimit = 16 * 1024 * 1024     // a 300×169 wash is ~200 KB: ~80 titles
         return cache
     }()
     private static var inFlight: [String: Task<UIImage?, Never>] = [:]
@@ -198,7 +192,7 @@ enum UltrablurPlates {
         inFlight[path] = task
         let wash = await task.value
         inFlight[path] = nil
-        if let wash { washes.setObject(wash, forKey: path as NSString) }
+        if let wash { washes.setObject(wash, forKey: path as NSString, cost: ImageMemoryCache.cost(of: wash)) }
         return wash
     }
 }
