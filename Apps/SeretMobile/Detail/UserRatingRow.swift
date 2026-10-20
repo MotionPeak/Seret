@@ -14,20 +14,20 @@ struct UserRatingRow: View {
 
     var body: some View {
         if store.canRate {
-            VStack(alignment: .leading, spacing: Theme.Space.sm) {
-                HStack(spacing: Theme.Space.sm) {
-                    Text("YOUR RATING")
-                        .font(.caption.weight(.semibold)).kerning(1)
-                        .foregroundStyle(Theme.Palette.textSecondary)
+            VStack(alignment: .leading, spacing: Theme.Space.md) {
+                TitleSectionHeader(title: "Your Rating") {
                     if let rating = store.userRating {
-                        Text("\(rating)/10")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(Theme.Palette.textSecondary)
-                        Button("Clear") { Task { await store.rate(nil) } }
-                            .font(.caption).tint(Theme.Palette.textSecondary)
+                        HStack(spacing: Theme.Space.md) {
+                            Text("\(rating)/10")
+                                .font(.system(size: 15, weight: .semibold).monospacedDigit())
+                                .foregroundStyle(Theme.Palette.textPrimary)
+                            Button("Clear") { Task { await store.rate(nil) } }
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(Theme.Palette.textSecondary)
+                        }
                     }
                 }
-                HStack(spacing: 6) {
+                HStack(spacing: 8) {
                     ForEach(1...10, id: \.self) { value in
                         Button {
                             Task { await store.rate(value) }

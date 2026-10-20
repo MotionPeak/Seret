@@ -27,6 +27,9 @@ struct DetailScreen: View {
     /// The EPISODE whose full version list is open. Separate from `versionsHit` because the cover
     /// needs the season and number too, and only one of the two is ever presented.
     @State private var episodeVersions: EpisodeVersionsTarget?
+    /// The page has scrolled past the hero's info: the bar takes the title (and, on iOS 18, its
+    /// frosted background). See `titlePageScroll`.
+    @State private var heroScrolled = false
     @Environment(AppSession.self) private var session
     @Environment(\.dismiss) private var dismiss
 
@@ -46,7 +49,7 @@ struct DetailScreen: View {
         NavigationStack {
             Group {
                 switch store.item.kind {
-                case .movie: MovieDetail(store: store, onPlay: present,
+                case .movie: MovieDetail(store: store, heroScrolled: $heroScrolled, onPlay: present,
                                         onRemoveVersion: { src in
                                             Task {
                                                 await session.libraryStore?.removeVersion(store.item, source: src)
@@ -55,9 +58,10 @@ struct DetailScreen: View {
                                             }
                                         },
                                         onOpenTitle: { similarDetail = $0 },
-                                        onAddTitle: { versionsHit = $0 })
+                                        onAddTitle: { versionsHit = $0 },
+                                        onRemoveTitle: { confirmingRemove = true })
                 case .show:  ShowDetail(
-                                store: store, onPlay: present,
+                                store: store, heroScrolled: $heroScrolled, onPlay: present,
                                 makeSeasonDownload: { imdb, season, lang in
                                     session.makeSeasonDownload(imdbID: imdb, season: season, originalLanguage: lang)
                                 },
@@ -72,6 +76,7 @@ struct DetailScreen: View {
                                 },
                                 onSeasonAdded: { session.libraryStore?.retry() },
                                 onOpenTitle: { similarDetail = $0 },
+                                onRemoveTitle: { confirmingRemove = true },
                                 onFindEpisodeVersions: { hit, season, number in
                                     episodeVersions = EpisodeVersionsTarget(hit: hit, season: season,
                                                                             number: number)
@@ -109,35 +114,45 @@ struct DetailScreen: View {
             .watchlistChangeConfirmation(marks: watchlist, tmdbID: store.item.tmdbID) { outcome in
                 WatchlistChangeBar(outcome: outcome)
             }
+            // The glass navigation bar (g3): a close circle on the left; the page's own ⋯ menu on the
+            // right (each page adds it — its items are the page's). The title arrives only once the
+            // hero's own logo has scrolled away, so the art is never captioned twice.
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button { dismiss() } label: { Image(systemName: "chevron.down").font(.headline) }
+                    Button { dismiss() } label: { ToolbarGlassIcon(systemImage: "chevron.down") }
                         .tint(Theme.Palette.focus)
+                        .accessibilityLabel("Close")
                 }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button(store.inMyList ? "In My List" : "Add to My List",
-                               systemImage: store.inMyList ? "checkmark" : "plus") {
-                            Task { await store.toggleMyList(contentKey: store.item.id) }
-                        }
-                        // Only for a title that has files. On a source-less page (a Watchlist entry,
-                        // a title not yet added) there is nothing to delete from Real-Debrid — and
-                        // "removing" it hid the real library title from Seret for good and wiped
-                        // its history.
-                        if store.isInLibrary {
-                            Button("Remove from Library", systemImage: "trash", role: .destructive) {
-                                confirmingRemove = true
-                            }
-                        }
-                    } label: {
-                        Image(systemName: "ellipsis.circle").font(.headline)
-                    }
-                    .tint(Theme.Palette.focus)
+                ToolbarItem(placement: .principal) {
+                    Text(store.item.title)
+                        .font(.headline)
+                        .foregroundStyle(Theme.Palette.textPrimary)
+                        .lineLimit(1)
+                        .opacity(heroScrolled ? 1 : 0)
+                        .animation(Theme.Motion.fade, value: heroScrolled)
+                        .accessibilityHidden(!heroScrolled)
                 }
             }
-            // No `.toolbarBackground(.hidden)`: hiding it also switched off the bar's scrolled
-            // appearance, so the overview and rails scrolled straight through the chevron and the
-            // title. Automatic stays clear over the hero at rest and frosts once content is under it.
+            .navigationBarTitleDisplayMode(.inline)
+            .titlePageBar()
+            // Once the page is scrolled, a shade fades in under the status bar and the glass bar,
+            // so the text scrolling up never runs through the chevron or the title (audit #4). Ours
+            // on both iOS versions: the page runs under the bar (`ignoresSafeArea`), which keeps
+            // UIKit's own scroll-edge treatment from knowing there is content beneath it.
+            .overlay(alignment: .top) {
+                GeometryReader { geo in
+                    LinearGradient(stops: [.init(color: Theme.Palette.canvas, location: 0),
+                                           .init(color: Theme.Palette.canvas.opacity(0.94), location: 0.7),
+                                           .init(color: Theme.Palette.canvas.opacity(0), location: 1)],
+                                   startPoint: .top, endPoint: .bottom)
+                        .frame(height: geo.safeAreaInsets.top + 78)
+                        .ignoresSafeArea(edges: .top)
+                }
+                .opacity(heroScrolled ? 1 : 0)
+                .animation(Theme.Motion.fade, value: heroScrolled)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+            }
             .confirmationDialog("Remove \u{201C}\(store.item.title)\u{201D} from your library?",
                                 isPresented: $confirmingRemove, titleVisibility: .visible) {
                 Button("Remove", role: .destructive) { performRemove() }
@@ -214,46 +229,29 @@ struct DetailScreen: View {
     }
 }
 
-/// Full-bleed backdrop (or poster fallback) + darkening scrim behind a Detail screen.
-struct DetailBackdrop: View {
-    let path: String?
-    let posterFallback: String?
-
-    var body: some View {
-        Group {
-            if let url = TMDBClient.imageURL(path: path, size: "w1280")
-                ?? TMDBClient.imageURL(path: posterFallback, size: "w780") {
-                RemoteImage(url: url) { Color.black }
-            } else {
-                LinearGradient(colors: [.gray.opacity(0.3), .black], startPoint: .top, endPoint: .bottom)
-            }
-        }
-        .overlay(LinearGradient(stops: [
-            .init(color: .black.opacity(0.25), location: 0.0),
-            .init(color: Theme.Palette.canvas.opacity(0.85), location: 0.6),
-            .init(color: Theme.Palette.canvas, location: 1.0),
-        ], startPoint: .top, endPoint: .bottom))
-        .ignoresSafeArea()
-    }
-}
-
-/// Quality / source / codec chips for a parsed release.
+/// Quality / source / codec chips for a parsed release — as many WHOLE chips as fit, dropping the
+/// least telling first (audio, then codec). Squeezed below their text's width the chips broke one
+/// character per line ("REMU / X").
 struct QualityChipRow: View {
     let parsed: ParsedRelease
     private var chips: [String] {
         [parsed.resolution, parsed.source, parsed.videoCodec, parsed.audioCodec].compactMap { $0 }
     }
     var body: some View {
-        HStack(spacing: 6) {
-            if chips.isEmpty {
-                // No parseable quality metadata — show the release name so the row is never blank
-                // and an odd version stays identifiable.
-                Text(parsed.title)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Theme.Palette.textSecondary)
-                    .lineLimit(1)
-            } else {
-                ForEach(chips, id: \.self) { QualityChip(text: $0) }
+        if chips.isEmpty {
+            // No parseable quality metadata — show the release name so the row is never blank
+            // and an odd version stays identifiable.
+            Text(parsed.title)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Theme.Palette.textSecondary)
+                .lineLimit(1)
+        } else {
+            ViewThatFits(in: .horizontal) {
+                ForEach(Array(stride(from: chips.count, to: 0, by: -1)), id: \.self) { n in
+                    HStack(spacing: 6) {
+                        ForEach(chips.prefix(n), id: \.self) { QualityChip(text: $0).fixedSize() }
+                    }
+                }
             }
         }
     }

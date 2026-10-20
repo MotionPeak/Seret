@@ -2,9 +2,13 @@ import DebridCore
 import DebridUI
 import SwiftUI
 
-/// Movie Detail: backdrop, title + meta, quality chips, Play/Resume, overview, and Versions.
+/// Movie title page (g3): full-bleed art under the glass bar, logo, metadata, chips, a full-width
+/// white Play / Resume, the labelled glass circles (Trailer · Watchlist · Watched · Versions ·
+/// More), the overview, then ratings, your rating, the download section, versions and the rails.
 struct MovieDetail: View {
     let store: DetailStore
+    /// Set as the page scrolls past the hero — the bar takes the title then (see DetailScreen).
+    @Binding var heroScrolled: Bool
     let onPlay: (PlaybackRequest) -> Void
     /// Per-version remove (one MediaSource → one RD torrent). Owner-injected; nil hides the
     /// affordance.
@@ -13,6 +17,8 @@ struct MovieDetail: View {
     /// The parent presents (see `SimilarRail`).
     var onOpenTitle: (MediaItem) -> Void = { _ in }
     var onAddTitle: (SearchHit) -> Void = { _ in }
+    /// "Remove from Library" — the parent confirms and performs it.
+    var onRemoveTitle: () -> Void = {}
     private var item: MediaItem { store.item }
     private var contentKey: String { WatchKey.content(forMovie: item) }
     private var watch: WatchState? { store.watchState(forKey: contentKey) }
@@ -21,70 +27,33 @@ struct MovieDetail: View {
     /// Drives Play on a title that is not in the library: find the best cached release, add it, play.
     @State private var acquisition: AcquisitionStore?
     @Environment(AppSession.self) private var session
+    @Environment(\.horizontalSizeClass) private var hSize
     /// Absent until `DetailScreen` has built it, and absent in previews — the control is then
     /// simply not offered, which beats offering one that does nothing.
     @Environment(WatchlistMarks.self) private var watchlist: WatchlistMarks?
 
+    private var regular: Bool { hSize == .regular }
+
     var body: some View {
         ScrollView {
-            VStack(spacing: 0) {
-                TrailerHero(tmdbID: item.tmdbID, kind: .movie,
-                            backdropPath: store.backdropPath, posterFallback: item.posterPath)
-                VStack(alignment: .leading, spacing: Theme.Space.lg) {
-                Text(item.title).font(Theme.Typo.titleXL()).foregroundStyle(Theme.Palette.textPrimary)
-                Text(metaLine).font(Theme.Typo.body()).foregroundStyle(Theme.Palette.textSecondary)
-                if !store.directors.isEmpty {
-                    CreditNamesRow(label: store.directors.count == 1 ? "Dir." : "Dirs.",
-                                   people: store.directors)
+            VStack(alignment: .leading, spacing: 0) {
+                TitleHero(tmdbID: item.tmdbID, kind: .movie, backdropPath: store.backdropPath,
+                          posterFallback: item.posterPath, regular: regular) {
+                    heroInfo
+                } buttons: { trailer in
+                    heroButtons(trailer)
                 }
-                if let franchise = store.franchise {
-                    Text("Film \(franchise.position) of \(franchise.count)  ·  \(franchise.name)")
-                        .font(Theme.Typo.body()).foregroundStyle(Theme.Palette.textPrimary)
-                }
-                if let best = store.bestSource { QualityChipRow(parsed: best.parsed) }
-                // Its own line: four quality chips already fill an iPhone's width, and anything
-                // beside them — even an invisible placeholder — squeezed them.
-                if let chip = store.hebrewChip {
-                    HebrewBadge(HebrewIndicator(chip: chip), prominent: true)
-                }
-                RatingsRow(ratings: store.ratings, letterboxd: store.letterboxdRating)
-                actions
-                UserRatingRow(store: store)
-                WatchDatesLine(summary: store.watchSummary, since: store.historySince)
-                if case let .failed(message) = acquisition?.phase {
-                    Label(message, systemImage: "exclamationmark.triangle")
-                        .font(Theme.Typo.caption()).foregroundStyle(.orange)
-                }
-                if let tmdb = item.tmdbID, showsDownloadSection(tmdbID: tmdb) {
-                    MovieDownloadSection(tmdbID: tmdb, title: item.title, posterPath: item.posterPath,
-                                         imdbID: store.imdbID, originalLanguage: store.originalLanguage)
-                }
-                if let overview = store.overview {
-                    Text(overview).font(Theme.Typo.body())
-                        .foregroundStyle(Theme.Palette.textSecondary).lineSpacing(3)
-                }
-                versionsSection
-                // Franchise sits above cast: which film in the series this is matters more than
-                // who is in it.
-                if let franchise = store.franchise {
-                    FranchiseRail(franchise: franchise, currentTmdbID: item.tmdbID,
-                                  onOpen: onOpenTitle)
-                }
-                // Gated on non-empty: the rails only appear once TMDB credits land, and they append
-                // BELOW everything else, so they never resize content already on screen.
-                if !store.cast.isEmpty { CastRail(cast: store.cast) }
-                if !store.similar.isEmpty {
-                    SimilarRail(titles: store.similar, parentKind: .movie,
-                                onOpen: onOpenTitle)
-                }
-            }
-            .frame(maxWidth: 700, alignment: .leading)
-            .padding(.horizontal, Theme.Space.lg)
-            .padding(.top, Theme.Space.lg)
-            .padding(.bottom, Theme.Space.xxl)
-            .frame(maxWidth: .infinity, alignment: .leading)
+                sections
+                    .titleColumn(regular: regular)
+                    .padding(.top, regular ? Theme.Space.xxxl : Theme.Space.xxl)
+                rails
+                    .padding(.top, Theme.Space.xxxl)
+                    .padding(.bottom, 48)
             }
         }
+        // The art runs up under the status bar and the glass bar, as g3 draws it.
+        .ignoresSafeArea(edges: .top)
+        .titlePageScroll($heroScrolled)
         // On the ScrollView, not on WatchDatesLine. That view renders NOTHING until the summary it
         // is waiting for arrives, and hanging the load that produces it — plus the version lookup
         // and the acquisition engine — off a view with a conditionally-empty body makes all three
@@ -97,8 +66,13 @@ struct MovieDetail: View {
                                                   originalLanguage: store.originalLanguage)
         }
         .background(CanvasBackground())
-        .navigationTitle(item.title)
-        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu { moreItems } label: { ToolbarGlassIcon(systemImage: "ellipsis") }
+                    .tint(Theme.Palette.focus)
+                    .accessibilityLabel("More")
+            }
+        }
         .onChange(of: acquisition?.phase) { _, phase in
             guard case let .ready(request) = phase else { return }
             session.libraryStore?.reload()     // a new torrent landed in RD
@@ -121,74 +95,94 @@ struct MovieDetail: View {
             }
     }
 
-    private var metaLine: String {
-        var parts: [String] = []
-        if let y = item.year { parts.append(String(y)) }
-        if let r = store.runtime { parts.append("\(r) min") }
-        if let language = store.languageName { parts.append(language) }
-        if !store.genres.isEmpty { parts.append(store.genres.prefix(3).joined(separator: " · ")) }
-        // The director is NOT folded in here any more — it is its own row of tappable names.
-        return parts.joined(separator: "  ·  ")
+    // MARK: Hero
+
+    private var heroInfo: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            TitleLogo(title: item.title, logoPath: store.logoPath,
+                      settling: store.richState == .idle || store.richState == .loading,
+                      maxWidth: regular ? 440 : 320, maxHeight: regular ? 130 : 104,
+                      alignment: .bottomLeading,
+                      font: .system(size: regular ? 48 : 38, weight: .heavy))
+            TitleMetaRow(parts: metaParts)
+            chips
+        }
     }
 
-    /// The action row adapts instead of wrapping. Each button keeps its label on one line
-    /// (`fixedSize`); when the full row is wider than the screen — "Resume · 1:06:22" beside Start
-    /// and Watchlist on an iPhone — the secondary buttons drop to their icons, and at accessibility
-    /// text sizes the primary button takes a row of its own. Before, the HStack squeezed every
-    /// label until it broke one character per line.
-    private var actions: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: Theme.Space.md) {
-                primaryActions(compact: false)
-                watchlistButton(compact: false)
-                Spacer(minLength: 0)
-                watchedMenu()
-            }
-            HStack(spacing: Theme.Space.md) {
-                primaryActions(compact: true)
-                watchlistButton(compact: true)
-                Spacer(minLength: 0)
-                watchedMenu()
-            }
-            VStack(alignment: .leading, spacing: Theme.Space.md) {
-                primaryActions(compact: true, wraps: true)
-                HStack(spacing: Theme.Space.md) {
-                    watchlistButton(compact: true)
-                    Spacer(minLength: 0)
-                    watchedMenu()
+    /// Year, runtime, ★ TMDB score, genres, then the original language.
+    private var metaParts: [String] {
+        var parts: [String] = []
+        if let y = item.year { parts.append(String(y)) }
+        if let r = store.runtime, r > 0 { parts.append(TitleMetaRow.duration(minutes: r)) }
+        if let star = TitleMetaRow.rating(store.voteAverage) { parts.append(star) }
+        if !store.genres.isEmpty { parts.append(store.genres.prefix(2).joined(separator: " · ")) }
+        if let language = store.languageName { parts.append(language) }
+        return parts
+    }
+
+    /// The best version's quality and the title's Hebrew mark (g3: 2160p · HDR · Atmos · Hebrew).
+    @ViewBuilder private var chips: some View {
+        let quality = store.bestSource.map { best in
+            [best.parsed.resolution, best.parsed.source, best.parsed.videoCodec, best.parsed.audioCodec]
+                .compactMap { $0 }
+        } ?? []
+        if !quality.isEmpty || store.hebrewChip != nil {
+            FlowLayout(spacing: Theme.Space.sm) {
+                ForEach(quality, id: \.self) { OutlineChip(text: $0) }
+                if let chip = store.hebrewChip {
+                    HebrewBadge(HebrewIndicator(chip: chip), prominent: true)
                 }
             }
         }
     }
 
-    /// Play / Resume (+ Start over). `compact` shows Start as its icon alone; `wraps` lets the
-    /// primary label break across lines — the last resort, when even its own row is too narrow.
-    @ViewBuilder private func primaryActions(compact: Bool, wraps: Bool = false) -> some View {
-        if let best = store.bestSource {
-            if let resume = resumeSeconds {
-                Button { onPlay(store.playRequest(source: best, episode: nil, label: item.title)) } label: {
-                    Label("Resume · \(Timecode.format(resume))", systemImage: "play.fill")
-                        .fixedSize(horizontal: !wraps, vertical: false)
-                }.buttonStyle(PrimaryPillButtonStyle())
-                Button { onPlay(store.playRequest(source: best, episode: nil, label: item.title, fromStart: true)) } label: {
-                    Label("Start", systemImage: "gobackward")
-                        .labelStyle(AdaptiveLabelStyle(iconOnly: compact))
-                        .fixedSize()
-                }.buttonStyle(GlassPillButtonStyle())
-            } else {
-                Button { onPlay(store.playRequest(source: best, episode: nil, label: item.title)) } label: {
-                    Label("Play", systemImage: "play.fill")
-                        .fixedSize(horizontal: !wraps, vertical: false)
-                }.buttonStyle(PrimaryPillButtonStyle())
+    private func heroButtons(_ trailer: TrailerAction) -> some View {
+        VStack(alignment: .leading, spacing: 20) {
+            playButton
+                .frame(maxWidth: regular ? 380 : .infinity)
+            if case let .failed(message) = acquisition?.phase {
+                Label(message, systemImage: "exclamationmark.triangle")
+                    .font(Theme.Typo.caption()).foregroundStyle(Theme.Palette.textSecondary)
             }
+            TitleActionRow(regular: regular) {
+                GlassActionButton(systemImage: "play.rectangle", title: "Trailer",
+                                  accessibility: "Play Trailer", action: trailer.play)
+                    .disabled(!trailer.isAvailable)
+                watchlistAction
+                GlassActionButton(systemImage: "checkmark", title: "Watched", isOn: isWatched,
+                                  accessibility: isWatched ? "Mark Unwatched" : "Mark Watched") {
+                    Task { await store.setWatched(!isWatched, contentKey: contentKey,
+                                                  source: store.bestSource) }
+                }
+                if let hit = otherVersionsHit {
+                    GlassActionButton(systemImage: "square.stack.3d.up", title: "Versions",
+                                      accessibility: "All Versions") { onAddTitle(hit) }
+                }
+                Menu { moreItems } label: {
+                    GlassActionLabel(systemImage: "ellipsis", title: "More")
+                }
+                .buttonStyle(GlassPressStyle())
+                .accessibilityLabel("More")
+            }
+        }
+    }
+
+    /// Play / Resume, full width. Not in the library: Play still means play — it finds the best
+    /// instantly-available release, adds it, and starts.
+    @ViewBuilder private var playButton: some View {
+        if let best = store.bestSource {
+            Button { onPlay(store.playRequest(source: best, episode: nil, label: item.title)) } label: {
+                Label(resumeSeconds.map { "Resume · \(Timecode.format($0))" } ?? "Play",
+                      systemImage: "play.fill")
+                    .lineLimit(1).minimumScaleFactor(0.8)
+            }
+            .buttonStyle(PrimaryPillButtonStyle(fullWidth: true))
         } else {
-            // Not in the library: Play still means play. It finds the best instantly-available
-            // release, adds it, and starts.
             Button { Task { await acquisition?.playBest(.movie) } } label: {
                 Label(acquiringLabel, systemImage: acquiring ? "hourglass" : "play.fill")
-                    .fixedSize(horizontal: !wraps, vertical: false)
+                    .lineLimit(1).minimumScaleFactor(0.8)
             }
-            .buttonStyle(PrimaryPillButtonStyle())
+            .buttonStyle(PrimaryPillButtonStyle(fullWidth: true))
             // …and until the IMDb id has resolved. The engine cannot query an indexer without it, so
             // tapping earlier failed with "Not signed in to Real-Debrid" — a reason that is not
             // only unhelpful but untrue.
@@ -196,22 +190,43 @@ struct MovieDetail: View {
         }
     }
 
-    /// Films only — Letterboxd has no watchlist a show can go on.
-    // Its own control rather than a line in the "…" menu: it is the one thing you do to a film you
-    // have NOT watched, which is most of what reaches an unowned title.
-    @ViewBuilder private func watchlistButton(compact: Bool) -> some View {
+    /// Films only — Letterboxd has no watchlist a show can go on. Its own circle rather than a line
+    /// in More: it is the one thing you do to a film you have NOT watched, which is most of what
+    /// reaches an unowned title.
+    @ViewBuilder private var watchlistAction: some View {
         if let film = WatchlistFilm(item: item), let watchlist {
             let on = watchlist.contains(tmdbID: film.tmdbID)
-            Button {
+            GlassActionButton(systemImage: on ? "bookmark.fill" : "bookmark", title: "Watchlist",
+                              isOn: on,
+                              accessibility: on ? "Remove from Watchlist" : "Add to Watchlist") {
                 Task { await watchlist.toggle(film: film) }
-            } label: {
-                Label(on ? "On Watchlist" : "Watchlist",
-                      systemImage: on ? "bookmark.fill" : "bookmark")
-                    .labelStyle(AdaptiveLabelStyle(iconOnly: compact))
-                    .fixedSize()
             }
-            .buttonStyle(GlassPillButtonStyle())
             .disabled(watchlist.isInFlight(tmdbID: film.tmdbID))
+        }
+    }
+
+    /// The More menu — the same items from the action row's circle and the bar's ⋯.
+    @ViewBuilder private var moreItems: some View {
+        if let best = store.bestSource, resumeSeconds != nil {
+            Button("Play from Beginning", systemImage: "gobackward") {
+                onPlay(store.playRequest(source: best, episode: nil, label: item.title, fromStart: true))
+            }
+        }
+        Button(store.inMyList ? "In My List" : "Add to My List",
+               systemImage: store.inMyList ? "checkmark" : "plus") {
+            Task { await store.toggleMyList(contentKey: store.item.id) }
+        }
+        if store.preferredSourceKey != nil {
+            Button("Use Best Version Automatically", systemImage: "wand.and.stars") {
+                Task { await store.clearPreferredVersion() }
+            }
+        }
+        // Only for a title that has files. On a source-less page (a Watchlist entry, a title not
+        // yet added) there is nothing to delete from Real-Debrid — and "removing" it hid the real
+        // library title from Seret for good and wiped its history.
+        if store.isInLibrary {
+            Divider()
+            Button("Remove from Library", systemImage: "trash", role: .destructive, action: onRemoveTitle)
         }
     }
 
@@ -231,24 +246,52 @@ struct MovieDetail: View {
         }
     }
 
-    /// A trailing "…" menu holding Mark Watched/Unwatched — off the primary Play path (mirrors the
-    /// tvOS Detail's More menu). Available whether or not you own the title: a title you have not
-    /// added is marked by content key alone.
-    private func watchedMenu() -> some View {
-        Menu {
-            Button {
-                Task { await store.setWatched(!isWatched, contentKey: contentKey,
-                                              source: store.bestSource) }
-            } label: {
-                Label(isWatched ? "Mark Unwatched" : "Mark Watched",
-                      systemImage: isWatched ? "checkmark.circle.fill" : "checkmark.circle")
+    // MARK: Sections
+
+    private var sections: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.xxxl) {
+            VStack(alignment: .leading, spacing: Theme.Space.lg) {
+                if let overview = store.overview, !overview.isEmpty {
+                    ExpandableOverview(text: overview)
+                }
+                if !store.directors.isEmpty {
+                    CreditNamesRow(label: store.directors.count == 1 ? "Director" : "Directors",
+                                   people: store.directors)
+                }
+                if let franchise = store.franchise {
+                    Text("Film \(franchise.position) of \(franchise.count)  ·  \(franchise.name)")
+                        .font(Theme.Typo.body()).foregroundStyle(Theme.Palette.textSecondary)
+                }
+                RatingsRow(ratings: store.ratings, letterboxd: store.letterboxdRating)
+                WatchDatesLine(summary: store.watchSummary, since: store.historySince)
             }
-        } label: {
-            Image(systemName: "ellipsis.circle")
-                .font(.title2).foregroundStyle(Theme.Palette.textPrimary)
-                .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+            UserRatingRow(store: store)
+            if let tmdb = item.tmdbID, showsDownloadSection(tmdbID: tmdb) {
+                MovieDownloadSection(tmdbID: tmdb, title: item.title, posterPath: item.posterPath,
+                                     imdbID: store.imdbID, originalLanguage: store.originalLanguage)
+            }
+            versionsSection
         }
-        .accessibilityLabel("More options")
+    }
+
+    /// The rails run the page's full width (they scroll to the edge), starting on the page margin.
+    private var rails: some View {
+        let margin = TitlePageMetrics.margin(regular: regular)
+        return VStack(alignment: .leading, spacing: Theme.Space.xxxl) {
+            // Franchise sits above cast: which film in the series this is matters more than who
+            // is in it.
+            if let franchise = store.franchise {
+                FranchiseRail(franchise: franchise, currentTmdbID: item.tmdbID,
+                              onOpen: onOpenTitle, margin: margin)
+            }
+            // Gated on non-empty: the rails only appear once TMDB credits land, and they append
+            // BELOW everything else, so they never resize content already on screen.
+            if !store.cast.isEmpty { CastRail(cast: store.cast, margin: margin) }
+            if !store.similar.isEmpty {
+                SimilarRail(titles: store.similar, parentKind: .movie,
+                            onOpen: onOpenTitle, margin: margin)
+            }
+        }
     }
 
     /// The Add flow for this title — it already hosts the full cached/uncached versions browser,
@@ -260,48 +303,55 @@ struct MovieDetail: View {
             posterPath: item.posterPath, overview: nil, voteAverage: nil), kind: .movie)
     }
 
-    private var versionsSection: some View {
-        VStack(alignment: .leading, spacing: Theme.Space.sm) {
-            HStack {
-                // On a title you do not own there is nothing to list yet — the section becomes the
-                // way to GET one, so it stays on the page either way.
-                Text(store.versions.isEmpty ? "GET THIS TITLE" : "VERSIONS")
-                    .font(Theme.Typo.label()).tracking(1.5)
-                    .foregroundStyle(Theme.Palette.textSecondary)
-                Spacer()
-                if let hit = otherVersionsHit {
-                    Button { onAddTitle(hit) } label: {
-                        Label(store.versions.isEmpty ? "Versions" : "Find Other",
-                              systemImage: "square.stack.3d.up")
-                            .font(Theme.Typo.caption())
+    @ViewBuilder private var versionsSection: some View {
+        // On a title you do not own there is nothing to list — the Versions circle is the way to
+        // GET one, so the section only appears once there is something of yours to show.
+        if !store.versions.isEmpty {
+            VStack(alignment: .leading, spacing: Theme.Space.md) {
+                TitleSectionHeader(title: store.versions.count == 1 ? "Your Version" : "Your Versions") {
+                    if let hit = otherVersionsHit {
+                        Button { onAddTitle(hit) } label: {
+                            Label("Find Other", systemImage: "square.stack.3d.up")
+                                .font(.system(size: 15, weight: .semibold))
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(Theme.Palette.textSecondary)
                     }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(Theme.Palette.textPrimary)
                 }
+                ForEach(store.versions, id: \.self) { src in versionRow(src) }
             }
-            ForEach(store.versions, id: \.self) { src in versionRow(src) }
         }
     }
 
     private func versionRow(_ src: MediaSource) -> some View {
         HStack {
             Button { onPlay(store.playRequest(source: src, episode: nil, label: item.title)) } label: {
-                HStack {
+                HStack(spacing: Theme.Space.md) {
                     Image(systemName: store.isActive(src) ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 18))
                         .foregroundStyle(store.isActive(src)
-                                         ? Theme.Palette.focus : Theme.Palette.textSecondary)
+                                         ? Theme.Palette.focus : Theme.Palette.textTertiary)
+                        .accessibilityLabel(store.isActive(src) ? "Plays by default" : "")
                     // The marks on lines of their own: an iPhone row has no room beside four
                     // chips, and this is the one fact about a version that must never be truncated
                     // away. Hebrew inside the file is always in sync, so it goes on top, as in the
                     // Versions list.
-                    VStack(alignment: .leading, spacing: 4) {
+                    VStack(alignment: .leading, spacing: 5) {
                         let hebrew = HebrewIndicator(store.hebrew(for: src))
                         if hebrew == .inFile { HebrewBadge(.inFile) }
                         QualityChipRow(parsed: src.parsed)
                         if hebrew == .matched { HebrewBadge(.matched) }
+                        if let bytes = src.sizeBytes {
+                            Text(ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file))
+                                .font(Theme.Typo.caption()).foregroundStyle(Theme.Palette.textTertiary)
+                        }
                     }
                     Spacer()
-                    Image(systemName: "play.circle.fill").foregroundStyle(Theme.Palette.textPrimary)
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(Theme.Palette.textPrimary)
+                        .frame(width: 36, height: 36)
+                        .background(Theme.Palette.glass, in: Circle())
                 }
                 .contentShape(Rectangle())
             }
@@ -323,15 +373,18 @@ struct MovieDetail: View {
                     }
                 }
             } label: {
-                    Image(systemName: "ellipsis").foregroundStyle(Theme.Palette.textSecondary)
-                        .padding(.leading, Theme.Space.sm)
-                        .frame(minWidth: 30, minHeight: 30)
-                        .contentShape(Rectangle())
-                }
+                Image(systemName: "ellipsis").foregroundStyle(Theme.Palette.textSecondary)
+                    .frame(minWidth: 36, minHeight: 36)
+                    .contentShape(Rectangle())
+            }
             .menuStyle(.borderlessButton)
+            .accessibilityLabel("Version Options")
         }
         .padding(Theme.Space.md)
-        .background(Theme.Palette.surface2, in: RoundedRectangle(cornerRadius: Theme.Radius.chip))
+        .background(Theme.Palette.glassFaint,
+                    in: RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
+            .strokeBorder(Theme.Palette.hairline))
     }
 
     private var resumeSeconds: Double? {

@@ -15,7 +15,7 @@ struct RatingsRow: View {
 
     var body: some View {
         if ratings?.hasAny == true || letterboxd != nil {
-            HStack(spacing: Theme.Space.sm) {
+            FlowLayout(spacing: Theme.Space.sm) {
                 if let r = ratings {
                     if let imdb = r.imdb {
                         chip {
@@ -66,8 +66,8 @@ struct RatingsRow: View {
 
     private func chip<C: View>(@ViewBuilder _ content: () -> C) -> some View {
         HStack(spacing: 6) { content() }
-            .padding(.vertical, 5).padding(.horizontal, 9)
-            .background(Theme.Palette.surface2, in: Capsule())
+            .padding(.vertical, 6).padding(.horizontal, 10)
+            .background(Theme.Palette.glassFaint, in: Capsule())
             .overlay(Capsule().strokeBorder(Theme.Palette.hairline))
     }
 

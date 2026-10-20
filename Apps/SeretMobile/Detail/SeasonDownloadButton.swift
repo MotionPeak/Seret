@@ -52,7 +52,7 @@ struct SeasonDownloadButton: View {
                         .font(Theme.Typo.body()).foregroundStyle(Theme.Palette.textSecondary)
                 }
             case .added:
-                row("Whole season added to your library", system: "checkmark.circle.fill", tint: .green)
+                row("Whole season added to your library", system: "checkmark.circle.fill", tint: Theme.Palette.textPrimary)
             case .addFailed(let msg):
                 row(msg, system: "exclamationmark.triangle", tint: .orange)
             case .failed:

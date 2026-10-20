@@ -1,3 +1,4 @@
+import AVKit
 import DebridCore
 import DebridUI
 import SwiftUI
@@ -8,7 +9,8 @@ import SwiftUI
 struct PlayerView: View {
     @State private var model: PlayerModel
     @State private var engine: VLCKitVideoPlayerEngine
-    @State private var showSettings = false
+    /// The settings panel, and which of its sections it opens on (Subtitles / Audio pills).
+    @State private var settingsFocus: PlayerSettingsSection?
     @State private var dragOffset: CGFloat = 0          // interactive pull-down-to-dismiss
     @State private var showsMidPlaySpinner = false      // see `midPlaySpinner`
     @Environment(\.scenePhase) private var scenePhase
@@ -21,8 +23,11 @@ struct PlayerView: View {
 
     init(model: PlayerModel, engine: VLCKitVideoPlayerEngine, backdropURL: URL?,
          pushSignal: LetterboxdPushSignal? = nil, filmRating: FinishedFilmRating? = nil,
+         settingsFocus: PlayerSettingsSection? = nil,
          onExit: @escaping () -> Void) {
         _model = State(initialValue: model)
+        // A harness can open on the panel; the app never passes one.
+        _settingsFocus = State(initialValue: settingsFocus)
         _engine = State(initialValue: engine)
         self.backdropURL = backdropURL
         self.pushSignal = pushSignal
@@ -105,7 +110,9 @@ struct PlayerView: View {
         }
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
-        .sheet(isPresented: $showSettings) { PlayerSettingsSheet(model: model) }
+        // Held open while the panel is up: it is anchored to the pills, and controls that faded
+        // away under it took its anchor — and, on iPad, the popover — with them.
+        .onChange(of: settingsFocus) { _, focus in model.holdControls(focus != nil) }
         .animation(.easeInOut(duration: 0.2), value: model.controlsVisible)
         .animation(.easeInOut(duration: 0.25), value: model.upNextVisible)
         .animation(.easeInOut(duration: 0.2), value: model.autoSyncBanner)
@@ -135,14 +142,8 @@ struct PlayerView: View {
             // A visible way out. The overlay replaces the transport (and its chevron), so a link
             // that never opens left only the undiscoverable pull-down for up to 30 seconds.
             .overlay(alignment: .topLeading) {
-                Button(action: onExit) {
-                    Image(systemName: "chevron.down").font(.title3.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: 44, height: 44)
-                        .background(.black.opacity(0.35), in: Circle())
-                }
-                .padding(.leading, 16).padding(.top, 8)
-                .accessibilityLabel("Close")
+                GlassCircleButton(systemImage: "chevron.down", label: "Close", action: onExit)
+                    .padding(.leading, 16).padding(.top, 8)
             }
     }
 
@@ -224,8 +225,8 @@ struct PlayerView: View {
         }
         .foregroundStyle(.white)
         .padding(.horizontal, 22).padding(.vertical, 16)
-        .background(.black.opacity(0.55), in: Capsule())
-        .overlay(Capsule().strokeBorder(.white.opacity(0.12)))
+        .background(.black.opacity(0.25), in: Capsule())
+        .seretGlass(in: Capsule(), interactive: false)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: forward ? .trailing : .leading)
         .padding(forward ? .trailing : .leading, 56)
     }
@@ -252,55 +253,70 @@ struct PlayerView: View {
             }
         }
         .padding(.horizontal, 18).padding(.vertical, 12)
-        .background(.black.opacity(0.78), in: RoundedRectangle(cornerRadius: 16))
-        .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(.white.opacity(0.12)))
+        .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .seretGlass(in: RoundedRectangle(cornerRadius: 20, style: .continuous), interactive: false)
         .padding(.horizontal, 24)
-        .padding(.bottom, 92)        // sit above the scrub bar when controls are up
+        // Above the scrub bar and the pills when the controls are up.
+        .padding(.bottom, model.controlsVisible ? 150 : 28)
     }
 
     /// Three independently-anchored layers so expanding the episode strip only grows the bottom
     /// cluster upward — it never yanks the centered play controls or the top bar around (the old
     /// single-VStack shared its Spacers with the strip, which made the whole thing jump).
+    ///
+    /// The look is g6: title and year top-left, glass ⏪ ⏯ ⏩ in the middle, a thin white scrub bar
+    /// between the times, and a row of glass pills — Subtitles, Audio, Speed, AirPlay — under it.
     private var transport: some View {
         ZStack {
             VStack(spacing: 0) { topBar; Spacer(minLength: 0) }              // top bar pinned to top
             centerControls                                                  // stays dead-center
-            VStack(spacing: 0) { Spacer(minLength: 0); scrubber; EpisodePeekStrip(model: model) }
+            VStack(spacing: 14) {
+                Spacer(minLength: 0)
+                scrubber
+                controlPills
+                EpisodePeekStrip(model: model)
+            }
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, 24)
         .padding(.vertical, 16)
         .foregroundStyle(.white)
     }
 
     private var topBar: some View {
-        HStack {
-            Button { onExit() } label: {
-                Image(systemName: "chevron.down").font(.title3.weight(.semibold))
-                    .frame(width: 44, height: 44)            // generous hit target — taps can't fall
-                    .contentShape(Rectangle())               // through to the gesture layer below
+        let lines = model.titleLines
+        return HStack(alignment: .top, spacing: Theme.Space.lg) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(lines.title)
+                    .font(.system(size: 26, weight: .bold))
+                    .lineLimit(1).minimumScaleFactor(0.7)
+                if !lines.subtitle.isEmpty {
+                    Text(lines.subtitle)
+                        .font(.system(size: 15, weight: .medium).monospacedDigit())
+                        .foregroundStyle(.white.opacity(0.72))
+                        .lineLimit(1)
+                }
             }
-            Spacer()
-            Text(model.label).font(.headline).lineLimit(1)
-            Spacer()
-            Button { showSettings = true } label: {
-                Image(systemName: "slider.horizontal.3").font(.title3)
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
-            }
+            .shadow(color: .black.opacity(0.45), radius: 8)
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isHeader)
+            Spacer(minLength: Theme.Space.md)
+            GlassCircleButton(systemImage: "chevron.down", label: "Close Player", action: onExit)
         }
     }
 
     private var centerControls: some View {
-        HStack(spacing: 48) {
-            Button { model.skip(-10); model.showControls() } label: {
-                Image(systemName: "gobackward.10").font(.system(size: 34))
-            }
-            Button { model.togglePlayPause() } label: {
-                Image(systemName: model.phase == .playing ? "pause.fill" : "play.fill")
-                    .font(.system(size: 50))
-            }
-            Button { model.skip(10); model.showControls() } label: {
-                Image(systemName: "goforward.10").font(.system(size: 34))
+        GlassGroup(spacing: 10) {
+            HStack(spacing: 36) {
+                GlassCircleButton(systemImage: "gobackward.10", label: "Back 10 Seconds", size: 62) {
+                    model.skip(-10); model.showControls()
+                }
+                GlassCircleButton(systemImage: model.phase == .playing ? "pause.fill" : "play.fill",
+                                  label: model.phase == .playing ? "Pause" : "Play", size: 80) {
+                    model.togglePlayPause()
+                }
+                GlassCircleButton(systemImage: "goforward.10", label: "Forward 10 Seconds", size: 62) {
+                    model.skip(10); model.showControls()
+                }
             }
         }
     }
@@ -308,26 +324,99 @@ struct PlayerView: View {
     private var scrubber: some View {
         let shown = model.isScrubbing ? model.scrubTarget : model.position
         let frac = model.duration > 0 ? min(1, max(0, shown / model.duration)) : 0
-        return VStack(spacing: 6) {
+        let remaining = max(0, model.duration - shown)
+        return HStack(spacing: 14) {
+            Text(Timecode.format(shown))
+                .font(.system(size: 15, weight: .semibold).monospacedDigit())
+                .accessibilityHidden(true)
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
-                    Capsule().fill(.white.opacity(0.25)).frame(height: 4)
+                    Capsule().fill(Theme.Palette.track).frame(height: 4)
                     Capsule().fill(Theme.Palette.focus).frame(width: geo.size.width * frac, height: 4)
                     Circle().fill(.white)
-                        .frame(width: model.isScrubbing ? 20 : 14, height: model.isScrubbing ? 20 : 14)
-                        .offset(x: min(geo.size.width - 14, max(-2, geo.size.width * frac - 7)))
+                        .frame(width: model.isScrubbing ? 22 : 16, height: model.isScrubbing ? 22 : 16)
+                        .shadow(color: .black.opacity(0.3), radius: 3)
+                        .offset(x: min(geo.size.width - 16, max(-2, geo.size.width * frac - 8)))
                 }
                 .frame(maxHeight: .infinity, alignment: .center)
                 .contentShape(Rectangle())
                 .gesture(scrubGesture(width: geo.size.width))
             }
-            .frame(height: 28)
-            HStack {
-                Text(Timecode.format(shown)).font(.caption.monospacedDigit())
-                Spacer()
-                Text("-" + Timecode.format(max(0, model.duration - shown))).font(.caption.monospacedDigit())
+            .frame(height: 32)
+            // One adjustable control for VoiceOver: swipe up / down moves ten seconds, the value
+            // reads where the film is. It was a bare drag area before (audit).
+            .accessibilityElement()
+            .accessibilityLabel("Playback Position")
+            .accessibilityValue("\(Timecode.format(shown)) of \(Timecode.format(model.duration))")
+            .accessibilityAdjustableAction { direction in
+                switch direction {
+                case .increment: model.skip(10); model.showControls()
+                case .decrement: model.skip(-10); model.showControls()
+                @unknown default: break
+                }
+            }
+            Text("-" + Timecode.format(remaining))
+                .font(.system(size: 15, weight: .semibold).monospacedDigit())
+                .accessibilityHidden(true)
+        }
+    }
+
+    /// Subtitles · Audio · Speed · AirPlay. Subtitles and Audio open the playback panel on their
+    /// own section (a sheet on iPhone, a popover over the pills on iPad); Speed is a menu of its
+    /// own. Icons alone when a portrait iPhone cannot fit the words.
+    private var controlPills: some View {
+        ViewThatFits(in: .horizontal) {
+            pillRow(titles: true)
+            pillRow(titles: false)
+        }
+        // Anchored to the pills themselves (not the row's full width), so the iPad popover's arrow
+        // points at them.
+        .popover(item: $settingsFocus, attachmentAnchor: .rect(.bounds), arrowEdge: .bottom) { focus in
+            PlayerSettingsSheet(model: model, focus: focus)
+                .frame(minWidth: 380, idealWidth: 440, minHeight: 440, idealHeight: 620)
+                .presentationCompactAdaptation(.sheet)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func pillRow(titles: Bool) -> some View {
+        GlassGroup(spacing: 8) {
+            HStack(spacing: 12) {
+                Button { settingsFocus = .subtitles } label: {
+                    PlayerPillLabel(title: "Subtitles", systemImage: "captions.bubble", showsTitle: titles)
+                }
+                .buttonStyle(GlassPressStyle())
+                .accessibilityLabel("Subtitles")
+                Button { settingsFocus = .audio } label: {
+                    PlayerPillLabel(title: "Audio", systemImage: "speaker.wave.2", showsTitle: titles)
+                }
+                .buttonStyle(GlassPressStyle())
+                .accessibilityLabel("Audio and Volume")
+                Menu {
+                    Picker("Playback Speed", selection: Binding(get: { model.playbackSpeed },
+                                                               set: { model.setPlaybackSpeed($0) })) {
+                        ForEach(PlayerSettingsSheet.speeds, id: \.value) { Text($0.label).tag($0.value) }
+                    }
+                } label: {
+                    PlayerPillLabel(title: Self.speedLabel(model.playbackSpeed), systemImage: nil,
+                                    showsTitle: true)
+                }
+                .buttonStyle(GlassPressStyle())
+                .accessibilityLabel("Playback Speed")
+                .accessibilityValue(Self.speedLabel(model.playbackSpeed))
+                // Audio only: VLCKit draws the picture itself, so AirPlay cannot take the video —
+                // what this does is send the SOUND to AirPods, a HomePod or an AirPlay speaker.
+                AirPlayAudioPicker()
+                    .frame(width: 46, height: 46)
+                    .padding(.horizontal, 4)
+                    .seretGlass(in: Capsule())
+                    .accessibilityLabel("Audio Output")
             }
         }
+    }
+
+    static func speedLabel(_ speed: Double) -> String {
+        speed == 1 ? "1×" : String(format: "%g×", speed)
     }
 
     private func scrubGesture(width: CGFloat) -> some Gesture {
@@ -484,4 +573,43 @@ struct AutoSyncBar: View {
         case .failed:    .orange
         }
     }
+}
+
+/// A pill's face in the player: glass capsule, white icon and title (g6).
+struct PlayerPillLabel: View {
+    let title: String
+    let systemImage: String?
+    var showsTitle = true
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if let systemImage {
+                Image(systemName: systemImage).font(.system(size: 16, weight: .semibold))
+            }
+            if showsTitle || systemImage == nil {
+                Text(title).font(.system(size: 16, weight: .semibold)).monospacedDigit()
+            }
+        }
+        .foregroundStyle(.white)
+        .lineLimit(1)
+        .fixedSize()
+        .frame(minWidth: 22, minHeight: 22)
+        .padding(.vertical, 12).padding(.horizontal, showsTitle ? 20 : 14)
+        .contentShape(Capsule())
+        .seretGlass(in: Capsule())
+    }
+}
+
+/// The system route picker, white on clear, preferring audio routes — see where it is used.
+struct AirPlayAudioPicker: UIViewRepresentable {
+    func makeUIView(context: Context) -> AVRoutePickerView {
+        let view = AVRoutePickerView()
+        view.prioritizesVideoDevices = false
+        view.tintColor = .white
+        view.activeTintColor = .white
+        view.backgroundColor = .clear
+        return view
+    }
+
+    func updateUIView(_ uiView: AVRoutePickerView, context: Context) {}
 }

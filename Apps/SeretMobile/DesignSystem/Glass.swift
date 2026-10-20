@@ -129,6 +129,78 @@ struct GlassCircleButton: View {
     }
 }
 
+/// A glass circle with its name under it — the title page's action row (Trailer, Watchlist,
+/// Watched, Versions, More), as g3 draws it. The label only, so it can sit inside a `Menu` as well
+/// as a `Button`. `isOn` fills the circle white (a film on the watchlist, a watched film): white is
+/// the one highlight colour, so "on" never needs a second hue.
+struct GlassActionLabel: View {
+    let systemImage: String
+    let title: String
+    var isOn = false
+    var size: CGFloat = 52
+    @Environment(\.isEnabled) private var isEnabled
+
+    var body: some View {
+        VStack(spacing: 7) {
+            circle
+            Text(title)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Theme.Palette.textSecondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+        }
+        .frame(minWidth: size + 12)
+        .opacity(isEnabled ? 1 : 0.4)
+        .contentShape(Rectangle())
+    }
+
+    @ViewBuilder private var circle: some View {
+        let glyph = Image(systemName: systemImage)
+            .font(.system(size: size * 0.36, weight: .semibold))
+            .frame(width: size, height: size)
+        if isOn {
+            glyph.foregroundStyle(Theme.Palette.onFocus)
+                .background(Theme.Palette.focus, in: Circle())
+        } else {
+            glyph.foregroundStyle(Theme.Palette.textPrimary)
+                .seretGlass(in: Circle())
+        }
+    }
+}
+
+/// `GlassActionLabel` as a button. `title` is what VoiceOver reads, unless `accessibility` says
+/// more ("Mark Watched" rather than "Watched").
+struct GlassActionButton: View {
+    let systemImage: String
+    let title: String
+    var isOn = false
+    var accessibility: String?
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            GlassActionLabel(systemImage: systemImage, title: title, isOn: isOn)
+        }
+        .buttonStyle(GlassPressStyle())
+        .accessibilityLabel(accessibility ?? title)
+        .accessibilityAddTraits(isOn ? .isSelected : [])
+    }
+}
+
+/// A navigation-bar icon. iOS 26 draws every bar button on Liquid Glass itself, so a glass circle
+/// of our own would be glass on glass; iOS 18 gets the toolkit's circle.
+struct ToolbarGlassIcon: View {
+    let systemImage: String
+
+    var body: some View {
+        if #available(iOS 26, *), !GlassSupport.forceFallback {
+            Image(systemName: systemImage).font(.system(size: 17, weight: .semibold))
+        } else {
+            GlassCircleLabel(systemImage: systemImage, size: 38)
+        }
+    }
+}
+
 // MARK: - Pills
 
 /// A glass capsule with an icon and a title (Subtitles, Audio, Trailer…).

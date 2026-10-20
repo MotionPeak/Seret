@@ -2,12 +2,16 @@ import DebridCore
 import DebridUI
 import SwiftUI
 
-/// Show Detail: backdrop, title + meta, overview, Play-next, an all-seasons picker, and the full
-/// episode list for the selected season. Every TMDB episode is shown — downloaded ones play, the
-/// rest say "Not downloaded" and download-then-play on tap.
+/// Show title page (g3, as the movie page): full-bleed art under the glass bar, logo, metadata,
+/// Play / Resume the next episode, the labelled glass circles, an expandable overview, ratings,
+/// your rating, then the seasons and the FULL episode list for the selected season — downloaded
+/// episodes play, the rest say "Not downloaded" and download-then-play on tap — and the rails.
 struct ShowDetail: View {
     @Environment(AppSession.self) private var session
+    @Environment(\.horizontalSizeClass) private var hSize
     let store: DetailStore
+    /// Set as the page scrolls past the hero — the bar takes the title then (see DetailScreen).
+    @Binding var heroScrolled: Bool
     let onPlay: (PlaybackRequest) -> Void
     /// Builds a whole-season download engine for (imdbID, season, originalLanguage); injected so the
     /// view stays buildable without an AppSession. Returns nil when Stage 2 is unavailable.
@@ -18,6 +22,8 @@ struct ShowDetail: View {
     /// A "More Like This" poster was tapped — open that title's page, owned or not.
     /// The parent presents (see `SimilarRail`).
     var onOpenTitle: (MediaItem) -> Void = { _ in }
+    /// "Remove from Library" — the parent confirms and performs it.
+    var onRemoveTitle: () -> Void = {}
     /// Open the version list for ONE episode — the episode equivalent of a movie's "Versions".
     var onFindEpisodeVersions: (SearchHit, Int, Int) -> Void = { _, _, _ in }
     @State private var seasonStore: AddStore?
@@ -32,56 +38,49 @@ struct ShowDetail: View {
     @State private var acquisition: AcquisitionStore?
     @State private var showingMagnet = false
     private var item: MediaItem { store.item }
+    private var regular: Bool { hSize == .regular }
 
     /// Re-keys the season-pack lookup whenever the resolved imdbID or selected season changes.
     private var seasonDownloadKey: String { "\(store.imdbID ?? "")#\(store.selectedSeason)" }
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 0) {
-                TrailerHero(tmdbID: item.tmdbID, kind: .show,
-                            backdropPath: store.backdropPath, posterFallback: item.posterPath)
-                VStack(alignment: .leading, spacing: Theme.Space.lg) {
-                Text(item.title).font(Theme.Typo.titleXL()).foregroundStyle(Theme.Palette.textPrimary)
-                Text(metaLine).font(Theme.Typo.body()).foregroundStyle(Theme.Palette.textSecondary)
-                if !store.creatorRefs.isEmpty {
-                    CreditNamesRow(label: "By", people: store.creatorRefs)
+            VStack(alignment: .leading, spacing: 0) {
+                TitleHero(tmdbID: item.tmdbID, kind: .show, backdropPath: store.backdropPath,
+                          posterFallback: item.posterPath, regular: regular) {
+                    heroInfo
+                } buttons: { trailer in
+                    heroButtons(trailer)
                 }
-                RatingsRow(ratings: store.ratings)
-                if let overview = store.overview {
-                    Text(overview).font(Theme.Typo.body())
-                        .foregroundStyle(Theme.Palette.textSecondary).lineLimit(4)
-                }
-                heroAction
-                UserRatingRow(store: store)
-                WatchDatesLine(summary: store.watchSummary, since: store.historySince)
-                seasonPicker
-                markSeasonButton
-                SeasonDownloadButton(store: seasonStore, onAdded: onSeasonAdded,
-                                     showTmdbID: store.item.tmdbID,
-                                     season: store.selectedSeason,
-                                     showTitle: store.item.title,
-                                     posterPath: store.item.posterPath)
-                magnetButton
-                episodeList
-                // Gated on non-empty: the rails only appear once TMDB credits land, and they append
-                // BELOW everything else, so they never resize content already on screen.
-                if !store.cast.isEmpty { CastRail(cast: store.cast) }
-                if !store.similar.isEmpty {
-                    SimilarRail(titles: store.similar, parentKind: .show,
-                                onOpen: onOpenTitle)
-                }
-            }
-            .frame(maxWidth: 700, alignment: .leading)
-            .frame(maxWidth: .infinity)            // center the readable column (no left-edge cropping on iPad)
-            .padding(.horizontal, Theme.Space.lg)
-            .padding(.top, Theme.Space.lg)
-            .padding(.bottom, Theme.Space.xxl)
+                sections
+                    .titleColumn(regular: regular)
+                    .padding(.top, regular ? Theme.Space.xxxl : Theme.Space.xxl)
+                rails
+                    .padding(.top, Theme.Space.xxxl)
+                    .padding(.bottom, 48)
             }
         }
+        // The art runs up under the status bar and the glass bar, as g3 draws it.
+        .ignoresSafeArea(edges: .top)
+        .titlePageScroll($heroScrolled)
         .background(CanvasBackground())
-        .navigationTitle(item.title)
-        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu { moreItems } label: { ToolbarGlassIcon(systemImage: "ellipsis") }
+                    .tint(Theme.Palette.focus)
+                    .accessibilityLabel("More")
+            }
+        }
+        .sheet(isPresented: $showingMagnet) {
+            if let tmdb = item.tmdbID {
+                MagnetAddSheet(target: .init(
+                    contentKey: DownloadKey.season(showTmdbID: tmdb, season: store.selectedSeason),
+                    tmdbID: tmdb,
+                    title: "\(item.title) Season \(store.selectedSeason)",
+                    kind: .show, posterPath: item.posterPath))
+                    .environment(session)
+            }
+        }
         .alert("Couldn\u{2019}t Play Episode", isPresented: Binding(
             get: { episodeError != nil }, set: { if !$0 { episodeError = nil } })) {
             Button("OK", role: .cancel) { episodeError = nil }
@@ -119,58 +118,125 @@ struct ShowDetail: View {
         }
     }
 
-    private var metaLine: String {
-        var parts: [String] = []
-        if let y = item.year { parts.append(String(y)) }
-        if let language = store.languageName { parts.append(language) }
-        if !store.genres.isEmpty { parts.append(store.genres.prefix(3).joined(separator: " · ")) }
-        let n = store.allSeasons.count
-        parts.append("\(n) Season\(n == 1 ? "" : "s")")
-        // Creators are NOT folded in here any more — they are their own row of tappable names.
-        return parts.joined(separator: "  ·  ")
+    // MARK: Hero
+
+    private var heroInfo: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            TitleLogo(title: item.title, logoPath: store.logoPath,
+                      settling: store.richState == .idle || store.richState == .loading,
+                      maxWidth: regular ? 440 : 320, maxHeight: regular ? 130 : 104,
+                      alignment: .bottomLeading,
+                      font: .system(size: regular ? 48 : 38, weight: .heavy))
+            TitleMetaRow(parts: metaParts)
+        }
     }
 
-    @ViewBuilder private var heroAction: some View {
-        HStack(spacing: Theme.Space.md) {
-            if let next = store.nextEpisode() {
-                let resume = store.watchState(forKey: WatchKey.content(forShow: item, episode: next))
-                    .flatMap { $0.resumePosition }
-                Button {
-                    onPlay(store.playRequest(source: next.source, episode: next,
-                                             label: "\(item.title) — S\(next.season)·E\(next.number)"))
-                } label: {
-                    Label(resume != nil ? "Resume S\(next.season)·E\(next.number)"
-                                        : "Play S\(next.season)·E\(next.number)",
-                          systemImage: "play.fill")
+    /// Year, seasons, ★ TMDB score, genres, then the original language.
+    private var metaParts: [String] {
+        var parts: [String] = []
+        if let y = item.year { parts.append(String(y)) }
+        let n = store.allSeasons.count
+        if n > 0 { parts.append("\(n) Season\(n == 1 ? "" : "s")") }
+        if let star = TitleMetaRow.rating(store.voteAverage) { parts.append(star) }
+        if !store.genres.isEmpty { parts.append(store.genres.prefix(2).joined(separator: " · ")) }
+        if let language = store.languageName { parts.append(language) }
+        return parts
+    }
+
+    private func heroButtons(_ trailer: TrailerAction) -> some View {
+        VStack(alignment: .leading, spacing: 20) {
+            playButton
+                .frame(maxWidth: regular ? 380 : .infinity)
+            TitleActionRow(regular: regular) {
+                GlassActionButton(systemImage: "play.rectangle", title: "Trailer",
+                                  accessibility: "Play Trailer", action: trailer.play)
+                    .disabled(!trailer.isAvailable)
+                GlassActionButton(systemImage: store.inMyList ? "checkmark" : "plus", title: "My List",
+                                  isOn: store.inMyList,
+                                  accessibility: store.inMyList ? "Remove from My List" : "Add to My List") {
+                    Task { await store.toggleMyList(contentKey: store.item.id) }
                 }
-                .buttonStyle(PrimaryPillButtonStyle())
-                // The film page has offered this all along; an episode part-way through could only
-                // be started over by dragging the player's bar back to 0:00.
-                if resume != nil {
-                    Button {
-                        onPlay(store.playRequest(source: next.source, episode: next,
-                                                 label: "\(item.title) — S\(next.season)·E\(next.number)",
-                                                 fromStart: true))
-                    } label: {
-                        Label("Start", systemImage: "gobackward")
+                if store.hasOwnedEpisodes(inSeason: store.selectedSeason) {
+                    let watched = store.isSeasonWatched(store.selectedSeason)
+                    GlassActionButton(systemImage: "checkmark", title: "Watched", isOn: watched,
+                                      accessibility: watched
+                                        ? "Mark \(SeasonOrder.label(store.selectedSeason)) Unwatched"
+                                        : "Mark \(SeasonOrder.label(store.selectedSeason)) Watched") {
+                        Task { await store.setSeasonWatched(!watched, season: store.selectedSeason) }
                     }
-                    .buttonStyle(GlassPillButtonStyle())
                 }
-            } else if let target = store.nextEpisodeTarget() {
-                // Nothing downloaded yet — Play still starts the show.
-                Button {
-                    playEpisode(season: target.season, number: target.number,
-                                id: "s\(target.season)e\(target.number)")
-                } label: {
-                    Label(acquiring ? "Finding…" : "Play S\(target.season)·E\(target.number)",
-                          systemImage: acquiring ? "hourglass" : "play.fill")
+                Menu { moreItems } label: {
+                    GlassActionLabel(systemImage: "ellipsis", title: "More")
                 }
-                .buttonStyle(PrimaryPillButtonStyle())
-                // …and until the IMDb id has resolved. The engine cannot query an indexer without it, so
-                // tapping earlier failed with "Not signed in to Real-Debrid" — a reason that is not
-                // only unhelpful but untrue.
-                .disabled(acquiring || acquisition == nil || store.imdbID == nil)
+                .buttonStyle(GlassPressStyle())
+                .accessibilityLabel("More")
             }
+        }
+    }
+
+    /// Play / Resume the next episode, full width. Nothing downloaded yet: Play still starts the
+    /// show, finding and adding the first episode.
+    @ViewBuilder private var playButton: some View {
+        if let next = store.nextEpisode() {
+            let resume = store.watchState(forKey: WatchKey.content(forShow: item, episode: next))
+                .flatMap { $0.resumePosition }
+            Button {
+                onPlay(store.playRequest(source: next.source, episode: next,
+                                         label: "\(item.title) — S\(next.season)·E\(next.number)"))
+            } label: {
+                Label(resume != nil ? "Resume S\(next.season) · E\(next.number)"
+                                    : "Play S\(next.season) · E\(next.number)",
+                      systemImage: "play.fill")
+                    .lineLimit(1).minimumScaleFactor(0.8)
+            }
+            .buttonStyle(PrimaryPillButtonStyle(fullWidth: true))
+        } else if let target = store.nextEpisodeTarget() {
+            Button {
+                playEpisode(season: target.season, number: target.number,
+                            id: "s\(target.season)e\(target.number)")
+            } label: {
+                Label(acquiring ? "Finding…" : "Play S\(target.season) · E\(target.number)",
+                      systemImage: acquiring ? "hourglass" : "play.fill")
+                    .lineLimit(1).minimumScaleFactor(0.8)
+            }
+            .buttonStyle(PrimaryPillButtonStyle(fullWidth: true))
+            // …and until the IMDb id has resolved. The engine cannot query an indexer without it, so
+            // tapping earlier failed with "Not signed in to Real-Debrid" — a reason that is not
+            // only unhelpful but untrue.
+            .disabled(acquiring || acquisition == nil || store.imdbID == nil)
+        }
+    }
+
+    /// The More menu — the same items from the action row's circle and the bar's ⋯.
+    @ViewBuilder private var moreItems: some View {
+        // The film page has offered this all along; an episode part-way through could only be
+        // started over by dragging the player's bar back to 0:00.
+        if let next = store.nextEpisode(),
+           store.watchState(forKey: WatchKey.content(forShow: item, episode: next))?.resumePosition != nil {
+            Button("Play S\(next.season) · E\(next.number) from Beginning", systemImage: "gobackward") {
+                onPlay(store.playRequest(source: next.source, episode: next,
+                                         label: "\(item.title) — S\(next.season)·E\(next.number)",
+                                         fromStart: true))
+            }
+        }
+        if store.hasOwnedEpisodes(inSeason: store.selectedSeason) {
+            let watched = store.isSeasonWatched(store.selectedSeason)
+            Button(watched ? "Mark Season Unwatched" : "Mark Season Watched",
+                   systemImage: watched ? "checkmark.circle.fill" : "checkmark.circle") {
+                Task { await store.setSeasonWatched(!watched, season: store.selectedSeason) }
+            }
+        }
+        // The escape hatch for a season no indexer carries — old Israeli TV, anything off the
+        // public trackers. Keyed to the selected season, as `SeasonDownloadButton` is: a pasted pack
+        // is what these releases actually come as, and RD expands it into episodes when it lands.
+        if item.tmdbID != nil {
+            Button("Add \(SeasonOrder.label(store.selectedSeason)) by Magnet",
+                   systemImage: "link.badge.plus") { showingMagnet = true }
+        }
+        // Only for a title that has files — see the movie page.
+        if store.isInLibrary {
+            Divider()
+            Button("Remove from Library", systemImage: "trash", role: .destructive, action: onRemoveTitle)
         }
     }
 
@@ -182,57 +248,72 @@ struct ShowDetail: View {
         }
     }
 
+    // MARK: Sections
+
+    private var sections: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.xxxl) {
+            VStack(alignment: .leading, spacing: Theme.Space.lg) {
+                if let overview = store.overview, !overview.isEmpty {
+                    ExpandableOverview(text: overview)
+                }
+                if !store.creatorRefs.isEmpty {
+                    CreditNamesRow(label: "Created by", people: store.creatorRefs)
+                }
+                RatingsRow(ratings: store.ratings)
+                WatchDatesLine(summary: store.watchSummary, since: store.historySince)
+            }
+            UserRatingRow(store: store)
+            VStack(alignment: .leading, spacing: Theme.Space.lg) {
+                TitleSectionHeader(title: "Episodes")
+                seasonPicker
+                SeasonDownloadButton(store: seasonStore, onAdded: onSeasonAdded,
+                                     showTmdbID: store.item.tmdbID,
+                                     season: store.selectedSeason,
+                                     showTitle: store.item.title,
+                                     posterPath: store.item.posterPath)
+                episodeList
+            }
+        }
+    }
+
+    private var rails: some View {
+        let margin = TitlePageMetrics.margin(regular: regular)
+        return VStack(alignment: .leading, spacing: Theme.Space.xxxl) {
+            // Gated on non-empty: the rails only appear once TMDB credits land, and they append
+            // BELOW everything else, so they never resize content already on screen.
+            if !store.cast.isEmpty { CastRail(cast: store.cast, margin: margin) }
+            if !store.similar.isEmpty {
+                SimilarRail(titles: store.similar, parentKind: .show,
+                            onOpen: onOpenTitle, margin: margin)
+            }
+        }
+    }
+
+    /// Glass season pills; the selected one is white. Edge to edge, so a long run of seasons
+    /// scrolls out past the margin instead of being cut at it.
     @ViewBuilder private var seasonPicker: some View {
         if store.allSeasons.count > 1 {
+            let margin = TitlePageMetrics.margin(regular: regular)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: Theme.Space.sm) {
                     ForEach(store.allSeasons, id: \.self) { n in
                         let selected = n == store.selectedSeason
-                        Button(SeasonOrder.label(n)) { Task { await store.selectSeason(n) } }
-                            .font(Theme.Typo.headline())
-                            .foregroundStyle(selected ? Theme.Palette.onFocus : Theme.Palette.textSecondary)
-                            .padding(.vertical, 7).padding(.horizontal, Theme.Space.lg)
-                            .background(selected ? AnyShapeStyle(Theme.Palette.focus)
-                                                 : AnyShapeStyle(Theme.Palette.surface2), in: Capsule())
+                        Button { Task { await store.selectSeason(n) } } label: {
+                            Text(SeasonOrder.label(n))
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(selected ? Theme.Palette.onFocus : Theme.Palette.textPrimary)
+                                .padding(.vertical, 9).padding(.horizontal, Theme.Space.lg)
+                                .background { if selected { Capsule().fill(Theme.Palette.focus) } }
+                                .modifier(SeasonPillGlass(selected: selected))
+                        }
+                        .buttonStyle(GlassPressStyle())
+                        .accessibilityAddTraits(selected ? .isSelected : [])
                     }
                 }
+                .padding(.vertical, 6)
             }
-        }
-    }
-
-    /// One tap to mark the whole selected season watched/unwatched (its downloaded episodes).
-    /// Hidden when the season has no downloaded episodes to mark.
-    /// The escape hatch for a season no indexer carries — old Israeli TV, anything off the public
-    /// trackers. Keyed to the selected season, matching `SeasonDownloadButton` above it: a pasted
-    /// pack is what these releases actually come as, and RD expands it into episodes when it lands.
-    @ViewBuilder private var magnetButton: some View {
-        if let tmdb = item.tmdbID {
-            Button { showingMagnet = true } label: {
-                Label("Add by Magnet", systemImage: "link.badge.plus")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(GlassPillButtonStyle())
-            .sheet(isPresented: $showingMagnet) {
-                MagnetAddSheet(target: .init(
-                    contentKey: DownloadKey.season(showTmdbID: tmdb, season: store.selectedSeason),
-                    tmdbID: tmdb,
-                    title: "\(item.title) Season \(store.selectedSeason)",
-                    kind: .show, posterPath: item.posterPath))
-                    .environment(session)
-            }
-        }
-    }
-
-    @ViewBuilder private var markSeasonButton: some View {
-        if store.hasOwnedEpisodes(inSeason: store.selectedSeason) {
-            let watched = store.isSeasonWatched(store.selectedSeason)
-            Button {
-                Task { await store.setSeasonWatched(!watched, season: store.selectedSeason) }
-            } label: {
-                Label(watched ? "Mark Season Unwatched" : "Mark Season Watched",
-                      systemImage: watched ? "checkmark.circle.fill" : "checkmark.circle")
-            }
-            .buttonStyle(GlassPillButtonStyle())
+            .contentMargins(.horizontal, margin, for: .scrollContent)
+            .padding(.horizontal, -margin)
         }
     }
 
@@ -242,6 +323,7 @@ struct ShowDetail: View {
         LazyVStack(spacing: 0) {
             ForEach(store.episodes(forSeason: store.selectedSeason)) { row in
                 EpisodeRowView(store: store, row: row, isDownloading: downloadingEpisodeID == row.id,
+                               regular: regular,
                                onPlay: onPlay, onDownload: downloadAndPlay,
                                onFindVersions: onFindEpisodeVersions)
                 Divider().overlay(Theme.Palette.hairline)
@@ -306,6 +388,8 @@ struct EpisodeRowView: View {
     let store: DetailStore
     let row: DetailStore.EpisodeRowInfo
     let isDownloading: Bool
+    /// iPad: a bigger still and a third line of synopsis.
+    var regular = false
     let onPlay: (PlaybackRequest) -> Void
     let onDownload: (DetailStore.EpisodeRowInfo) -> Void
     var onFindVersions: (SearchHit, Int, Int) -> Void = { _, _, _ in }
@@ -329,20 +413,16 @@ struct EpisodeRowView: View {
             HStack(alignment: .top, spacing: Theme.Space.md) {
                 still
                 VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 6) {
-                        Text("\(row.number). \(row.meta?.name ?? "Episode \(row.number)")")
-                            .font(Theme.Typo.headline()).foregroundStyle(Theme.Palette.textPrimary).lineLimit(1)
-                        if watch?.finished == true {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundStyle(Theme.Palette.textPrimary).font(.caption)
-                        }
-                    }
+                    Text("\(row.number). \(row.meta?.name ?? "Episode \(row.number)")")
+                        .font(Theme.Typo.headline()).foregroundStyle(Theme.Palette.textPrimary)
+                        .lineLimit(2)
                     if let o = row.meta?.overview, !o.isEmpty {
-                        Text(o).font(Theme.Typo.caption())
-                            .foregroundStyle(Theme.Palette.textSecondary).lineLimit(2)
+                        Text(o).font(.system(size: 13))
+                            .foregroundStyle(Theme.Palette.textSecondary)
+                            .lineLimit(regular ? 3 : 2)
                     }
-                    if !row.isDownloaded {
-                        Text(isDownloading ? "Downloading\u{2026}" : "Not downloaded")
+                    if let status = statusLine {
+                        Text(status)
                             .font(Theme.Typo.caption()).foregroundStyle(Theme.Palette.textTertiary)
                     }
                 }
@@ -388,36 +468,67 @@ struct EpisodeRowView: View {
     }
 
     @ViewBuilder private var trailingIcon: some View {
-        if isDownloading {
-            ProgressView().tint(Theme.Palette.focus)
-        } else if row.isDownloaded {
-            Image(systemName: "play.circle.fill").foregroundStyle(Theme.Palette.textPrimary)
-        } else {
-            Image(systemName: "arrow.down.circle").foregroundStyle(Theme.Palette.textSecondary)
+        Group {
+            if isDownloading {
+                ProgressView().tint(Theme.Palette.focus)
+            } else if row.isDownloaded {
+                Image(systemName: "play.fill")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(Theme.Palette.textPrimary)
+            } else {
+                Image(systemName: "arrow.down")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(Theme.Palette.textSecondary)
+            }
         }
+        .frame(width: 34, height: 34)
+        .background(Theme.Palette.glassFaint, in: Circle())
+        .accessibilityHidden(true)
     }
 
+    /// "Not downloaded" / "Downloading…", and the runtime when TMDB has one.
+    private var statusLine: String? {
+        var parts: [String] = []
+        if let minutes = row.meta?.runtime, minutes > 0 { parts.append("\(minutes)m") }
+        if isDownloading { parts.append("Downloading\u{2026}") }
+        else if !row.isDownloaded { parts.append("Not downloaded") }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// A landscape still with the watch state ON it, as the Apple TV draws it: a white ✓ for a
+    /// finished episode, a white line along the foot for one part-way through.
     private var still: some View {
-        RemoteImage(url: TMDBClient.imageURL(path: row.meta?.stillPath, size: "w300"))
-        .frame(width: 124, height: 70)
-        // Where you are in it. The row only ever showed a ✓ for a FINISHED episode, so one you were
-        // halfway through looked exactly like one you had never started — the Apple TV draws this.
+        let width: CGFloat = regular ? 200 : 140
+        return RemoteImage(url: TMDBClient.imageURL(path: row.meta?.stillPath, size: "w300")) {
+            Theme.Palette.surface1.overlay {
+                Image(systemName: "tv").foregroundStyle(Theme.Palette.textTertiary)
+            }
+        }
+        .frame(width: width, height: width * 9 / 16)
+        .overlay { if isWatched { Theme.Palette.artDim } }
         .overlay(alignment: .bottom) { progressBar }
+        .overlay(alignment: .topTrailing) {
+            if isWatched {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(Theme.Palette.focus)
+                    .background(Circle().fill(Theme.Palette.badgeBacking))
+                    .padding(5)
+                    .accessibilityLabel("Watched")
+            }
+        }
         .clipped()
-        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.chip))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
+            .strokeBorder(Theme.Palette.hairline, lineWidth: 0.5))
         .opacity(row.isDownloaded ? 1 : 0.55)     // dim not-downloaded episodes
     }
 
     @ViewBuilder private var progressBar: some View {
         if let w = watch, !w.finished, w.durationSeconds > 0, w.positionSeconds > 0 {
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    Rectangle().fill(.white.opacity(0.28))
-                    Rectangle().fill(Theme.Palette.focus)
-                        .frame(width: geo.size.width * min(1, w.positionSeconds / w.durationSeconds))
-                }
-            }
-            .frame(height: 3)
+            ProgressLine(fraction: w.positionSeconds / w.durationSeconds, height: 3)
+                .padding(.horizontal, 6).padding(.bottom, 6)
+                .shadow(color: .black.opacity(0.5), radius: 3)
         }
     }
 
@@ -441,5 +552,13 @@ struct EpisodeRowView: View {
 
     private var label: String {
         "\(store.item.title) — S\(row.season)·E\(row.number)"
+    }
+}
+
+/// An unselected season pill is glass; the selected one is plain white (drawn by the caller).
+private struct SeasonPillGlass: ViewModifier {
+    let selected: Bool
+    func body(content: Content) -> some View {
+        if selected { content } else { content.seretGlass(in: Capsule()) }
     }
 }

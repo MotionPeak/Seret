@@ -25,6 +25,8 @@ struct SeretMobileApp: App {
                     ShellUIPreview(target: preview)    // -uiPreview shell [-shellSection movies]
                 } else if ["home", "homedownloading", "movies", "shows", "genregrid"].contains(preview) {
                     PagesUIPreview(target: preview)    // -uiPreview home|movies|shows|genregrid
+                } else if preview == "moviedetail" {
+                    DetailUIPreview()                  // -uiPreview moviedetail
                 } else if preview == "versions" {
                     VersionsUIPreview()                // -uiPreview versions
                 } else if preview.hasPrefix("magnet") {

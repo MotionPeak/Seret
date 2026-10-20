@@ -19,6 +19,8 @@ import SwiftUI
 ///     engine never answers for E2, so the screen stays on the swap — what it shows there is the
 ///     point. `episodeswapopening`: the same, but libvlc never reports buffering for E2 either, so
 ///     the swap stays in its `.preparing` stage (the "Preparing…" overlay)
+///   - `playerchrome` / `playerchromesettings` — the real player's chrome (g6) on a film 58 minutes
+///     in, paused so it stays up; the second opens the Subtitles panel (a popover on iPad)
 ///   - `showdetail` — the real show page for a show you own with S1E2 part-watched: Resume + Start,
 ///     the season list, the episode rows (long-press one for its menu)
 ///   - `letterboxdrating` / `letterboxdrerating` — the post-credits rating prompt, unrated and
@@ -42,6 +44,8 @@ struct PlayerUIPreview: View {
             case "episodeswap":     MobileEpisodeSwapPreview()
             case "episodeswapopening": MobileEpisodeSwapPreview(reportsBuffering: false)
             case "showdetail":      MobileShowDetailPreview()
+            case "playerchrome":    MobilePlayerChromePreview()
+            case "playerchromesettings": MobilePlayerChromePreview(settings: .subtitles)
             case "subtitlebrowser":
                 // Tinted here because in the app the browser is pushed INSIDE the settings sheet,
                 // which sets the white tint — an untinted harness screenshot would show system blue
@@ -200,9 +204,14 @@ private struct MobileShowDetailPreview: View {
     }()
 
     var body: some View {
-        ShowDetail(store: store, onPlay: { request in
-            print("[preview] play \(request.label) fromStart=\(request.fromStart) resumeAt=\(String(describing: request.resumeAt))")
-        })
+        // In a navigation stack, as DetailScreen presents it, so the glass bar's ⋯ is there too.
+        NavigationStack {
+            ShowDetail(store: store, heroScrolled: .constant(false), onPlay: { request in
+                print("[preview] play \(request.label) fromStart=\(request.fromStart) resumeAt=\(String(describing: request.resumeAt))")
+            })
+            .navigationBarTitleDisplayMode(.inline)
+            .titlePageBar()
+        }
         .environment(session)
         .environment(session.makeTileWatchMarks())
         .task { await store.load() }
@@ -290,6 +299,35 @@ private struct MobileEpisodeSwapPreview: View {
         m.play(e2)                                   // the strip's next episode
         try? await Task.sleep(for: .milliseconds(300))
         if reportsBuffering { engine.emit(.state(.buffering)) }   // what libvlc reports opening E2
+    }
+}
+
+/// The real `PlayerView`, paused 58 minutes into a film, controls up.
+private struct MobilePlayerChromePreview: View {
+    var settings: PlayerSettingsSection?
+    @State private var driver = MobileSubtitlePreviewDriver()
+    @State private var surface = VLCKitVideoPlayerEngine()
+    @State private var ready = false
+
+    var body: some View {
+        ZStack {
+            if ready {
+                PlayerView(model: driver.model, engine: surface, backdropURL: nil,
+                           settingsFocus: settings, onExit: {})
+            } else {
+                Color.black.ignoresSafeArea()
+            }
+        }
+        .task {
+            await driver.primeWithTracks()
+            driver.engine.emit(.state(.playing))
+            driver.engine.emit(.time(.init(position: 3511, duration: 9300)))
+            try? await Task.sleep(for: .milliseconds(100))
+            ready = true
+            try? await Task.sleep(for: .milliseconds(300))
+            driver.engine.emit(.state(.paused))
+            driver.model.showControls()
+        }
     }
 }
 
