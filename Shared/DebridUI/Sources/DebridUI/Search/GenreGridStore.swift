@@ -98,10 +98,19 @@ public final class GenreGridStore {
     /// bounds the request count if `loadMore` is ever called in a loop.
     private static let maxPage = 10
 
-    public init(kind: MediaKind, genre: DiscoverStore.Genre, browsing: GenreBrowsing) {
+    /// - Parameter seed: the Popular sort's page 1, when the caller already has it — a browse
+    ///   page's genre row is exactly that call. A seeded grid starts loaded, with posters from its
+    ///   first frame; paging continues from page 2. Empty = load as usual.
+    public init(kind: MediaKind, genre: DiscoverStore.Genre, browsing: GenreBrowsing,
+                seed: [SearchHit] = []) {
         self.kind = kind
         self.genre = genre
         self.browsing = browsing
+        if !seed.isEmpty {
+            hits = seed
+            nextPage = 2
+            state = .loaded
+        }
     }
 
     public func select(genre: DiscoverStore.Genre) async {

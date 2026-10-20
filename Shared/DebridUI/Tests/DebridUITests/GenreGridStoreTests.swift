@@ -194,3 +194,56 @@ private let comedy = DiscoverStore.Genre(name: "Comedy", tmdbID: 35)
         #expect(s.hits == comedyHits)
     }
 }
+
+/// A genre row's "See All" opens the grid already showing the row's titles — the row IS the
+/// Popular sort's page 1 (the same TMDB call) — so the grid has posters, and focus a poster, from
+/// its first frame instead of a skeleton.
+@MainActor
+@Suite struct GenreGridSeedTests {
+    private func seed(_ ids: [Int]) -> [SearchHit] { ids.map { SearchHit(result: result($0), kind: .movie) } }
+
+    @Test func aSeededGridIsLoadedAtOnceWithTheSeed() {
+        let s = GenreGridStore(kind: .movie, genre: action, browsing: FakeGenreBrowsing(),
+                               seed: seed([1, 2, 3]))
+        #expect(s.state == .loaded)
+        #expect(s.sort == .popular)
+        #expect(s.hits.map(\.result.id) == [1, 2, 3])
+    }
+
+    @Test func loadingASeededGridFetchesNothing() async {
+        let fake = FakeGenreBrowsing()
+        let s = GenreGridStore(kind: .movie, genre: action, browsing: fake, seed: seed([1, 2, 3]))
+        await s.load()
+        #expect(fake.calls.isEmpty)
+        #expect(s.hits.map(\.result.id) == [1, 2, 3])
+    }
+
+    /// The seed is page 1: paging on asks for page 2 and appends.
+    @Test func paginationContinuesFromPageTwo() async {
+        let fake = FakeGenreBrowsing()
+        let s = GenreGridStore(kind: .movie, genre: action, browsing: fake, seed: seed([1, 2, 3]))
+        await s.loadMore()
+        #expect(fake.calls.map(\.page) == [2])
+        #expect(fake.calls.first?.sort == .popular)
+        #expect(s.hits.count == 6)
+        #expect(Array(s.hits.map(\.result.id).prefix(3)) == [1, 2, 3])
+    }
+
+    /// Another sort is another list: the seed is not it.
+    @Test func anotherSortReplacesTheSeed() async {
+        let fake = FakeGenreBrowsing()
+        let s = GenreGridStore(kind: .movie, genre: action, browsing: fake, seed: seed([1, 2, 3]))
+        await s.select(sort: .topRated)
+        #expect(fake.calls.map(\.sort) == [.topRated])
+        #expect(!s.hits.map(\.result.id).contains(1))
+    }
+
+    @Test func anEmptySeedLoadsAsBefore() async {
+        let fake = FakeGenreBrowsing()
+        let s = GenreGridStore(kind: .movie, genre: action, browsing: fake, seed: [])
+        #expect(s.state == .idle)
+        await s.load()
+        #expect(fake.calls.map(\.page) == [1])
+        #expect(s.state == .loaded)
+    }
+}

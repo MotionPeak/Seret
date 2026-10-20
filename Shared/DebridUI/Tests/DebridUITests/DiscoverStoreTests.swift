@@ -17,6 +17,8 @@ private final class FakeDiscover: DiscoverProviding, @unchecked Sendable {
     /// Holds ONE seed's recommendations until opened, so a For You rebuild can be caught in flight.
     var recommendGate: DiscoverGate?
     var gatedRecommendation: Int?
+    /// Seeds whose recommendations come back empty.
+    var emptyRecommendations: Set<Int> = []
     private var _popularCalls = 0
     var popularCalls: Int { lock.withLock { _popularCalls } }
     private(set) var calledTrending = false
@@ -53,6 +55,7 @@ private final class FakeDiscover: DiscoverProviding, @unchecked Sendable {
         if failAll { throw FakeError.boom }
         lock.withLock { _recommendedFor.append(tmdbID) }
         if let recommendGate, gatedRecommendation == tmdbID { await recommendGate.wait() }
+        if emptyRecommendations.contains(tmdbID) { return [] }
         return [movie(70000 + tmdbID)]
     }
     func newByGenre(_ kind: MediaKind, _ genreID: Int, from: String, to: String) async throws -> [TMDBSearchResult] {
@@ -497,5 +500,65 @@ private func spin(until condition: () -> Bool) async {
         #expect(store.browseRows.count == 3 + DiscoverStore.movieGenreCount)
         #expect(store.rowsBySegment[.popular]?.map(\.title).first == "Popular in Action")
         #expect(store.rowsBySegment[.popular]?.allSatisfy { $0.genre == nil } == true)
+    }
+
+    /// The library lands while the page's first build is still fetching, and the page asks for a
+    /// refresh at that moment: the refresh must wait for that build and then judge the seeds,
+    /// not give up because it read "loading".
+    @Test func aRefreshDuringThePagesFirstBuildStillMakesItPersonal() async {
+        let fake = FakeDiscover()
+        let gate = DiscoverGate()
+        fake.trendingGate = gate
+        let seeds = FakeSeeds()                                 // the first build finds no seeds
+        let store = DiscoverStore(kind: .movie, discover: fake, seeds: seeds)
+
+        let first = Task { await store.loadBrowsePage() }
+        await spin { fake.calledTrending }
+        #expect(store.browseState == .loading)
+        seeds.value = [RecommendationSeed(tmdbID: 100, title: "Dune", watched: true)]
+        let refresh = Task { await store.refreshForYouIfBetterSeeds() }
+        for _ in 0..<1_000 { await Task.yield() }
+        await gate.open()
+        await first.value
+        await refresh.value
+
+        #expect(store.browseRows.first?.title == "Because you watched Dune")
+        #expect(store.browseRows.dropFirst().first?.title == "Trending This Week")
+    }
+
+    /// Better seeds whose recommendations come back empty leave the block that is on screen.
+    @Test func anEmptyRebuildKeepsTheOldForYouBlock() async {
+        let fake = FakeDiscover()
+        let seeds = FakeSeeds()
+        seeds.value = [RecommendationSeed(tmdbID: 200, title: "Heat", watched: false)]
+        let store = DiscoverStore(kind: .movie, discover: fake, seeds: seeds)
+        await store.loadBrowsePage()
+        let before = store.browseRows
+
+        fake.emptyRecommendations = [100]
+        seeds.value = [RecommendationSeed(tmdbID: 100, title: "Dune", watched: true)]
+        await store.refreshForYouIfBetterSeeds()
+
+        #expect(fake.recommendedFor.contains(100))
+        #expect(store.browseRows == before)
+    }
+
+    /// A store whose segment AND page were both built rebuilds both.
+    @Test func bothTheSegmentAndThePageAreRebuilt() async {
+        let fake = FakeDiscover()
+        let seeds = FakeSeeds()
+        seeds.value = [RecommendationSeed(tmdbID: 200, title: "Heat", watched: false)]
+        let store = DiscoverStore(kind: .movie, discover: fake, seeds: seeds)
+        await store.loadSegment(.forYou)
+        await store.loadBrowsePage()
+
+        seeds.value = [RecommendationSeed(tmdbID: 100, title: "Dune", watched: true),
+                       RecommendationSeed(tmdbID: 200, title: "Heat", watched: false)]
+        await store.refreshForYouIfBetterSeeds()
+
+        #expect((store.rowsBySegment[.forYou] ?? []).map(\.title)
+                == ["Because you watched Dune", "More like Heat"])
+        #expect(store.browseRows.prefix(3).map(\.title)
+                == ["Because you watched Dune", "More like Heat", "Trending This Week"])
     }
 }

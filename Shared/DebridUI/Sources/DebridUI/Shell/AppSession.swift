@@ -667,9 +667,10 @@ public final class AppSession {
 
     /// A fresh grid store for one genre, or nil if not signed in. Deliberately not cached: a grid
     /// is a transient drill-down, and a cached one would show a stale page under a new sort.
-    public func makeGenreGrid(kind: MediaKind, genre: DiscoverStore.Genre) -> GenreGridStore? {
+    public func makeGenreGrid(kind: MediaKind, genre: DiscoverStore.Genre,
+                              seed: [SearchHit] = []) -> GenreGridStore? {
         guard let genreBrowsing else { return nil }
-        return GenreGridStore(kind: kind, genre: genre, browsing: genreBrowsing)
+        return GenreGridStore(kind: kind, genre: genre, browsing: genreBrowsing, seed: seed)
     }
 
     /// A fresh store for one person, or nil if not signed in. Not cached, for the same reason a
