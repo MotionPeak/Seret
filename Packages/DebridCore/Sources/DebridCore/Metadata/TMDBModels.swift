@@ -246,6 +246,9 @@ public struct TMDBMovieDetails: Decodable, Sendable, Equatable, Identifiable {
     public let runtime: Int?
     public let genres: [TMDBGenre]
     public let voteAverage: Double?
+    /// How many people the average is over. A high average from a handful of voters says little —
+    /// the Watchlist's Highest Rated row leaves those out.
+    public let voteCount: Int?
     public let originalLanguage: String?   // ISO 639-1
     public let imdbID: String?
     public let cast: [TMDBCastMember]
@@ -282,13 +285,14 @@ public struct TMDBMovieDetails: Decodable, Sendable, Equatable, Identifiable {
         case posterPath = "poster_path"
         case backdropPath = "backdrop_path"
         case voteAverage = "vote_average"
+        case voteCount = "vote_count"
         case originalLanguage = "original_language"
         case imdbID = "imdb_id"
     }
 
     public init(id: Int, title: String, releaseDate: String?, overview: String?,
                 posterPath: String?, backdropPath: String?, runtime: Int?,
-                genres: [TMDBGenre], voteAverage: Double?,
+                genres: [TMDBGenre], voteAverage: Double?, voteCount: Int? = nil,
                 originalLanguage: String? = nil, imdbID: String? = nil,
                 cast: [TMDBCastMember] = [], directors: [TMDBPersonRef] = [],
                 similar: [TMDBSearchResult] = [], collection: TMDBCollectionRef? = nil,
@@ -296,6 +300,7 @@ public struct TMDBMovieDetails: Decodable, Sendable, Equatable, Identifiable {
         self.id = id; self.title = title; self.releaseDate = releaseDate
         self.overview = overview; self.posterPath = posterPath; self.backdropPath = backdropPath
         self.runtime = runtime; self.genres = genres; self.voteAverage = voteAverage
+        self.voteCount = voteCount
         self.originalLanguage = originalLanguage; self.imdbID = imdbID
         self.cast = cast; self.directors = directors; self.similar = similar
         self.collection = collection; self.images = images
@@ -312,6 +317,7 @@ public struct TMDBMovieDetails: Decodable, Sendable, Equatable, Identifiable {
         runtime = try c.decodeIfPresent(Int.self, forKey: .runtime)
         genres = try c.decodeIfPresent([TMDBGenre].self, forKey: .genres) ?? []
         voteAverage = try c.decodeIfPresent(Double.self, forKey: .voteAverage)
+        voteCount = try c.decodeIfPresent(Int.self, forKey: .voteCount)
         originalLanguage = try c.decodeIfPresent(String.self, forKey: .originalLanguage)
         imdbID = try c.decodeIfPresent(String.self, forKey: .imdbID)
         let credits = try c.decodeIfPresent(TMDBMovieCredits.self, forKey: .credits)
