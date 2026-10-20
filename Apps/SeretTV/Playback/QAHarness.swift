@@ -2,6 +2,7 @@
 import SwiftUI
 import UIKit
 import QuartzCore
+import AVKit
 import DebridUI
 import DebridCore
 
@@ -21,7 +22,9 @@ import DebridCore
 /// - `tab:<item>`      switch the side-menu page (home, movies, shows, watchlist, library)
 /// - `scroll`          walk every scroll view on screen, page by page, and back
 /// - `bg`              send the app to the background (Home press) — come back with a relaunch
-/// - `skip:<spec>`     `-autoSkips` grammar, against the playing model ("10,-10,10x4,@1200,p30")
+/// - `skip:<spec>`     `-autoSkips` grammar, against the playing model ("10,-10,10x4,@1200,p30"),
+///                     plus `P` (pause and stay paused), `R` (resume), `w<s>` (wait s seconds) —
+///                     so "P,10x3,-10,w5,R" skips WHILE PAUSED and then measures the resume (D3)
 ///
 /// Always on while the harness runs: a main-thread hang detector, a CADisplayLink frame meter,
 /// the player's phase/buffering/first-frame transitions, libvlc's picture counters, and the
@@ -70,6 +73,43 @@ enum QA {
                                                object: nil, queue: .main) { _ in log("app foreground") }
         NotificationCenter.default.addObserver(forName: UIApplication.didReceiveMemoryWarningNotification,
                                                object: nil, queue: .main) { _ in log("MEMORY WARNING") }
+        // D1: when the TV actually changes mode, against the player's own "[seret] display:" lines.
+        NotificationCenter.default.addObserver(forName: .AVDisplayManagerModeSwitchStart,
+                                               object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated { log("display MODE SWITCH START (\(Self.displayState()))") }
+        }
+        NotificationCenter.default.addObserver(forName: .AVDisplayManagerModeSwitchEnd,
+                                               object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated { log("display MODE SWITCH END (\(Self.displayState()))") }
+        }
+        NotificationCenter.default.addObserver(forName: .AVDisplayManagerModeSwitchSettingsChanged,
+                                               object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated { log("display matching settings changed (\(Self.displayState()))") }
+        }
+    }
+
+    /// The display as the app sees it: the refresh rate the frame meter's display link runs at,
+    /// whether Match Content allows switching, whether a switch is running, and whether the
+    /// player has a request out.
+    static func displayState() -> String {
+        let manager = UIApplication.shared.connectedScenes
+            .compactMap { ($0 as? UIWindowScene)?.keyWindow }.first?.avDisplayManager
+        return String(format: "refresh=%.3fHz", FrameMeter.shared.refreshHz)
+            + " matching=\(manager?.isDisplayCriteriaMatchingEnabled ?? false)"
+            + " switching=\(manager?.isDisplayModeSwitchInProgress ?? false)"
+            + " requested=\(manager?.preferredDisplayCriteria != nil)"
+    }
+
+    /// libvlc's picture counters right now, for before/after deltas.
+    static func pictures() -> (displayed: Int, late: Int, lost: Int)? {
+        currentEngine?.debugPictureCounters()
+    }
+
+    /// "late+N lost+M shown+K" between two counter readings.
+    static func delta(_ a: (displayed: Int, late: Int, lost: Int)?,
+                      _ b: (displayed: Int, late: Int, lost: Int)?) -> String {
+        guard let a, let b else { return "no-counters" }
+        return "late+\(b.late - a.late) lost+\(b.lost - a.lost) shown+\(b.displayed - a.displayed)"
     }
 
     static func footprintMB() -> Double {
@@ -177,8 +217,35 @@ enum QA {
     /// `-autoSkips` grammar, against the model on screen.
     static func runSkips(_ spec: String) async {
         guard let model = currentModel else { log("skip: no player"); return }
+        var pausedSeeks = 0
         for token in spec.split(separator: ",") {
             let start = Date()
+            if token == "P" {                                     // pause, and stay paused
+                log("pause (held) at \(t(model.position))")
+                model.pause()
+                pausedSeeks = 0
+                try? await Task.sleep(for: .seconds(1))
+                continue
+            } else if token == "R" {                              // resume, and measure it
+                let before = pictures()
+                log("resume after \(pausedSeeks) paused skip(s), bar at \(t(model.position))")
+                model.play()
+                var landed = false
+                for _ in 0..<600 {
+                    try? await Task.sleep(for: .milliseconds(50))
+                    if !model.debugSeekPending, !model.isBuffering, model.phase == .playing { landed = true; break }
+                }
+                let playingAt = Date()
+                try? await Task.sleep(for: .seconds(3))
+                log(String(format: "resume %@ after %.2fs at %@; first 3s of play: %@",
+                           landed ? "playing" : "NOT-playing", playingAt.timeIntervalSince(start),
+                           t(model.position), delta(before, pictures())))
+                continue
+            } else if token.hasPrefix("w") {                     // wait
+                try? await Task.sleep(for: .seconds(Double(token.dropFirst()) ?? 1))
+                continue
+            }
+            if model.phase == .paused { pausedSeeks += 1 }
             if token.hasPrefix("@") {
                 let target = Double(token.dropFirst()) ?? 0
                 log("skip \(token) from \(t(model.position))")
@@ -209,6 +276,12 @@ enum QA {
                     if i > 0 { try? await Task.sleep(for: .milliseconds(280)) }
                     model.skip(delta)
                 }
+            }
+            // Paused, there is nothing to land until Play — `R` measures that.
+            if model.phase == .paused {
+                log("skip \(token) while paused: bar at \(t(model.position))")
+                try? await Task.sleep(for: .seconds(1))
+                continue
             }
             // Landed = no seek pending, not buffering, playing, and the frame counter moving.
             let shown = model.position
@@ -251,7 +324,15 @@ final class QAScriptRunner {
                     let pos = QA.currentModel.map { QA.t($0.position) } ?? "-"
                     QA.log("close at \(pos)")
                     QA.currentModel?.beginClosing()       // as Menu does
+                    let closing = Date()
                     popToRoot()
+                    // D5/D14: the main thread must stay free through the dismiss and the release
+                    // that follows ~3 s later; HANG lines would land in this window.
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .seconds(6))
+                        QA.log(String(format: "close +%.1fs: window over (any HANG above is the close's)",
+                                      Date().timeIntervalSince(closing)))
+                    }
                 case "wait":
                     try? await Task.sleep(for: .seconds(Double(step.dropFirst(5)) ?? 1))
                 case "tab":
@@ -289,11 +370,16 @@ struct QAPlayerProbe: ViewModifier {
                     QA.currentEngine = engine
                     QA.log("player appear")
                     FrameMeter.shared.beginWindow("player")
+                    QA.log("display at open: \(QA.displayState())")
                     sampler = Task { @MainActor in
+                        var last = engine.debugPictureCounters()
                         while !Task.isCancelled {
                             try? await Task.sleep(for: .seconds(10))
+                            let now = engine.debugPictureCounters()
                             QA.log("stats pos=\(QA.t(model.position))/\(QA.t(model.duration)) phase=\(model.phase) "
-                                   + (engine.debugStatsLine() ?? "no-media"))
+                                   + (engine.debugStatsLine() ?? "no-media")
+                                   + " | 10s: \(QA.delta(last, now)) | \(QA.displayState())")
+                            last = now
                         }
                     }
                 }
@@ -362,6 +448,8 @@ final class FrameMeter: NSObject {
     private var frames = 0, hitches = 0, worst: Double = 0, hitchMs: Double = 0
     private var windows: [String: (frames: Int, hitches: Int, worst: Double, hitchMs: Double, start: Date)] = [:]
     private var periodStart = Date()
+    /// The display's refresh rate as the display link sees it — 23.976 / 24 / 50 / 60 Hz.
+    private(set) var refreshHz: Double = 0
 
     func start() {
         let link = CADisplayLink(target: self, selector: #selector(tick(_:)))
@@ -374,6 +462,7 @@ final class FrameMeter: NSObject {
         guard last > 0 else { return }
         let dt = link.timestamp - last
         let expected = link.duration > 0 ? link.duration : 1.0 / 60
+        refreshHz = 1 / expected
         frames += 1
         var hitch = 0.0
         if dt > expected * 1.5 { hitches += 1; hitch = (dt - expected) * 1000; hitchMs += hitch }

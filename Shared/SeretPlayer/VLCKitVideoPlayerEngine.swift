@@ -481,6 +481,14 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
             + "inKbps=\(Int(s.inputBitrate * 8000)) demuxKbps=\(Int(s.demuxBitrate * 8000)) "
             + "readMB=\(s.readBytes / 1_048_576) vlcTime=\(player.time.intValue / 1000)s"
     }
+
+    /// DEBUG-only (QA harness): libvlc's picture counters as numbers, so a step can report how
+    /// many pictures one action cost (a resume after a paused seek, a refill, a mode switch).
+    func debugPictureCounters() -> (displayed: Int, late: Int, lost: Int)? {
+        guard let media = player.media else { return nil }
+        let s = media.statistics
+        return (Int(s.displayedPictures), Int(s.latePictures), Int(s.lostPictures))
+    }
     #endif
 
     /// How long to outlive VLC's in-flight notifications before releasing the player. Generous:
