@@ -22,13 +22,17 @@ extension StreamingNetworkTests {
         init() { RangeFileURLProtocol.reset(.init(fileSize: 64 << 20)) }
 
         func makeSession(budget: StreamCacheBudget? = nil,
-                         retry: StreamRetryPolicy = Self.quick) -> StreamSession {
+                         retry: StreamRetryPolicy = Self.quick,
+                         upstream: String = "https://rd.test/f.mkv",
+                         refresh: @escaping @Sendable () async throws -> URL = {
+                             URL(string: "https://rd.test/f.mkv")!
+                         }) -> StreamSession {
             let budget = budget ?? self.budget
             let dir = FileManager.default.temporaryDirectory
                 .appendingPathComponent("StreamSessionRecoveryTests-\(UUID().uuidString)")
             return StreamSession(
-                id: UUID(), fileKey: "t#1", upstream: URL(string: "https://rd.test/f.mkv")!,
-                refreshUpstream: { URL(string: "https://rd.test/f.mkv")! }, budget: budget,
+                id: UUID(), fileKey: "t#1", upstream: URL(string: upstream)!,
+                refreshUpstream: refresh, budget: budget,
                 index: IndexStore(directory: dir, chunkSize: budget.chunkSize,
                                   perFileLimit: budget.indexBytesPerFile,
                                   totalLimit: budget.indexBytesTotal),
@@ -145,6 +149,42 @@ extension StreamingNetworkTests {
             await s.close()
         }
 
+        /// A link refresh that FAILS — after a wake the network is often not back yet — got no link
+        /// RD could have refused. It used to be latched as the refusal itself: the expired link's
+        /// 403 became final, and the film died with "Real-Debrid stopped sending this file".
+        @Test func aRefreshThatFailsIsAnOutageNotARefusal() async throws {
+            RangeFileURLProtocol.reset(.init(fileSize: 64 << 20, statusByPath: ["/expired.mkv": 403]))
+            let refreshes = RefreshScript(failures: 1)
+            let s = makeSession(upstream: "https://rd.test/expired.mkv", refresh: { try refreshes.next() })
+            #expect(try await read(s) == Self.bytes())
+            #expect(refreshes.calls == 2)
+            #expect(await s.upstreamState == nil)
+            await s.close()
+        }
+
+        /// While it is failing, the player hears "RD is unavailable", not "RD refused".
+        @Test func aFailingRefreshIsReportedAsUnavailable() async throws {
+            RangeFileURLProtocol.reset(.init(fileSize: 64 << 20, statusByPath: ["/expired.mkv": 403]))
+            let s = makeSession(retry: Self.slow, upstream: "https://rd.test/expired.mkv",
+                                refresh: { throw URLError(.notConnectedToInternet) })
+            let reader = Task { try await self.read(s) }
+            try await untilFailing(s)
+            #expect(await s.upstreamState == .unavailable(.upstreamStatus(403)))
+            reader.cancel()
+            await s.close()
+        }
+
+        /// …but a refresh that keeps failing is RD's answer: after a few, the refusal stands.
+        @Test func refreshesThatKeepFailingBecomeARefusal() async throws {
+            RangeFileURLProtocol.reset(.init(fileSize: 64 << 20, statusByPath: ["/expired.mkv": 403]))
+            let refreshes = RefreshScript(failures: .max)
+            let s = makeSession(upstream: "https://rd.test/expired.mkv", refresh: { try refreshes.next() })
+            await #expect(throws: StreamError.upstreamStatus(403)) { try await self.read(s) }
+            #expect(refreshes.calls == 3)
+            #expect(await s.upstreamState == .refused(.upstreamStatus(403)))
+            await s.close()
+        }
+
         /// "No" stays no. A refusal no link refresh can fix (451: the file is blocked) fails at
         /// once and for good — asking again for a minute would not change the answer.
         @Test func aRefusalTheRefreshCannotFixIsNotRetried() async throws {
@@ -214,5 +254,20 @@ extension StreamingNetworkTests {
             #expect(RangeFileURLProtocol.requests.count == 1)
             await s.close()
         }
+    }
+}
+
+/// A link refresh that fails `failures` times, then hands out a fresh link. Thread-safe: the
+/// session calls it from its own executor.
+private final class RefreshScript: @unchecked Sendable {
+    private let lock = NSLock()
+    private let failures: Int
+    private var n = 0
+    init(failures: Int) { self.failures = failures }
+    var calls: Int { lock.lock(); defer { lock.unlock() }; return n }
+    func next() throws -> URL {
+        lock.lock(); n += 1; let call = n; lock.unlock()
+        if call <= failures { throw URLError(.notConnectedToInternet) }
+        return URL(string: "https://rd.test/fresh.mkv")!
     }
 }

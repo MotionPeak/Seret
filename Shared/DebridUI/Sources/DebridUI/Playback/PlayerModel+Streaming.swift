@@ -46,7 +46,11 @@ extension PlayerModel {
     /// What to tell the viewer when the cache saw RD refuse this stream; nil when it did not.
     func streamRefusal() async -> String? {
         guard let handle = streamHandle, let streamProxy,
-              let failure = await streamProxy.upstreamFailure(handle) else { return nil }
+              let state = await streamProxy.upstreamFailure(handle) else { return nil }
+        let failure: StreamError
+        switch state {
+        case .refused(let error), .unavailable(let error): failure = error
+        }
         switch failure {
         case .upstreamStatus(let status) where status == 404 || status == 410:
             return "Real-Debrid no longer has this file."

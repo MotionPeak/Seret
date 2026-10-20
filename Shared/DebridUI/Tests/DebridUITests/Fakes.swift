@@ -291,11 +291,13 @@ actor FakeStreamProxy: StreamProxying {
     private var refresh: (@Sendable () async throws -> URL)?
     private var gate: AsyncStream<Void>?
     private var closeGate: AsyncStream<Void>?
-    private var failure: StreamError?
+    private var failure: UpstreamFailure?
 
     /// What `upstreamFailure` reports: RD refused the stream.
-    func failWith(_ error: StreamError) { failure = error }
-    func upstreamFailure(_ handle: StreamHandle) async -> StreamError? { failure }
+    func failWith(_ error: StreamError) { failure = .refused(error) }
+    /// …or RD is failing for now (the network is down, a refresh did not get through).
+    func outageWith(_ error: StreamError) { failure = .unavailable(error) }
+    func upstreamFailure(_ handle: StreamHandle) async -> UpstreamFailure? { failure }
 
     /// Hold every `close` (the cache's disk write) until the returned continuation is finished.
     func holdCloses() -> AsyncStream<Void>.Continuation {

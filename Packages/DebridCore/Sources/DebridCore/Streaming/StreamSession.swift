@@ -33,10 +33,26 @@ actor StreamSession {
     private var lastReadEnd: Int64?
     private var playbackStarted = false
     private var headReads: [Int] = []
+    /// When a refresh last GOT a fresh link. Set on success only: a refresh that failed (the
+    /// network not back yet after a wake) got nothing RD could have refused.
     private var refreshedAt: ContinuousClock.Instant?
     /// The link refresh in flight. Every fetch RD refuses while it runs waits for its result
     /// rather than asking for another — see `linkRefreshed(since:)`.
-    private var refresh: Task<Bool, Never>?
+    private var refresh: Task<LinkRefresh, Never>?
+    /// Refreshes that failed in a row. A few are RD or the network failing for now; past
+    /// `maxRefreshFailures` it is RD's answer, and the refusal stands.
+    private var refreshFailures = 0
+    private static let maxRefreshFailures = 3
+
+    /// What a link refresh came to.
+    private enum LinkRefresh {
+        /// A newer link to try.
+        case fresh
+        /// The refresh did not get through. RD has not said no — ask again after a pause.
+        case unavailable
+        /// RD refused the fresh link too, or every refresh keeps failing: final.
+        case refused
+    }
     /// Which link `upstream` is: bumped by each refresh, and remembered by each fetch.
     private var linkGeneration = 0
     private var closed = false
@@ -55,6 +71,12 @@ actor StreamSession {
     /// the film would be recorded as finished. It matters most when the head came from disk:
     /// frames render before RD is ever asked.
     var upstreamFailure: StreamError? { refusal ?? outage?.latest }
+
+    /// The same, told apart: a refusal is final, an outage is RD failing for now.
+    var upstreamState: UpstreamFailure? {
+        if let refusal { return .refused(refusal) }
+        return outage.map { .unavailable($0.latest) }
+    }
 
     private(set) var upstreamRequestCount = 0
     /// How many times a fetch has been paused (tests and diagnostics).
@@ -221,9 +243,19 @@ actor StreamSession {
                 // The refresh is an RD call the viewer can outlast: if the session closed or this
                 // fetch was cancelled meanwhile, a new fetch would download for no one.
                 guard !closed, fetches[id] != nil else { return }
-                guard refreshed else { return refuse(.upstreamStatus(status), fetch: id) }
-                cancelFetch(id)
-                startFetch(at: fetch.start)                      // same bytes, fresh link
+                switch refreshed {
+                case .fresh:
+                    cancelFetch(id)
+                    startFetch(at: fetch.start)                  // same bytes, fresh link
+                case .refused:
+                    return refuse(.upstreamStatus(status), fetch: id)
+                case .unavailable:
+                    // The refresh itself failed — after a wake the network is often not back yet.
+                    // That is RD failing for now, not RD saying no: latching it as a refusal ended
+                    // the film for good. Pause and ask again, like any other outage.
+                    noteFailure(.upstreamStatus(status), fetch: id)
+                    return cancelFetch(id)
+                }
             } else if (400...499).contains(status), ![408, 425, 429].contains(status) {
                 // About the file or the request (451 blocked, 416 past its end): RD would say it again.
                 return refuse(.upstreamStatus(status), fetch: id)
@@ -368,26 +400,30 @@ actor StreamSession {
     ///
     /// A link refused within a minute of the refresh that fetched it is refused for real: asking
     /// RD for yet another would only repeat the answer.
-    private func linkRefreshed(since generation: Int) async -> Bool {
-        if linkGeneration > generation { return true }
+    private func linkRefreshed(since generation: Int) async -> LinkRefresh {
+        if linkGeneration > generation { return .fresh }
         if refresh == nil {
-            if let at = refreshedAt, at.duration(to: .now) < .seconds(60) { return false }
-            refreshedAt = .now
+            if let at = refreshedAt, at.duration(to: .now) < .seconds(60) { return .refused }
             refresh = Task { await installFreshLink() }
         }
-        return await refresh?.value ?? false
+        return await refresh?.value ?? .unavailable
     }
 
-    private func installFreshLink() async -> Bool {
+    private func installFreshLink() async -> LinkRefresh {
         defer { refresh = nil }
-        guard let fresh = try? await refreshUpstream() else {
-            log("upstream link refresh failed")
-            return false
+        do {
+            let fresh = try await refreshUpstream()
+            upstream = fresh
+            linkGeneration += 1
+            refreshedAt = .now
+            refreshFailures = 0
+            log("upstream link refreshed")
+            return .fresh
+        } catch {
+            refreshFailures += 1
+            log("upstream link refresh failed (\(refreshFailures) in a row): \(error)")
+            return refreshFailures >= Self.maxRefreshFailures ? .refused : .unavailable
         }
-        upstream = fresh
-        linkGeneration += 1
-        log("upstream link refreshed")
-        return true
     }
 
     private func noteRead(offset: Int64, count: Int) {
