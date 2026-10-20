@@ -2,94 +2,144 @@ import SwiftUI
 import DebridUI
 import DebridCore
 
-/// The top-down player settings panel — just the three things you actually change mid-playback:
-/// Audio Streams, Subtitles, and Playback Speed. (No Info / Technical tabs.)
-struct SettingsPanel: View {
-    @Bindable var model: PlayerModel
-    /// Leave the panel and open the full subtitle browser (Task 9).
-    let onSearchSubtitles: () -> Void
-    /// Leave the panel and open the sync-to-a-line pad, so the picture is visible while you dial.
-    let onSyncToLine: () -> Void
-    let onClose: () -> Void
+/// Which list the settings sheet shows. Chosen from the player's control row.
+enum SettingsSection {
+    case subtitles, audio, speed
 
-    /// The panel's own inner gutter. Deliberately NOT `Theme.Layout.contentMargin`: it is the same
-    /// number today, but it means "space inside this card", not "the page's overscan-safe inset",
-    /// and the two must stay free to move independently. (The margin token IS correct on the
-    /// padding below the background, which positions the card on the page.)
-    private static let innerGutter: CGFloat = 60
-
-    var body: some View {
-        PlaybackColumns(model: model, onSearchSubtitles: onSearchSubtitles,
-                        onSyncToLine: onSyncToLine, onPick: onClose)
-            .padding(.horizontal, Self.innerGutter)
-            .padding(.vertical, 40)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                // Dark translucent backdrop — matches the native player.
-                RoundedRectangle(cornerRadius: 24)
-                    .fill(Theme.Palette.canvas.opacity(0.92))
-                    .overlay(RoundedRectangle(cornerRadius: 24).stroke(Theme.Palette.hairline, lineWidth: 1))
-            )
-            .padding(.horizontal, Theme.Layout.contentMargin)
-            .padding(.top, 40)                // sits at the top of the screen
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    var title: String {
+        switch self {
+        case .subtitles: "Subtitles"
+        case .audio:     "Audio"
+        case .speed:     "Speed"
+        }
     }
 }
 
-// MARK: - Playback Settings columns
-
-private struct PlaybackColumns: View {
+/// The player settings as a right-hand side sheet: one list — Subtitles, Audio or Speed — opened
+/// at the section the viewer picked in the control row. Its behaviour (tracks, on-demand
+/// subtitles, search, sync, delay, speed) is exactly that of the three-column panel it replaced;
+/// only the presentation moved.
+struct SettingsPanel: View {
     @Bindable var model: PlayerModel
+    let initialSection: SettingsSection
+    /// Leave the sheet and open the full subtitle browser.
+    let onSearchSubtitles: () -> Void
+    /// Leave the sheet and open the sync-to-a-line pad, so the picture is visible while you dial.
+    let onSyncToLine: () -> Void
+    let onClose: () -> Void
+
+    static let width: CGFloat = 640
+    private static let corner: CGFloat = 32
+    /// The sheet's distance from the screen's top, right and bottom edges.
+    private static let inset: CGFloat = 24
+
+    var body: some View {
+        PlaybackSettingsList(model: model, section: initialSection,
+                             onSearchSubtitles: onSearchSubtitles,
+                             onSyncToLine: onSyncToLine, onPick: onClose)
+            .padding(.top, 64)
+            .padding(.horizontal, 34)
+            .padding(.bottom, 34)
+            .frame(width: Self.width)
+            .frame(maxHeight: .infinity, alignment: .top)
+            .background(
+                LinearGradient(colors: [Theme.Palette.panelTop, Theme.Palette.panelBottom],
+                               startPoint: .top, endPoint: .bottom),
+                in: RoundedRectangle(cornerRadius: Self.corner, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Self.corner, style: .continuous)
+                .strokeBorder(Theme.Palette.hairline, lineWidth: 1))
+            .padding(Self.inset)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+            // Measured from the screen's edges, not the overscan-safe area: the sheet is a surface,
+            // and its own 34pt gutter keeps the rows' text inside title-safe.
+            .ignoresSafeArea()
+    }
+}
+
+// MARK: - The sheet's list
+
+private struct PlaybackSettingsList: View {
+    @Bindable var model: PlayerModel
+    let section: SettingsSection
     let onSearchSubtitles: () -> Void
     let onSyncToLine: () -> Void
     let onPick: () -> Void
-    /// Seeds focus to the subtitle that is ON when the panel opens — "Off" only when none is — so
-    /// the arrows navigate the options immediately, with no extra click to "enter" the menu.
+    /// Seeds focus to what is ON when the sheet opens — the subtitle playing ("Off" only when none
+    /// is), the audio track, the speed — so the arrows navigate the options immediately, with no
+    /// extra click to "enter" the list.
     ///
-    /// It always landed on "Off", which made Select the most destructive press in the panel: the
-    /// viewer who swiped down by accident and clicked to get back to the film switched their
-    /// subtitles off. The current choice is also where every other player puts you.
+    /// Subtitles always used to land on "Off", which made Select the most destructive press in the
+    /// panel: the viewer who opened it by accident and clicked to get back to the film switched
+    /// their subtitles off. The current choice is also where every other player puts you.
     ///
     /// `@FocusState` + `.onAppear` is the reliable seed HERE; `.defaultFocus`/`.focusScope` stranded
     /// focus and left the panel uncontrollable. (The opposite holds for the Detail screen's
     /// off-screen CTA, which NEEDS `.defaultFocus` — don't generalize either rule.)
     @FocusState private var landing: Landing?
 
-    private enum Landing: Hashable { case off, track(String) }
+    private enum Landing: Hashable { case off, track(String), audio(String), speed(Double) }
 
-    /// The selected track's row when it is on screen, else "Off" — a seed that matches no row is
-    /// dropped, and the panel would open with focus wherever the engine happened to put it.
-    private var landingTarget: Landing {
-        guard let id = model.displayedSubtitleID,
-              (model.embeddedTracks + model.downloadedTracks).contains(where: { $0.id == id })
-        else { return .off }
-        return .track(id)
+    /// The row matching the current choice when it is on screen. A seed that matches no row is
+    /// dropped, and the sheet would open with focus wherever the engine happened to put it.
+    private var landingTarget: Landing? {
+        switch section {
+        case .subtitles:
+            guard let id = model.displayedSubtitleID,
+                  (model.embeddedTracks + model.downloadedTracks).contains(where: { $0.id == id })
+            else { return .off }
+            return .track(id)
+        case .audio:
+            if let id = model.displayedAudioID, model.audioTracks.contains(where: { $0.id == id }) {
+                return .audio(id)
+            }
+            return model.audioTracks.first.map { .audio($0.id) }
+        case .speed:
+            let current = speedOptions.first { $0.value == model.playbackSpeed } ?? speedOptions[2]
+            return .speed(current.value)
+        }
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 60) {
-            audioColumn
-            subtitlesColumn
-            speedColumn
+        VStack(alignment: .leading, spacing: 28) {
+            Text(section.title)
+                .font(.seret(36, .bold))
+                .foregroundStyle(Theme.Palette.textPrimary)
+                .padding(.leading, 28)
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 4) {
+                    switch section {
+                    case .subtitles: subtitleRows
+                    case .audio:     audioRows
+                    case .speed:     speedRows
+                    }
+                }
+                .padding(.vertical, 2)
+            }
+            // tvOS scroll views draw past their bounds; a long subtitle list ran out of the sheet's
+            // bottom edge. No row lifts on focus, so clipping cuts nothing that matters.
+            .clipShape(Rectangle())
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear { landing = landingTarget }
     }
 
-    private var audioColumn: some View {
-        SettingsColumn(header: "AUDIO STREAMS") {
-            ForEach(labeled(model.audioTracks), id: \.track.id) { entry in
-                CheckRow(title: entry.label, checked: model.displayedAudioID == entry.track.id) {
-                    model.selectAudio(id: entry.track.id)        // stay open — pick more / compare
-                }
+    @ViewBuilder private var audioRows: some View {
+        ForEach(labeled(model.audioTracks), id: \.track.id) { entry in
+            CheckRow(title: entry.label, checked: model.displayedAudioID == entry.track.id) {
+                model.selectAudio(id: entry.track.id)        // stay open — pick more / compare
             }
-            if model.audioTracks.isEmpty {
-                Text("None").font(.seretCallout).foregroundStyle(.secondary)
-            }
+            .focused($landing, equals: .audio(entry.track.id))
+        }
+        if model.audioTracks.isEmpty {
+            Text("None")
+                .font(.seret(27, .medium))
+                .foregroundStyle(Theme.Palette.textSecondary)
+                .padding(.leading, 28)
         }
     }
 
-    private var subtitlesColumn: some View {
-        SettingsColumn(header: "SUBTITLES") {
+    private var subtitleRows: some View {
+        Group {
             CheckRow(title: "Off", checked: model.displayedSubtitleID == nil) { model.selectSubtitleOff() }
                 .focused($landing, equals: .off)
 
@@ -183,7 +233,7 @@ private struct PlaybackColumns: View {
                 Text(PlayerModel.embeddedSubtitleReachNote)
                     .font(.seret(.caption2, .semibold))
                     .foregroundStyle(Theme.Palette.textSecondary)
-                    .padding(.leading, 18)
+                    .padding(.horizontal, 28)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
@@ -237,18 +287,17 @@ private struct PlaybackColumns: View {
             .font(.seret(.caption2, .semibold))
             .tracking(1.1)
             .foregroundStyle(Theme.Palette.textSecondary)
-            .padding(.top, 6)
-            .padding(.leading, 18)
+            .padding(.top, 18).padding(.bottom, 4)
+            .padding(.leading, 28)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var speedColumn: some View {
-        SettingsColumn(header: "PLAYBACK SPEED") {
-            ForEach(speedOptions, id: \.value) { opt in
-                CheckRow(title: opt.label, checked: model.playbackSpeed == opt.value) {
-                    model.setPlaybackSpeed(opt.value)
-                }
+    private var speedRows: some View {
+        ForEach(speedOptions, id: \.value) { opt in
+            CheckRow(title: opt.label, checked: model.playbackSpeed == opt.value) {
+                model.setPlaybackSpeed(opt.value)
             }
+            .focused($landing, equals: .speed(opt.value))
         }
     }
 
@@ -285,35 +334,9 @@ private struct PlaybackColumns: View {
 
 // MARK: - Building blocks
 
-private struct SettingsColumn<Content: View>: View {
-    let header: String
-    @ViewBuilder var content: Content
-    /// Cap each column's height so a long track list (e.g. a REMUX with many subtitle streams)
-    /// scrolls INSIDE the column instead of growing the whole panel off-screen (which pushed the
-    /// tab bar out of view). tvOS auto-scrolls a `ScrollView` to keep the focused row visible.
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text(header).font(.seret(.caption1, .bold))
-                .foregroundStyle(Theme.Palette.textSecondary)
-                .tracking(1.2)
-                .padding(.leading, 30)        // align with the rows below
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 14) { content }
-                    .padding(.vertical, 2)
-                    // The focus pill extends past the row's text and the ScrollView clips its edge —
-                    // inset the rows so the pill (and its focus lift) has room and never cuts off.
-                    .padding(.horizontal, 30)
-            }
-        }
-        .frame(minWidth: 240, maxHeight: 640, alignment: .leading)
-        // Each column is ONE target. The three have different lengths and independent scroll
-        // offsets, so without sections a horizontal move from the bottom of the longest column
-        // found no candidate beside it and died.
-        .focusSection()
-    }
-}
-
-/// A native-style row: a checkmark when selected + label, focus-tinted on tvOS.
+/// A sheet row: 74pt tall, the label left, a ✓ right when it is the current choice. Focus fills it
+/// with the white pill and turns its text dark — the ✓ follows, so the selection still reads on
+/// the focused row.
 private struct CheckRow: View {
     let title: String
     let checked: Bool
@@ -321,35 +344,37 @@ private struct CheckRow: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 10) {
-                Image(systemName: "checkmark")
-                    .font(.seret(.callout, .bold))
-                    .foregroundStyle(Theme.Palette.textPrimary)
-                    .opacity(checked ? 1 : 0)
-                Text(title).font(.seretCallout)
+            HStack(spacing: 16) {
+                Text(title)
+                    .font(.seret(27, .medium))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
                 Spacer(minLength: 0)
+                Image(systemName: "checkmark")
+                    .font(.system(size: 26, weight: .bold))
+                    .opacity(checked ? 1 : 0)
             }
             .contentShape(Rectangle())
         }
-        .buttonStyle(SettingsRowButtonStyle())
+        .buttonStyle(SheetRowButtonStyle())
     }
 }
 
-/// A settings row's focus look: the same treatment as the app's other rows (a glass fill + a white
-/// ring + a subtle lift) — not the stark white rectangle it had before, which hid the checkmark.
-private struct SettingsRowButtonStyle: ButtonStyle {
+/// The sheet row's look: no fill at rest, the white pill with dark content on focus. No lift — a
+/// scaled row would push past the sheet's edge, and the pill alone says where focus is.
+private struct SheetRowButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View { Row(configuration: configuration) }
     private struct Row: View {
         let configuration: ButtonStyleConfiguration
         @Environment(\.isFocused) private var focused: Bool
+        @Environment(\.isEnabled) private var enabled: Bool
         var body: some View {
             configuration.label
-                .padding(.horizontal, 18).padding(.vertical, 10)
-                .background(focused ? AnyShapeStyle(Theme.Palette.glass) : AnyShapeStyle(.clear),
-                            in: Capsule())
-                .overlay { if focused { Capsule().strokeBorder(Theme.Palette.focus, lineWidth: 3) } }
-                .scaleEffect(focused ? 1.02 : 1)
-                .opacity(configuration.isPressed ? 0.7 : 1)
+                .foregroundStyle(focused ? Theme.Palette.onFocus : Theme.Palette.textPrimary)
+                .padding(.horizontal, 28)
+                .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
+                .background(focused ? Theme.Palette.focus : .clear, in: Capsule())
+                .opacity(configuration.isPressed ? 0.7 : (enabled ? 1 : 0.45))
                 .animation(Theme.Anim.focus, value: focused)
         }
     }

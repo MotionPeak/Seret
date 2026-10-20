@@ -3,8 +3,9 @@ import DebridUI
 import DebridCore
 
 /// What still takes SwiftUI focus inside the player. At rest NOTHING does — `PlayerInputSurface`
-/// owns the remote and is deliberately non-focusable, which is what lets touch-scrub and
-/// directional clicks coexist. Only the lifted episode strip is a focusable surface.
+/// owns the remote, and no focusable sibling exists beside it, which is what lets touch-scrub and
+/// directional clicks coexist. The control row, the settings sheet, the episode strip and the
+/// rating stars are focusable, and each is mounted only while it is open.
 enum PlayerFocus: Hashable {
     case episodes
     /// One case PER STAR of the post-credits rating row. Binding all ten to a single value let the
@@ -15,8 +16,16 @@ enum PlayerFocus: Hashable {
 
 struct PlayerView: View {
     @State private var model: PlayerModel
-    @State private var engine: VLCKitVideoPlayerEngine
+    /// Nil only in the DEBUG harness, which draws a still in place of the picture.
+    @State private var engine: VLCKitVideoPlayerEngine?
+    /// The row of Subtitles / Audio / Speed / Episodes buttons Down opens under the bar.
+    @State private var showControls = false
+    /// The right-hand settings sheet, opened from the control row at `settingsSection`.
     @State private var showSettings = false
+    @State private var settingsSection: SettingsSection = .subtitles
+    /// The control row's button that opened the sheet: Menu on the sheet goes back to the row,
+    /// with focus on that button. Nil when the sheet was not opened from the row.
+    @State private var sheetOpenedFrom: PlayerControl?
     @State private var showEpisodes = false
     @State private var showSubtitleBrowser = false
     @State private var showManualSync = false
@@ -33,20 +42,56 @@ struct PlayerView: View {
     let backdropURL: URL?
     let pushSignal: LetterboxdPushSignal?
     let filmRating: FinishedFilmRating?
+    /// The film's release year, for the top line under its title. Episodes don't show one.
+    let year: Int?
+    /// DEBUG harness only: a still drawn where the picture would be.
+    private var previewFrame: URL?
 
     init(model: PlayerModel, engine: VLCKitVideoPlayerEngine, backdropURL: URL?,
-         pushSignal: LetterboxdPushSignal? = nil, filmRating: FinishedFilmRating? = nil) {
+         pushSignal: LetterboxdPushSignal? = nil, filmRating: FinishedFilmRating? = nil,
+         year: Int? = nil) {
         _model = State(initialValue: model)
         _engine = State(initialValue: engine)
         self.backdropURL = backdropURL
         self.pushSignal = pushSignal
         self.filmRating = filmRating
+        self.year = year
     }
+
+    #if DEBUG
+    /// What the `-uiPreview` harness opens the real player on.
+    enum PreviewOverlay { case none, controls, sheet(SettingsSection) }
+
+    /// The real player — input surface, routing and all — over a still instead of libvlc, opened
+    /// on an overlay, so the chrome can be screenshot-verified with no stream and no remote.
+    init(previewModel model: PlayerModel, frame: URL?, year: Int?, opening overlay: PreviewOverlay) {
+        _model = State(initialValue: model)
+        _engine = State(initialValue: nil)
+        backdropURL = nil
+        pushSignal = nil
+        filmRating = nil
+        self.year = year
+        previewFrame = frame
+        switch overlay {
+        case .none: break
+        case .controls: _showControls = State(initialValue: true)
+        case .sheet(let section):
+            _showSettings = State(initialValue: true)
+            _settingsSection = State(initialValue: section)
+            _sheetOpenedFrom = State(initialValue: section.control)
+        }
+    }
+    #endif
 
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()                      // black backing for the open transition
-            VideoSurface(videoView: engine.videoView).ignoresSafeArea()
+            if let engine {
+                VideoSurface(videoView: engine.videoView).ignoresSafeArea()
+            } else if let previewFrame {
+                RemoteImage(url: previewFrame, contentMode: .fill) { _ in Color.black }
+                    .ignoresSafeArea()
+            }
 
             // The interaction layer is ALWAYS mounted. It used to be the `else` branch of the
             // loading check, so while "Buffering…" showed there was no input surface, no bar and
@@ -83,15 +128,32 @@ struct PlayerView: View {
                 onSelect: { model.togglePlayPause(); model.revealScrubBar() },
                 onPlayPause: { model.togglePlayPause() },
                 onUp: { openEpisodesOrRevealBar() },
-                onDown: { openSettingsOrEpisodes() },
+                onDown: { openControlsOrCloseStrip() },
                 onScanBegan: { direction in model.beginScan(direction: direction) },
                 onScanEnded: { model.endScan() }
             )
             .ignoresSafeArea()
 
-            // One bottom-anchored column: thin scrub bar on top, the episode strip beneath.
-            // Stacking them means the bar AUTOMATICALLY rides up as the strip grows.
-            PlayerBottomBar(model: model, showEpisodes: $showEpisodes, focus: $focus)
+            // Paused, with nothing else up: a quiet glyph in the middle of the frame says so.
+            if showsBigState {
+                PausedGlyph()
+                    .transition(.opacity.combined(with: .scale(scale: 0.8)))
+                    .allowsHitTesting(false)
+            }
+
+            if topBarShown {
+                PlayerTopBar(title: titleLines.title, subtitle: titleLines.subtitle)
+                    .transition(.opacity)
+            }
+
+            // One bottom-anchored column: the scrub bar on top, the control row or the episode
+            // strip beneath. Stacking them means the bar AUTOMATICALLY rides up as either opens.
+            PlayerBottomBar(model: model, barShown: barShown, showEpisodes: $showEpisodes,
+                            showControls: showControls,
+                            showsHint: !showSettings && !model.upNextVisible,
+                            controls: controls,
+                            controlsFocus: sheetOpenedFrom,
+                            onChoose: choose, onCloseControls: { showControls = false })
 
             // Loading is now an OVERLAY above a live interaction layer, never a replacement for it.
             // And it is gated on a COLD open: an episode auto-advance also reloads (clearing
@@ -110,8 +172,8 @@ struct PlayerView: View {
             }
 
             // A sync runs for minutes while the film keeps playing, so it reports from up here
-            // rather than from inside the panel that started it. Hidden while the panel or the
-            // browser is up — both of those open at the top of the screen and say it themselves.
+            // rather than from inside the sheet that started it. Hidden while the sheet, the
+            // browser or the sync pad is up — each of those says it itself.
             if let banner = model.autoSyncBanner, !showSettings, !showSubtitleBrowser, !showManualSync {
                 AutoSyncBar(banner: banner)
                     .transition(.move(edge: .top).combined(with: .opacity))
@@ -141,32 +203,34 @@ struct PlayerView: View {
                     .allowsHitTesting(isRating)
             }
 
-            if let fb = model.skipFeedback {          // ride above everything; never eat remote input
-                skipIndicator(fb)
-                    .transition(.opacity.combined(with: .scale(scale: 0.85)))
-                    .allowsHitTesting(false)
-            }
-
             // Not over a panel: the bar seeds focus to "Play Now" when it appears, which used to
             // pull focus out from under an open Settings or subtitle browser — so the next Select
             // started the next episode. It waits (its countdown held) until the panel closes.
             if model.upNextVisible, !panelOpen, let next = model.nextEpisode {
-                UpNextBar(model: model, next: next)
+                // Above the scrub bar when that is up too, never on top of it.
+                UpNextBar(model: model, next: next, clearsBar: barShown)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
 
-            // Last, so it sits above the skip badge and the Up Next bar — they used to render
-            // over the panel.
+            // Last, so it sits above the bar and the Up Next bar — they used to render over the
+            // panel.
             if showSettings {
-                SettingsPanel(model: model,
-                              onSearchSubtitles: { showSettings = false; showSubtitleBrowser = true },
+                SettingsPanel(model: model, initialSection: settingsSection,
+                              onSearchSubtitles: {
+                                  sheetOpenedFrom = nil
+                                  showSettings = false
+                                  showSubtitleBrowser = true
+                              },
                               onSyncToLine: {
+                                  sheetOpenedFrom = nil
                                   showSettings = false
                                   model.beginManualSync()
                                   showManualSync = true
                               },
-                              onClose: { showSettings = false })
-                    .transition(.move(edge: .top).combined(with: .opacity))
+                              // A pick that ends in the film (auto-sync) goes back to the picture,
+                              // not to the row.
+                              onClose: { sheetOpenedFrom = nil; showSettings = false })
+                    .transition(.move(edge: .trailing))
             }
 
             // Above the panel: the full-screen subtitle browser. Owns its own Menu-to-close.
@@ -189,7 +253,10 @@ struct PlayerView: View {
             if InputProbe.isEnabled { InputProbeHUD() }
             #endif
         }
-        .animation(Theme.Anim.pageFade, value: showSettings)
+        .animation(showSettings ? Theme.Anim.panelOpen : Theme.Anim.panelClose, value: showSettings)
+        .animation(showControls ? Theme.Anim.panelOpen : Theme.Anim.panelClose, value: showControls)
+        .animation(Theme.Anim.pageFade, value: barShown)
+        .animation(Theme.Anim.pageFade, value: showsBigState)
         .animation(Theme.Anim.pageFade, value: showSubtitleBrowser)
         .animation(Theme.Anim.pageFade, value: showManualSync)
         .animation(Theme.Anim.pageFade, value: showEpisodes)
@@ -199,7 +266,6 @@ struct PlayerView: View {
         // rather than fade. Only the ErrorOverlay enters/leaves on a phase change, so this can't
         // animate anything else in the stack.
         .animation(Theme.Anim.pageFade, value: model.phase)
-        .animation(Theme.Anim.focus, value: model.skipFeedback)
         .animation(Theme.Anim.pageFade, value: model.autoSyncBanner)
         // ONLY for the overlays. While watching, the play/pause press is handled by
         // `PlayerInputSurface` — this modifier depends on SwiftUI's focus system owning the focused
@@ -218,7 +284,12 @@ struct PlayerView: View {
             // the bar is dismissed. The other way round, Menu in Settings dismissed Up Next — and
             // with it the auto-advance, so the episode then exited at its end instead.
             else if showSubtitleBrowser { showSubtitleBrowser = false }   // fallback; the browser also self-closes
-            else if showSettings { showSettings = false }
+            // The sheet goes back to the row it was opened from, focus on the same button.
+            else if showSettings {
+                showSettings = false
+                if sheetOpenedFrom != nil { showControls = true }
+            }
+            else if showControls { showControls = false; sheetOpenedFrom = nil }
             else if showEpisodes { showEpisodes = false }
             else if model.upNextVisible { model.dismissUpNext() }
             // The stars own the remote while they are up, so Menu has to be able to hand it back
@@ -239,6 +310,7 @@ struct PlayerView: View {
         // A closing panel hands the remote back to the input surface (which re-enables itself via
         // `isActive`) and re-reveals the bar so there is something on screen to act on.
         .onChange(of: showSettings) { _, open in if !open { model.revealScrubBar() } }
+        .onChange(of: showControls) { _, open in if !open { model.revealScrubBar() } }
         .onChange(of: showEpisodes) { _, open in if !open { model.revealScrubBar() } }
         .onChange(of: showSubtitleBrowser) { _, open in if !open { model.revealScrubBar() } }
         .onChange(of: showManualSync) { _, open in if !open { model.revealScrubBar() } }
@@ -267,13 +339,65 @@ struct PlayerView: View {
     /// The error overlay counts. It puts Retry / Try another / Back on screen as focusable buttons,
     /// and while the surface stayed armed the two competed for focus — and the arrows still drove
     /// skip and hold-to-scan on a player that had already failed.
+    ///
+    /// The control row counts like the sheet does: it is a row of Buttons, and a focusable sibling
+    /// of the surface is exactly what made touch-scrub and arrow clicks mutually exclusive.
     private var inputSurfaceActive: Bool {
-        !showSettings && !showEpisodes && !model.upNextVisible && !showSubtitleBrowser
+        !showSettings && !showControls && !showEpisodes && !model.upNextVisible && !showSubtitleBrowser
             && !showManualSync && !hasFailed && !isRating
     }
 
     /// Something the viewer opened is up over the picture.
-    private var panelOpen: Bool { showSettings || showSubtitleBrowser || showManualSync || showEpisodes }
+    private var panelOpen: Bool {
+        showSettings || showControls || showSubtitleBrowser || showManualSync || showEpisodes
+    }
+
+    /// The bar (and with it the top line) is up while the viewer is interacting, mid-buffer, while
+    /// a skip badge is counting, or while the row, the sheet or the strip is open.
+    ///
+    /// Paused keeps it up for as long as the pause lasts. Pausing IS how you arm scrubbing, so the
+    /// thing you are about to aim with must be on screen the whole time — not on the 5s reveal
+    /// dwell, which timed out mid-scrub and left you dragging a film with no visible playhead. It
+    /// comes down by itself when playback resumes.
+    private var barShown: Bool {
+        model.scrubBarVisible || model.isBuffering || model.phase == .paused
+            || model.skipFeedback != nil || showEpisodes || showControls || showSettings
+    }
+
+    /// The top line follows the bar, except over the screens that cover the picture.
+    private var topBarShown: Bool {
+        barShown && !hasFailed && !model.isColdOpen && !showSubtitleBrowser && !showManualSync
+    }
+
+    private var showsBigState: Bool {
+        model.phase == .paused && !model.isScrubbing && !model.isColdOpen && !panelOpen
+    }
+
+    private var titleLines: (title: String, subtitle: String) {
+        PlayerTitleLines.make(label: model.label, episode: model.currentEpisode,
+                              episodes: model.seasonEpisodes, year: year, duration: model.duration)
+    }
+
+    /// The control row's buttons. Episodes only for a show whose season list has loaded — the
+    /// button would otherwise open nothing.
+    private var controls: [PlayerControl] {
+        let base: [PlayerControl] = [.subtitles, .audio, .speed]
+        return model.isEpisode && !model.seasonEpisodes.isEmpty ? base + [.episodes] : base
+    }
+
+    /// A control-row button was pressed: the sheet at that section, or the episode strip.
+    private func choose(_ control: PlayerControl) {
+        showControls = false
+        if let section = control.section {
+            settingsSection = section
+            sheetOpenedFrom = control
+            showSettings = true
+        } else {
+            sheetOpenedFrom = nil
+            showEpisodes = true
+            Task { await model.loadSeasonEpisodes() }
+        }
+    }
 
     /// The stars are up and own the remote — only once the viewer has pressed Up to answer.
     ///
@@ -311,10 +435,10 @@ struct PlayerView: View {
         if case .failed = model.phase { return true } else { return false }
     }
 
-    /// Down from the stage: collapse the episode strip if it's open, else open the settings panel.
-    private func openSettingsOrEpisodes() {
+    /// Down from the stage: collapse the episode strip if it's open, else open the control row.
+    private func openControlsOrCloseStrip() {
         if showEpisodes { showEpisodes = false }
-        else { showSettings = true }
+        else { sheetOpenedFrom = nil; showControls = true }
     }
 
     /// Up from the stage: lift the episode strip on a show, otherwise just wake the bar.
@@ -333,38 +457,8 @@ struct PlayerView: View {
         showEpisodes = true
         Task { await model.loadSeasonEpisodes() }
     }
-
-    /// The accumulating ±seconds badge on the side you skipped toward (10s → 20s → 1:10…). Sized for
-    /// the 10-foot UI; the number rolls in place via `.numericText`. Driven by the shared
-    /// `PlayerModel.skipFeedback` — the same state the iPad badge uses.
-    private func skipIndicator(_ fb: PlayerModel.SkipFeedback) -> some View {
-        let forward = fb.seconds > 0
-        return HStack(spacing: 12) {
-            Image(systemName: forward ? "goforward" : "gobackward")
-                .font(.system(size: 44, weight: .semibold))
-            Text(fb.label)
-                .font(.seret(34, .bold)).monospacedDigit()
-                .contentTransition(.numericText(value: abs(fb.seconds)))
-        }
-        .foregroundStyle(.white)
-        .padding(.horizontal, 36).padding(.vertical, 26)
-        .background(.black.opacity(0.55), in: Capsule())
-        .overlay(Capsule().strokeBorder(.white.opacity(0.12)))
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: forward ? .trailing : .leading)
-        .padding(forward ? .trailing : .leading, 120)
-    }
 }
 
-/// The strip across the top of the picture while a subtitle sync runs, and for a few seconds after
-/// it finishes.
-///
-/// It exists because the measurement takes minutes: it has to read several minutes of the film's
-/// audio, which means downloading them. Holding the viewer on the settings panel for that would be
-/// unusable, so the panel closes, the film keeps playing, and this is where the work reports from.
-///
-/// Deliberately built out of nothing focusable and marked `allowsHitTesting(false)`. The player's
-/// remote belongs to `PlayerInputSurface`, which only works because it has no focusable siblings at
-/// rest — a Button up here would quietly take back the arrows and the touch-scrub with them.
 /// "Logged to Letterboxd", for three seconds, when an entry actually lands.
 ///
 /// Nothing appears for a failed write: it is not actionable while a film is playing, and the
@@ -374,17 +468,15 @@ struct LetterboxdLoggedBar: View {
         HStack(spacing: 18) {
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 26, weight: .semibold))
-                .foregroundStyle(Theme.Palette.textPrimary)
             Text("Logged to Letterboxd")
                 .font(.seret(24, .semibold))
-                .foregroundStyle(.white)
         }
+        .foregroundStyle(Theme.Palette.textPrimary)
         .padding(.horizontal, 34).padding(.vertical, 20)
-        .background(.black.opacity(0.66), in: Capsule())
-        .overlay(Capsule().strokeBorder(.white.opacity(0.12)))
-        // The same inset AutoSyncBar uses. Without it this sits above everything else in the
-        // player, hard against an edge a real television overscans.
-        .padding(.top, 50)
+        .playerOverlaySurface(Capsule())
+        // Below `PlayerTopBar`'s title block, so the two never overlap — and off the top edge a
+        // real television overscans.
+        .padding(.top, PlayerLayout.topSlotInset)
     }
 }
 
@@ -393,9 +485,9 @@ struct LetterboxdLoggedBar: View {
 /// Sits in the same slot as the logged confirmation because it is the same bar at an earlier
 /// moment — the entry is already queued, and this is what it is waiting for.
 ///
-/// 🚨 The only focusable thing the player ever mounts besides the episode strip. `PlayerView`
-/// guards it behind `isAskingRating` and drops `PlayerInputSurface` for as long as it is up: a
-/// focusable sibling at rest is what made touch-scrub and arrow clicks mutually exclusive.
+/// 🚨 Focusable. `PlayerView` guards it behind `isAskingRating` and drops `PlayerInputSurface`
+/// for as long as it is up: a focusable sibling at rest is what made touch-scrub and arrow clicks
+/// mutually exclusive.
 struct LetterboxdRatingBar: View {
     let current: Int?
     var focus: FocusState<PlayerFocus?>.Binding
@@ -418,7 +510,7 @@ struct LetterboxdRatingBar: View {
                 .foregroundStyle(Theme.Palette.textSecondary)
             Text(shown > 0 ? "Rate it \(shown)/10" : "Rate it?")
                 .font(.seret(26, .semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(Theme.Palette.textPrimary)
                 .contentTransition(.numericText())
 
             HStack(spacing: 14) {
@@ -439,13 +531,12 @@ struct LetterboxdRatingBar: View {
                 .font(.seretCaption).foregroundStyle(Theme.Palette.textSecondary)
         }
         .padding(.horizontal, 44).padding(.vertical, 26)
-        .background(RoundedRectangle(cornerRadius: 24).fill(.black.opacity(0.82))
-            .overlay(RoundedRectangle(cornerRadius: 24).stroke(.white.opacity(0.12))))
+        .playerOverlaySurface(RoundedRectangle(cornerRadius: 28, style: .continuous))
         // Sized to its contents and kept off the edges. Left to fill the width it ran almost
         // bezel to bezel, which a real television overscans into.
         .fixedSize(horizontal: true, vertical: false)
-        // The same top inset AutoSyncBar uses, for the same reason.
-        .padding(.top, 50)
+        // The same top slot the other bars use, below `PlayerTopBar`.
+        .padding(.top, PlayerLayout.topSlotInset)
         // Opens aimed at the rating the film already has — a rewatch starts from your own score —
         // and at the leftmost star otherwise. Never a guess: any seeded middle value is a score
         // the viewer did not choose sitting one press away from being filed.
@@ -468,19 +559,17 @@ struct LetterboxdRatingInvite: View {
             HStack(spacing: 12) {
                 Image(systemName: "chevron.up.circle.fill")
                     .font(.system(size: 30, weight: .semibold))
-                    .foregroundStyle(Theme.Palette.textPrimary)
                 Text(current.map { "Press up to change your \($0)/10" } ?? "Press up to rate it")
                     .font(.seret(26, .semibold))
-                    .foregroundStyle(.white)
             }
+            .foregroundStyle(Theme.Palette.textPrimary)
             Text("Press Menu to log it without a rating.")
                 .font(.seretCaption).foregroundStyle(Theme.Palette.textSecondary)
         }
         .padding(.horizontal, 44).padding(.vertical, 26)
-        .background(RoundedRectangle(cornerRadius: 24).fill(.black.opacity(0.82))
-            .overlay(RoundedRectangle(cornerRadius: 24).stroke(.white.opacity(0.12))))
+        .playerOverlaySurface(RoundedRectangle(cornerRadius: 28, style: .continuous))
         .fixedSize(horizontal: true, vertical: false)
-        .padding(.top, 50)
+        .padding(.top, PlayerLayout.topSlotInset)
     }
 }
 
@@ -508,6 +597,16 @@ private struct RatingStarStyle: ButtonStyle {
     }
 }
 
+/// The strip across the top of the picture while a subtitle sync runs, and for a few seconds after
+/// it finishes.
+///
+/// It exists because the measurement takes minutes: it has to read several minutes of the film's
+/// audio, which means downloading them. Holding the viewer on the settings sheet for that would be
+/// unusable, so the sheet closes, the film keeps playing, and this is where the work reports from.
+///
+/// Deliberately built out of nothing focusable and marked `allowsHitTesting(false)`. The player's
+/// remote belongs to `PlayerInputSurface`, which only works because it has no focusable siblings at
+/// rest — a Button up here would quietly take back the arrows and the touch-scrub with them.
 struct AutoSyncBar: View {
     let banner: PlayerModel.AutoSyncBanner
     private static let trackWidth: CGFloat = 320
@@ -516,13 +615,11 @@ struct AutoSyncBar: View {
         HStack(spacing: 22) {
             Image(systemName: glyph)
                 .font(.system(size: 26, weight: .semibold))
-                .foregroundStyle(tint)
             Text(banner.text)
                 .font(.seret(24, .semibold))
-                .foregroundStyle(.white)
             if let fraction = banner.fraction {
                 ZStack(alignment: .leading) {
-                    Capsule().fill(.white.opacity(0.16))
+                    Capsule().fill(.white.opacity(0.28))
                     Capsule().fill(Theme.Palette.focus)
                         // A floor, so the bar reads as started rather than as broken while the
                         // first seconds of audio are still arriving.
@@ -532,11 +629,13 @@ struct AutoSyncBar: View {
                 .animation(.easeOut(duration: 0.9), value: fraction)
             }
         }
+        // White throughout, a failure included: the glyph says which it is. The app has no
+        // amber or green accents any more.
+        .foregroundStyle(Theme.Palette.textPrimary)
         .padding(.horizontal, 34).padding(.vertical, 20)
-        .background(.black.opacity(0.72), in: Capsule())
-        .overlay(Capsule().strokeBorder(Theme.Palette.hairline))
+        .playerOverlaySurface(Capsule())
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .padding(.top, 50)
+        .padding(.top, PlayerLayout.topSlotInset)
         .allowsHitTesting(false)
     }
 
@@ -547,96 +646,142 @@ struct AutoSyncBar: View {
         case .failed:    "exclamationmark.triangle.fill"
         }
     }
+}
 
-    private var tint: Color {
-        switch banner.mood {
-        case .measuring: Theme.Palette.textPrimary
-        case .synced:    .green
-        case .failed:    .orange
-        }
+/// The surface every small player overlay sits on: the side sheet's dark panel gradient with a
+/// hairline, so a bar over a bright frame reads like the rest of the chrome.
+extension View {
+    func playerOverlaySurface<S: InsettableShape>(_ shape: S) -> some View {
+        background(LinearGradient(colors: [Theme.Palette.panelTop, Theme.Palette.panelBottom],
+                                  startPoint: .top, endPoint: .bottom), in: shape)
+            .overlay(shape.strokeBorder(Theme.Palette.hairline, lineWidth: 1))
     }
 }
 
-/// Netflix-style "Up Next" bar near content-end. Seeds focus to "Play Now" so the remote acts on
-/// it; the countdown auto-advances, and Menu (handled by the player) or Dismiss keeps watching.
+/// "Up Next" bar near content-end. Seeds focus to "Play Now" so the remote acts on it; the
+/// countdown auto-advances, and Menu (handled by the player) or Dismiss keeps watching.
 private struct UpNextBar: View {
     @Bindable var model: PlayerModel
     let next: Episode
+    /// The scrub bar is up beneath: sit above it rather than over it.
+    let clearsBar: Bool
     @FocusState private var playNowFocused: Bool
 
     var body: some View {
         VStack {
             Spacer()
-            HStack(spacing: 28) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Up Next").font(.seret(.callout, .semibold)).foregroundStyle(.secondary)
-                    Text("S\(next.season)\u{00B7}E\(next.number)  \u{00B7}  Playing in \(model.upNextSecondsRemaining)s")
-                        .font(.seret(.title3, .semibold))
+            HStack(spacing: 22) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("UP NEXT")
+                        .font(.seret(.caption1, .semibold)).kerning(1.5)
+                        .foregroundStyle(Theme.Palette.textSecondary)
+                    Text("S\(next.season) \u{2022} E\(next.number)  \u{00B7}  Playing in \(model.upNextSecondsRemaining)s")
+                        .font(.seret(30, .semibold))
+                        .monospacedDigit()
+                        .contentTransition(.numericText())
+                        .foregroundStyle(Theme.Palette.textPrimary)
                 }
-                Spacer()
+                Spacer(minLength: 40)
                 Button("Dismiss") { model.dismissUpNext() }
+                    .buttonStyle(SeretActionButtonStyle())
                 Button { model.playNextNow() } label: {
                     Label("Play Now", systemImage: "play.fill")
                 }
+                .buttonStyle(SeretActionButtonStyle(prominent: true))
                 .focused($playNowFocused)
             }
-            .padding(36)
-            .background(RoundedRectangle(cornerRadius: 20).fill(.black.opacity(0.85))
-                .overlay(RoundedRectangle(cornerRadius: 20).stroke(.white.opacity(0.10))))
-            .padding(.horizontal, 80)
-            .padding(.bottom, 60)
+            .padding(.horizontal, 40).padding(.vertical, 30)
+            .playerOverlaySurface(RoundedRectangle(cornerRadius: 32, style: .continuous))
+            .padding(.horizontal, PlayerLayout.sideInset)
+            .padding(.bottom, clearsBar ? 130 : 20)
         }
+        .animation(Theme.Anim.pageFade, value: clearsBar)
         .onAppear { playNowFocused = true }
     }
 }
 
-/// The bottom-anchored player cluster: transport buttons + scrub bar on TOP, episode strip BENEATH.
-/// Because they're stacked in one bottom-pinned column, the bar automatically rides up as the strip
-/// grows — it can never overlap the bar or float to the middle of the screen.
+/// The paused state, in the middle of the frame: the pause glyph in a dark disc. Only while
+/// nothing else is up — the row, the sheet and the strip all say where you are themselves.
+private struct PausedGlyph: View {
+    var body: some View {
+        Image(systemName: "pause.fill")
+            .font(.system(size: 60, weight: .bold))
+            .foregroundStyle(Theme.Palette.textPrimary)
+            .frame(width: 150, height: 150)
+            .background(Color.black.opacity(0.45), in: Circle())
+            .overlay(Circle().strokeBorder(Theme.Palette.hairline, lineWidth: 1))
+            .accessibilityLabel("Paused")
+    }
+}
+
+/// The bottom-anchored player cluster: the scrub bar on TOP; beneath it the ⌄ hint, the control
+/// row or the episode strip. Because they're stacked in one bottom-pinned column, the bar
+/// automatically rides up as the row or the strip opens — it can never overlap them or float to
+/// the middle of the screen.
 private struct PlayerBottomBar: View {
     @Bindable var model: PlayerModel
+    let barShown: Bool
     @Binding var showEpisodes: Bool
-    var focus: FocusState<PlayerFocus?>.Binding
+    let showControls: Bool
+    /// The ⌄ under the bar — not while the side sheet is up, where Down means the list.
+    let showsHint: Bool
+    let controls: [PlayerControl]
+    let controlsFocus: PlayerControl?
+    let onChoose: (PlayerControl) -> Void
+    let onCloseControls: () -> Void
 
-    // The bar is up while the viewer is interacting, mid-buffer, or the strip is open.
-    // Paused keeps the bar up for as long as the pause lasts. Pausing IS how you arm scrubbing now,
-    // so the thing you are about to aim with must be on screen the whole time — not on the 5s
-    // reveal dwell, which timed out mid-scrub and left you dragging a film with no visible playhead.
-    // It comes down by itself when playback resumes.
-    private var barShown: Bool {
-        model.scrubBarVisible || model.isBuffering || showEpisodes || model.phase == .paused
+    private var hasEpisodes: Bool { model.isEpisode && !model.seasonEpisodes.isEmpty }
+
+    /// "⌃ Episodes" above the bar, on a show. Out of the way of whatever rides the knob — the
+    /// skip badge, the scrub time — which shares that band.
+    private var showsEpisodePeek: Bool {
+        hasEpisodes && barShown && !showEpisodes && !showControls && !model.upNextVisible
+            && model.skipFeedback == nil && !model.isScrubbing
     }
 
     var body: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 20) {
             Spacer()
             if barShown {
                 ScrubBar(model: model, buffering: model.isBuffering)
+                    .overlay(alignment: .topTrailing) {
+                        EpisodePeek()
+                            .offset(y: -44)
+                            .opacity(showsEpisodePeek ? 1 : 0)
+                    }
                     .allowsHitTesting(false)
                     .transition(.opacity)
             }
-            if model.isEpisode && !model.seasonEpisodes.isEmpty {
-                if showEpisodes {
-                    EpisodeStripExpanded(model: model, onPlay: { showEpisodes = false },
-                                         onClose: { showEpisodes = false })
-                        .transition(.opacity)
-                } else if barShown {
-                    EpisodePeek()
-                        .allowsHitTesting(false)
-                        .transition(.opacity)
-                }
+            if showControls {
+                PlayerControlRow(controls: controls, onChoose: onChoose, onClose: onCloseControls,
+                                 initialFocus: controlsFocus)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            } else if hasEpisodes && showEpisodes {
+                EpisodeStripExpanded(model: model, onPlay: { showEpisodes = false },
+                                     onClose: { showEpisodes = false })
+                    .transition(.opacity)
+            } else if barShown {
+                // Down opens the control row. Faded rather than removed while the sheet is up, so
+                // the bar holds its place instead of dropping as the sheet slides in.
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 30, weight: .semibold))
+                    .foregroundStyle(Theme.Palette.textPrimary.opacity(0.75))
+                    .frame(maxWidth: .infinity)
+                    .opacity(showsHint ? 1 : 0)
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
             }
         }
-        // A clean side margin (the bar genuinely respects this — see ScrubBar). Also keeps the
-        // bar + timecodes inside the tvOS title-safe area.
-        .padding(.horizontal, 90)
-        // Collapsed (just the bar / a movie) the bar would sit in the TV's overscan and clip; lift it
-        // clear. Expanded, the tall strip already rides the bar well up, so keep it tight to the cards.
-        .padding(.bottom, showEpisodes ? 48 : 76)
-        // A soft bottom scrim so the bar + episode stills/labels stay readable over bright scenes.
+        // Lines the bar's left edge up with the top line's title and the control row.
+        .padding(.horizontal, PlayerLayout.sideInset)
+        // A soft bottom scrim so the bar, the row and the episode stills stay readable over bright
+        // scenes.
         .background(alignment: .bottom) {
-            LinearGradient(colors: [.clear, .black.opacity(0.8)], startPoint: .top, endPoint: .bottom)
-                .frame(height: showEpisodes ? 360 : 240)
+            LinearGradient(stops: [.init(color: .clear, location: 0),
+                                   .init(color: .black.opacity(0.4), location: 0.5),
+                                   .init(color: .black.opacity(0.85), location: 1)],
+                           startPoint: .top, endPoint: .bottom)
+                .frame(height: showEpisodes ? 480 : 420)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                 .opacity(barShown ? 1 : 0)
                 .ignoresSafeArea()
@@ -644,20 +789,20 @@ private struct PlayerBottomBar: View {
         }
         .animation(Theme.Anim.pageFade, value: barShown)
         .animation(Theme.Anim.pageFade, value: showEpisodes)
+        .animation(Theme.Anim.focus, value: showsEpisodePeek)
     }
 }
 
-
-/// Resting hint: a chevron + "Episodes" sitting just under the scrub bar. Press UP (opens the
-/// transport) then the Episodes button, or open the full strip from there.
+/// Resting hint above the bar on a show: Up lifts the season's episodes.
 private struct EpisodePeek: View {
     var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "chevron.compact.up")
-            Text("Episodes").font(.seret(.callout, .semibold))
+        HStack(spacing: 8) {
+            Image(systemName: "chevron.up")
+                .font(.system(size: 20, weight: .semibold))
+            Text("Episodes").font(.seret(22, .semibold))
         }
-        .foregroundStyle(.white.opacity(0.6))
-        .frame(maxWidth: .infinity)
+        .foregroundStyle(Theme.Palette.textPrimary.opacity(0.75))
+        .fixedSize()
     }
 }
 

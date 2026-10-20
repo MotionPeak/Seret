@@ -36,7 +36,10 @@ struct SubtitleBrowser: View {
         }
         .padding(60)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(Theme.Palette.canvas.opacity(0.96).ignoresSafeArea())
+        .background(
+            LinearGradient(colors: [Theme.Palette.panelTop, Theme.Palette.panelBottom],
+                           startPoint: .top, endPoint: .bottom)
+                .ignoresSafeArea())
         // Keyed on the playing file. The browser's results belong to one file, and an episode
         // swap or a "Try another version" clears them back to `.idle` — which this view draws with
         // the same spinner as `.searching`. An un-keyed task runs once on appear and never again,
@@ -58,10 +61,11 @@ struct SubtitleBrowser: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
             Text("Subtitles for \(model.label)")
-                .font(.seret(.title2, .semibold))
+                .font(.seret(40, .bold))
                 .foregroundStyle(Theme.Palette.textPrimary)
+                .lineLimit(1)
             Text(model.currentSource.releaseNameForMatching)
                 .font(.caption.monospaced())
                 .foregroundStyle(Theme.Palette.textSecondary)
@@ -125,8 +129,9 @@ struct SubtitleBrowser: View {
             .padding(12)
         }
         .frame(width: 420, height: 520)
-        .background(Theme.Palette.surface2, in: RoundedRectangle(cornerRadius: 16))
-        .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Theme.Palette.hairline))
+        .background(Theme.Palette.surface2, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous)
+            .strokeBorder(Theme.Palette.hairline))
         .offset(y: 70)
         .focusSection()
     }
@@ -221,16 +226,29 @@ struct SubtitleBrowser: View {
         return parts.joined(separator: " · ")
     }
 
+    /// How sure the match is, strongest first: a file-hash match is a white pill, a same-group
+    /// release glass, a different source just an outline.
     private func badge(_ quality: SubtitleMatch.Quality) -> some View {
-        let (text, color): (String, Color) = switch quality {
-        case .perfect:   ("✓ Perfect match", Color.green)
-        case .good:      ("Same release group", Theme.Palette.textPrimary)
-        case .uncertain: ("Different source", Theme.Palette.textSecondary)
+        let text: String
+        let fill: Color
+        let ink: Color
+        let outline: Color
+        switch quality {
+        case .perfect:
+            (text, fill, ink, outline) = ("\u{2713} Perfect match", Theme.Palette.focus,
+                                          Theme.Palette.onFocus, .clear)
+        case .good:
+            (text, fill, ink, outline) = ("Same release group", Theme.Palette.glass,
+                                          Theme.Palette.textPrimary, .clear)
+        case .uncertain:
+            (text, fill, ink, outline) = ("Different source", .clear,
+                                          Theme.Palette.textSecondary, Theme.Palette.hairline)
         }
         return Text(text)
             .font(.seret(.caption2, .semibold))
-            .foregroundStyle(color)
-            .padding(.horizontal, 10).padding(.vertical, 3)
-            .background(color.opacity(0.18), in: Capsule())
+            .foregroundStyle(ink)
+            .padding(.horizontal, 12).padding(.vertical, 4)
+            .background(fill, in: Capsule())
+            .overlay(Capsule().strokeBorder(outline, lineWidth: 1.5))
     }
 }

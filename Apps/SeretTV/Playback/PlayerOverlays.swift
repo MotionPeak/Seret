@@ -8,10 +8,15 @@ struct LoadingOverlay: View {
     let backdropURL: URL?
     var body: some View {
         DimBackdrop(url: backdropURL) {
-            VStack(spacing: 16) {
+            VStack(spacing: 18) {
                 ProgressView().controlSize(.large).tint(Theme.Palette.textPrimary)
-                Text(caption).font(.seretTitle3)
-                Text(title).font(.seretHeadline).foregroundStyle(.secondary)
+                Text(caption)
+                    .font(.seret(30, .semibold))
+                    .foregroundStyle(Theme.Palette.textPrimary)
+                Text(title)
+                    .font(.seret(24, .medium))
+                    .foregroundStyle(Theme.Palette.textSecondary)
+                    .lineLimit(1)
             }
         }
     }
@@ -26,17 +31,28 @@ struct ErrorOverlay: View {
     let onBack: () -> Void
     var body: some View {
         DimBackdrop(url: backdropURL) {
-            VStack(spacing: 20) {
-                Image(systemName: "exclamationmark.triangle").font(.system(size: 54))
+            VStack(spacing: 22) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 54, weight: .semibold))
                     .foregroundStyle(Theme.Palette.textPrimary)
-                Text("Couldn't play this source").font(.seret(.title2, .bold))
-                Text(reason).font(.seretCallout).foregroundStyle(.secondary)
+                Text("Couldn't play this source")
+                    .font(.seret(40, .bold))
+                    .foregroundStyle(Theme.Palette.textPrimary)
+                Text(reason)
+                    .font(.seret(25, .regular))
+                    .foregroundStyle(Theme.Palette.textSecondary)
                     .multilineTextAlignment(.center).frame(maxWidth: 800)
-                HStack(spacing: 24) {
+                HStack(spacing: 22) {
                     Button("Retry", action: onRetry)
-                    if canTryAnother { Button("Try another version", action: onTryAnother) }
+                        .buttonStyle(SeretActionButtonStyle(prominent: true))
+                    if canTryAnother {
+                        Button("Try another version", action: onTryAnother)
+                            .buttonStyle(SeretActionButtonStyle())
+                    }
                     Button("Back", action: onBack)
+                        .buttonStyle(SeretActionButtonStyle())
                 }
+                .padding(.top, 12)
             }
         }
     }
@@ -52,7 +68,7 @@ private struct DimBackdrop<Content: View>: View {
             // retry or an episode-swap reload doesn't re-fetch and re-decode it — the flash 40387ee
             // removed everywhere else in the app.
             if let url { RemoteImage(url: url, contentMode: .fill) { _ in Color.clear } }
-            Color.black.opacity(0.7)
+            Color.black.opacity(0.72)
             content
         }
         .ignoresSafeArea()

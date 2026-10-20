@@ -40,11 +40,11 @@ struct ManualSyncPanel: View {
         .padding(.vertical, 36)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 24)
-                .fill(Theme.Palette.canvas.opacity(0.92))
-                .overlay(RoundedRectangle(cornerRadius: 24)
-                    .stroke(Theme.Palette.hairline, lineWidth: 1))
-        )
+            LinearGradient(colors: [Theme.Palette.panelTop, Theme.Palette.panelBottom],
+                           startPoint: .top, endPoint: .bottom),
+            in: RoundedRectangle(cornerRadius: 32, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 32, style: .continuous)
+            .strokeBorder(Theme.Palette.hairline, lineWidth: 1))
     }
 
     private var header: some View {

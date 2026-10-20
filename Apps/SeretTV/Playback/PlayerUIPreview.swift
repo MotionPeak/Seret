@@ -8,8 +8,22 @@ import DebridCore
 /// target view so its layout can be screenshot-verified.
 ///
 /// Launch with `-uiPreview <target>`, where target is:
-///   - `scrubbar`  — the transport bar in each of its states
-///   - `settings`  — the playback settings panel with grouped subtitle tracks
+///   - `scrubbar`  — the transport bar in each of its states, the last one skipping (the badge
+///     counting up above the knob)
+///   - `settings`  — the settings side sheet on Subtitles, with grouped subtitle tracks
+///   - `playercontrols` — the REAL `PlayerView` over a still, paused, the control row open with
+///     Subtitles focused: top line, bar riding up, the row. `playercontrolsshow`: the same on an
+///     episode (episode title line, an Episodes button, no year)
+///   - `playersheet` — the real player with the settings sheet open on Subtitles (Menu goes back
+///     to the row). `playersheetaudio`: on Audio
+///   - `playerpaused` — the real player paused with nothing open: bar, top line, the centre glyph.
+///     `playerpausedshow`: the same on an episode, with the "⌃ Episodes" peek above the bar
+///   - `playerskip` — the real player playing while ±10s skips keep landing: the badge riding the
+///     knob as it accumulates (+10s … +1:10 …)
+///   - `playerupnext` — an episode in its last seconds: the Up Next bar (Play Now focused) above
+///     the scrub bar, which the open reveals
+///   - `playerloading` / `playererror` — the real player before its first frame, and after a
+///     source that could not be opened (Retry focused)
 ///   - `subtitles` — the full subtitle browser with ranked, badged results
 ///   - `subtitlesfailed` — the same browser after a pick that could not be honoured
 ///   - `detail`    — the Movie Detail page with a rating-capable stub store (no art: the title
@@ -74,6 +88,16 @@ struct PlayerUIPreview: View {
     var body: some View {
         switch target {
         case "settings":   SettingsPanelPreview()
+        case "playercontrols":      PlayerChromePreview(overlay: .controls, paused: true)
+        case "playercontrolsshow":  PlayerChromePreview(overlay: .controls, paused: true, show: true)
+        case "playersheet":         PlayerChromePreview(overlay: .sheet(.subtitles), paused: true)
+        case "playersheetaudio":    PlayerChromePreview(overlay: .sheet(.audio), paused: true)
+        case "playerpaused":        PlayerChromePreview(overlay: .none, paused: true)
+        case "playerpausedshow":    PlayerChromePreview(overlay: .none, paused: true, show: true)
+        case "playerskip":          PlayerChromePreview(overlay: .none, skipping: true)
+        case "playerupnext":        PlayerChromePreview(overlay: .none, show: true, nearEnd: true)
+        case "playerloading":       PlayerChromePreview(overlay: .none, stage: .loading)
+        case "playererror":         PlayerChromePreview(overlay: .none, stage: .failed)
         case "subtitles":  SubtitleBrowserPreview()
         case "subtitlesfailed": SubtitleBrowserPreview(failing: true)
         case "inputprobe": InputProbePreview()
@@ -970,12 +994,15 @@ private struct ScrubBarPreview: View {
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
-            VStack(spacing: 90) {
-                labelled("At rest — 3pt hairline, play-dot handle") { m in }
-                labelled("Buffering — inline spinner") { m in m.driveBuffering() }
-                labelled("Paused — pause affordance at rest") { m in m.drivePaused() }
-                labelled("Scrubbing — slab, thick track, play-mark handle, floating time") { m in
+            VStack(spacing: 70) {
+                labelled("Playing — 8pt bar, pause glyph (what Select does)") { m in }
+                labelled("Buffering — spinner in the glyph slot") { m in m.driveBuffering() }
+                labelled("Paused — 10pt bar, larger knob, play glyph") { m in m.drivePaused() }
+                labelled("Scrubbing — target time over the knob, tick at the live playhead") { m in
                     m.driveScrubbing()
+                }
+                labelled("Skipping — the badge rides the knob and counts up") { m in
+                    m.driveSkipping()
                 }
             }
             .padding(.horizontal, 90)
@@ -1042,6 +1069,26 @@ final class PreviewDriver {
         model.beginScrub()
         model.updateScrub(by: 1600)   // glide the target well ahead of the playhead
     }
+
+    /// Keep ±10s skips landing so the badge stays up and counts (+10s, +20s … +1:10 …). Each skip
+    /// is followed by the tick a real engine sends from the new place.
+    func driveSkipping() {
+        Task { await PreviewSkipLoop.run(model: model, engine: engine) }
+    }
+}
+
+/// Lands a forward skip every 0.45s — inside the badge's 0.8s burst window, so it accumulates —
+/// followed by the engine's tick from the new position.
+@MainActor
+enum PreviewSkipLoop {
+    static func run(model: PlayerModel, engine: PreviewEngine) async {
+        while !Task.isCancelled {
+            model.skip(10)
+            try? await Task.sleep(for: .milliseconds(150))
+            engine.emit(.time(.init(position: model.position + 0.2, duration: model.duration)))
+            try? await Task.sleep(for: .milliseconds(300))
+        }
+    }
 }
 
 // MARK: - Input probe
@@ -1076,7 +1123,10 @@ private struct SettingsPanelPreview: View {
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
-            SettingsPanel(model: driver.model, onSearchSubtitles: {}, onSyncToLine: {}, onClose: {})
+            RemoteImage(url: PlayerChromePreview.frame, contentMode: .fill) { _ in Color.black }
+                .ignoresSafeArea()
+            SettingsPanel(model: driver.model, initialSection: .subtitles,
+                          onSearchSubtitles: {}, onSyncToLine: {}, onClose: {})
         }
         .task { await driver.primeWithTracks() }
     }
@@ -1145,17 +1195,34 @@ final class SubtitlePreviewDriver {
     let engine = PreviewEngine()
     let model: PlayerModel
 
-    init(failing: Bool = false) {
+    init(failing: Bool = false, show: Bool = false, failingOpen: Bool = false) {
         let source = MediaSource(torrentID: "t", fileID: nil, restrictedLink: "rd://x",
                                  parsed: ParsedRelease(title: "Dune Part Two", year: 2024,
                                                        resolution: "2160p", source: "WEB-DL",
                                                        videoCodec: "H265", releaseGroup: "FLUX"))
-        let item = MediaItem(id: "m", kind: .movie, title: "Dune: Part Two", year: 2024,
-                             sources: [source], seasons: [], tmdbID: 693134)
-        let request = PlaybackRequest(item: item, source: source, resumeAt: nil,
+        let request: PlaybackRequest
+        if show {
+            // An episode with its season alongside, so the strip (and the row's Episodes button)
+            // has something to show. No TMDB here, so the episodes carry no names: the top line
+            // falls back to "Episode 3".
+            let episodes = (1...6).map { Episode(season: 1, number: $0, source: source) }
+            let item = MediaItem(id: "s", kind: .show, title: "The Diplomat", year: 2023,
+                                 sources: [], seasons: [Season(number: 1, episodes: episodes)],
+                                 tmdbID: 203857)
+            request = PlaybackRequest(item: item, source: source, resumeAt: nil,
+                                      label: "The Diplomat — S1·E3", contentKey: "s:1x3",
+                                      episode: episodes[2])
+        } else {
+            let item = MediaItem(id: "m", kind: .movie, title: "Dune: Part Two", year: 2024,
+                                 sources: [source], seasons: [], tmdbID: 693134)
+            request = PlaybackRequest(item: item, source: source, resumeAt: nil,
                                       label: "Dune: Part Two", contentKey: "m")
+        }
         model = PlayerModel(request: request, engine: engine,
-                            unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
+                            unrestrict: { _ in
+                                if failingOpen { throw URLError(.badServerResponse) }
+                                return URL(string: "https://cdn/x.mkv")!
+                            },
                             recordProgress: { _, _, _, _, _ in },
                             subtitles: PreviewSubtitleProvider(failDownload: failing))
     }
@@ -1179,6 +1246,11 @@ final class SubtitlePreviewDriver {
         model.start()
         try? await Task.sleep(for: .milliseconds(50))
         engine.emit(.time(.init(position: 2480, duration: 7784)))
+        engine.audioTracks = [
+            MediaTrack(id: "es/1", kind: .audio, name: "English 5.1 [English]", language: "en", codec: "eac3"),
+            MediaTrack(id: "es/2", kind: .audio, name: "Commentary [English]", language: "en", codec: "aac"),
+            MediaTrack(id: "es/3", kind: .audio, name: "Français [French]", language: "fr", codec: "ac3"),
+        ]
         engine.subtitleTracks = [
             MediaTrack(id: "spu/0", kind: .subtitle, name: "English SDH", language: "en", codec: "subt"),
             MediaTrack(id: "spu/1", kind: .subtitle, name: "Français", language: "fr", codec: "subt"),
@@ -1224,6 +1296,76 @@ struct PreviewSubtitleProvider: SubtitleProvider {
 
         """.utf8).write(to: url)
         return url
+    }
+}
+
+// MARK: - Player chrome
+
+/// The REAL `PlayerView` — input surface, overlay routing, focus and all — on a stub engine over a
+/// still, opened on the overlay under test. Nothing is re-composed for the harness, so what the
+/// screenshot shows is what the player draws.
+private struct PlayerChromePreview: View {
+    let overlay: PlayerView.PreviewOverlay
+    let paused: Bool
+    let skipping: Bool
+    let show: Bool
+    let nearEnd: Bool
+    let stage: Stage
+    @State private var driver: SubtitlePreviewDriver
+
+    /// How far the harness takes playback: to frames (the default), never past the cold open, or
+    /// into a failed open.
+    enum Stage { case playing, loading, failed }
+    /// The player mounts once the model holds its tracks — as it does by the time a real viewer
+    /// can reach the row — so the sheet seeds focus on the subtitle that is actually on.
+    @State private var primed = false
+
+    /// A bright, detailed frame, so legibility over a real picture is what gets judged.
+    static let frame = TMDBClient.imageURL(path: "/fRGxZuo7jJUWQsVg9PREb98Aclp.jpg", size: "original")
+
+    init(overlay: PlayerView.PreviewOverlay, paused: Bool = false, skipping: Bool = false,
+         show: Bool = false, nearEnd: Bool = false, stage: Stage = .playing) {
+        self.overlay = overlay
+        self.nearEnd = nearEnd
+        self.paused = paused
+        self.skipping = skipping
+        self.show = show
+        self.stage = stage
+        _driver = State(initialValue: SubtitlePreviewDriver(show: show,
+                                                            failingOpen: stage == .failed))
+    }
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            if primed {
+                PlayerView(previewModel: driver.model, frame: Self.frame, year: show ? nil : 2024,
+                           opening: overlay)
+            }
+        }
+        .task {
+            guard stage == .playing else { primed = true; return }
+            await driver.primeWithTracks()
+            // Frames are moving: the cold-open overlay comes down.
+            driver.engine.emit(.time(.init(position: 2481, duration: 7784)))
+            driver.engine.emit(.state(.playing))
+            try? await Task.sleep(for: .milliseconds(50))
+            if show { await driver.model.loadSeasonEpisodes() }
+            if paused { driver.engine.emit(.state(.paused)) }
+            try? await Task.sleep(for: .milliseconds(50))
+            primed = true
+            if nearEnd {
+                // Two ticks in the last stretch: playback is advancing there, so Up Next rises.
+                try? await Task.sleep(for: .milliseconds(300))
+                driver.engine.emit(.time(.init(position: 7760, duration: 7784)))
+                try? await Task.sleep(for: .milliseconds(100))
+                driver.engine.emit(.time(.init(position: 7761, duration: 7784)))
+            }
+            if skipping {
+                try? await Task.sleep(for: .milliseconds(600))
+                await PreviewSkipLoop.run(model: driver.model, engine: driver.engine)
+            }
+        }
     }
 }
 

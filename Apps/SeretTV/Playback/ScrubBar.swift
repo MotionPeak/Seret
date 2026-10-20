@@ -1,146 +1,158 @@
 import SwiftUI
 import DebridUI
 
-/// The player's transport bar.
+/// The player's transport line: play/pause glyph · elapsed · a thin white bar with a round knob ·
+/// time remaining.
 ///
-/// At rest it is a 3pt hairline that does not compete with the picture. The moment the viewer
-/// touches the remote it lifts into an outlined glass slab, the track triples in thickness,
-/// the handle becomes the Seret play mark and the target timecode floats above it. That state
-/// change IS the scrub-mode indicator — the old bar looked identical whether you were scrubbing or
-/// watching, which is what made scrubbing feel like nothing was happening.
+/// The bar is 8pt while watching and 10pt while paused or scrubbing — being paused IS scrub mode,
+/// so the thicker bar and the larger knob are the scrub-mode indicator, and they hold for the whole
+/// pause instead of flickering on every thumb contact. While scrubbing the target time floats above
+/// the knob and a tick marks the live playhead (the return point if the scrub is cancelled).
+///
+/// The ±skip badge also rides above the knob: a white pill that accumulates (+10s, +20s, +1:10)
+/// and follows the knob along the bar, clamped so it never leaves the bar's span.
 struct ScrubBar: View {
     @Bindable var model: PlayerModel
     let buffering: Bool
 
     /// The flanking timecodes always show the LIVE playhead — where you are, and where you return
-    /// to if you cancel a scrub. The scrub TARGET is shown only in the floating bubble over the
-    /// handle, so the two never duplicate each other.
+    /// to if you cancel a scrub. The scrub TARGET is shown only in the floating time over the
+    /// knob, so the two never duplicate each other.
     private var flankTime: Double { model.position }
-    /// The fill and handle sit at the scrub target while scrubbing, the playhead otherwise.
+    /// The fill and knob sit at the scrub target while scrubbing, the playhead otherwise.
     private var headTime: Double { model.isScrubbing ? model.scrubTarget : model.position }
     private var headFraction: Double {
         model.duration > 0 ? min(1, max(0, headTime / model.duration)) : 0
     }
-    /// The bar has two presentations, and PAUSE — not thumb-contact — decides which.
-    ///
-    /// Being paused IS scrub mode now, so the expanded slab stays up for the whole pause instead of
-    /// snapping open on touch-down and collapsing on lift. Tying it to `isScrubbing` alone made it
-    /// flicker between the two looks on every contact while aiming, which is what "it pops back off
-    /// and on" described. It returns to the thin resting bar when playback resumes.
+    /// Paused or scrubbing — see the type's comment.
     private var expanded: Bool { model.isScrubbing || model.phase == .paused }
 
-    private var trackHeight: CGFloat { expanded ? 8 : 3 }
-    private var timeFont: Font {
-        .seret(expanded ? 24 : 20, .semibold)
-    }
-    private var timeColor: Color {
-        expanded ? Theme.Palette.textPrimary : Theme.Palette.textSecondary
-    }
+    private var trackHeight: CGFloat { expanded ? 10 : 8 }
+    private var knobDiameter: CGFloat { expanded ? 30 : 22 }
+    private static let laneHeight: CGFloat = 34
+    private static let timeFont = Font.seret(28, .semibold)
 
     /// The loading hint, shown only once a wait has outlasted `hintDelay`.
     ///
     /// Every ±10s skip raises `buffering` the moment it is pressed, and nothing lowers it before the
     /// next once-a-second tick — so even a skip the stream cache answered in a tenth of a second
-    /// flashed "Loading…" for one to two seconds. A real wait still shows it.
+    /// flashed a spinner for one to two seconds. A real wait still shows it.
     @State private var showsLoadingHint = false
     private static let hintDelay: Duration = .milliseconds(600)
+    /// The skip badge's measured width, for clamping it inside the bar.
+    @State private var badgeWidth: CGFloat = 0
 
     var body: some View {
-        HStack(spacing: 18) {
+        HStack(spacing: 24) {
+            stateGlyph
             Text(Timecode.format(flankTime))
-                .font(timeFont).monospacedDigit().foregroundStyle(timeColor)
+                .font(Self.timeFont).monospacedDigit()
+                .foregroundStyle(Theme.Palette.textPrimary)
+                .frame(minWidth: 110, alignment: .leading)
             track
             Text("-" + Timecode.format(max(0, model.duration - flankTime)))
-                .font(timeFont).monospacedDigit().foregroundStyle(timeColor)
+                .font(Self.timeFont).monospacedDigit()
+                .foregroundStyle(Theme.Palette.textPrimary.opacity(0.8))
+                .frame(minWidth: 130, alignment: .trailing)
         }
-        // Floated under the bar rather than stacked into it: inserted into the bar's own stack it
-        // made the bottom-anchored cluster ~40pt taller, so the whole bar jumped up every time the
-        // hint came and went.
-        .overlay(alignment: .bottom) {
-            HStack(spacing: 10) {
-                ProgressView().controlSize(.small).tint(Theme.Palette.textPrimary)
-                Text("Loading…").font(.seretCaption).foregroundStyle(Theme.Palette.textSecondary)
-            }
-            .fixedSize()
-            .offset(y: 44)
-            .opacity(showsLoadingHint ? 1 : 0)
-            .allowsHitTesting(false)
-        }
+        .shadow(color: .black.opacity(0.35), radius: 6, y: 1)
         .task(id: buffering) {
             guard buffering else { showsLoadingHint = false; return }
             try? await Task.sleep(for: Self.hintDelay)
             if !Task.isCancelled { showsLoadingHint = true }
         }
-        .padding(expanded ? 20 : 0)
-        .background {
-            // The slab is the scrub-mode surface: up for the whole pause, gone while playing.
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(.white.opacity(0.05))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .strokeBorder(Theme.Palette.hairline, lineWidth: 1)
-                )
-                .opacity(expanded ? 1 : 0)
-        }
-        .animation(Theme.Anim.heroSpring, value: expanded)
+        .animation(Theme.Anim.focus, value: expanded)
         .animation(Theme.Anim.focus, value: showsLoadingHint)
+        .animation(Theme.Anim.focus, value: model.skipFeedback)
+    }
+
+    /// What Select would do — play while paused, pause while playing — or a spinner while a wait
+    /// has outlasted the hint delay. One fixed slot, so neither swap moves the timecode.
+    private var stateGlyph: some View {
+        ZStack {
+            Image(systemName: model.phase == .paused ? "play.fill" : "pause.fill")
+                .font(.system(size: 30, weight: .bold))
+                .foregroundStyle(Theme.Palette.textPrimary)
+                .opacity(showsLoadingHint ? 0 : 1)
+            ProgressView()
+                .controlSize(.small)
+                .tint(Theme.Palette.textPrimary)
+                .opacity(showsLoadingHint ? 1 : 0)
+        }
+        .frame(width: 40, height: 40)
+        .accessibilityLabel(showsLoadingHint ? "Loading" : (model.phase == .paused ? "Paused" : "Playing"))
     }
 
     private var track: some View {
-        ZStack(alignment: .leading) {
-            Capsule().fill(.white.opacity(0.16)).frame(height: trackHeight)
-            GeometryReader { geo in
-                let headX = min(geo.size.width, max(0, geo.size.width * headFraction))
-                let playheadX = model.duration > 0
-                    ? geo.size.width * min(1, max(0, model.position / model.duration))
-                    : 0
+        GeometryReader { geo in
+            let width = geo.size.width
+            let headX = min(width, max(0, width * headFraction))
+            let playheadX = model.duration > 0
+                ? width * min(1, max(0, model.position / model.duration))
+                : 0
+            let midY = geo.size.height / 2
 
-                Capsule()
-                    .fill(Theme.Palette.focus)
+            ZStack(alignment: .leading) {
+                Capsule().fill(.white.opacity(0.28))
+                    .frame(width: width, height: trackHeight)
+                Capsule().fill(Theme.Palette.focus)
                     .frame(width: headX, height: trackHeight)
-                    .frame(maxHeight: .infinity, alignment: .center)
+            }
+            .frame(width: width, height: geo.size.height, alignment: .leading)
 
-                // A distinct tick at the LIVE playhead so, while scrubbing, "where you are" (and the
-                // return point if you cancel) is always visible — regardless of which way you drag.
-                // The old dimmed band was max(origin, target), so scrubbing FORWARD it coincided
-                // with the fill and vanished.
-                if model.isScrubbing {
-                    Capsule()
-                        .fill(.white)
-                        .frame(width: 3, height: trackHeight + 8)
-                        .position(x: min(geo.size.width - 2, max(2, playheadX)),
-                                  y: geo.size.height / 2)
-                }
-                handle
-                    .position(x: min(geo.size.width - 10, max(10, headX)), y: geo.size.height / 2)
+            // A distinct tick at the LIVE playhead so, while scrubbing, "where you are" (and the
+            // return point if you cancel) is always visible — regardless of which way you drag.
+            if model.isScrubbing {
+                Capsule()
+                    .fill(.white.opacity(0.9))
+                    .frame(width: 3, height: trackHeight + 12)
+                    .position(x: min(width - 2, max(2, playheadX)), y: midY)
+            }
+
+            Circle()
+                .fill(Theme.Palette.focus)
+                .frame(width: knobDiameter, height: knobDiameter)
+                .shadow(color: .black.opacity(0.5), radius: 6, y: 2)
+                .position(x: min(width, max(0, headX)), y: midY)
+
+            if model.isScrubbing {
+                Text(Timecode.format(model.scrubTarget))
+                    .font(.seret(30, .semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(Theme.Palette.textPrimary)
+                    .shadow(color: .black.opacity(0.5), radius: 6, y: 1)
+                    .fixedSize()
+                    .position(x: clamped(headX, halfWidth: 60, in: width), y: midY - 44)
+            } else if let feedback = model.skipFeedback {
+                SkipBadge(feedback: feedback)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { badgeWidth = $0 }
+                    .position(x: clamped(headX, halfWidth: badgeWidth / 2, in: width), y: midY - 42)
+                    .transition(.opacity.combined(with: .scale(scale: 0.85)))
             }
         }
-        .frame(height: 28)
+        .frame(height: Self.laneHeight)
     }
 
-    @ViewBuilder private var handle: some View {
-        if model.isScrubbing {
-            PlayTriangle()
-                .fill(Theme.Palette.focus)
-                .frame(width: 26, height: 26)
-                .overlay(alignment: .bottom) {
-                    Text(Timecode.format(model.scrubTarget))
-                        .font(.seret(30, .semibold))
-                        .monospacedDigit()
-                        .foregroundStyle(Theme.Palette.textPrimary)
-                        .fixedSize()
-                        .offset(y: -38)
-                }
-        } else if model.phase == .paused {
-            // A paused bar used to just stop advancing — with the transport buttons gone there was
-            // no pause affordance at rest at all.
-            Image(systemName: "pause.fill")
-                .font(.system(size: 15, weight: .bold))
-                .foregroundStyle(Theme.Palette.onFocus)
-                .frame(width: 22, height: 22)
-                .background(Theme.Palette.focus, in: Circle())
-        } else {
-            Circle().fill(Theme.Palette.focus).frame(width: 14, height: 14)
-        }
+    /// Keeps something centred on the knob inside the bar's span.
+    private func clamped(_ x: CGFloat, halfWidth: CGFloat, in width: CGFloat) -> CGFloat {
+        guard width > halfWidth * 2 else { return width / 2 }
+        return min(width - halfWidth, max(halfWidth, x))
+    }
+}
+
+/// The accumulating skip amount: a white pill, dark text, the number rolling in place. Driven by
+/// the shared `PlayerModel.skipFeedback` — the same state the iPad badge uses.
+private struct SkipBadge: View {
+    let feedback: PlayerModel.SkipFeedback
+
+    var body: some View {
+        Text((feedback.seconds < 0 ? "\u{2212}" : "+") + feedback.label)
+            .font(.seret(24, .bold))
+            .monospacedDigit()
+            .contentTransition(.numericText(value: feedback.seconds))
+            .foregroundStyle(Theme.Palette.onFocus)
+            .padding(.horizontal, 16).padding(.vertical, 6)
+            .background(Theme.Palette.focus, in: Capsule())
+            .fixedSize()
     }
 }
