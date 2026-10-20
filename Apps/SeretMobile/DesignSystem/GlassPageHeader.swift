@@ -7,6 +7,8 @@ import SwiftUI
 /// only — a page pushed on top keeps its normal bar and back button.
 struct GlassPageHeader<Trailing: View>: View {
     let title: String
+    /// A quiet line under the title (the Watchlist's "256 films").
+    var subtitle: String? = nil
     /// How firm the shade behind the bar is, 0…1. Home keeps it faint while its hero art is under
     /// the bar and firms it up once the art has scrolled away.
     var shade: Double = 1
@@ -15,14 +17,23 @@ struct GlassPageHeader<Trailing: View>: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: Theme.Space.md) {
-            Text(title)
-                .font(Theme.Typo.pageTitle())
-                .foregroundStyle(Theme.Palette.textPrimary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-                // Legible over bright art without a visible box behind it.
-                .shadow(color: .black.opacity(0.35), radius: 8, y: 1)
-                .accessibilityAddTraits(.isHeader)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                    .font(Theme.Typo.pageTitle())
+                    .foregroundStyle(Theme.Palette.textPrimary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                    .accessibilityAddTraits(.isHeader)
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(Theme.Palette.textSecondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                }
+            }
+            // Legible over bright art without a visible box behind it.
+            .shadow(color: .black.opacity(0.35), radius: 8, y: 1)
             Spacer(minLength: Theme.Space.md)
             // The container's merge distance sits BELOW the visual gap, so iOS 26 keeps the circles
             // apart at rest and only blends them when they genuinely touch.
@@ -46,9 +57,9 @@ struct GlassPageHeader<Trailing: View>: View {
 
 extension View {
     /// Puts a `GlassPageHeader` on top of this page and hides the system navigation bar for it.
-    func glassPageHeader<Trailing: View>(_ title: String,
+    func glassPageHeader<Trailing: View>(_ title: String, subtitle: String? = nil,
                                          @ViewBuilder trailing: () -> Trailing) -> some View {
-        let header = GlassPageHeader(title: title, trailing: trailing)
+        let header = GlassPageHeader(title: title, subtitle: subtitle, trailing: trailing)
         return self
             .modifier(TopBar(bar: header))
             .toolbar(.hidden, for: .navigationBar)

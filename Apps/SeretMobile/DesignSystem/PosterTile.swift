@@ -158,12 +158,14 @@ struct SeeAllTile: View {
 struct PosterRail<Content: View, Route: Hashable>: View {
     let title: String
     var seeAll: Route?
+    /// Quiet words after the title ("ready to play").
+    var subtitle: String? = nil
     @ViewBuilder var content: Content
     @Environment(\.horizontalSizeClass) private var hSize
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            RailHeader(title: title, seeAll: seeAll)
+            RailHeader(title: title, seeAll: seeAll, subtitle: subtitle)
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(alignment: .top, spacing: PosterTileMetrics.spacing) { content }
                     .scrollTargetLayout()
@@ -187,6 +189,7 @@ extension PosterRail where Route == Never {
 struct RailHeader<Route: Hashable>: View {
     let title: String
     var seeAll: Route?
+    var subtitle: String? = nil
     @Environment(\.horizontalSizeClass) private var hSize
 
     var body: some View {
@@ -195,6 +198,13 @@ struct RailHeader<Route: Hashable>: View {
                 .foregroundStyle(Theme.Palette.textPrimary)
                 .lineLimit(2)
                 .accessibilityAddTraits(.isHeader)
+            if let subtitle {
+                Text(subtitle)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(Theme.Palette.textSecondary)
+                    .lineLimit(1)
+                    .layoutPriority(-1)
+            }
             Spacer(minLength: 0)
             if let seeAll {
                 NavigationLink(value: seeAll) {

@@ -20,6 +20,8 @@ import SwiftUI
 ///   step): 10 push See All · 15 pop · 20 push again · 23 switch to Movies · 26 back to Home (the
 ///   art must be back) · 31 scroll down · 36 Movies · 39 Home (the art must be at the top) — the
 ///   iPad shell's art through every way Home leaves and returns.
+/// - `watchlist`, `watchlistremove`, `watchlistremoveboth`, `watchlistremoved`, `spin`,
+///   `watchlistgrid`, `watchlistsetup`, `watchlistempty` — see `WatchlistPreviewFixture`.
 ///
 /// Art (logos, textless backdrops, ratings) is real TMDB through a real `TitleArtStore`; nothing
 /// touches Real-Debrid. Add `-glassFallback` for the iOS 18 glass look.
@@ -40,6 +42,11 @@ struct PagesUIPreview: View {
                                                           seed: PagesFixture.pool.prefix(20).map {
                                                               SearchHit(result: $0, kind: .movie)
                                                           }))
+                    }
+                } else if target == "watchlistgrid", let model = stores?.watchlist {
+                    NavigationStack {
+                        WatchlistGridScreen(route: WatchlistGridRoute(rowID: "recent", title: "Recently Added"),
+                                            model: model, details: stores?.watchlistDetails)
                     }
                 } else {
                     MainShell()
@@ -82,6 +89,7 @@ struct PagesUIPreview: View {
         router.selectedSection = switch target {
         case "movies": .movies
         case "shows": .shows
+        case _ where target.hasPrefix("watchlist") || target == "spin": .watchlist
         default: .home
         }
         let home = HomeStore(watch: PagesFixture.Watch())
@@ -103,6 +111,27 @@ struct PagesUIPreview: View {
                                        seeds: nil),
             genreBrowsing: PagesFixture.Genres(),
             homeScript: target == "homescript" ? HomePreviewScript() : nil)
+        if target.hasPrefix("watchlist") || target == "spin" { buildWatchlist() }
+    }
+
+    private func buildWatchlist() {
+        let tmdb = TMDBDetailsService(client: TMDBClient(apiKey: Secrets.tmdbAPIKey))
+        let model = WatchlistPreviewFixture.model(empty: target == "watchlistempty")
+        let details = WatchlistDetailsStore(fileURL: nil, details: tmdb)
+        stores?.watchlist = model
+        stores?.watchlistDetails = details
+        stores?.watchlistConnected = target != "watchlistsetup"
+        stores?.watchlistArt = tmdb
+        switch target {
+        case "watchlistremove": stores?.watchlistScript = WatchlistPreviewScript(confirmRemovalOf: "f4")      // Mother — Noga's only
+        case "watchlistremoveboth": stores?.watchlistScript = WatchlistPreviewScript(confirmRemovalOf: "f2")  // American Beauty — both
+        case "watchlistremoved": stores?.watchlistScript = WatchlistPreviewScript(removeSlug: "f0")           // Stalker
+        case "spin": stores?.watchlistScript = WatchlistPreviewScript(spins: true)
+        default: break
+        }
+        if target == "watchlistgrid" {
+            Task { await details.ensure(WatchlistPreviewFixture.entries.compactMap(\.tmdbID)) }
+        }
     }
 }
 

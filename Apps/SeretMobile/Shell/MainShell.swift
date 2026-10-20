@@ -40,6 +40,15 @@ struct MainShell: View {
             // viewer back to a stale tab, and a section someone already chose wins.
             guard !restoredSection else { return }
             restoredSection = true
+#if DEBUG
+            // `-startSection <watchlist|library|…>`: open the real, signed-in app on that section,
+            // so a page can be screenshot on live data without driving the tab bar by touch.
+            if let name = UserDefaults.standard.string(forKey: "startSection"),
+               let section = Section(rawValue: name) {
+                router.selectedSection = section
+                return
+            }
+#endif
             if router.selectedSection == .home, let restored = Section(rawValue: storedSection) {
                 router.selectedSection = restored
             }

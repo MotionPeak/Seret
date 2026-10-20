@@ -15,6 +15,24 @@ struct UIPreviewStores {
     var genreBrowsing: GenreBrowsing?
     /// `-uiPreview homescript`: drives Home's stack and scroll on a timer.
     var homeScript: HomePreviewScript?
+    /// `-uiPreview watchlist…`: the fixture list, its details, and whether Letterboxd counts as
+    /// set up (non-nil makes the Watchlist page read these instead of the session's).
+    var watchlist: WatchlistModel?
+    var watchlistDetails: WatchlistDetailsStore?
+    var watchlistConnected: Bool?
+    /// Where the spin's winner art comes from (the unsigned harness session has no details).
+    var watchlistArt: MediaDetailsProviding?
+    /// `watchlistremove` / `watchlistremoved` / `spin`: what the page does by itself once shown.
+    var watchlistScript: WatchlistPreviewScript?
+}
+
+/// What a Watchlist harness does without a finger (the iPad simulator cannot be tapped here):
+/// open the removal confirmation for a film, confirm a removal through the fixture model (which
+/// writes nowhere), or run Surprise Me.
+struct WatchlistPreviewScript {
+    var confirmRemovalOf: String?
+    var removeSlug: String?
+    var spins = false
 }
 
 /// Requests a harness makes of Home: bump `pushes` / `pops` to push See All or pop it, set
