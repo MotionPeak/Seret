@@ -51,6 +51,19 @@ enum EBML {
         var number: UInt64? = nil
         /// `Video/Colour/TransferCharacteristics`, written only when set.
         var transfer: UInt64? = nil
+        /// `Video/Colour/BitsPerChannel`, written only when set.
+        var bitsPerChannel: UInt64? = nil
+        /// `CodecPrivate`, written only when set.
+        var codecPrivate: [UInt8]? = nil
+    }
+
+    /// An HEVC decoder configuration record (`hvcC`) declaring `bitDepth` for luma and chroma.
+    static func hvcC(bitDepth: Int) -> [UInt8] {
+        var record = [UInt8](repeating: 0, count: 23)
+        record[0] = 1
+        record[17] = 0xF8 | UInt8(bitDepth - 8)
+        record[18] = 0xF8 | UInt8(bitDepth - 8)
+        return record
     }
 
     static func trackEntry(_ t: Track) -> [UInt8] {
@@ -61,9 +74,12 @@ enum EBML {
         if let name = t.name { payload += string(ID.name, name) }
         if t.forced { payload += uint(ID.flagForced, 1) }
         if let d = t.frameDuration { payload += uint(ID.defaultDuration, d) }
-        if let tc = t.transfer {
-            payload += element(0xE0, uint(0xB0, 3840) + element(0x55B0, uint(0x55BA, tc)))
+        if t.transfer != nil || t.bitsPerChannel != nil {
+            let colour = (t.transfer.map { uint(0x55BA, $0) } ?? [])
+                + (t.bitsPerChannel.map { uint(0x55B2, $0) } ?? [])
+            payload += element(0xE0, uint(0xB0, 3840) + element(0x55B0, colour))
         }
+        if let codecPrivate = t.codecPrivate { payload += element(0x63A2, codecPrivate) }
         return element(ID.trackEntry, payload)
     }
 

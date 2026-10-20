@@ -37,6 +37,21 @@ import Testing
         #expect(tracks(MatroskaTrackReader.read(silent))?.first?.transfer == nil)
     }
 
+    /// 8-bit video is never HDR: the bit depth, from Colour or from the HEVC configuration.
+    @Test func readsTheVideosBitDepth() {
+        let hevc8 = EBML.file(tracks: [T(type: 1, codec: "V_MPEGH/ISO/HEVC", codecPrivate: EBML.hvcC(bitDepth: 8))])
+        #expect(tracks(MatroskaTrackReader.read(hevc8))?.first?.bitDepth == 8)
+        let hevc10 = EBML.file(tracks: [T(type: 1, codec: "V_MPEGH/ISO/HEVC", codecPrivate: EBML.hvcC(bitDepth: 10))])
+        #expect(tracks(MatroskaTrackReader.read(hevc10))?.first?.bitDepth == 10)
+        let declared = EBML.file(tracks: [T(type: 1, codec: "V_MPEGH/ISO/HEVC", bitsPerChannel: 10,
+                                            codecPrivate: EBML.hvcC(bitDepth: 8))])
+        #expect(tracks(MatroskaTrackReader.read(declared))?.first?.bitDepth == 10)   // Colour wins
+        let silent = EBML.file(tracks: [T(type: 1, codec: "V_MPEGH/ISO/HEVC")])
+        #expect(tracks(MatroskaTrackReader.read(silent))?.first?.bitDepth == nil)
+        let notHEVC = EBML.file(tracks: [T(type: 1, codec: "V_AV1", codecPrivate: EBML.hvcC(bitDepth: 8))])
+        #expect(tracks(MatroskaTrackReader.read(notHEVC))?.first?.bitDepth == nil)
+    }
+
     @Test func aPGSTrackIsAPictureSubtitle() {
         let file = EBML.file(tracks: [T(type: 17, language: "heb", codec: "S_HDMV/PGS")])
         #expect(tracks(MatroskaTrackReader.read(file))?.first?.isImageSubtitle == true)

@@ -93,6 +93,8 @@ public enum MatroskaTrackReader {
         static let video: UInt32 = 0xE0
         static let colour: UInt32 = 0x55B0
         static let transferCharacteristics: UInt32 = 0x55BA
+        static let bitsPerChannel: UInt32 = 0x55B2
+        static let codecPrivate: UInt32 = 0x63A2
         static let cluster: UInt32 = 0x1F43B675
     }
 
@@ -187,6 +189,27 @@ public enum MatroskaTrackReader {
         return found
     }
 
+    /// `Video/Colour/BitsPerChannel`, when the muxer wrote it (0 means unspecified).
+    static func videoBitsPerChannel(_ bytes: [UInt8], from: Int, to: Int) -> Int? {
+        var found: Int?
+        children(bytes, from: from, to: to) { field, fieldEnd in
+            guard field.id == ID.colour else { return }
+            children(bytes, from: field.dataOffset, to: fieldEnd) { colour, colourEnd in
+                guard colour.id == ID.bitsPerChannel,
+                      let bits = uint(bytes, from: colour.dataOffset, to: colourEnd), bits > 0 else { return }
+                found = Int(exactly: bits)
+            }
+        }
+        return found
+    }
+
+    /// The luma bit depth an HEVC decoder configuration record (`hvcC`, ISO/IEC 14496-15) declares:
+    /// `bitDepthLumaMinus8` in the low three bits of byte 17.
+    static func hevcBitDepth(_ bytes: [UInt8], from: Int, to: Int) -> Int? {
+        guard to - from >= 23, bytes[from] == 1 else { return nil }
+        return Int(bytes[from + 17] & 0x07) + 8
+    }
+
     static func entries(in bytes: [UInt8], from: Int, to: Int) -> [ContainerTrack] {
         numberedEntries(in: bytes, from: from, to: to).map(\.track)
     }
@@ -207,6 +230,8 @@ public enum MatroskaTrackReader {
             var forced = false
             var frameDuration: UInt64?
             var transfer: VideoTransfer?
+            var declaredBits: Int?
+            var privateRange: Range<Int>?
             children(bytes, from: entry.dataOffset, to: entryEnd) { field, fieldEnd in
                 let start = field.dataOffset
                 switch field.id {
@@ -218,7 +243,10 @@ public enum MatroskaTrackReader {
                 case ID.name: name = text(bytes, from: start, to: fieldEnd)
                 case ID.flagForced: forced = (uint(bytes, from: start, to: fieldEnd) ?? 0) != 0
                 case ID.defaultDuration: frameDuration = uint(bytes, from: start, to: fieldEnd)
-                case ID.video: transfer = videoTransfer(bytes, from: start, to: fieldEnd)
+                case ID.video:
+                    transfer = videoTransfer(bytes, from: start, to: fieldEnd)
+                    declaredBits = videoBitsPerChannel(bytes, from: start, to: fieldEnd)
+                case ID.codecPrivate: privateRange = start..<fieldEnd
                 default: break
                 }
             }
@@ -238,9 +266,17 @@ public enum MatroskaTrackReader {
             if kind == .video, let frameDuration, frameDuration > 0 {
                 fps = ((1e9 / Double(frameDuration)) * 1000).rounded() / 1000
             }
+            var bitDepth: Int?
+            if kind == .video {
+                bitDepth = declaredBits
+                if bitDepth == nil, let privateRange, codec?.uppercased().hasPrefix("V_MPEGH/ISO/HEVC") == true {
+                    bitDepth = hevcBitDepth(bytes, from: privateRange.lowerBound, to: privateRange.upperBound)
+                }
+            }
             tracks.append((number, ContainerTrack(kind: kind, language: code, codec: codec, name: name,
                                                   isForced: forced, frameRate: fps,
-                                                  transfer: kind == .video ? transfer : nil)))
+                                                  transfer: kind == .video ? transfer : nil,
+                                                  bitDepth: bitDepth)))
         }
         return tracks
     }

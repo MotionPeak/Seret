@@ -11,8 +11,8 @@ import Foundation
 ///
 /// Pure, so the rules are tested here; the tvOS player turns a plan into display criteria. The
 /// system still decides: with "Match Content" off in Settings the request is simply ignored.
-public struct DisplayModePlan: Sendable, Equatable {
-    public enum Range: String, Sendable, Equatable {
+public struct DisplayModePlan: Sendable, Hashable {
+    public enum Range: String, Sendable, Hashable {
         case sdr
         /// PQ. Dolby Vision is asked for as HDR10 too: libvlc renders the HDR10-compatible base
         /// layer and passes no Dolby Vision metadata, so a Dolby Vision mode would gain nothing.
@@ -33,7 +33,8 @@ public struct DisplayModePlan: Sendable, Equatable {
     /// dynamic range cannot be told: asking for the wrong one (SDR for an HDR film) would be worse
     /// than leaving the display alone, so an unknown is left exactly as it was.
     public static func plan(video: ContainerTrack?, fileName: String) -> DisplayModePlan? {
-        guard let range = range(transfer: video?.transfer, codec: video?.codec, fileName: fileName)
+        guard let range = range(transfer: video?.transfer, codec: video?.codec,
+                                bitDepth: video?.bitDepth, fileName: fileName)
         else { return nil }
         return DisplayModePlan(refreshRate: video?.frameRate.flatMap(refreshRate(forFPS:)), range: range)
     }
@@ -44,8 +45,11 @@ public struct DisplayModePlan: Sendable, Equatable {
     }
 
     /// The dynamic range: the header's transfer function first; an AVC video is SDR (nothing
-    /// ships HDR in AVC); then the release name's tags. nil when none of them says.
-    public static func range(transfer: VideoTransfer?, codec: String?, fileName: String) -> Range? {
+    /// ships HDR in AVC), and so is any 8-bit video (HDR10 and HLG need 10 bits); then the release
+    /// name's tags — an AVC/x264 name counting as SDR. nil when none of them says: a 10-bit HEVC
+    /// with nothing else to go on may be either, and stays unknown.
+    public static func range(transfer: VideoTransfer?, codec: String?, bitDepth: Int? = nil,
+                             fileName: String) -> Range? {
         switch transfer {
         case .pq?: return .hdr10
         case .hlg?: return .hlg
@@ -53,10 +57,12 @@ public struct DisplayModePlan: Sendable, Equatable {
         case nil: break
         }
         if let codec, codec.uppercased().hasPrefix("V_MPEG4/ISO/AVC") { return .sdr }
+        if let bitDepth, bitDepth <= 8 { return .sdr }
         let name = fileName.lowercased()
         if name.range(of: Self.hlgTag, options: .regularExpression) != nil { return .hlg }
         if name.range(of: Self.hdrTag, options: .regularExpression) != nil { return .hdr10 }
         if name.range(of: Self.sdrTag, options: .regularExpression) != nil { return .sdr }
+        if name.range(of: Self.avcTag, options: .regularExpression) != nil { return .sdr }
         return nil
     }
 
@@ -65,17 +71,20 @@ public struct DisplayModePlan: Sendable, Equatable {
     private static let hdrTag = separator + #"(hdr|hdr10|hdr10\+|hdr10plus|dv|dovi|dolby[\s._]?vision)"# + end
     private static let hlgTag = separator + "hlg" + end
     private static let sdrTag = separator + "sdr" + end
+    private static let avcTag = separator + #"(x264|h264|h\.264|avc)"# + end
 
     /// The broadcast rates a TV actually offers. A frame rate within a whisker of one is that
     /// one — DefaultDuration is rounded to whole nanoseconds, so 23.976 arrives as 23.976023…
     static let standardRates: [Double] = [24000.0 / 1001, 24, 25, 30000.0 / 1001, 30,
                                           48000.0 / 1001, 48, 50, 60000.0 / 1001, 60]
 
-    /// The refresh rate for a frame rate: the standard rate it is, or the rate itself when it is
-    /// a plausible one; nil for anything a display would not run at.
+    /// The refresh rate for a frame rate: the standard rate it is (the nearest one, within a
+    /// whisker), or nil. Never the rate itself: a 15 or 23.0 fps file asked the TV for a mode it
+    /// does not have, and the system then picked one of its own.
     public static func refreshRate(forFPS fps: Double) -> Double? {
-        guard fps.isFinite, fps >= 10, fps <= 120 else { return nil }
-        if let standard = standardRates.first(where: { abs($0 - fps) < 0.02 }) { return standard }
-        return fps
+        guard fps.isFinite else { return nil }
+        let nearest = standardRates.min { abs($0 - fps) < abs($1 - fps) }
+        guard let nearest, abs(nearest - fps) < 0.02 else { return nil }
+        return nearest
     }
 }

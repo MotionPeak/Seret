@@ -17,9 +17,13 @@ public struct ContainerTrack: Sendable, Equatable, Codable {
     /// Video only: the transfer function the file's own header declares (Matroska's
     /// `Colour/TransferCharacteristics`), nil when it says nothing usable.
     public let transfer: VideoTransfer?
+    /// Video only: bits per sample, from `Colour/BitsPerChannel` or the HEVC decoder configuration;
+    /// nil when the header says neither. 8-bit video is never HDR.
+    public let bitDepth: Int?
 
     public init(kind: Kind, language: String?, codec: String? = nil, name: String? = nil,
-                isForced: Bool = false, frameRate: Double? = nil, transfer: VideoTransfer? = nil) {
+                isForced: Bool = false, frameRate: Double? = nil, transfer: VideoTransfer? = nil,
+                bitDepth: Int? = nil) {
         self.kind = kind
         self.language = language
         self.codec = codec
@@ -27,6 +31,7 @@ public struct ContainerTrack: Sendable, Equatable, Codable {
         self.isForced = isForced
         self.frameRate = frameRate
         self.transfer = transfer
+        self.bitDepth = bitDepth
     }
 
     /// A subtitle drawn as pictures (Blu-ray PGS, DVD VobSub, DVB) rather than text. Still in sync
