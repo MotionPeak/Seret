@@ -407,6 +407,19 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
         }
     }
 
+    #if DEBUG
+    /// DEBUG-only (QA harness): libvlc's running counters for the current media — the device-side
+    /// truth about dropped video frames and lost audio, which no app-side meter can see.
+    func debugStatsLine() -> String? {
+        guard let media = player.media else { return nil }
+        let s = media.statistics
+        return "vlc displayed=\(s.displayedPictures) late=\(s.latePictures) lost=\(s.lostPictures) "
+            + "decodedV=\(s.decodedVideo) audioPlayed=\(s.playedAudioBuffers) audioLost=\(s.lostAudioBuffers) "
+            + "inKbps=\(Int(s.inputBitrate * 8000)) demuxKbps=\(Int(s.demuxBitrate * 8000)) "
+            + "readMB=\(s.readBytes / 1_048_576) vlcTime=\(player.time.intValue / 1000)s"
+    }
+    #endif
+
     /// How long to outlive VLC's in-flight notifications before releasing the player. Generous:
     /// the cost of being wrong is an abort, and the cost of waiting is one stopped player object.
     private static let releaseGrace: TimeInterval = 3

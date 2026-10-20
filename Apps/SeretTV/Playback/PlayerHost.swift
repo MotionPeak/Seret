@@ -33,8 +33,14 @@ struct PlayerHost: View {
 
     var body: some View {
         if let model = session.model {
+            #if DEBUG
             PlayerView(model: model, engine: session.engine, backdropURL: backdropURL,
                        pushSignal: pushSignal, filmRating: filmRating)
+                .modifier(QAPlayerProbe(model: model, engine: session.engine))
+            #else
+            PlayerView(model: model, engine: session.engine, backdropURL: backdropURL,
+                       pushSignal: pushSignal, filmRating: filmRating)
+            #endif
         } else {
             PlaybackUnavailableView()
         }

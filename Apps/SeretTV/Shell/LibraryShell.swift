@@ -188,7 +188,13 @@ struct LibraryShell: View {
         .task(id: "\(session.libraryStore?.movies.count ?? 0)-\(session.libraryStore?.shows.count ?? 0)") {
             openTitleForTesting()
             autoPlayForTesting()
+            QAScriptRunner.shared.runIfRequested(
+                store: session.libraryStore,
+                push: { path.append(BrowseDestination.play($0)) },
+                popToRoot: { path = NavigationPath() },
+                selectTab: { tab = $0 })
         }
+        .onAppear { QA.startMeters() }
         #endif
         .task { if tileMarks == nil { tileMarks = session.makeTileWatchMarks() } }
         .environment(tileMarks ?? .placeholder)

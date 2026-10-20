@@ -181,6 +181,9 @@ extension PlayerModel {
         }
     }
 
+    /// DEBUG-only (QA harness): an engine seek is still in flight.
+    public var debugSeekPending: Bool { pendingSeek != nil }
+
     private static func t(_ seconds: Double) -> String {
         let s = Int(seconds.rounded())
         return String(format: "%d:%02d:%02d", s / 3600, (s % 3600) / 60, s % 60)
