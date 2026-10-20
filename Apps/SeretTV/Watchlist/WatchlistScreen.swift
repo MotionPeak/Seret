@@ -106,7 +106,9 @@ struct WatchlistScreen: View {
                 onSpinAgain: { spin = model?.spin() },
                 onClose: { spin = nil })
         }
-        .watchlistRemovalDialog(pending: $pendingRemoval, model: model)
+        // A Cancel leaves the film on the page: nothing to hand focus on from.
+        .watchlistRemovalDialog(pending: $pendingRemoval, model: model,
+                                onCancel: { focusMemory.actedOn = nil })
         // A See All tile's grid. Its own route type, so it collides with nothing the shell routes;
         // the grid reads the same model and details as this page, so a removal there shows here.
         .navigationDestination(for: WatchlistGridRoute.self) { route in
@@ -231,6 +233,7 @@ struct WatchlistScreen: View {
         .onChange(of: sideMenuHoldsFocus) { _, inMenu in if inMenu { cancelRehome() } }
         .onChange(of: isVisiblePage) { _, visible in if !visible { cancelRehome() } }
         .onAppear { focusHandle.onChange = { focusChanged($0) } }
+        .onDisappear { cancelRehome() }
     }
 
     private func tile(_ entry: WatchlistEntry, row: WatchlistRow, trail: [String],
@@ -361,9 +364,10 @@ struct WatchlistScreen: View {
     private func focusChanged(_ key: String?) {
         focusMemory.departure?.cancel()
         if let key {
-            // Focus is somewhere real again: an acted-on tile that goes now is noticed as the
-            // focused one, or not at all (a Cancel), never from a stale record.
-            focusMemory.actedOn = nil
+            // Focus has moved on to another view: the acted-on record is stale. Not when focus
+            // is back on the acted-on tile itself — the menu → confirmation handover can pass
+            // through it, and the record must survive that (a Cancel clears it instead).
+            if key != focusMemory.actedOn { focusMemory.actedOn = nil }
             focusMemory.lastFocused = key
             return
         }
@@ -644,7 +648,8 @@ struct WatchlistTile: View {
 extension View {
     /// The removal confirmation, worded by whose list the film is on: only the owner's Letterboxd
     /// can be written, so a partner's film is hidden here and stays on theirs.
-    func watchlistRemovalDialog(pending: Binding<WatchlistEntry?>, model: WatchlistModel?) -> some View {
+    func watchlistRemovalDialog(pending: Binding<WatchlistEntry?>, model: WatchlistModel?,
+                                onCancel: @escaping () -> Void = {}) -> some View {
         confirmationDialog("Remove from watchlist?",
                            isPresented: .constant(pending.wrappedValue != nil),
                            titleVisibility: .visible,
@@ -653,7 +658,10 @@ extension View {
                 pending.wrappedValue = nil
                 Task { await model?.remove(entry) }
             }
-            Button("Cancel", role: .cancel) { pending.wrappedValue = nil }
+            Button("Cancel", role: .cancel) {
+                pending.wrappedValue = nil
+                onCancel()
+            }
         } message: { entry in
             Text(model?.removalMessage(for: entry)
                  ?? "\(WatchlistName.stripYear(from: entry.name)) will be removed from your Letterboxd watchlist.")
