@@ -74,10 +74,15 @@ struct HomeHero: View {
             _ = await art.load(item.kind, tmdbID: id)
             artSettledFor = item.id
         }
+        // Asserted on every appearance, not only on a change: a push then a pop disappears and
+        // re-appears this hero with the same path, and nothing would put the art back otherwise.
         .onChange(of: regular ? backdropPath : nil, initial: true) { _, path in
-            if regular { shellBackdrop?.path = path }
+            if regular { shellBackdrop?.show(path, for: item.id) }
         }
-        .onDisappear { if regular { shellBackdrop?.path = nil } }
+        .onAppear { if regular { shellBackdrop?.show(backdropPath, for: item.id) } }
+        // Only if the art is still THIS hero's: a new featured title's hero can appear before the
+        // old one disappears, and the old one's clear must not wipe the new art.
+        .onDisappear { if regular { shellBackdrop?.clear(for: item.id) } }
     }
 
     /// The art itself opens the title's page — a button to VoiceOver, named for where it goes.
@@ -347,9 +352,23 @@ struct HomeHeroBackdrop: View {
 @MainActor
 @Observable
 final class HomeBackdropModel {
-    var path: String?
+    private(set) var path: String?
+    /// Which hero `path` belongs to (its title id) — see `clear(for:)`.
+    private(set) var owner: String?
     var offset: CGFloat = 0
     var hidden = false
+
+    func show(_ path: String?, for owner: String) {
+        self.owner = owner
+        if self.path != path { self.path = path }
+    }
+
+    /// Clears the art only if `owner` still owns it.
+    func clear(for owner: String) {
+        guard self.owner == owner else { return }
+        self.owner = nil
+        path = nil
+    }
 }
 
 /// The shell's layer for `HomeBackdropModel`: full width from the screen's leading edge, the

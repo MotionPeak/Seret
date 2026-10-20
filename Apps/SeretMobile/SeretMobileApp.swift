@@ -23,7 +23,7 @@ struct SeretMobileApp: App {
                 #if DEBUG
                 if preview == "shell" || preview == "glass" {
                     ShellUIPreview(target: preview)    // -uiPreview shell [-shellSection movies]
-                } else if ["home", "homedownloading", "homedownloadsonly", "movies", "shows", "genregrid"].contains(preview) {
+                } else if ["home", "homedownloading", "homedownloadsonly", "homescript", "movies", "shows", "genregrid"].contains(preview) {
                     PagesUIPreview(target: preview)    // -uiPreview home|movies|shows|genregrid
                 } else if preview == "moviedetail" {
                     DetailUIPreview()                  // -uiPreview moviedetail

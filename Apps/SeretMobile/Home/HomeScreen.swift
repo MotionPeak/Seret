@@ -23,6 +23,9 @@ struct HomeScreen: View {
     @Environment(HomeBackdropModel.self) private var shellBackdrop: HomeBackdropModel?
     /// Home's own stack — a page pushed over it (See All) hides the shell's art.
     @State private var navPath = NavigationPath()
+    /// The page's last scroll offset, so the shell's art can be put back where the page is when
+    /// Home reappears — the scroll handler only fires on a CHANGE.
+    @State private var scrollOffset: CGFloat = 0
     @State private var showingProfiles = false
     @State private var showingSettings = false
     /// A title awaiting removal confirmation, and the failure to surface if RD refuses.
@@ -70,7 +73,21 @@ struct HomeScreen: View {
                                         errorMessage: $removeErrorMessage,
                                         store: session.libraryStore)
         }
-        .onChange(of: navPath.isEmpty) { _, atRoot in shellBackdrop?.hidden = !atRoot }
+        // The shell's art follows Home's stack: hidden under a pushed page, shown at the root —
+        // asserted on every appearance too, since a tab switch from a pushed page and back
+        // re-creates the page without the stack's emptiness ever "changing".
+        .onChange(of: navPath.isEmpty, initial: true) { _, atRoot in shellBackdrop?.hidden = !atRoot }
+        .onAppear {
+            shellBackdrop?.hidden = !navPath.isEmpty
+            shellBackdrop?.offset = scrollOffset
+        }
+        // Leaving Home (another section) — the next Home starts at the top, so must the art.
+        .onDisappear { shellBackdrop?.offset = 0 }
+#if DEBUG
+        // `-uiPreview homescript` pushes and pops Home's own stack.
+        .onChange(of: preview?.homeScript?.pushes) { _, _ in navPath.append(HomeRoute.recentlyAdded(.movie)) }
+        .onChange(of: preview?.homeScript?.pops) { _, _ in if !navPath.isEmpty { navPath.removeLast() } }
+#endif
         .fullScreenCover(isPresented: $showingProfiles) {
             WhoIsWatchingScreen(onPicked: { showingProfiles = false }).environment(session)
         }
@@ -175,6 +192,7 @@ struct HomeScreen: View {
         GeometryReader { geo in
             let subject = heroSubject(home)
             let heroHeight = heroHeight(geo.size)
+            ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 28) {
                     if let subject {
@@ -198,7 +216,18 @@ struct HomeScreen: View {
                 let past = offset > heroHeight - 150
                 if past != pastHero { pastHero = past }
                 // The shell's art scrolls with the page (iPad).
-                if isRegular { shellBackdrop?.offset = offset }
+                if isRegular {
+                    scrollOffset = offset
+                    shellBackdrop?.offset = offset
+                }
+            }
+#if DEBUG
+            // `-uiPreview homescript` scrolls the page without a finger (the iPad simulator
+            // cannot be driven by touch here).
+            .onChange(of: preview?.homeScript?.scrollTo) { _, target in
+                if let target { withAnimation { proxy.scrollTo(target, anchor: .top) } }
+            }
+#endif
             }
         }
         // Only a hero runs under the status bar and the header.
@@ -244,6 +273,7 @@ struct HomeScreen: View {
         }
         recentRail("Recently Added Movies", items: home.recentlyAddedMovies, kind: .movie, width: width)
         recentRail("Recently Added Shows", items: home.recentlyAddedShows, kind: .show, width: width)
+            .id(HomeRailID.shows)
     }
 
     @ViewBuilder private func recentRail(_ title: String, items: [MediaItem], kind: MediaKind,
@@ -333,6 +363,11 @@ struct HomeScreen: View {
     }
 
     private func posterURL(_ i: MediaItem) -> URL? { TMDBClient.imageURL(path: i.posterPath, size: "w342") }
+}
+
+/// Scroll targets on Home's page.
+enum HomeRailID {
+    static let shows = "home-rail-shows"
 }
 
 /// Where Home's "See All" links go.

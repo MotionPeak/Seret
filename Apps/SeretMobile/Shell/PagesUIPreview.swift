@@ -16,6 +16,10 @@ import SwiftUI
 /// - `movies` / `shows` — the browse page's rows, arriving progressively (For You first, then
 ///   Trending, New, Top Rated, then a row per genre); `-browseDelay N` (ms) slows each row.
 /// - `genregrid` — the Drama grid a genre row's "See All" opens, seeded from its row.
+/// - `homescript` — Home, then on a timer (seconds from launch; screenshot just before the next
+///   step): 10 push See All · 15 pop · 20 push again · 23 switch to Movies · 26 back to Home (the
+///   art must be back) · 31 scroll down · 36 Movies · 39 Home (the art must be at the top) — the
+///   iPad shell's art through every way Home leaves and returns.
 ///
 /// Art (logos, textless backdrops, ratings) is real TMDB through a real `TitleArtStore`; nothing
 /// touches Real-Debrid. Add `-glassFallback` for the iOS 18 glass look.
@@ -24,6 +28,7 @@ struct PagesUIPreview: View {
     @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()))
     @State private var router = AppRouter()
     @State private var stores: UIPreviewStores?
+    @State private var started = Date()
 
     var body: some View {
         Group {
@@ -50,7 +55,27 @@ struct PagesUIPreview: View {
         .environment(WatchlistMarks.placeholder)
         .preferredColorScheme(.dark)
         .tint(Theme.Palette.focus)
-        .task { await build() }
+        .task {
+            await build()
+            if target == "homescript" { await runHomeScript() }
+        }
+    }
+
+    private func runHomeScript() async {
+        guard let script = stores?.homeScript else { return }
+        func at(_ seconds: Double, _ step: () -> Void) async {
+            let wait = seconds - started.timeIntervalSinceNow * -1
+            if wait > 0 { try? await Task.sleep(for: .seconds(wait)) }
+            step()
+        }
+        await at(10) { script.pushes += 1 }
+        await at(15) { script.pops += 1 }
+        await at(20) { script.pushes += 1 }
+        await at(23) { router.selectedSection = .movies }
+        await at(26) { router.selectedSection = .home }
+        await at(31) { script.scrollTo = HomeRailID.shows }
+        await at(36) { router.selectedSection = .movies }
+        await at(39) { script.scrollTo = nil; router.selectedSection = .home }
     }
 
     private func build() async {
@@ -76,7 +101,8 @@ struct PagesUIPreview: View {
                                         seeds: PagesFixture.Seeds()),
             showsBrowse: DiscoverStore(kind: .show, discover: PagesFixture.Discover(delay: delay),
                                        seeds: nil),
-            genreBrowsing: PagesFixture.Genres())
+            genreBrowsing: PagesFixture.Genres(),
+            homeScript: target == "homescript" ? HomePreviewScript() : nil)
     }
 }
 

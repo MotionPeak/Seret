@@ -13,6 +13,18 @@ struct UIPreviewStores {
     var moviesBrowse: DiscoverStore?
     var showsBrowse: DiscoverStore?
     var genreBrowsing: GenreBrowsing?
+    /// `-uiPreview homescript`: drives Home's stack and scroll on a timer.
+    var homeScript: HomePreviewScript?
+}
+
+/// Requests a harness makes of Home: bump `pushes` / `pops` to push See All or pop it, set
+/// `scrollTo` to a rail id to scroll there.
+@MainActor
+@Observable
+final class HomePreviewScript {
+    var pushes = 0
+    var pops = 0
+    var scrollTo: String?
 }
 
 extension EnvironmentValues {

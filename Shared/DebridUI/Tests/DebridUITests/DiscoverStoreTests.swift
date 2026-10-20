@@ -187,10 +187,6 @@ private func movie(_ id: Int) -> TMDBSearchResult {
         #expect((store.rowsBySegment[.forYou] ?? []).map(\.title) == ["Because you watched Dune"])
     }
 
-    /// The load ran inside the asking VIEW's task, so leaving the segment cancelled it — and an ask
-    /// that landed while it was still unwinding found the segment "loading" and returned, after
-    /// which the cancelled load set it back to idle. Nobody was loading any more: skeletons for good,
-    /// the "segment left mid-load comes back empty" report. The store owns the load now.
     /// The page reads `.loaded` from its first row on; `browseIsStreaming` is what says more rows
     /// are still on their way (the page keeps a skeleton below the last row while it is true).
     @Test func browsePageStreamsUntilEveryRowHasLanded() async {
@@ -215,6 +211,10 @@ private func movie(_ id: Int) -> TMDBSearchResult {
         #expect(store.browseRows.contains { $0.title == "Western" })
     }
 
+    /// The load ran inside the asking VIEW's task, so leaving the segment cancelled it — and an ask
+    /// that landed while it was still unwinding found the segment "loading" and returned, after
+    /// which the cancelled load set it back to idle. Nobody was loading any more: skeletons for good,
+    /// the "segment left mid-load comes back empty" report. The store owns the load now.
     @Test func aLoadWhoseCallerWentAwayStillFinishes() async {
         let fake = FakeDiscover()
         let gate = DiscoverGate()
