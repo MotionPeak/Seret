@@ -12,7 +12,12 @@ import DebridCore
 ///   - `settings`  — the playback settings panel with grouped subtitle tracks
 ///   - `subtitles` — the full subtitle browser with ranked, badged results
 ///   - `subtitlesfailed` — the same browser after a pick that could not be honoured
-///   - `detail`    — the Movie Detail page with a rating-capable stub store
+///   - `detail`    — the Movie Detail page with a rating-capable stub store (no art: the title
+///     stands in for the logo, the backdrop is the canvas)
+///   - `detailart` — an owned film with real backdrop + logo, resume, versions, cast, franchise
+///     and More Like This: the Plex-style title page's composition check
+///   - `showdetail` — an owned show with real backdrop, two seasons, watched / part-watched
+///     episode cards, cast and More Like This
 ///   - `unpremiered` — the page of a show whose every listed episode airs in 2099: no episode to
 ///     play, so the screenshot says what holds the page's focus
 ///   - `downloadfinish` — a film page whose requested download finishes 25 s in: the library takes
@@ -76,6 +81,8 @@ struct PlayerUIPreview: View {
         case "downloadfinish": DownloadFinishPreview()
         case "unpremiered":    UnpremieredShowPreview()
         case "detailwatchlisted": MovieDetailPreview(onWatchlist: true)
+        case "detailart":  MovieDetailArtPreview()
+        case "showdetail": ShowDetailArtPreview()
         case "sidemenu":            SideMenuPreview(startExpanded: true)
         case "sidemenucollapsed":   SideMenuPreview(startExpanded: false)
         case "sidemenucollapsedfocus": SideMenuPreview(startExpanded: false, focusMenu: true)
@@ -536,6 +543,194 @@ private struct MovieDetailPreview: View {
                 watchlist = marks
             }
     }
+}
+
+// MARK: - Title pages with real art
+
+/// Whiplash as an owned film, with everything the title page can show: real TMDB backdrop and
+/// logo, a part-watched resume (so Resume and From Start both appear), two owned versions, the
+/// public scores, a director, cast, a franchise rail and More Like This with real posters. The
+/// composition check for the Plex-style page; `detail` stays the no-art case.
+private struct MovieDetailArtPreview: View {
+    nonisolated static let tmdbID = 244_786
+    nonisolated static let item: MediaItem = {
+        func src(_ id: String, _ res: String, _ source: String, _ gb: Double) -> MediaSource {
+            MediaSource(torrentID: id, fileID: nil, restrictedLink: "rd://\(id)",
+                        parsed: ParsedRelease(title: "Whiplash", year: 2014, resolution: res,
+                                              source: source, videoCodec: "HEVC"),
+                        sizeBytes: Int(gb * 1_000_000_000))
+        }
+        return MediaItem(id: "movie:tmdb:244786", kind: .movie, title: "Whiplash", year: 2014,
+                         sources: [src("bd", "2160p", "BluRay", 18), src("web", "1080p", "WEB-DL", 4)],
+                         seasons: [], tmdbID: tmdbID, posterPath: "/7fn624j5lj3xTme2SgiLCeuedmO.jpg",
+                         backdropPath: nil,
+                         overview: "Under the direction of a ruthless instructor, a talented young drummer begins to pursue perfection at any cost, even his humanity.")
+    }()
+
+    @State private var store = DetailStore(
+        item: MovieDetailArtPreview.item, details: Details(),
+        watch: PreviewWatchStates([WatchKey.content(forMovie: MovieDetailArtPreview.item): (2472, 6420, false)]),
+        ratings: PreviewRatings(), letterboxd: PreviewLetterboxdRating())
+    @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()))
+    @State private var watchlist: WatchlistMarks?
+
+    var body: some View {
+        NavigationStack { MovieDetailView(store: store) }
+            .environment(session)
+            .environment(session.makeTileWatchMarks())
+            .environment(watchlist)
+            .task { await store.load() }
+            .task {
+                let marks = PreviewWatchlist.marks(startingOn: false, tmdbID: Self.tmdbID)
+                await marks.load()
+                watchlist = marks
+            }
+    }
+
+    private struct Details: MediaDetailsProviding {
+        func movieDetails(tmdbID: Int) async throws -> TMDBMovieDetails {
+            try? await Task.sleep(for: .milliseconds(300))      // the page's settle, as on a network
+            return TMDBMovieDetails(
+                id: tmdbID, title: "Whiplash", releaseDate: "2014-10-10",
+                overview: MovieDetailArtPreview.item.overview, posterPath: "/7fn624j5lj3xTme2SgiLCeuedmO.jpg",
+                backdropPath: "/fRGxZuo7jJUWQsVg9PREb98Aclp.jpg", runtime: 107,
+                genres: [TMDBGenre(id: 18, name: "Drama"), TMDBGenre(id: 10402, name: "Music")],
+                voteAverage: 8.4, originalLanguage: "en", imdbID: "tt2582802",
+                cast: [TMDBCastMember(id: 1, name: "Miles Teller", character: "Andrew Neiman", profilePath: nil),
+                       TMDBCastMember(id: 2, name: "J.K. Simmons", character: "Terence Fletcher", profilePath: nil),
+                       TMDBCastMember(id: 3, name: "Paul Reiser", character: "Jim Neiman", profilePath: nil),
+                       TMDBCastMember(id: 4, name: "Melissa Benoist", character: "Nicole", profilePath: nil),
+                       TMDBCastMember(id: 5, name: "Austin Stowell", character: nil, profilePath: nil)],
+                directors: [TMDBPersonRef(id: 136495, name: "Damien Chazelle")],
+                similar: PreviewArt.films,
+                collection: TMDBCollectionRef(id: 9001, name: "Chazelle Collection"),
+                images: TMDBImageSet(backdrops: [], logos: [
+                    TMDBImageRef(filePath: "/kTmh3W4iWQnNUcnYNgxgOVhpzCe.png", languageCode: "en",
+                                 voteAverage: 5, width: 500)]))
+        }
+        func tvDetails(tmdbID: Int) async throws -> TMDBTVDetails { throw CancellationError() }
+        func seasonEpisodes(tvID: Int, season: Int) async throws -> [TMDBEpisodeDetails] { [] }
+        func collection(id: Int) async throws -> TMDBCollection? {
+            TMDBCollection(id: id, name: "Chazelle Collection", parts: [
+                TMDBSearchResult(id: MovieDetailArtPreview.tmdbID, title: "Whiplash", name: nil,
+                                 releaseDate: "2014-10-10", firstAirDate: nil,
+                                 posterPath: "/7fn624j5lj3xTme2SgiLCeuedmO.jpg", overview: nil, voteAverage: 8.4),
+                TMDBSearchResult(id: 1_288_069, title: "Tenzing", name: nil, releaseDate: "2016-12-09",
+                                 firstAirDate: nil, posterPath: "/eI0QW02PYqhnmIvLRdn9vrfVVP7.jpg",
+                                 overview: nil, voteAverage: 7.9),
+                TMDBSearchResult(id: 1_058_424, title: "Hope", name: nil, releaseDate: "2018-10-12",
+                                 firstAirDate: nil, posterPath: "/6VY1ZKgpsc8CfGsQcCGiYEgHdH0.jpg",
+                                 overview: nil, voteAverage: 7.1),
+            ])
+        }
+    }
+}
+
+/// MobLand as an owned show: real backdrop, no logo (the title stands in), two seasons, season 1
+/// fully owned with episode 1 watched and episode 2 part-watched, cast and More Like This. The
+/// show page's composition check: action row, season pills, episode cards with ✓ and progress.
+private struct ShowDetailArtPreview: View {
+    nonisolated static let tmdbID = 247_718
+    nonisolated static let item: MediaItem = {
+        func ep(_ season: Int, _ n: Int) -> Episode {
+            Episode(season: season, number: n,
+                    source: MediaSource(torrentID: "t\(season)\(n)", fileID: nil, restrictedLink: "rd://\(n)",
+                                        parsed: ParsedRelease(title: "MobLand", season: season, episode: n,
+                                                              resolution: "2160p", source: "WEB-DL")))
+        }
+        return MediaItem(id: "show:tmdb:247718", kind: .show, title: "MobLand", year: 2025, sources: [],
+                         seasons: [Season(number: 1, episodes: (1...6).map { ep(1, $0) }),
+                                   Season(number: 2, episodes: [ep(2, 1)])],
+                         tmdbID: tmdbID, posterPath: "/5Xc7WpWsgflfgEMoBlf9TmWhfbH.jpg",
+                         backdropPath: "/h0OC7ouop8YLwbAVfS3UUE2Lw4T.jpg",
+                         overview: "Two rival crime families collide in London, and the fixer caught between them has to keep both alive.")
+    }()
+
+    @State private var store = DetailStore(
+        item: ShowDetailArtPreview.item, details: Details(),
+        watch: PreviewWatchStates([
+            WatchKey.content(forShow: ShowDetailArtPreview.item, season: 1, number: 1): (3100, 3100, true),
+            WatchKey.content(forShow: ShowDetailArtPreview.item, season: 1, number: 2): (1300, 3000, false),
+        ]),
+        ratings: PreviewRatings())
+    @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()))
+
+    var body: some View {
+        NavigationStack { ShowDetailView(store: store) }
+            .environment(session)
+            .environment(session.makeTileWatchMarks())
+            .task { await store.load() }
+    }
+
+    nonisolated private static let stills = ["/h0OC7ouop8YLwbAVfS3UUE2Lw4T.jpg", "/mNHRGO1gFpR2CYZdANe72kcKq7G.jpg",
+                                 "/hzznrBI07C2chXivlLYvEmQESP7.jpg", "/6gqezQJ2mkm4jreWwLyOZy2Vf6i.jpg",
+                                 "/kVtOcoUJ68chBD2tmERkdWz7lK5.jpg", "/r08LxMJCbf1SiJIWeyH9aJmdqwC.jpg"]
+
+    private struct Details: MediaDetailsProviding {
+        func movieDetails(tmdbID: Int) async throws -> TMDBMovieDetails { throw CancellationError() }
+        func tvDetails(tmdbID: Int) async throws -> TMDBTVDetails {
+            try? await Task.sleep(for: .milliseconds(300))
+            return TMDBTVDetails(
+                id: tmdbID, name: "MobLand", firstAirDate: "2025-03-30",
+                overview: ShowDetailArtPreview.item.overview, posterPath: "/5Xc7WpWsgflfgEMoBlf9TmWhfbH.jpg",
+                backdropPath: "/h0OC7ouop8YLwbAVfS3UUE2Lw4T.jpg", numberOfSeasons: 2,
+                genres: [TMDBGenre(id: 80, name: "Crime"), TMDBGenre(id: 18, name: "Drama")],
+                voteAverage: 8.5, originalLanguage: "en", imdbID: "tt31510819",
+                cast: [TMDBCastMember(id: 1, name: "Tom Hardy", character: "Harry Da Souza", profilePath: nil),
+                       TMDBCastMember(id: 2, name: "Helen Mirren", character: "Maeve Harrigan", profilePath: nil),
+                       TMDBCastMember(id: 3, name: "Pierce Brosnan", character: "Conrad Harrigan", profilePath: nil)],
+                creatorRefs: [TMDBPersonRef(id: 9, name: "Ronan Bennett")],
+                similar: PreviewArt.shows)
+        }
+        func seasonEpisodes(tvID: Int, season: Int) async throws -> [TMDBEpisodeDetails] {
+            try? await Task.sleep(for: .milliseconds(400))
+            return (1...6).map { n in
+                TMDBEpisodeDetails(episodeNumber: n, name: ["Stick or Twist", "Rules of Engagement",
+                                                            "Something Rotten", "Sweet Sorrow",
+                                                            "Pick a Side", "Love & War"][n - 1],
+                                   overview: "Harry is pulled deeper into the Harrigans' war as old debts come due.",
+                                   stillPath: ShowDetailArtPreview.stills[n - 1], runtime: 52,
+                                   airDate: "2025-04-\(String(format: "%02d", n))")
+            }
+        }
+    }
+}
+
+/// Real TMDB posters for the title pages' More Like This rails.
+private enum PreviewArt {
+    static let films: [TMDBSearchResult] = [
+        ("Tenzing", 1_288_069, "/eI0QW02PYqhnmIvLRdn9vrfVVP7.jpg"),
+        ("Hope", 1_058_424, "/6VY1ZKgpsc8CfGsQcCGiYEgHdH0.jpg"),
+        ("Masterplan", 1_561_726, "/5xmXVd7nCK3tAo34XkO58SxUCip.jpg"),
+        ("Spider-Man: Brand New Day", 969_681, "/bjiS5ipwxb9JFy3XRRN4OAilSeX.jpg"),
+        ("Clayface", 1_400_940, "/5jCpQnWPikggmQZoDp1eAi6BI6w.jpg"),
+    ].map { TMDBSearchResult(id: $0.1, title: $0.0, name: nil, releaseDate: "2026-01-01",
+                             firstAirDate: nil, posterPath: $0.2, overview: nil, voteAverage: 7) }
+    static let shows: [TMDBSearchResult] = [
+        ("Tulsa King", 153_312, "/rOYLWCdAifpUtPlTf1WHxyaxeMt.jpg"),
+        ("The Diplomat", 203_857, "/cUy0ZYme43lop08nOtbQLWL0dX.jpg"),
+        ("Lanterns", 95_350, "/rb94rKVIzLyfWufIN7WqLvadBDH.jpg"),
+    ].map { TMDBSearchResult(id: $0.1, title: nil, name: $0.0, releaseDate: nil,
+                             firstAirDate: "2024-01-01", posterPath: $0.2, overview: nil, voteAverage: 7) }
+}
+
+/// A watch store holding fixed states — `(position, duration, finished)` per content key — that
+/// also rates, so the title pages show resume, ✓ and progress, and the stars.
+private struct PreviewWatchStates: WatchProgressProviding, WatchRatingProviding {
+    let states: [String: (Double, Double, Bool)]
+    init(_ states: [String: (Double, Double, Bool)]) { self.states = states }
+
+    func progress(forContentKey key: String, profileID: String) async throws -> WatchState? {
+        guard let (position, duration, finished) = states[key] else { return nil }
+        return WatchState(contentKey: key, sourceKey: "", positionSeconds: position,
+                          durationSeconds: duration, finished: finished, updatedAt: Date())
+    }
+    func record(contentKey: String, sourceKey: String, positionSeconds: Double,
+                durationSeconds: Double, finished: Bool, profileID: String) async throws {}
+    func recentlyWatched(limit: Int, profileID: String) async throws -> [WatchState] { [] }
+    func deleteProgress(forContentKeys keys: [String]) async throws {}
+    func rating(forContentKey key: String) async -> Int? { nil }
+    func setRating(_ value: Int?, forContentKey key: String) async {}
 }
 
 // MARK: - A show that has not premiered

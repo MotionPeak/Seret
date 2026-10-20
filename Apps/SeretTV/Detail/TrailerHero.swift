@@ -2,68 +2,48 @@ import DebridCore
 import DebridUI
 import SwiftUI
 
-/// Contained hero banner at the top of a tvOS Detail page: the TMDB backdrop, which ~4s after the
-/// page opens cross-fades to a muted, looping trailer (when autoplay is on and a stream resolves).
-/// The bottom edge fades into the solid canvas so the title/overview below stay legible. No tap on
-/// tvOS — the focusable Trailer button in the actions row plays the trailer full-screen with sound.
+/// The title page's background: the title's backdrop as a Plex "ultrablur" (a blurred wash over
+/// the whole screen, the sharp art in the top-trailing 70% × 76%), and ~4s after the page opens a
+/// muted, looping trailer cross-fading into the sharp art's place (when autoplay is on and a stream
+/// resolves). The trailer dissolves into the wash exactly as the still does, and sits under the
+/// same legibility shade, so the title, overview and buttons over it always read.
+///
+/// It is the page's BACKGROUND, not a banner at the top of the scroll: the title page is the hero,
+/// and the art stays put while the rails scroll over it. No tap on tvOS — the focusable Trailer
+/// action plays the trailer full-screen with sound.
 struct TrailerHero: View {
     let tmdbID: Int?
     let kind: MediaKind
+    /// The backdrop to show; nil draws the plain canvas.
     let backdropPath: String?
-    let posterFallback: String?
-    /// Published up once resolved so the detail can present "swipe up" full-screen playback.
+    /// Published up once resolved so the page can offer full-screen playback.
     @Binding var resolvedURL: URL?
-    /// True while something covers the page — the full-screen trailer. A cover does not make the
-    /// page disappear, so the muted loop kept decoding underneath it: two video streams at once on
-    /// an Apple TV, one of them nobody could see.
+    /// True while something covers the page (the full-screen trailer) or the viewer has scrolled
+    /// down to the rails. A cover does not make the page disappear, so the muted loop kept
+    /// decoding underneath it: two video streams at once on an Apple TV, one nobody could see.
     var paused = false
+    /// Darkens the art once the viewer has scrolled past the title: the rails then run the full
+    /// width of the screen, and over bright sharp art their titles and captions lost contrast.
+    var receded = false
 
     @Environment(AppSession.self) private var session
     @State private var model: TrailerModel?
     @State private var showVideo = false
 
     var body: some View {
-        // Fixed-size base so the aspect-fill backdrop/trailer (clipped overlays) can't dictate and
-        // overflow the banner's width — which would push the content below off-screen.
-        Color.clear
-            .frame(maxWidth: .infinity)
-            .frame(height: 620)
-            .overlay { backdropImage }
-            .overlay {
-                if showVideo, !paused, let url = model?.streamURL {
-                    InlineMutedTrailer(url: url).transition(.opacity)
-                }
-            }
-            .clipped()
-            .overlay(scrim)
-            .task(id: tmdbID) { await prepare() }
-            .onDisappear { showVideo = false }
-    }
-
-    private var backdropImage: some View {
-        Group {
-            if let url = TMDBClient.imageURL(path: backdropPath, size: "w1280")
-                ?? TMDBClient.imageURL(path: posterFallback, size: "w780") {
-                AsyncImage(url: url, transaction: Transaction(animation: Theme.Anim.imageFade)) { phase in
-                    if let image = phase.image {
-                        image.resizable().aspectRatio(contentMode: .fill).transition(.opacity)
-                    } else {
-                        Theme.Palette.surface1
-                    }
-                }
-            } else {
-                LinearGradient(colors: [Theme.Palette.surface1, .black], startPoint: .top, endPoint: .bottom)
-            }
+        ZStack {
+            UltrablurBackdrop(backdropPath: backdropPath,
+                              artOverlay: AnyView(TrailerLayer(url: showVideo && !paused
+                                                                    ? model?.streamURL : nil)))
+            Theme.Palette.shadeInk
+                .opacity(receded ? 0.55 : 0)
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+                .animation(Theme.Anim.backdrop, value: receded)
         }
-    }
-
-    private var scrim: some View {
-        LinearGradient(stops: [
-            .init(color: .black.opacity(0.35), location: 0.0),
-            .init(color: .clear, location: 0.30),
-            .init(color: Theme.Palette.canvas.opacity(0.7), location: 0.80),
-            .init(color: Theme.Palette.canvas, location: 1.0),
-        ], startPoint: .top, endPoint: .bottom)
+        .accessibilityHidden(true)
+        .task(id: tmdbID) { await prepare() }
+        .onDisappear { showVideo = false }
     }
 
     private func prepare() async {
@@ -71,9 +51,24 @@ struct TrailerHero: View {
         model = m
         async let delay: () = Task.sleep(for: .seconds(4))
         await m.prepare(tmdbID: tmdbID, kind: kind)
-        resolvedURL = m.streamURL          // publish up for swipe-up full-screen
+        resolvedURL = m.streamURL          // publish up for full-screen playback
         try? await delay
         guard m.autoplayAllowed, !Task.isCancelled else { return }
-        withAnimation(.easeInOut(duration: 0.6)) { showVideo = true }
+        withAnimation(Theme.Anim.backdrop) { showVideo = true }
+    }
+}
+
+/// The muted loop, or nothing. One stable container whose CONTENT comes and goes, so the
+/// backdrop's overlay keeps its identity while the video starts and stops.
+private struct TrailerLayer: View {
+    let url: URL?
+
+    var body: some View {
+        ZStack {
+            if let url {
+                InlineMutedTrailer(url: url).transition(.opacity)
+            }
+        }
+        .animation(Theme.Anim.backdrop, value: url)
     }
 }

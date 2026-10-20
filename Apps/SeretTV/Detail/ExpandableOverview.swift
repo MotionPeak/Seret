@@ -28,7 +28,7 @@ struct ExpandableOverview: View {
     var body: some View {
         Button { reading = true } label: {
             VStack(alignment: .leading, spacing: 8) {
-                Text(text).bodyText().lineLimit(lineLimit)
+                Text(text).overviewText().lineLimit(lineLimit)
                     .background(height(into: $clampedHeight))
                 if isTruncated {
                     Text("MORE")
@@ -44,7 +44,7 @@ struct ExpandableOverview: View {
         .disabled(!isTruncated)
         // The same text unclamped and invisible, to learn how tall the whole of it is.
         .background(alignment: .topLeading) {
-            Text(text).bodyText()
+            Text(text).overviewText()
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: maxWidth, alignment: .leading)
                 .background(height(into: $fullHeight))
@@ -64,8 +64,16 @@ struct ExpandableOverview: View {
     }
 }
 
-/// The clamped text on a soft platter when focused — it reads as text first, and only lights up
-/// as a control when you land on it.
+extension View {
+    /// The title page's overview: a size under body copy, as the Plex preview sets it, slightly
+    /// dimmed so the title and the actions lead.
+    fileprivate func overviewText() -> some View {
+        font(.seret(27)).lineSpacing(6).foregroundStyle(Theme.Palette.textPrimary.opacity(0.85))
+    }
+}
+
+/// The clamped text on a glass platter with the white row outline when focused (`SeretRowStyle`'s
+/// look) — it reads as text first, and only lights up as a control when you land on it.
 private struct OverviewButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View { Render(configuration: configuration) }
 
@@ -75,12 +83,11 @@ private struct OverviewButtonStyle: ButtonStyle {
 
         var body: some View {
             configuration.label
-                .foregroundStyle(Theme.Palette.textPrimary)
                 .padding(.horizontal, 18).padding(.vertical, 12)
                 .background(RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(Color.white.opacity(focused ? 0.12 : 0)))
+                    .fill(Theme.Palette.glass.opacity(focused ? 1 : 0)))
                 .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .strokeBorder(Theme.Palette.strokeStrong.opacity(focused ? 1 : 0), lineWidth: 2))
+                    .strokeBorder(Theme.Palette.focus.opacity(focused ? 1 : 0), lineWidth: 3))
                 // Cancel the padding so the text stays aligned with the rest of the page at rest.
                 .padding(.horizontal, -18).padding(.vertical, -12)
                 .scaleEffect(focused ? 1.02 : 1)

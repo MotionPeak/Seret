@@ -23,23 +23,50 @@ struct FocusCardStyle: ButtonStyle {
         let cornerRadius: CGFloat
         @Environment(\.isFocused) private var focused
 
-        /// Ring width, drawn entirely outside the card.
-        private let ring: CGFloat = 4
-
         var body: some View {
             configuration.label
-                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                .overlay {
-                    // Concentric with the card: its radius grows by exactly the ring's width.
-                    RoundedRectangle(cornerRadius: cornerRadius + ring, style: .continuous)
-                        .strokeBorder(Theme.Palette.focus, lineWidth: ring)
-                        .padding(-ring)
-                        .opacity(focused ? 1 : 0)
-                }
-                .liftShadow(focused)
-                .scaleEffect(configuration.isPressed ? 0.96 : (focused ? Theme.Anim.focusScale : 1))
-                .animation(Theme.Anim.focus, value: focused)
-                .animation(Theme.Anim.focus, value: configuration.isPressed)
+                .focusCardChrome(focused: focused, pressed: configuration.isPressed,
+                                 cornerRadius: cornerRadius)
         }
+    }
+}
+
+extension View {
+    /// `FocusCardStyle`'s look on a PART of a larger focus target — an episode's still inside a
+    /// lockup whose title and synopsis sit beneath it. The caller reads `\.isFocused` from inside
+    /// the button's label and passes it here; the words under the still stay put.
+    ///
+    /// `anchor` is where the lift grows from: `.bottom` keeps a still's lift off the text below.
+    func focusCardChrome(focused: Bool, pressed: Bool = false,
+                         cornerRadius: CGFloat = Theme.Layout.posterCorner,
+                         anchor: UnitPoint = .center) -> some View {
+        modifier(FocusCardChrome(focused: focused, pressed: pressed, cornerRadius: cornerRadius,
+                                 anchor: anchor))
+    }
+}
+
+private struct FocusCardChrome: ViewModifier {
+    let focused: Bool
+    let pressed: Bool
+    let cornerRadius: CGFloat
+    let anchor: UnitPoint
+
+    /// Ring width, drawn entirely outside the card.
+    private let ring: CGFloat = 4
+
+    func body(content: Content) -> some View {
+        content
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .overlay {
+                // Concentric with the card: its radius grows by exactly the ring's width.
+                RoundedRectangle(cornerRadius: cornerRadius + ring, style: .continuous)
+                    .strokeBorder(Theme.Palette.focus, lineWidth: ring)
+                    .padding(-ring)
+                    .opacity(focused ? 1 : 0)
+            }
+            .liftShadow(focused)
+            .scaleEffect(pressed ? 0.96 : (focused ? Theme.Anim.focusScale : 1), anchor: anchor)
+            .animation(Theme.Anim.focus, value: focused)
+            .animation(Theme.Anim.focus, value: pressed)
     }
 }

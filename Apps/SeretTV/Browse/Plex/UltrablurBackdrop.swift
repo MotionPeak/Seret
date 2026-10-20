@@ -30,6 +30,10 @@ import UIKit
 struct UltrablurBackdrop: View {
     let backdropPath: String?
     var showsArt = true
+    /// Drawn in the sharp art's place, over it and under the legibility shade — the title page's
+    /// muted trailer, which then dissolves into the wash exactly as the still does. Fixed for the
+    /// backdrop's life; what it draws inside may change.
+    var artOverlay: AnyView? = nil
 
     /// Bottom to top. Usually one; two or three while fades overlap.
     @State private var plates: [BackdropPlate] = []
@@ -48,6 +52,12 @@ struct UltrablurBackdrop: View {
                 }
                 // In: fades over what is below. Out: only ever removed once covered, so instantly.
                 .transition(.asymmetric(insertion: .opacity, removal: .identity))
+            }
+            if let artOverlay {
+                GeometryReader { geo in
+                    artOverlay.ultrablurArtRegion(geo.size)
+                        .frame(width: geo.size.width, height: geo.size.height, alignment: .topTrailing)
+                }
             }
             LegibilityShade()
         }
@@ -98,10 +108,6 @@ private struct UltrablurPlate: View {
     /// Fixed for the backdrop's life — never a swap under focus.
     let showsArt: Bool
 
-    /// The sharp art's share of the screen, from the approved mockup.
-    private static let artWidth: CGFloat = 0.70
-    private static let artHeight: CGFloat = 0.76
-
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .topTrailing) {
@@ -124,21 +130,35 @@ private struct UltrablurPlate: View {
         RemoteImage(url: TMDBClient.imageURL(path: path, size: "w1280"), contentMode: .fill) { _ in
             Color.clear
         }
-        .frame(width: size.width * Self.artWidth, height: size.height * Self.artHeight)
-        .clipped()
-        .mask {
-            // Opaque from the trailing edge to 45% in, gone at the leading edge — and the
-            // same from the top down to 45% above the bottom. The two multiply.
-            LinearGradient(stops: [.init(color: .clear, location: 0),
-                                   .init(color: .black, location: 0.55)],
-                           startPoint: .leading, endPoint: .trailing)
-                .mask {
-                    LinearGradient(stops: [.init(color: .black, location: 0.55),
-                                           .init(color: .clear, location: 1)],
-                                   startPoint: .top, endPoint: .bottom)
-                }
-        }
+        .ultrablurArtRegion(size)
     }
+}
+
+extension View {
+    /// Places this view where an ultrablur plate draws its sharp art — the trailing 70% × top 76%
+    /// of `size` — clipped, and dissolving towards the leading and bottom edges.
+    func ultrablurArtRegion(_ size: CGSize) -> some View {
+        frame(width: size.width * UltrablurArt.width, height: size.height * UltrablurArt.height)
+            .clipped()
+            .mask {
+                // Opaque from the trailing edge to 45% in, gone at the leading edge — and the
+                // same from the top down to 45% above the bottom. The two multiply.
+                LinearGradient(stops: [.init(color: .clear, location: 0),
+                                       .init(color: .black, location: 0.55)],
+                               startPoint: .leading, endPoint: .trailing)
+                    .mask {
+                        LinearGradient(stops: [.init(color: .black, location: 0.55),
+                                               .init(color: .clear, location: 1)],
+                                       startPoint: .top, endPoint: .bottom)
+                    }
+            }
+    }
+}
+
+/// The sharp art's share of the screen, from the approved mockup.
+private enum UltrablurArt {
+    static let width: CGFloat = 0.70
+    static let height: CGFloat = 0.76
 }
 
 /// Darkens the leading third and the bottom of the screen so white text and posters always read

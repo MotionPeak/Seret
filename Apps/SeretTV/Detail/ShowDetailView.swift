@@ -2,8 +2,9 @@ import DebridCore
 import DebridUI
 import SwiftUI
 
-/// Show Detail: backdrop hero with Resume/Play-next, a focusable season picker, and the
-/// vertical episode list for the selected season.
+/// Show Detail, Plex-style: the title's ultrablur backdrop behind the whole page; on the left the
+/// logo, metadata, overview and the action row (Resume/Play-next pill, then circular actions);
+/// below them the season pills, the selected season's episode cards, and the rails.
 struct ShowDetailView: View {
     let store: DetailStore
     var onRemove: () -> Void = {}
@@ -32,11 +33,14 @@ struct ShowDetailView: View {
     @State private var loadedSeasonKey: String?
     /// Which season pill has focus — moving across them switches the season live (no press).
     @FocusState private var focusedSeason: Int?
-    /// Forces INITIAL focus onto the Play CTA. Without it, the action row sits below the tall hero
-    /// (off-screen on open) and tvOS sets no initial focus at all — the remote goes dead (you can't
-    /// move or select anything). `.defaultFocus` puts focus on Play and scrolls it into view.
-    private enum Field: Hashable { case play }
-    @FocusState private var initialFocus: Field?
+    /// Which action has focus. `.defaultFocus($focus, .play)` forces INITIAL focus onto the Play
+    /// CTA: tvOS sets no initial focus on a page like this one, and without it the remote goes dead
+    /// (you can't move or select anything). The other cases let the action row animate its layout
+    /// as a circle opens into a pill, so its neighbours slide rather than jump.
+    private enum Field: Hashable { case play, fromStart, more }
+    @FocusState private var focus: Field?
+    /// Scrolled down into the seasons and rails: the trailer pauses and the art recedes.
+    @State private var scrolledAway = false
     @State private var trailerURL: URL?
     @State private var expandTrailer = false
     private var item: MediaItem { store.item }
@@ -46,17 +50,15 @@ struct ShowDetailView: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 0) {
-                TrailerHero(tmdbID: item.tmdbID, kind: .show,
-                            backdropPath: store.backdropPath, posterFallback: item.posterPath,
-                            resolvedURL: $trailerURL, paused: expandTrailer)
+            VStack(alignment: .leading, spacing: 0) {
                 VStack(alignment: .leading, spacing: 32) {
                     hero.frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.bottom, 24)
                     seasonPicker
                     // One full-width section: UP from an episode card scrolled to the right had
                     // nothing above it within these shrink-wrapped buttons, so it skipped them and
                     // landed on a season pill.
-                    VStack(alignment: .leading, spacing: 32) {
+                    HStack(spacing: 20) {
                         markSeasonButton
                         // A season you already have every episode of has nothing to download — the
                         // button would only add a duplicate torrent. Unless it is THIS button that
@@ -73,6 +75,10 @@ struct ShowDetailView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .focusSection()
                     episodeList
+                }
+                .padding(.horizontal, DetailLayout.inset)
+                .padding(.top, DetailLayout.topPadding)
+                VStack(alignment: .leading, spacing: FocusBrowseLayout.railSpacing) {
                     // Gated on non-empty: the rail only ever appears once TMDB credits land, and it
                     // appends BELOW everything else, so it never resizes content already on screen.
                     if !store.cast.isEmpty { CastRail(cast: store.cast) }
@@ -80,11 +86,22 @@ struct ShowDetailView: View {
                         SimilarRail(titles: store.similar, parentKind: .show)
                     }
                 }
-                .padding(60)
+                .padding(.horizontal, DetailLayout.railInset)
+                .padding(.top, 10)
+                .padding(.bottom, 40)
             }
         }
-        .defaultFocus($initialFocus, .play)
-        .background(CanvasBackground())
+        .onScrollGeometryChange(for: Bool.self) { geo in
+            geo.contentOffset.y + geo.contentInsets.top > DetailLayout.scrolledAwayOffset
+        } action: { _, away in
+            scrolledAway = away
+        }
+        .defaultFocus($focus, .play)
+        .background {
+            TrailerHero(tmdbID: item.tmdbID, kind: .show, backdropPath: pageBackdrop,
+                        resolvedURL: $trailerURL, paused: expandTrailer || scrolledAway,
+                        receded: scrolledAway)
+        }
         .fullScreenCover(isPresented: $expandTrailer) {
             if let u = trailerURL { FullScreenTrailer(url: u) }
         }
@@ -104,20 +121,36 @@ struct ShowDetailView: View {
         }
     }
 
+    /// The backdrop, or — once the details have answered without one — the poster. See
+    /// `MovieDetailView.pageBackdrop`.
+    private var pageBackdrop: String? {
+        if let backdrop = store.backdropPath { return backdrop }
+        switch store.richState {
+        case .loaded, .failed: return item.posterPath
+        default: return nil
+        }
+    }
+
     private var hero: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            Text(item.title).screenTitle()
-            Text(metaLine).calloutText().foregroundStyle(Theme.Palette.textSecondary)
-            if !store.creatorRefs.isEmpty {
-                CreditNamesRow(label: "Created by", people: store.creatorRefs)
-            }
-            RatingsRow(ratings: store.ratings)
+        VStack(alignment: .leading, spacing: 0) {
+            DetailTitleArt(title: item.title, logoPath: store.logoPath, settling: settling)
+            DetailMetaRow(items: metaItems, ratings: store.ratings)
+                .padding(.top, 22)
             if let overview = store.overview {
-                ExpandableOverview(text: overview, title: item.title)
+                ExpandableOverview(text: overview, title: item.title, lineLimit: 3,
+                                   maxWidth: DetailLayout.textWidth)
+                    .padding(.top, 22)
             }
             heroActions
-            UserRatingRow(store: store)
-            WatchDatesLine(summary: store.watchSummary, since: store.historySince)
+                .padding(.top, 34)
+            VStack(alignment: .leading, spacing: 22) {
+                UserRatingRow(store: store)
+                WatchDatesLine(summary: store.watchSummary, since: store.historySince)
+                if !store.creatorRefs.isEmpty {
+                    CreditNamesRow(label: "Created by", people: store.creatorRefs)
+                }
+            }
+            .padding(.top, 40)
         }
         // On the container, not on WatchDatesLine: that view renders NOTHING until the summary it
         // is waiting for arrives, so hanging the load that produces it off a conditionally-empty
@@ -125,18 +158,22 @@ struct ShowDetailView: View {
         .task { await store.loadWatchSummary() }
     }
 
-    private var metaLine: String {
-        var parts: [String] = []
-        if let y = item.year { parts.append(String(y)) }
-        if let language = store.languageName { parts.append(language) }
-        if !store.genres.isEmpty { parts.append(store.genres.prefix(3).joined(separator: " · ")) }
-        let n = store.allSeasons.count
-        parts.append("\(n) Season\(n == 1 ? "" : "s")")
-        return parts.joined(separator: "  ·  ")
+    /// The details (and with them the logo) are still on their way.
+    private var settling: Bool {
+        switch store.richState {
+        case .idle, .loading: return item.tmdbID != nil
+        default: return false
+        }
+    }
+
+    private var metaItems: [String] {
+        DetailMetaRow.items(year: item.year, runtime: nil, seasons: store.allSeasons.count,
+                            vote: store.voteAverage, language: store.languageName,
+                            genres: store.genres)
     }
 
     @ViewBuilder private var heroActions: some View {
-        HStack(spacing: 16) {
+        HStack(spacing: 20) {
             if let next = store.nextEpisode() {
                 let resume = store.watchState(forKey: WatchKey.content(forShow: item, episode: next))
                     .flatMap { $0.resumePosition }
@@ -147,8 +184,9 @@ struct ShowDetailView: View {
                                         : "Play S\(next.season)·E\(next.number)",
                           systemImage: "play.fill")
                 }
-                .buttonStyle(SeretActionButtonStyle(prominent: true))
-                .focused($initialFocus, equals: .play)
+                .buttonStyle(SeretActionButtonStyle(prominent: true,
+                                                    minHeight: ExpandingIconButtonStyle.diameter))
+                .focused($focus, equals: .play)
 
                 // The film page has offered this all along; an episode part-way through could only
                 // be started over by scrubbing back to 0:00 inside the player.
@@ -158,7 +196,8 @@ struct ShowDetailView: View {
                         label: "\(item.title) — S\(next.season)·E\(next.number)", fromStart: true)) {
                         Label("From Start", systemImage: "gobackward")
                     }
-                    .buttonStyle(SeretActionButtonStyle())
+                    .buttonStyle(ExpandingIconButtonStyle())
+                    .focused($focus, equals: .fromStart)
                 }
             } else {
                 // Nothing downloaded yet — Play still starts the show. ONE button whatever it says,
@@ -189,8 +228,9 @@ struct ShowDetailView: View {
                         Label(notYetTitle, systemImage: notYetIcon)
                     }
                 }
-                .buttonStyle(SeretActionButtonStyle(prominent: true))
-                .focused($initialFocus, equals: .play)
+                .buttonStyle(SeretActionButtonStyle(prominent: true,
+                                                    minHeight: ExpandingIconButtonStyle.diameter))
+                .focused($focus, equals: .play)
             }
 
             // Trailer + destructive Remove tucked off the primary path.
@@ -208,8 +248,12 @@ struct ShowDetailView: View {
             } label: {
                 Label("More", systemImage: "ellipsis")
             }
-            .buttonStyle(SeretActionButtonStyle())
+            .buttonStyle(ExpandingIconButtonStyle())
+            .focused($focus, equals: .more)
         }
+        // A focused circle opens into a pill and its neighbours make room. Animated on the ROW, so
+        // they slide in step with the pill's own growth instead of jumping to their new places.
+        .animation(Theme.Anim.focus, value: focus)
         // Each horizontal row is one target for vertical travel. Wide scrolling rows sat above and
         // below narrow left-aligned buttons, so a card scrolled to the right had nothing above it
         // and UP was a dead press. (`.focusSection()` widens a target; it does NOT trap focus.)
@@ -286,7 +330,7 @@ struct ShowDetailView: View {
     private var episodeList: some View {
         let rows = store.episodes(forSeason: store.selectedSeason)
         return ScrollView(.horizontal, showsIndicators: false) {
-            LazyHStack(alignment: .top, spacing: 30) {
+            LazyHStack(alignment: .top, spacing: 36) {
                 if rows.isEmpty {
                     switch store.episodesState(forSeason: store.selectedSeason) {
                     case .loading:
@@ -310,9 +354,11 @@ struct ShowDetailView: View {
                     }
                 }
             }
-            .padding(.vertical, 16)      // room for the focus lift
+            .padding(.vertical, 24)      // room for the still's lift, ring and shadow
             .padding(.horizontal, Theme.Layout.contentMargin)    // align with the page + room for the focus scale at the edges
         }
+        // The lift and ring draw past the row's own bounds rather than being cut at them.
+        .scrollClipDisabled()
         .padding(.horizontal, -Theme.Layout.contentMargin)       // ScrollView runs edge-to-edge so a focused card doesn't clip
         .frame(maxWidth: .infinity, alignment: .leading)
         .focusSection()

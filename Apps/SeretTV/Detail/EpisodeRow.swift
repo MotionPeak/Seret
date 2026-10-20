@@ -2,9 +2,10 @@ import DebridCore
 import DebridUI
 import SwiftUI
 
-/// One episode card in the side-scrolling row: a 16:9 still (the focusable `.card`). A downloaded
-/// episode plays on select (with a Mark Watched context menu); a not-downloaded one shows a
-/// download glyph + "Not downloaded" and downloads-then-plays on select.
+/// One episode card in the side-scrolling row: a landscape 16:9 still with the title, runtime and
+/// synopsis under it. A downloaded episode plays on select (with a Mark Watched context menu); a
+/// not-downloaded one shows a download glyph + "Not downloaded" and downloads-then-plays on select.
+/// Finished episodes carry a white ✓ on the still, part-watched ones a white progress line.
 struct EpisodeRow: View {
     let store: DetailStore
     let row: DetailStore.EpisodeRowInfo
@@ -36,7 +37,9 @@ struct EpisodeRow: View {
                 onDownload(row)
             }
         } label: { lockup }
-        .buttonStyle(.borderless)
+        // Chrome-free: the still draws the focus look itself (see `lockup`). `.borderless` drew
+        // tvOS's own highlight, which matches nothing else on the page.
+        .buttonStyle(BareButtonStyle())
         .contextMenu {
             // Selecting the card resumes; this starts a part-watched episode over (the Mac's
             // episode grid has offered it all along).
@@ -57,13 +60,13 @@ struct EpisodeRow: View {
 
     /// The still AND its words, as one focus target — the tvOS "lockup". Only the still was
     /// focusable before, so the focus engine scrolled the page just far enough to show the still,
-    /// and the title and synopsis under it ran off the bottom of the screen. The highlight stays on
-    /// the still alone (`hoverEffect`), the way the Apple TV app draws an episode.
+    /// and the title and synopsis under it ran off the bottom of the screen. The focus look (the
+    /// card ring and lift) stays on the still alone, the way Plex and the Apple TV app draw an
+    /// episode.
     private var lockup: some View {
         VStack(alignment: .leading, spacing: 8) {
-            still.hoverEffect(.highlight)
-            EpisodeCardText(title: title, meta: subtitle, synopsis: row.meta?.overview,
-                            isWatched: isWatched)
+            EpisodeStill(content: still)
+            EpisodeCardText(title: title, meta: subtitle, synopsis: row.meta?.overview)
         }
         .frame(width: width, alignment: .leading)
     }
@@ -132,8 +135,8 @@ struct EpisodeRow: View {
             }
         }
         .frame(width: width, height: width * 9 / 16)
-        .clipShape(RoundedRectangle(cornerRadius: Theme.Layout.posterCorner, style: .continuous))
         .opacity(row.isDownloaded ? 1 : 0.5)          // dim not-downloaded episodes
+        .overlay { if isWatched { Theme.Palette.artDim } }
         .overlay {
             if !row.isDownloaded {
                 Image(systemName: isDownloading ? "arrow.down.circle" : "arrow.down.circle.fill")
@@ -142,14 +145,37 @@ struct EpisodeRow: View {
             }
         }
         .overlay(alignment: .bottom) { progressBar }
+        .overlay(alignment: .topTrailing) {
+            if isWatched {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 30))
+                    .foregroundStyle(Theme.Palette.focus)
+                    .background(Circle().fill(Theme.Palette.badgeBacking))
+                    .padding(10)
+                    .accessibilityLabel("Watched")
+            }
+        }
     }
 
+    /// Part-watched only — a finished episode says so with its ✓ instead of a full bar. Inset from
+    /// the still's edges, like a poster's.
     @ViewBuilder private var progressBar: some View {
-        if isWatched {
-            ProgressLine(fraction: 1, height: 5)
-        } else if let w = watch, w.durationSeconds > 0, w.positionSeconds > 0 {
+        if !isWatched, let w = watch, w.durationSeconds > 0, w.positionSeconds > 0 {
             ProgressLine(fraction: w.positionSeconds / w.durationSeconds, height: 5)
+                .padding([.horizontal, .bottom], 10)
         }
+    }
+}
+
+/// An episode's still with the card focus look — the white ring and the lift — while its lockup
+/// has focus. Reads focus from the enclosing button, so the words under the still never scale.
+/// The lift grows UP from the still's bottom edge, keeping it off the title below.
+private struct EpisodeStill<Content: View>: View {
+    let content: Content
+    @Environment(\.isFocused) private var focused
+
+    var body: some View {
+        content.focusCardChrome(focused: focused, anchor: .bottom)
     }
 }
 
@@ -214,16 +240,11 @@ struct EpisodeCardText: View {
     let title: String
     let meta: String
     let synopsis: String?
-    var isWatched = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(title).cardTitle().lineLimit(2, reservesSpace: true)
-                if isWatched {
-                    Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.Palette.focus)
-                }
-            }
+            Text(title).cardTitle().lineLimit(2, reservesSpace: true)
+                .foregroundStyle(Theme.Palette.textPrimary)
             Text(meta).font(.seret(Theme.Typography.captionSize, .medium))
                 .foregroundStyle(Theme.Palette.textSecondary)
                 .lineLimit(1, reservesSpace: true)

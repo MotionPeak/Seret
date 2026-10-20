@@ -2,7 +2,9 @@ import DebridCore
 import DebridUI
 import SwiftUI
 
-/// Movie Detail: backdrop hero, metadata, overview, Play/Resume, Versions, Mark Watched.
+/// Movie Detail, Plex-style: the title's ultrablur backdrop behind the whole page; on the left the
+/// logo, the metadata row, the overview and the action row (a Play/Resume pill, then circular
+/// actions that open into labelled pills when focused); the owned versions and the rails below.
 struct MovieDetailView: View {
     let store: DetailStore
     var onRemove: () -> Void = {}
@@ -14,11 +16,15 @@ struct MovieDetailView: View {
     private var watch: WatchState? { store.watchState(forKey: contentKey) }
     @State private var trailerURL: URL?
     @State private var expandTrailer = false
-    /// Forces INITIAL focus onto the Play CTA. Without it the action row sits below the tall hero
-    /// (off-screen on open) and tvOS sets no initial focus — the remote goes dead. `.defaultFocus`
-    /// puts focus on Play and scrolls it into view.
-    private enum Field: Hashable { case play }
-    @FocusState private var initialFocus: Field?
+    /// Which action has focus. `.defaultFocus($focus, .play)` forces INITIAL focus onto the Play
+    /// CTA: tvOS sets no initial focus on a page like this one, and without it the remote goes
+    /// dead (an `.onAppear` seed does not reliably do it — CLAUDE.md). The other cases exist so the
+    /// action row can animate its layout as focus moves: a circle opening into a pill pushes its
+    /// neighbours along, and they slide rather than jump.
+    private enum Field: Hashable { case play, fromStart, versions, watchlist, more }
+    @FocusState private var focus: Field?
+    /// Scrolled down into the rails: the trailer pauses and the art recedes behind them.
+    @State private var scrolledAway = false
     @Environment(AppSession.self) private var session
     /// Absent until `DetailView` has built it, and absent in previews — the button is simply not
     /// offered then, which beats offering one that does nothing.
@@ -40,16 +46,20 @@ struct MovieDetailView: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 0) {
-                TrailerHero(tmdbID: item.tmdbID, kind: .movie,
-                            backdropPath: store.backdropPath, posterFallback: item.posterPath,
-                            resolvedURL: $trailerURL, paused: expandTrailer)
-                VStack(alignment: .leading, spacing: 36) {
-                    hero.frame(maxWidth: .infinity, alignment: .leading)
-                    if !store.versions.isEmpty { versionsSection }
+            VStack(alignment: .leading, spacing: 0) {
+                hero
+                    .padding(.horizontal, DetailLayout.inset)
+                    .padding(.top, DetailLayout.topPadding)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                if !store.versions.isEmpty {
+                    versionsSection
+                        .padding(.horizontal, DetailLayout.inset)
+                        .padding(.top, 56)
+                }
+                VStack(alignment: .leading, spacing: FocusBrowseLayout.railSpacing) {
                     // Franchise sits above cast: which film in the series this is matters more
-                    // than who is in it. Appends below the hero, so it never resizes what is
-                    // already on screen.
+                    // than who is in it. Appends below the title block, so it never resizes what
+                    // is already on screen.
                     if let franchise = store.franchise {
                         FranchiseRail(franchise: franchise, currentTmdbID: item.tmdbID)
                     }
@@ -60,10 +70,17 @@ struct MovieDetailView: View {
                         SimilarRail(titles: store.similar, parentKind: .movie)
                     }
                 }
-                .padding(60)
+                .padding(.horizontal, DetailLayout.railInset)
+                .padding(.top, 30)
+                .padding(.bottom, 40)
             }
         }
-        .defaultFocus($initialFocus, .play)
+        .onScrollGeometryChange(for: Bool.self) { geo in
+            geo.contentOffset.y + geo.contentInsets.top > DetailLayout.scrolledAwayOffset
+        } action: { _, away in
+            scrolledAway = away
+        }
+        .defaultFocus($focus, .play)
         .task { await store.loadPreferredVersion() }
         // Rebuilt when the imdbID resolves — the engine cannot query the indexers without it.
         .task(id: store.imdbID) {
@@ -80,48 +97,72 @@ struct MovieDetailView: View {
         }
         .onAppear { isOnScreen = true }
         .onDisappear { isOnScreen = false }
-        .background(CanvasBackground())
+        .background {
+            TrailerHero(tmdbID: item.tmdbID, kind: .movie, backdropPath: pageBackdrop,
+                        resolvedURL: $trailerURL, paused: expandTrailer || scrolledAway,
+                        receded: scrolledAway)
+        }
         .fullScreenCover(isPresented: $expandTrailer) {
             if let u = trailerURL { FullScreenTrailer(url: u) }
         }
     }
 
+    /// The backdrop, or — once the details have answered without one — the poster, so a title
+    /// with no backdrop is not a bare canvas. Not the poster first: that faded to the backdrop a
+    /// beat later on every title whose library entry has none cached.
+    private var pageBackdrop: String? {
+        if let backdrop = store.backdropPath { return backdrop }
+        switch store.richState {
+        case .loaded, .failed: return item.posterPath
+        default: return nil
+        }
+    }
+
     private var hero: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            Text(item.title).screenTitle()
-            Text(metaLine).calloutText().foregroundStyle(Theme.Palette.textSecondary)
-            if let franchise = store.franchise {
-                Text("Film \(franchise.position) of \(franchise.count)  ·  \(franchise.name)")
-                    .calloutText().foregroundStyle(Theme.Palette.textPrimary)
-            }
-            if !store.directors.isEmpty {
-                CreditNamesRow(label: store.directors.count == 1 ? "Director" : "Directors",
-                               people: store.directors)
-            }
-            if store.bestSource != nil || store.hebrewChip != nil {
+        VStack(alignment: .leading, spacing: 0) {
+            DetailTitleArt(title: item.title, logoPath: store.logoPath, settling: settling)
+            DetailMetaRow(items: metaItems, ratings: store.ratings, letterboxd: store.letterboxdRating)
+                .padding(.top, 22)
+            if store.bestSource != nil || store.hebrewChip != nil || store.franchise != nil {
                 HStack(spacing: 16) {
                     if let best = store.bestSource { QualityChips(parsed: best.parsed) }
                     if let chip = store.hebrewChip {
                         HebrewBadge(HebrewIndicator(chip: chip), prominent: true)
-                    } else {
+                    } else if store.bestSource != nil {
                         // Holds the row at the badge's height, so the chip landing does not push
-                        // the page — and the Play button focus was just placed on — down.
-                        HebrewBadge(.inFile, prominent: true).hidden()
+                        // the page — and the Play button focus was just placed on — down. Height
+                        // only: at its own width it pushed the franchise line off to the right.
+                        HebrewBadge(.inFile, prominent: true).fixedSize().hidden().frame(width: 0)
+                    }
+                    if let franchise = store.franchise {
+                        Text("Film \(franchise.position) of \(franchise.count)  ·  \(franchise.name)")
+                            .calloutText().foregroundStyle(Theme.Palette.textPrimary)
+                            .lineLimit(1)
                     }
                 }
+                .padding(.top, 16)
             }
-            RatingsRow(ratings: store.ratings, letterboxd: store.letterboxdRating)
             if let overview = store.overview {
-                ExpandableOverview(text: overview, title: item.title)
+                ExpandableOverview(text: overview, title: item.title, lineLimit: 3,
+                                   maxWidth: DetailLayout.textWidth)
+                    .padding(.top, 22)
             }
             actions
+                .padding(.top, 34)
             acquisitionStatus
-            UserRatingRow(store: store)
-            WatchDatesLine(summary: store.watchSummary, since: store.historySince)
-            if let tmdb = item.tmdbID, offersDownload(tmdbID: tmdb) {
-                MovieDownloadSection(tmdbID: tmdb, title: item.title, posterPath: item.posterPath,
-                                     imdbID: store.imdbID, originalLanguage: store.originalLanguage)
+            VStack(alignment: .leading, spacing: 22) {
+                UserRatingRow(store: store)
+                WatchDatesLine(summary: store.watchSummary, since: store.historySince)
+                if !store.directors.isEmpty {
+                    CreditNamesRow(label: store.directors.count == 1 ? "Director" : "Directors",
+                                   people: store.directors)
+                }
+                if let tmdb = item.tmdbID, offersDownload(tmdbID: tmdb) {
+                    MovieDownloadSection(tmdbID: tmdb, title: item.title, posterPath: item.posterPath,
+                                         imdbID: store.imdbID, originalLanguage: store.originalLanguage)
+                }
             }
+            .padding(.top, 40)
         }
         // On the container, not on WatchDatesLine: that view renders NOTHING until the summary it
         // is waiting for arrives, so hanging the load that produces it off a conditionally-empty
@@ -129,31 +170,38 @@ struct MovieDetailView: View {
         .task { await store.loadWatchSummary() }
     }
 
-    private var metaLine: String {
-        var parts: [String] = []
-        if let y = item.year { parts.append(String(y)) }
-        if let r = store.runtime { parts.append("\(r) min") }
-        if let language = store.languageName { parts.append(language) }
-        if !store.genres.isEmpty { parts.append(store.genres.prefix(3).joined(separator: " · ")) }
-        return parts.joined(separator: "  ·  ")
+    /// The details (and with them the logo) are still on their way.
+    private var settling: Bool {
+        switch store.richState {
+        case .idle, .loading: return item.tmdbID != nil
+        default: return false
+        }
+    }
+
+    private var metaItems: [String] {
+        DetailMetaRow.items(year: item.year, runtime: store.runtime, seasons: nil,
+                            vote: store.voteAverage, language: store.languageName,
+                            genres: store.genres)
     }
 
     @ViewBuilder private var actions: some View {
-        HStack(spacing: 16) {
+        HStack(spacing: 20) {
             if let best = store.bestSource {
                 NavigationLink(value: store.playRequest(source: best, episode: nil, label: item.title)) {
                     Label(resumeSeconds != nil ? "Resume \(Timecode.format(resumeSeconds!))" : "Play",
                           systemImage: "play.fill")
                 }
-                .buttonStyle(SeretActionButtonStyle(prominent: true))
-                .focused($initialFocus, equals: .play)
+                .buttonStyle(SeretActionButtonStyle(prominent: true,
+                                                    minHeight: ExpandingIconButtonStyle.diameter))
+                .focused($focus, equals: .play)
 
                 if resumeSeconds != nil {
                     NavigationLink(value: store.playRequest(source: best, episode: nil,
                                                             label: item.title, fromStart: true)) {
                         Label("From Start", systemImage: "gobackward")
                     }
-                    .buttonStyle(SeretActionButtonStyle())
+                    .buttonStyle(ExpandingIconButtonStyle())
+                    .focused($focus, equals: .fromStart)
                 }
             } else {
                 // Not in the library: Play still means play. It finds the best instantly-available
@@ -187,8 +235,9 @@ struct MovieDetailView: View {
                 } label: {
                     Label(acquiringLabel, systemImage: acquiring ? "hourglass" : "play.fill")
                 }
-                .buttonStyle(SeretActionButtonStyle(prominent: true))
-                .focused($initialFocus, equals: .play)
+                .buttonStyle(SeretActionButtonStyle(prominent: true,
+                                                    minHeight: ExpandingIconButtonStyle.diameter))
+                .focused($focus, equals: .play)
             }
 
             // Reachable whether or not you own the title — on an un-owned one it IS the way to pick
@@ -197,7 +246,8 @@ struct MovieDetailView: View {
                 NavigationLink(value: BrowseDestination.versions(hit)) {
                     Label("Versions", systemImage: "square.stack.3d.up")
                 }
-                .buttonStyle(SeretActionButtonStyle())
+                .buttonStyle(ExpandingIconButtonStyle())
+                .focused($focus, equals: .versions)
             }
 
             // Its own control rather than a line in the More menu: it is the one thing on this page
@@ -213,7 +263,8 @@ struct MovieDetailView: View {
                     Label(on ? "On Watchlist" : "Watchlist",
                           systemImage: on ? "bookmark.fill" : "bookmark")
                 }
-                .buttonStyle(SeretActionButtonStyle())
+                .buttonStyle(ExpandingIconButtonStyle())
+                .focused($focus, equals: .watchlist)
             }
 
             // Everything rare or destructive lives here — off the primary path so it can't be mis-hit.
@@ -249,8 +300,12 @@ struct MovieDetailView: View {
             } label: {
                 Label("More", systemImage: "ellipsis")
             }
-            .buttonStyle(SeretActionButtonStyle())
+            .buttonStyle(ExpandingIconButtonStyle())
+            .focused($focus, equals: .more)
         }
+        // A focused circle opens into a pill and its neighbours make room. Animated on the ROW, so
+        // they slide in step with the pill's own growth instead of jumping to their new places.
+        .animation(Theme.Anim.focus, value: focus)
         // Each horizontal row is one target for vertical travel, and a section only counts when its
         // FRAME intersects the direction of travel — so widen to the page first, then section.
         // Otherwise a control further right on the row below (a star, a version) has nothing above.
@@ -350,7 +405,7 @@ struct MovieDetailView: View {
                                 .foregroundStyle(store.isActive(src)
                                                  ? Theme.Palette.focus : Theme.Palette.textSecondary)
                             QualityChips(parsed: src.parsed)
-                            if hebrew == .matched { HebrewBadge(.matched) }
+                            if hebrew == .matched { HebrewBadge(.matched).fixedSize() }
                             Spacer()
                             if let detail = versionDetail(src) {
                                 Text(detail)

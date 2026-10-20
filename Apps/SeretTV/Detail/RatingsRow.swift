@@ -2,7 +2,7 @@ import DebridCore
 import DebridUI
 import SwiftUI
 
-/// Aggregate scores as glass chips (tvOS sizing): IMDb's yellow wordmark, the 🍅 tomato,
+/// Aggregate scores as dark chips on the title page's metadata row (tvOS sizing): IMDb's yellow wordmark, the 🍅 tomato,
 /// Metacritic's color-coded square (green/yellow/red), and Letterboxd's three dots.
 ///
 /// Each service keeps its own units — IMDb out of ten, two percentages, Letterboxd out of five —
@@ -68,9 +68,14 @@ struct RatingsRow: View {
     }
 
     private func chip<C: View>(@ViewBuilder _ content: () -> C) -> some View {
+        // Never squeezed: on a row with other text a chip was offered less than its width and
+        // its "IMDb" mark truncated to "…" (seen on a real show page).
         HStack(spacing: 8) { content() }
+            .fixedSize()
             .padding(.vertical, 7).padding(.horizontal, 13)
-            .background(Theme.Palette.surface2, in: Capsule())
+            // Dark, not glass: the chips sit on the art, and over a bright backdrop a light chip
+            // swallowed the Metacritic label and the digits.
+            .background(Theme.Palette.badgeBacking, in: Capsule())
             .overlay(Capsule().strokeBorder(Theme.Palette.hairline))
     }
 

@@ -31,6 +31,9 @@ public final class DetailStore {
     public private(set) var richState: RichState = .idle
     public private(set) var backdropPath: String?
     public private(set) var logoPath: String?
+    /// TMDB's community score out of ten — the title page's ★. Nil until details land, and when
+    /// TMDB has no votes for it (0 is "unrated", not a score).
+    public private(set) var voteAverage: Double?
     public private(set) var runtime: Int?
     public private(set) var genres: [String] = []
     public private(set) var overview: String?
@@ -299,6 +302,7 @@ public final class DetailStore {
                 let d = try await details.movieDetails(tmdbID: tmdbID)
                 backdropPath = d.preferredBackdropPath ?? backdropPath
                 logoPath = d.logoPath
+                voteAverage = d.voteAverage.flatMap { $0 > 0 ? $0 : nil }
                 runtime = d.runtime
                 genres = d.genres.map(\.name)
                 overview = d.overview ?? overview
@@ -313,6 +317,7 @@ public final class DetailStore {
                 let d = try await details.tvDetails(tmdbID: tmdbID)
                 backdropPath = d.preferredBackdropPath ?? backdropPath
                 logoPath = d.logoPath
+                voteAverage = d.voteAverage.flatMap { $0 > 0 ? $0 : nil }
                 genres = d.genres.map(\.name)
                 overview = d.overview ?? overview
                 imdbID = d.imdbID

@@ -100,15 +100,16 @@ struct VersionsScreen: View {
         if let status = model?.downloadStatus {
             switch status.phase {
             case .queued:
-                ProgressView("Starting download…").font(.seretTitle3)
+                Label("Starting download…", systemImage: "hourglass")
+                    .font(.seretTitle3).foregroundStyle(Theme.Palette.textSecondary)
             case .downloading:
                 VStack(alignment: .leading, spacing: 10) {
                     Label("Downloading \(Int(status.fraction * 100))% to Real‑Debrid…",
-                          systemImage: "arrow.down.circle.fill")
-                        .font(.seretTitle3).foregroundStyle(.yellow)
-                    ProgressView(value: status.fraction).tint(.yellow).frame(maxWidth: 700)
+                          systemImage: "icloud.and.arrow.down")
+                        .font(.seretTitle3).foregroundStyle(Theme.Palette.textSecondary)
+                    ProgressView(value: status.fraction).tint(Theme.Palette.focus).frame(maxWidth: 700)
                     Text("It'll appear in your library when it's ready.")
-                        .font(.seretCallout).foregroundStyle(.secondary)
+                        .font(.seretCallout).foregroundStyle(Theme.Palette.textSecondary)
                 }
             case .failed(let reason):
                 Label(reason, systemImage: "exclamationmark.triangle")

@@ -51,11 +51,14 @@ struct VersionList: View {
     }
 
     /// Instant or Download: the block's own heading, a step above the size sections inside it and
-    /// in the colours of the rows' cache badges. Plain text, so it takes no focus.
+    /// with the rows' cache-badge symbols. White is the TV's only accent, so the two blocks are told
+    /// apart by symbol and weight — Instant in white, Download in secondary grey — never by a
+    /// traffic-light colour. Plain text, so it takes no focus.
     private func blockHeader(_ availability: VersionGroup.Availability, first: Bool) -> some View {
         HStack(spacing: 14) {
-            Image(systemName: availability.systemImage)
-                .foregroundStyle(availability == .instant ? Color.green : .yellow)
+            Image(systemName: CacheBadge.symbol(cached: availability == .instant))
+                .foregroundStyle(availability == .instant ? Theme.Palette.textPrimary
+                                                          : Theme.Palette.textSecondary)
             Text(availability.title)
             Text(availability.caption).font(.seretCallout)
                 .foregroundStyle(Theme.Palette.textSecondary)

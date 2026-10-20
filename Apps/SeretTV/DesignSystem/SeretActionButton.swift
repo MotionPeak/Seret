@@ -14,15 +14,20 @@ import SwiftUI
 struct SeretActionButtonStyle: ButtonStyle {
     var prominent = false
     var destructive = false
+    /// The pill's minimum height — `ExpandingIconButtonStyle.diameter` when it leads a row of
+    /// circles, so the row reads as one line of controls. Nil keeps the text's own height.
+    var minHeight: CGFloat? = nil
 
     func makeBody(configuration: Configuration) -> some View {
-        Render(configuration: configuration, prominent: prominent, destructive: destructive)
+        Render(configuration: configuration, prominent: prominent, destructive: destructive,
+               minHeight: minHeight)
     }
 
     private struct Render: View {
         let configuration: ButtonStyleConfiguration
         let prominent: Bool
         let destructive: Bool
+        let minHeight: CGFloat?
         @Environment(\.isFocused) private var focused
 
         var body: some View {
@@ -30,6 +35,7 @@ struct SeretActionButtonStyle: ButtonStyle {
                 .font(.seret(Theme.Typography.cardSize, prominent ? .semibold : .medium))
                 .foregroundStyle(textColor)
                 .padding(.horizontal, 30).padding(.vertical, 16)
+                .frame(minHeight: minHeight)
                 .background(fill, in: Capsule())
                 // Always present, faded out on focus — the CTA's only resting distinction.
                 .overlay(Capsule().strokeBorder(Color.white.opacity(0.35), lineWidth: 1.5)

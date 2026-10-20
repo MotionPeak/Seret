@@ -30,16 +30,17 @@ struct VersionRow: View {
                     chips.layoutPriority(1)
                     Spacer(minLength: 0)
                     if let size = stream.sizeBytes {
-                        Text(Self.sizeGB(size)).font(.seretCallout).foregroundStyle(.secondary)
+                        Text(Self.sizeGB(size)).font(.seretCallout)
+                            .foregroundStyle(Theme.Palette.textSecondary)
                             .fixedSize()
                     }
                     if isPicking {
                         ProgressView()
                     } else {
-                        Image(systemName: stream.isCached ? "play.circle" : "arrow.down.circle")
+                        Image(systemName: stream.isCached ? "play.circle" : "icloud.and.arrow.down")
                     }
                 }
-                Text(stream.rawTitle).font(.seretCallout).foregroundStyle(.secondary)
+                Text(stream.rawTitle).font(.seretCallout).foregroundStyle(Theme.Palette.textSecondary)
                     .lineLimit(1).truncationMode(.middle)
             }
         }
@@ -76,15 +77,22 @@ struct VersionRow: View {
     }
 }
 
-/// ⚡ Instant (already on RD) vs ⬇️ Download (will fetch) — from Comet's cache marker.
+/// ⚡ Instant (already on RD) vs ☁︎ Download (will fetch) — from Comet's cache marker.
+///
+/// Neutral on purpose: white is the TV's only accent. Instant is white on glass; Download is
+/// secondary grey on a fainter fill, with the cloud symbol saying "fetched first".
 struct CacheBadge: View {
     let isCached: Bool
+
+    /// The badge's symbol — also the Instant / Download block headings'.
+    static func symbol(cached: Bool) -> String { cached ? "bolt.fill" : "icloud.and.arrow.down" }
+
     var body: some View {
-        Label(isCached ? "Instant" : "Download", systemImage: isCached ? "bolt.fill" : "arrow.down.circle")
+        Label(isCached ? "Instant" : "Download", systemImage: Self.symbol(cached: isCached))
             .font(.seret(.caption1, .bold))
-            .foregroundStyle(isCached ? Color.green : .yellow)
+            .foregroundStyle(isCached ? Theme.Palette.textPrimary : Theme.Palette.textSecondary)
             .padding(.vertical, 4).padding(.horizontal, 10)
-            .background((isCached ? Color.green : .yellow).opacity(0.15), in: Capsule())
+            .background(isCached ? Theme.Palette.glass : Theme.Palette.glassFaint, in: Capsule())
     }
 }
 

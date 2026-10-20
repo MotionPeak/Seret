@@ -12,24 +12,12 @@ struct FranchiseRail: View {
     let currentTmdbID: Int?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(franchise.name).sectionTitle()
-            ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(alignment: .top, spacing: 30) {
-                    ForEach(Array(franchise.parts.enumerated()), id: \.element.id) { index, part in
-                        FranchisePoster(part: part, number: index + 1,
-                                        isCurrent: part.id == currentTmdbID)
-                    }
-                }
-                .padding(.vertical, 16)      // room for the focus lift
-                .padding(.horizontal, Theme.Layout.contentMargin)    // align + room for the focus scale at the edges
+        PlexRail(title: franchise.name, id: "detail-franchise") {
+            ForEach(Array(franchise.parts.enumerated()), id: \.element.id) { index, part in
+                FranchisePoster(part: part, number: index + 1,
+                                isCurrent: part.id == currentTmdbID)
             }
-            .padding(.horizontal, -Theme.Layout.contentMargin)       // edge-to-edge so a focused poster isn't clipped
         }
-        // Widen the focus target to the page BEFORE sectioning — a section only counts when its
-        // frame intersects the direction of travel.
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .focusSection()
     }
 }
 
@@ -40,14 +28,14 @@ private struct FranchisePoster: View {
     let isCurrent: Bool
 
     @Environment(AppSession.self) private var session
-    private let width: CGFloat = 180
-    private let height: CGFloat = 270
+    private let width = PosterTileMetrics.width
+    private let height = PosterTileMetrics.height
     @FocusState private var focused: Bool
 
     var body: some View {
         let hit = SearchHit(result: part, kind: .movie)
         let owned = session.libraryStore?.ownedItem(tmdbID: part.id, kind: .movie)
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 22) {
             NavigationLink(value: BrowseDestination.detail(owned ?? .placeholder(for: hit))) {
                 poster(owned: owned != nil)
             }

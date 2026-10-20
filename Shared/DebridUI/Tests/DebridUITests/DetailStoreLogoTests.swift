@@ -26,6 +26,8 @@ private func showHit(_ id: Int) -> SearchHit {
 private struct LogoDetails: MediaDetailsProviding {
     var logoPath: String?
     var failing = false
+    /// Nil keeps each kind's own fixture score (8.2 film, 8.9 show).
+    var vote: Double?
 
     private var images: TMDBImageSet {
         TMDBImageSet(backdrops: [], logos: logoPath.map {
@@ -37,14 +39,14 @@ private struct LogoDetails: MediaDetailsProviding {
         if failing { throw LogoFakeError.boom }
         return TMDBMovieDetails(id: tmdbID, title: "Dune: Part Two", releaseDate: "2024-02-27",
                                 overview: "o", posterPath: nil, backdropPath: nil, runtime: 166,
-                                genres: [], voteAverage: 8.2, images: images)
+                                genres: [], voteAverage: vote ?? 8.2, images: images)
     }
 
     func tvDetails(tmdbID: Int) async throws -> TMDBTVDetails {
         if failing { throw LogoFakeError.boom }
         return TMDBTVDetails(id: tmdbID, name: "Breaking Bad", firstAirDate: "2008-01-20",
                              overview: "o", posterPath: nil, backdropPath: nil,
-                             numberOfSeasons: 5, genres: [], voteAverage: 8.9, images: images)
+                             numberOfSeasons: 5, genres: [], voteAverage: vote ?? 8.9, images: images)
     }
 
     func seasonEpisodes(tvID: Int, season: Int) async throws -> [TMDBEpisodeDetails] { [] }
@@ -70,6 +72,7 @@ private actor NoWatch: WatchProgressProviding {
         await store.load()
 
         #expect(store.logoPath == "/dune-logo.png")
+        #expect(store.voteAverage == 8.2)
         #expect(store.richState == .loaded)
     }
 
@@ -81,6 +84,7 @@ private actor NoWatch: WatchProgressProviding {
         await store.load()
 
         #expect(store.logoPath == "/bb-logo.png")
+        #expect(store.voteAverage == 8.9)
         #expect(store.richState == .loaded)
     }
 
@@ -91,6 +95,19 @@ private actor NoWatch: WatchProgressProviding {
         await store.load()
 
         #expect(store.logoPath == nil)
+        #expect(store.voteAverage == nil)
         #expect(store.richState == .failed)
+    }
+
+    /// TMDB reports an unrated title as 0 — the page must say nothing rather than "★ 0.0".
+    @Test func anUnratedTitleHasNoScore() async {
+        let item = MediaItem.placeholder(for: movieHit(693134))
+        let store = DetailStore(item: item, details: LogoDetails(logoPath: nil, vote: 0),
+                                watch: NoWatch())
+
+        await store.load()
+
+        #expect(store.voteAverage == nil)
+        #expect(store.richState == .loaded)
     }
 }

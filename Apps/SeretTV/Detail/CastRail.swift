@@ -22,40 +22,43 @@ struct CastRail: View {
     private let itemWidth: CGFloat = 220
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Cast").sectionTitle()
-            ScrollView(.horizontal, showsIndicators: false) {
-                // Lazy, like the in-player episode strip and every grid in the app. Uniform tiles
-                // and no skeleton/real branch inside, so it cannot hit the id-collision trap that
-                // leaves stale unfocusable cells behind.
-                LazyHStack(alignment: .top, spacing: 36) {
-                    ForEach(cast) { member in
-                        NavigationLink(value: BrowseDestination.person(
-                            TMDBPersonRef(id: member.id, name: member.name))) {
-                            card(for: member)
-                        }
-                        .buttonStyle(CastCardStyle())
-                    }
+        // Lazy, like every rail in the app (`PlexRail`). Uniform tiles and no skeleton/real branch
+        // inside, so it cannot hit the id-collision trap that leaves stale unfocusable cells behind.
+        PlexRail(title: "Cast", id: "detail-cast") {
+            ForEach(cast) { member in
+                NavigationLink(value: BrowseDestination.person(
+                    TMDBPersonRef(id: member.id, name: member.name))) {
+                    CastCard(member: member, headshot: headshot, width: itemWidth)
                 }
-                .padding(.horizontal, Theme.Layout.contentMargin)
-                .padding(.vertical, 12)   // headroom so the focus scale isn't clipped top/bottom
+                .buttonStyle(BareButtonStyle())
             }
-            // Runs edge-to-edge (negating the page's 60pt inset) so nothing clips at the row edges.
-            .padding(.horizontal, -Theme.Layout.contentMargin)
         }
-        // Widen to the page BEFORE sectioning — a section only counts when its frame intersects
-        // the direction of travel, so a narrow one leaves the columns above and below it with
-        // nothing to travel into.
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .focusSection()
         .task {
             ImageMemoryCache.prefetch(
                 cast.compactMap { TMDBClient.imageURL(path: $0.profilePath, size: "h632") })
         }
     }
+}
 
-    private func card(for member: TMDBCastMember) -> some View {
-        VStack(spacing: 12) {
+/// One cast member: a circular headshot that takes the card focus look (a white ring just outside
+/// the circle, the 1.08 lift, the soft shadow) while the card has focus, with the name and the
+/// character under it.
+///
+/// `FocusCardStyle` itself would draw a rounded-rectangle ring around the whole card, words and
+/// all; this keeps the ring circular and on the face. Focus is read from the enclosing link, as
+/// `\.isFocused` reports for any view inside the focused one.
+private struct CastCard: View {
+    let member: TMDBCastMember
+    let headshot: CGFloat
+    let width: CGFloat
+
+    @Environment(\.isFocused) private var focused
+
+    /// Ring width, drawn entirely outside the circle — as `FocusCardStyle` draws it.
+    private let ring: CGFloat = 4
+
+    var body: some View {
+        VStack(spacing: 14) {
             // The glyph is right whether the headshot is still loading or never arrives.
             RemoteImage(url: TMDBClient.imageURL(path: member.profilePath, size: "h632")) { _ in
                 Theme.Palette.surface2.overlay {
@@ -67,43 +70,31 @@ struct CastRail: View {
             .frame(width: headshot, height: headshot)
             .clipShape(Circle())
             .overlay { Circle().strokeBorder(Theme.Palette.hairline, lineWidth: 1) }
-
-            Text(member.name)
-                .font(.seret(Theme.Typography.captionSize, .semibold))
-                .foregroundStyle(Theme.Palette.textPrimary)
-                .lineLimit(1)
-            if let character = member.character, !character.isEmpty {
-                Text(character)
-                    .font(.seret(Theme.Typography.captionSize, .regular))
-                    .foregroundStyle(Theme.Palette.textSecondary)
-                    .lineLimit(1)
+            .overlay {
+                Circle()
+                    .strokeBorder(Theme.Palette.focus, lineWidth: ring)
+                    .padding(-ring)
+                    .opacity(focused ? 1 : 0)
             }
+            .liftShadow(focused)
+            .scaleEffect(focused ? Theme.Anim.focusScale : 1, anchor: .bottom)
+
+            VStack(spacing: 4) {
+                Text(member.name)
+                    .font(.seret(Theme.Typography.captionSize, .semibold))
+                    .foregroundStyle(focused ? Theme.Palette.textPrimary : Theme.Palette.textSecondary)
+                // Always laid out — a space when there is no character, since an empty string
+                // reserves no line — so every card is the same height and the row lines up.
+                Text(member.character.flatMap { $0.isEmpty ? nil : $0 } ?? " ")
+                    .font(.seret(Theme.Typography.captionSize, .regular))
+                    .foregroundStyle(Theme.Palette.textTertiary)
+                    .lineLimit(1, reservesSpace: true)
+            }
+            .lineLimit(1)
         }
         .multilineTextAlignment(.center)
-        .frame(width: itemWidth, alignment: .top)
-    }
-}
-
-/// Focus treatment for a cast card: lift and brighten, no plate.
-///
-/// `.card` was the obvious choice and is wrong here — it draws a rectangular platter behind a
-/// circular headshot. This follows the same shape as every other style in the design system: a
-/// nested view reading `\.isFocused`, since `ButtonStyleConfiguration` does not carry focus.
-private struct CastCardStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        Card(configuration: configuration)
-    }
-
-    private struct Card: View {
-        let configuration: ButtonStyleConfiguration
-        @Environment(\.isFocused) private var focused: Bool
-        var body: some View {
-            configuration.label
-                .scaleEffect(focused ? 1.08 : 1)
-                .brightness(focused ? 0.08 : 0)
-                .opacity(configuration.isPressed ? 0.7 : 1)
-                .animation(Theme.Anim.focus, value: focused)
-        }
+        .frame(width: width, alignment: .top)
+        .animation(Theme.Anim.focus, value: focused)
     }
 }
 

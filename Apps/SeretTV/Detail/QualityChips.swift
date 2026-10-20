@@ -12,7 +12,7 @@ struct QualityChips: View {
                 // No parseable quality metadata — show the release name so the row is never blank.
                 Text(parsed.title)
                     .font(.seret(.caption1, .medium))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Theme.Palette.textSecondary)
                     .lineLimit(1)
             } else {
                 ForEach(chips, id: \.self) { chip($0) }
@@ -24,11 +24,13 @@ struct QualityChips: View {
         [parsed.resolution, parsed.source, parsed.videoCodec, parsed.audioCodec].compactMap { $0 }
     }
 
+    /// Outlined, Plex's certification-chip look: legible over the art without a filled block.
     private func chip(_ text: String) -> some View {
         Text(text)
             .font(.seret(.caption1, .semibold))
+            .foregroundStyle(Theme.Palette.textPrimary)
             .padding(.horizontal, 12).padding(.vertical, 6)
-            .background(.white.opacity(0.12), in: Capsule())
-            .overlay(Capsule().strokeBorder(.white.opacity(0.2)))
+            .background(Theme.Palette.glassFaint, in: Capsule())
+            .overlay(Capsule().strokeBorder(Theme.Palette.textPrimary.opacity(0.35), lineWidth: 1.5))
     }
 }

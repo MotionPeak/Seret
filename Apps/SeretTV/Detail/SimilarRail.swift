@@ -17,24 +17,13 @@ struct SimilarRail: View {
     let parentKind: MediaKind
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("More Like This").sectionTitle()
-            ScrollView(.horizontal, showsIndicators: false) {
-                // Lazy: `similar` is a whole TMDB page, so a non-lazy row fetched and decoded
-                // ~20 posters the moment the page appeared, however few were on screen.
-                LazyHStack(alignment: .top, spacing: 36) {
-                    ForEach(titles) { title in
-                        BrowseTile(hit: SearchHit(result: title, kind: parentKind))
-                    }
-                }
-                .padding(.horizontal, Theme.Layout.contentMargin)
-                .padding(.vertical, 12)   // headroom so the focus scale isn't clipped top/bottom
+        // Lazy: `similar` is a whole TMDB page, so a non-lazy row fetched and decoded ~20 posters
+        // the moment the page appeared, however few were on screen.
+        PlexRail(title: "More Like This", id: "detail-similar") {
+            ForEach(titles) { title in
+                BrowseTile(hit: SearchHit(result: title, kind: parentKind))
             }
-            // Runs edge-to-edge (negating the page's 60pt inset) so a focused card at either end
-            // isn't clipped when it scales up.
-            .padding(.horizontal, -Theme.Layout.contentMargin)
         }
-        .focusSection()
         .task {
             ImageMemoryCache.prefetch(
                 titles.compactMap { TMDBClient.imageURL(path: $0.posterPath, size: "w500") })
