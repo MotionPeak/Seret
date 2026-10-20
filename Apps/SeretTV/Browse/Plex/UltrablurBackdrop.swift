@@ -143,22 +143,56 @@ extension View {
             .mask {
                 // Opaque from the trailing edge to 45% in, gone at the leading edge — and the
                 // same from the top down to 45% above the bottom. The two multiply.
-                LinearGradient(stops: [.init(color: .clear, location: 0),
-                                       .init(color: .black, location: 0.55)],
-                               startPoint: .leading, endPoint: .trailing)
-                    .mask {
-                        LinearGradient(stops: [.init(color: .black, location: 0.55),
-                                               .init(color: .clear, location: 1)],
-                                       startPoint: .top, endPoint: .bottom)
-                    }
+                //
+                // ONE precomputed bitmap, not a gradient masked by a gradient: a mask inside a mask
+                // is a second offscreen pass, every frame, over the sharp art and the title page's
+                // trailer video — on an A10X at 4K. The product of the two ramps is drawn once.
+                Image(decorative: UltrablurArt.mask, scale: 1)
+                    .resizable()
+                    .interpolation(.high)
+                    .flipsForRightToLeftLayoutDirection(true)
             }
     }
 }
 
 /// The sharp art's share of the screen, from the approved mockup.
-private enum UltrablurArt {
+enum UltrablurArt {
     static let width: CGFloat = 0.70
     static let height: CGFloat = 0.76
+
+    /// Where the dissolve ends: opaque from 55% across (leading → trailing) and down to 55%
+    /// (top → bottom).
+    static let solidFrom: CGFloat = 0.55
+
+    /// The art region's alpha at a unit position (x leading → trailing, y top → bottom): a ramp in
+    /// from the leading edge times a ramp out towards the bottom — what the two `LinearGradient`
+    /// masks multiplied to.
+    static func alpha(x: CGFloat, y: CGFloat) -> CGFloat {
+        let across = min(max(x / solidFrom, 0), 1)
+        let down = min(max((1 - y) / (1 - solidFrom), 0), 1)
+        return across * down
+    }
+
+    /// `alpha` drawn once into a 256² bitmap, sampled at texel centres; stretched over the region
+    /// with linear filtering it reproduces the piecewise-linear ramps.
+    static let mask: CGImage = {
+        let side = 256
+        var pixels = [UInt8](repeating: 0, count: side * side * 4)
+        for row in 0..<side {
+            for col in 0..<side {
+                let a = alpha(x: (CGFloat(col) + 0.5) / CGFloat(side), y: (CGFloat(row) + 0.5) / CGFloat(side))
+                let v = UInt8((a * 255).rounded())
+                let i = (row * side + col) * 4
+                pixels[i] = v; pixels[i + 1] = v; pixels[i + 2] = v; pixels[i + 3] = v   // premultiplied white
+            }
+        }
+        let provider = CGDataProvider(data: Data(pixels) as CFData)!
+        return CGImage(width: side, height: side, bitsPerComponent: 8, bitsPerPixel: 32,
+                       bytesPerRow: side * 4, space: CGColorSpaceCreateDeviceRGB(),
+                       bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+                       provider: provider, decode: nil, shouldInterpolate: true,
+                       intent: .defaultIntent)!
+    }()
 }
 
 /// Darkens the leading third and the bottom of the screen so white text and posters always read
@@ -177,6 +211,9 @@ private struct LegibilityShade: View {
                                    .init(color: Self.ink.opacity(0), location: 0.62)],
                            startPoint: .bottom, endPoint: .top)
         }
+        // Static: flattened into one layer, so the compositor blends one full-screen shade per
+        // frame instead of two.
+        .drawingGroup()
     }
 }
 
