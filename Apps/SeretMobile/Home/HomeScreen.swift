@@ -24,8 +24,10 @@ struct HomeScreen: View {
     /// Home's own stack — a page pushed over it (See All) hides the shell's art.
     @State private var navPath = NavigationPath()
     /// The page's last scroll offset, so the shell's art can be put back where the page is when
-    /// Home reappears — the scroll handler only fires on a CHANGE.
-    @State private var scrollOffset: CGFloat = 0
+    /// Home reappears (the scroll handler only fires on a CHANGE). A plain reference box, not
+    /// `@State` of a value: it is written on every scroll frame, and a state write would
+    /// re-evaluate Home's whole body (every rail) per frame.
+    @State private var scrollMemory = ScrollMemory()
     @State private var showingProfiles = false
     @State private var showingSettings = false
     /// A title awaiting removal confirmation, and the failure to surface if RD refuses.
@@ -79,7 +81,7 @@ struct HomeScreen: View {
         .onChange(of: navPath.isEmpty, initial: true) { _, atRoot in shellBackdrop?.hidden = !atRoot }
         .onAppear {
             shellBackdrop?.hidden = !navPath.isEmpty
-            shellBackdrop?.offset = scrollOffset
+            shellBackdrop?.offset = scrollMemory.offset
         }
         // Leaving Home (another section) — the next Home starts at the top, so must the art.
         .onDisappear { shellBackdrop?.offset = 0 }
@@ -192,7 +194,6 @@ struct HomeScreen: View {
         GeometryReader { geo in
             let subject = heroSubject(home)
             let heroHeight = heroHeight(geo.size)
-            ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 28) {
                     if let subject {
@@ -217,18 +218,15 @@ struct HomeScreen: View {
                 if past != pastHero { pastHero = past }
                 // The shell's art scrolls with the page (iPad).
                 if isRegular {
-                    scrollOffset = offset
+                    scrollMemory.offset = offset
                     shellBackdrop?.offset = offset
                 }
             }
 #if DEBUG
             // `-uiPreview homescript` scrolls the page without a finger (the iPad simulator
             // cannot be driven by touch here).
-            .onChange(of: preview?.homeScript?.scrollTo) { _, target in
-                if let target { withAnimation { proxy.scrollTo(target, anchor: .top) } }
-            }
+            .modifier(HomeScriptScroller(target: preview?.homeScript?.scrollTo))
 #endif
-            }
         }
         // Only a hero runs under the status bar and the header.
         .ignoresSafeArea(edges: heroSubject(home) == nil ? [] : .top)
@@ -272,8 +270,12 @@ struct HomeScreen: View {
             }
         }
         recentRail("Recently Added Movies", items: home.recentlyAddedMovies, kind: .movie, width: width)
+#if DEBUG
         recentRail("Recently Added Shows", items: home.recentlyAddedShows, kind: .show, width: width)
             .id(HomeRailID.shows)
+#else
+        recentRail("Recently Added Shows", items: home.recentlyAddedShows, kind: .show, width: width)
+#endif
     }
 
     @ViewBuilder private func recentRail(_ title: String, items: [MediaItem], kind: MediaKind,
@@ -365,10 +367,31 @@ struct HomeScreen: View {
     private func posterURL(_ i: MediaItem) -> URL? { TMDBClient.imageURL(path: i.posterPath, size: "w342") }
 }
 
-/// Scroll targets on Home's page.
+/// Home's last scroll offset — a reference, so writing it per scroll frame invalidates nothing.
+private final class ScrollMemory {
+    var offset: CGFloat = 0
+}
+
+#if DEBUG
+/// Scroll targets on Home's page (`-uiPreview homescript` only).
 enum HomeRailID {
     static let shows = "home-rail-shows"
 }
+
+/// `-uiPreview homescript`: scrolls the page to a rail without a finger. Wraps the scroll view in
+/// the reader only in DEBUG, so Release carries no harness plumbing.
+private struct HomeScriptScroller: ViewModifier {
+    let target: String?
+
+    func body(content: Content) -> some View {
+        ScrollViewReader { proxy in
+            content.onChange(of: target) { _, target in
+                if let target { withAnimation { proxy.scrollTo(target, anchor: .top) } }
+            }
+        }
+    }
+}
+#endif
 
 /// Where Home's "See All" links go.
 enum HomeRoute: Hashable {

@@ -58,6 +58,9 @@ struct HomeHero: View {
     /// The art load has answered (with or without art) — the poster stands in for a missing
     /// backdrop only then, so a backdrop on its way is not preceded by the poster.
     @State private var artSettledFor: String?
+    /// This hero instance's claim on the shell's art — per instance, not per title, so a
+    /// re-created hero for the SAME title can never have its art cleared by the old one.
+    @State private var backdropToken = UUID()
 
     private var item: MediaItem { subject.item }
     private var titleArt: TitleArt? {
@@ -77,12 +80,12 @@ struct HomeHero: View {
         // Asserted on every appearance, not only on a change: a push then a pop disappears and
         // re-appears this hero with the same path, and nothing would put the art back otherwise.
         .onChange(of: regular ? backdropPath : nil, initial: true) { _, path in
-            if regular { shellBackdrop?.show(path, for: item.id) }
+            if regular { shellBackdrop?.show(path, for: backdropToken) }
         }
-        .onAppear { if regular { shellBackdrop?.show(backdropPath, for: item.id) } }
+        .onAppear { if regular { shellBackdrop?.show(backdropPath, for: backdropToken) } }
         // Only if the art is still THIS hero's: a new featured title's hero can appear before the
         // old one disappears, and the old one's clear must not wipe the new art.
-        .onDisappear { if regular { shellBackdrop?.clear(for: item.id) } }
+        .onDisappear { if regular { shellBackdrop?.clear(for: backdropToken) } }
     }
 
     /// The art itself opens the title's page — a button to VoiceOver, named for where it goes.
@@ -353,18 +356,18 @@ struct HomeHeroBackdrop: View {
 @Observable
 final class HomeBackdropModel {
     private(set) var path: String?
-    /// Which hero `path` belongs to (its title id) — see `clear(for:)`.
-    private(set) var owner: String?
+    /// Which hero instance `path` belongs to — see `clear(for:)`.
+    private(set) var owner: UUID?
     var offset: CGFloat = 0
     var hidden = false
 
-    func show(_ path: String?, for owner: String) {
-        self.owner = owner
+    func show(_ path: String?, for owner: UUID) {
+        if self.owner != owner { self.owner = owner }
         if self.path != path { self.path = path }
     }
 
     /// Clears the art only if `owner` still owns it.
-    func clear(for owner: String) {
+    func clear(for owner: UUID) {
         guard self.owner == owner else { return }
         self.owner = nil
         path = nil
