@@ -13,6 +13,8 @@ struct UIPreviewStores {
     var moviesBrowse: DiscoverStore?
     var showsBrowse: DiscoverStore?
     var genreBrowsing: GenreBrowsing?
+    /// `-uiPreview library`: the library page's store, over `PagesFixture`'s titles.
+    var library: LibraryStore?
     /// `-uiPreview homescript`: drives Home's stack and scroll on a timer.
     var homeScript: HomePreviewScript?
     /// `-uiPreview watchlist…`: the fixture list, its details, and whether Letterboxd counts as

@@ -20,6 +20,7 @@ import SwiftUI
 ///   step): 10 push See All · 15 pop · 20 push again · 23 switch to Movies · 26 back to Home (the
 ///   art must be back) · 31 scroll down · 36 Movies · 39 Home (the art must be at the top) — the
 ///   iPad shell's art through every way Home leaves and returns.
+/// - `library` — the Library page (films, two downloads in flight); `libraryempty` — nothing yet.
 /// - `watchlist`, `watchlistremove`, `watchlistremoveboth`, `watchlistremoved`, `spin`,
 ///   `watchlistgrid`, `watchlistsetup`, `watchlistempty` — see `WatchlistPreviewFixture`.
 ///
@@ -90,6 +91,7 @@ struct PagesUIPreview: View {
         case "movies": .movies
         case "shows": .shows
         case _ where target.hasPrefix("watchlist") || target == "spin": .watchlist
+        case "library", "libraryempty": .library
         default: .home
         }
         let home = HomeStore(watch: PagesFixture.Watch())
@@ -112,6 +114,11 @@ struct PagesUIPreview: View {
             genreBrowsing: PagesFixture.Genres(),
             homeScript: target == "homescript" ? HomePreviewScript() : nil)
         if target.hasPrefix("watchlist") || target == "spin" { buildWatchlist() }
+        if target.hasPrefix("library") {
+            let library = LibraryStore(library: PagesFixture.Library(empty: target == "libraryempty"))
+            stores?.library = library
+            stores?.downloads = target == "library" ? [PagesFixture.download, PagesFixture.noArtDownload] : []
+        }
     }
 
     private func buildWatchlist() {
@@ -305,6 +312,15 @@ enum PagesFixture {
         func topRatedByGenre(_ kind: MediaKind, _ genreID: Int) async throws -> [TMDBSearchResult] {
             await after(300, slice(genreID % 19))
         }
+    }
+
+    /// The library page's titles: the Home fixture's films and shows. Removing does nothing.
+    struct Library: LibraryProviding {
+        var empty = false
+        func loadCached() -> [MediaItem]? { nil }
+        func refresh() async throws -> [MediaItem] { empty ? [] : PagesFixture.movies + PagesFixture.shows }
+        func remove(_ item: MediaItem) async throws {}
+        func removeVersion(_ item: MediaItem, source: MediaSource) async throws {}
     }
 
     /// A genre grid: twenty pool titles per page, offset by genre, sort and page.

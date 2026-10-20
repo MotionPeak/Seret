@@ -25,7 +25,7 @@ struct WatchlistGridScreen: View {
             CanvasBackground()
             if entries.isEmpty {
                 // Its last film was removed (here, or by a sync while it was open).
-                WatchlistMessageCard(systemImage: "bookmark", title: "Nothing here any more",
+                GlassMessageCard(systemImage: "bookmark", title: "Nothing here any more",
                                      text: "Every film in this row has left your watchlist.") {
                     EmptyView()
                 }

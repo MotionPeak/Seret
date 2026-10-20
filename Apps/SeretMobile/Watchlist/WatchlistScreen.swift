@@ -354,14 +354,14 @@ struct WatchlistScreen: View {
             .frame(maxWidth: .infinity)
             .padding(.top, 100)
         case .failed(let message):
-            WatchlistMessageCard(systemImage: "exclamationmark.triangle",
+            GlassMessageCard(systemImage: "exclamationmark.triangle",
                                  title: "Couldn't read your watchlist", text: message) {
                 PrimaryPill(title: "Try Again", systemImage: "arrow.clockwise") {
                     Task { await model.syncNow() }
                 }
             }
         case .idle:
-            WatchlistMessageCard(systemImage: "bookmark", title: "Nothing on your watchlist yet",
+            GlassMessageCard(systemImage: "bookmark", title: "Nothing on your watchlist yet",
                                  text: "Films you add on Letterboxd, or with the bookmark on a title, show up here.") {
                 GlassPill(title: "Sync Now", systemImage: "arrow.triangle.2.circlepath") {
                     Task { await model.syncNow() }
@@ -373,44 +373,11 @@ struct WatchlistScreen: View {
     /// Letterboxd isn't set up: say so, and go straight to where it is.
     private var notConnected: some View {
         ScrollView {
-            WatchlistMessageCard(systemImage: "person.crop.circle.badge.questionmark",
+            GlassMessageCard(systemImage: "person.crop.circle.badge.questionmark",
                                  title: "Connect Letterboxd",
                                  text: "Your watchlist comes from your Letterboxd profile. Add your username in Settings to see it here.") {
                 PrimaryPill(title: "Open Settings", systemImage: "gearshape") { showingSettings = true }
             }
         }
-    }
-}
-
-/// A centred glass card for a page with nothing to list: an icon, a title, a sentence, an action.
-struct WatchlistMessageCard<Action: View>: View {
-    let systemImage: String
-    let title: String
-    let text: String
-    @ViewBuilder var action: Action
-    @Environment(\.horizontalSizeClass) private var hSize
-
-    var body: some View {
-        VStack(spacing: Theme.Space.md) {
-            Image(systemName: systemImage)
-                .font(.system(size: 40, weight: .regular))
-                .foregroundStyle(Theme.Palette.textSecondary)
-            Text(title)
-                .font(Theme.Typo.title())
-                .foregroundStyle(Theme.Palette.textPrimary)
-                .multilineTextAlignment(.center)
-            Text(text)
-                .font(Theme.Typo.body())
-                .foregroundStyle(Theme.Palette.textSecondary)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-            action.padding(.top, Theme.Space.sm)
-        }
-        .padding(Theme.Space.xxl)
-        .frame(maxWidth: 440)
-        .seretGlass(in: RoundedRectangle(cornerRadius: 24, style: .continuous), interactive: false)
-        .padding(.horizontal, PosterTileMetrics.margin(hSize))
-        .padding(.top, 60)
-        .frame(maxWidth: .infinity)
     }
 }
