@@ -392,18 +392,58 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
     /// release, so `dealloc` runs on the mainloop thread and re-enters a lock that thread already
     /// holds; libvlc asserts and aborts the process.
     ///
-    /// Holding a strong reference past VLC's in-flight events and dropping it on the main queue
-    /// guarantees our release is the last one, so `dealloc` always runs on the main thread with no
-    /// lock held. `withExtendedLifetime` (not `_ = held`) because the whole point is a side effect
-    /// the optimiser is otherwise free to delete.
+    /// Holding a strong reference past VLC's in-flight events guarantees our release is the last
+    /// one, so `dealloc` never runs on VLC's own mainloop thread.
+    ///
+    /// That release used to be dropped on the MAIN queue, and it blocks: `dealloc` →
+    /// `libvlc_media_player_release` → `vlc_player_Delete` joins libvlc's threads (`vlc_join`). The
+    /// Apple TV's 2026-09-12 watchdog kill (`0x8BADF00D`, "failed to terminate gracefully") was the
+    /// main thread parked exactly there, and every close paid the join as a frozen frame three
+    /// seconds after the player had gone. See `releaseOffMain`.
     func stop() {
         note("stop at \(player.time.intValue / 1000)s")
         player.delegate = nil          // no further events into a torn-down stream
         player.stop()
         continuation.finish()
-        let held = player
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.releaseGrace) {
-            withExtendedLifetime(held) {}
+        Self.releaseOffMain(player, drawable: videoView)
+    }
+
+    /// The serial queue every stopped player is released on. Serial so two quick closes cannot run
+    /// two libvlc teardowns at once; never main, so a slow `vlc_join` costs nothing on screen.
+    private nonisolated static let releaseQueue = DispatchQueue(label: "seret.vlc.release", qos: .utility)
+
+    /// Release `player` on `releaseQueue`, never on main and never on VLC's own threads.
+    ///
+    /// - No earlier than `releaseGrace` after `stop()` (VLC's in-flight notifications retain the
+    ///   player — the abort the grace exists for), and not before libvlc reports `.stopped`, for at
+    ///   most `releaseStopWait` more.
+    /// - The drawable goes back to main: the player holds it strongly, and by now the engine that
+    ///   also held it is usually gone, so the player's release could otherwise be the one that
+    ///   deallocates a `UIView` on a background thread.
+    private static func releaseOffMain(_ player: VLCMediaPlayer, drawable: PlatformVideoView) {
+        let held = ReleaseBox(player: player, drawable: drawable)
+        releaseQueue.asyncAfter(deadline: .now() + releaseGrace) {
+            let deadline = Date().addingTimeInterval(releaseStopWait)
+            while held.player?.state != .stopped, Date() < deadline {
+                Thread.sleep(forTimeInterval: 0.1)
+            }
+            let start = Date()
+            held.player = nil                       // dealloc → vlc_player_Delete → vlc_join, HERE
+            let ms = Int(Date().timeIntervalSince(start) * 1000)
+            DiagnosticsLog.shared.write("[seret] released player off main in \(ms)ms")
+            DispatchQueue.main.async { held.drawable = nil }
+        }
+    }
+
+    /// Carries a stopped player (and its drawable) to the release queue. `@unchecked` because
+    /// VLCKit's objects are not `Sendable`; each field is touched by one queue at a time — set on
+    /// main, emptied on `releaseQueue` (player) and back on main (drawable).
+    private final class ReleaseBox: @unchecked Sendable {
+        var player: VLCMediaPlayer?
+        var drawable: PlatformVideoView?
+        init(player: VLCMediaPlayer, drawable: PlatformVideoView) {
+            self.player = player
+            self.drawable = drawable
         }
     }
 
@@ -422,7 +462,10 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
 
     /// How long to outlive VLC's in-flight notifications before releasing the player. Generous:
     /// the cost of being wrong is an abort, and the cost of waiting is one stopped player object.
-    private static let releaseGrace: TimeInterval = 3
+    private nonisolated static let releaseGrace: TimeInterval = 3
+    /// How much longer to wait for libvlc to report `.stopped` once the grace is over. A player
+    /// that never gets there is released anyway — off main, so a wedged join stalls no frame.
+    private nonisolated static let releaseStopWait: TimeInterval = 5
 
     func addExternalSubtitle(url: URL) {
         // Snapshot the muxed ids the first time, so every id that appears afterwards is a slave.
