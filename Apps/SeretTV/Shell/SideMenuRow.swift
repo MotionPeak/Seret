@@ -37,7 +37,15 @@ struct SideMenuRow: View {
     }
 }
 
-/// A row's label. Always laid out; fades in a beat after the panel starts to grow, and out at once.
+/// A row's label. Always laid out; fades in late in the panel's growth, and out at once.
+///
+/// ⚠️ `.contentTransition(.identity)` is load-bearing. A collapse also changes the label's tint
+/// (`SideMenuRowStyle`: bright when open, dimmed when collapsed), and Text's default content
+/// transition re-renders a restyled Text on its own path — detached from the layout animation that
+/// moves its row. So on every collapse the labels raced to their collapsed rows at about twice the
+/// icons' pace: a column of labels sliding down the panel, out of line with its icons
+/// (`.superpowers/plex-redesign-screens/13-menu-collapse-glitch.png`). `.interpolate` drifts too.
+/// The cost: the tint snaps rather than cross-fades, which only shows on the focused row.
 struct SideMenuLabel: View {
     let text: String
     let expanded: Bool
@@ -47,11 +55,52 @@ struct SideMenuLabel: View {
             .navLabel()
             .fixedSize()
             .lineLimit(1)
+            .contentTransition(.identity)
             .padding(.leading, 4)
-            .opacity(expanded ? 1 : 0)
-            .offset(x: expanded ? 0 : -14)
-            .animation(expanded ? Theme.Anim.panelOpen.delay(0.1) : .easeOut(duration: 0.12),
-                       value: expanded)
+            .modifier(SideMenuWordFade(expanded: expanded, nudge: 14))
+    }
+}
+
+/// How the menu's words — row labels and section headers — fade: on the panel morph's own clock.
+///
+/// The fade is a function of the morph's progress, interpolated frame by frame in the morph's
+/// transaction like every position in the menu, rather than a second animation with its own curve.
+/// One clock means a word can never be out of step with the row that carries it; the windows below
+/// still give "out at once, in late".
+struct SideMenuWordFade: ViewModifier, Animatable {
+    /// 0 collapsed … 1 open. Animated by the morph.
+    var progress: Double
+    /// The direction of travel, which picks the fade's window.
+    let opening: Bool
+    /// How far a hidden word sits to the left of its place.
+    let nudge: CGFloat
+
+    init(expanded: Bool, nudge: CGFloat = 0) {
+        progress = expanded ? 1 : 0
+        opening = expanded
+        self.nudge = nudge
+    }
+
+    // `nonisolated`: SwiftUI drives `animatableData` off the main actor while interpolating — see
+    // `CoverFlowReel`. A Double on a value type; nothing to race on.
+    nonisolated var animatableData: Double {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    func body(content: Content) -> some View {
+        let shown = opacity
+        content
+            .opacity(shown)
+            .offset(x: (shown - 1) * nudge)
+    }
+
+    /// Closing, the words are gone in the first quarter of the morph (~0.13s of `panelClose`'s
+    /// slow start), so a closing panel never carries readable text. Opening, they wait until the
+    /// panel is half grown and arrive with it.
+    private var opacity: Double {
+        let t = opening ? (progress - 0.5) / 0.5 : (progress - 0.75) / 0.25
+        return min(max(t, 0), 1)
     }
 }
 
@@ -77,6 +126,11 @@ struct SideMenuRowStyle: ButtonStyle {
 
         var body: some View {
             configuration.label
+                // The morph, re-asserted on the row's own content. Select collapses the menu from
+                // inside this button's press, and without this the pressed row's icon and label
+                // moved on the press's transaction instead — ahead of every other row, off the
+                // pill that was still sliding with the panel.
+                .animation(expanded ? Theme.Anim.panelOpen : Theme.Anim.panelClose, value: expanded)
                 .foregroundStyle(tint)
                 .background(alignment: .leading) {
                     // The pill's geometry rule, past the row's capsule-wide frame: full row when

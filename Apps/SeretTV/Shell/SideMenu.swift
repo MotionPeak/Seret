@@ -215,9 +215,10 @@ private struct SideMenuSectionHeader: View {
         .padding(.leading, 30)
         .padding(.trailing, 34)
         .padding(.top, 8)
+        // Fades with the labels, on the morph's own clock — see `SideMenuWordFade`.
+        .modifier(SideMenuWordFade(expanded: expanded))
         .frame(width: expanded ? SideMenu.panelWidth : SideMenu.capsuleWidth,
                height: expanded ? 44 : 0, alignment: .leading)
-        .opacity(expanded ? 1 : 0)
         .clipped()
         // A heading for VoiceOver when it is on screen; nothing while it is collapsed away.
         .accessibilityHidden(!expanded)
