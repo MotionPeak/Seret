@@ -23,6 +23,20 @@ import Testing
         #expect(found?[0].frameRate == 23.976)
     }
 
+    /// What puts the Apple TV in the right display mode: the header's transfer function.
+    @Test func readsTheVideosTransferFunction() {
+        let pq = EBML.file(tracks: [T(type: 1, codec: "V_MPEGH/ISO/HEVC", frameDuration: 41_708_333, transfer: 16)])
+        #expect(tracks(MatroskaTrackReader.read(pq))?.first?.transfer == .pq)
+        let hlg = EBML.file(tracks: [T(type: 1, codec: "V_MPEGH/ISO/HEVC", transfer: 18)])
+        #expect(tracks(MatroskaTrackReader.read(hlg))?.first?.transfer == .hlg)
+        let sdr = EBML.file(tracks: [T(type: 1, codec: "V_MPEG4/ISO/AVC", transfer: 1)])
+        #expect(tracks(MatroskaTrackReader.read(sdr))?.first?.transfer == .sdr)
+        let unspecified = EBML.file(tracks: [T(type: 1, codec: "V_MPEGH/ISO/HEVC", transfer: 2)])
+        #expect(tracks(MatroskaTrackReader.read(unspecified))?.first?.transfer == nil)
+        let silent = EBML.file(tracks: [T(type: 1, codec: "V_MPEGH/ISO/HEVC")])
+        #expect(tracks(MatroskaTrackReader.read(silent))?.first?.transfer == nil)
+    }
+
     @Test func aPGSTrackIsAPictureSubtitle() {
         let file = EBML.file(tracks: [T(type: 17, language: "heb", codec: "S_HDMV/PGS")])
         #expect(tracks(MatroskaTrackReader.read(file))?.first?.isImageSubtitle == true)

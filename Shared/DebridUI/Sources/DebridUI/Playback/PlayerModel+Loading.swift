@@ -372,6 +372,9 @@ extension PlayerModel {
             guard !Task.isCancelled, !isTornDown else { return }   // superseded, or the player closed
             let playURL = await openStream(for: url)
             guard !Task.isCancelled, !isTornDown else { return }
+            // tvOS: the display's mode for this film, switched before the first frame.
+            await engine.prepareToPlay(url: playURL)
+            guard !Task.isCancelled, !isTornDown else { return }
             engine.load(url: playURL, headers: [:], audioLanguage: preferredAudioLanguageOption,
                         audioTrackID: rememberedAudioTrackID)
             engineHoldsCurrentMedia = true   // from here, time events describe THIS source

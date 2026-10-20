@@ -284,3 +284,35 @@ import DebridCore
         #expect(saved.last == 601)
     }
 }
+
+/// The engine prepares for the file (on tvOS: the display mode) before it is loaded (D1).
+@MainActor
+@Suite struct PlayerPrepareTests {
+    @Test func theEngineIsPreparedBeforeTheFileIsLoaded() async {
+        let engine = FakeVideoPlayerEngine()
+        let m = PlayerModel(request: Fixture.request(), engine: engine,
+                            unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
+                            recordProgress: { _, _, _, _, _ in }, subtitles: nil)
+        m.start(); await m.waitForIdleForTesting()
+        #expect(engine.transport == ["prepare", "play"])
+        #expect(engine.loadCount == 1)
+        await m.teardown()
+    }
+
+    /// Leaving while the TV is still switching mode loads nothing into a player being torn down.
+    @Test func leavingDuringThePrepareLoadsNothing() async {
+        let engine = FakeVideoPlayerEngine()
+        let (gate, release) = AsyncStream.makeStream(of: Void.self)
+        engine.prepareGate = gate
+        let m = PlayerModel(request: Fixture.request(), engine: engine,
+                            unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
+                            recordProgress: { _, _, _, _, _ in }, subtitles: nil)
+        m.start(); await m.waitForIdleWhileLoadIsHeldForTesting()
+        for _ in 0..<200 where engine.transport.isEmpty { try? await Task.sleep(for: .milliseconds(5)) }
+        #expect(engine.transport == ["prepare"])
+        await m.teardown()
+        release.finish()
+        try? await Task.sleep(for: .milliseconds(50))
+        #expect(engine.loadCount == 0)
+    }
+}

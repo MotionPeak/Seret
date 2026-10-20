@@ -117,6 +117,11 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
     /// percentages are already in libvlc's own lines beside it.
     private let lastLoggedState = OSAllocatedUnfairLock(initialState: Int(-1))
 
+    #if os(tvOS)
+    /// The TV's display mode for each film (frame rate + dynamic range) — see `DisplayModeMatcher`.
+    private let displayMatcher = DisplayModeMatcher(note: { DiagnosticsLog.shared.write("[seret] \($0)") })
+    #endif
+
     /// `preferences` set the global subtitle look. Font + color are libvlc/freetype options that
     /// must be passed at player creation (`VLCMediaPlayer(options:)`); size is the dynamic
     /// `currentSubTitleFontScale`, applied per load. The engine is built fresh per playback, so a
@@ -351,6 +356,21 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
         #endif
     }
 
+    /// tvOS: ask the display for this film's mode before it loads, so the TV switches once, before
+    /// the first frame (see `DisplayModeMatcher`). Nothing elsewhere.
+    func prepareToPlay(url: URL) async {
+        #if os(tvOS)
+        await displayMatcher.prepare(url: url, window: videoView.window)
+        #endif
+    }
+
+    #if os(tvOS)
+    /// libvlc found the video track: a display request still waiting for its frame rate goes out.
+    fileprivate func videoTrackAppeared() {
+        displayMatcher.videoTrackAppeared(fps: videoFPS)
+    }
+    #endif
+
     func play()  { playbackRequested.withLock { $0 = true };  note("play");  player.play() }
     func pause() { playbackRequested.withLock { $0 = false }; note("pause"); player.pause() }
 
@@ -405,6 +425,9 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
         player.delegate = nil          // no further events into a torn-down stream
         player.stop()
         continuation.finish()
+        #if os(tvOS)
+        displayMatcher.reset()         // the interface's own mode again
+        #endif
         Self.releaseOffMain(player, drawable: videoView)
     }
 
@@ -597,6 +620,9 @@ extension VLCKitVideoPlayerEngine: VLCMediaPlayerDelegate {
     // changes (including when an external subtitle is attached). PlayerModel re-pulls the lists.
     nonisolated func mediaPlayerTrackAdded(_ trackId: String, with trackType: VLCMedia.TrackType) {
         continuation.yield(.tracksChanged)
+        #if os(tvOS)
+        if trackType == .video { Task { @MainActor [weak self] in self?.videoTrackAppeared() } }
+        #endif
     }
     nonisolated func mediaPlayerTrackRemoved(_ trackId: String, with trackType: VLCMedia.TrackType) {
         continuation.yield(.tracksChanged)

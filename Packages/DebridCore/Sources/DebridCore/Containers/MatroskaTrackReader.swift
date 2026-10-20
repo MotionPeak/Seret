@@ -90,6 +90,9 @@ public enum MatroskaTrackReader {
         static let name: UInt32 = 0x536E
         static let flagForced: UInt32 = 0x55AA
         static let defaultDuration: UInt32 = 0x23E383
+        static let video: UInt32 = 0xE0
+        static let colour: UInt32 = 0x55B0
+        static let transferCharacteristics: UInt32 = 0x55BA
         static let cluster: UInt32 = 0x1F43B675
     }
 
@@ -169,6 +172,21 @@ public enum MatroskaTrackReader {
         return result
     }
 
+    /// `Video/Colour/TransferCharacteristics`: whether the picture is SDR, PQ or HLG — what the
+    /// Apple TV needs to put the display in the right mode.
+    static func videoTransfer(_ bytes: [UInt8], from: Int, to: Int) -> VideoTransfer? {
+        var found: VideoTransfer?
+        children(bytes, from: from, to: to) { field, fieldEnd in
+            guard field.id == ID.colour else { return }
+            children(bytes, from: field.dataOffset, to: fieldEnd) { colour, colourEnd in
+                guard colour.id == ID.transferCharacteristics,
+                      let code = uint(bytes, from: colour.dataOffset, to: colourEnd) else { return }
+                found = VideoTransfer(code: code)
+            }
+        }
+        return found
+    }
+
     static func entries(in bytes: [UInt8], from: Int, to: Int) -> [ContainerTrack] {
         numberedEntries(in: bytes, from: from, to: to).map(\.track)
     }
@@ -188,6 +206,7 @@ public enum MatroskaTrackReader {
             var name: String?
             var forced = false
             var frameDuration: UInt64?
+            var transfer: VideoTransfer?
             children(bytes, from: entry.dataOffset, to: entryEnd) { field, fieldEnd in
                 let start = field.dataOffset
                 switch field.id {
@@ -199,6 +218,7 @@ public enum MatroskaTrackReader {
                 case ID.name: name = text(bytes, from: start, to: fieldEnd)
                 case ID.flagForced: forced = (uint(bytes, from: start, to: fieldEnd) ?? 0) != 0
                 case ID.defaultDuration: frameDuration = uint(bytes, from: start, to: fieldEnd)
+                case ID.video: transfer = videoTransfer(bytes, from: start, to: fieldEnd)
                 default: break
                 }
             }
@@ -219,7 +239,8 @@ public enum MatroskaTrackReader {
                 fps = ((1e9 / Double(frameDuration)) * 1000).rounded() / 1000
             }
             tracks.append((number, ContainerTrack(kind: kind, language: code, codec: codec, name: name,
-                                                  isForced: forced, frameRate: fps)))
+                                                  isForced: forced, frameRate: fps,
+                                                  transfer: kind == .video ? transfer : nil)))
         }
         return tracks
     }

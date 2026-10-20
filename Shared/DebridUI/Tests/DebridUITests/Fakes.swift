@@ -60,6 +60,12 @@ final class FakeVideoPlayerEngine: VideoPlayerEngine, EventCountingEngineForTest
     /// Play, pause and seek in the order the model issued them — the paused-seek tests care that
     /// a resume plays BEFORE it re-seeks.
     private(set) var transport: [String] = []
+    /// When set, `prepareToPlay` waits until it is finished — a TV taking its time to switch mode.
+    var prepareGate: AsyncStream<Void>?
+    func prepareToPlay(url: URL) async {
+        transport.append("prepare")
+        if let prepareGate { for await _ in prepareGate {} }
+    }
     func play() { playCalled = true; transport.append("play") }
     func pause() { pauseCount += 1; transport.append("pause") }
     func stop() { stopCalled = true; continuation.finish() }

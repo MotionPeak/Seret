@@ -23,6 +23,13 @@ public protocol VideoPlayerEngine: AnyObject {
     ///   hardware handles worst, and the correction afterwards costs a decoder teardown. Naming the
     ///   track removes that. nil for a file never played, which behaves exactly as before.
     func load(url: URL, headers: [String: String], audioLanguage: String?, audioTrackID: String?)
+    /// Get ready for `url` before it is loaded — awaited by the player, after the link is
+    /// resolved and before `load`.
+    ///
+    /// The tvOS engine asks the display for the film's frame rate and dynamic range here
+    /// (`DisplayModePlan`), so the TV switches mode once, before the first frame, rather than
+    /// halfway through the opening. Bounded by the engine; the default does nothing.
+    func prepareToPlay(url: URL) async
     func play()
     func pause()
     /// Halt playback and release the underlying player. After `stop()`, the engine is done —
@@ -103,4 +110,7 @@ public extension VideoPlayerEngine {
     /// Default: an engine that keeps no log drops the line (every test fake, and any future
     /// AVPlayer fast-path that has nowhere to write).
     func note(_ line: String) {}
+
+    /// Default: nothing to prepare (every platform but tvOS, and every test fake).
+    func prepareToPlay(url: URL) async {}
 }

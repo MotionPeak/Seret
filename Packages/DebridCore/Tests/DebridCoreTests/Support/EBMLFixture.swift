@@ -49,6 +49,8 @@ enum EBML {
         var forced = false
         var frameDuration: UInt64? = nil
         var number: UInt64? = nil
+        /// `Video/Colour/TransferCharacteristics`, written only when set.
+        var transfer: UInt64? = nil
     }
 
     static func trackEntry(_ t: Track) -> [UInt8] {
@@ -59,6 +61,9 @@ enum EBML {
         if let name = t.name { payload += string(ID.name, name) }
         if t.forced { payload += uint(ID.flagForced, 1) }
         if let d = t.frameDuration { payload += uint(ID.defaultDuration, d) }
+        if let tc = t.transfer {
+            payload += element(0xE0, uint(0xB0, 3840) + element(0x55B0, uint(0x55BA, tc)))
+        }
         return element(ID.trackEntry, payload)
     }
 

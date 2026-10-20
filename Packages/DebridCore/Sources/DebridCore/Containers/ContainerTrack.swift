@@ -14,15 +14,19 @@ public struct ContainerTrack: Sendable, Equatable, Codable {
     public let isForced: Bool
     /// Video only: frames per second, from Matroska's DefaultDuration.
     public let frameRate: Double?
+    /// Video only: the transfer function the file's own header declares (Matroska's
+    /// `Colour/TransferCharacteristics`), nil when it says nothing usable.
+    public let transfer: VideoTransfer?
 
     public init(kind: Kind, language: String?, codec: String? = nil, name: String? = nil,
-                isForced: Bool = false, frameRate: Double? = nil) {
+                isForced: Bool = false, frameRate: Double? = nil, transfer: VideoTransfer? = nil) {
         self.kind = kind
         self.language = language
         self.codec = codec
         self.name = name
         self.isForced = isForced
         self.frameRate = frameRate
+        self.transfer = transfer
     }
 
     /// A subtitle drawn as pictures (Blu-ray PGS, DVD VobSub, DVB) rather than text. Still in sync
@@ -37,6 +41,27 @@ public struct ContainerTrack: Sendable, Equatable, Codable {
         "s_hdmv/pgs", "s_vobsub", "s_dvbsub", "s_image/bmp",
         "bdpg", "pgs", "hdmv", "spu", "spub", "dvbs", "dvds", "xsub", "cvd", "ogt",
     ]
+}
+
+/// How a video's brightness is encoded — what decides whether a TV shows it in SDR or HDR.
+public enum VideoTransfer: String, Sendable, Codable {
+    /// BT.709 / BT.601 / BT.2020 gamma: standard dynamic range.
+    case sdr
+    /// SMPTE ST 2084 (PQ): HDR10, HDR10+ and Dolby Vision's HDR10-compatible base layer.
+    case pq
+    /// ARIB STD-B67: hybrid log-gamma.
+    case hlg
+
+    /// From an ISO/IEC 23091-2 `transfer_characteristics` code, as Matroska stores it. nil for
+    /// "unspecified" and anything unrecognised.
+    public init?(code: UInt64) {
+        switch code {
+        case 16: self = .pq
+        case 18: self = .hlg
+        case 1, 4, 5, 6, 7, 8, 13, 14, 15: self = .sdr
+        default: return nil
+        }
+    }
 }
 
 public extension ContainerTrack {
