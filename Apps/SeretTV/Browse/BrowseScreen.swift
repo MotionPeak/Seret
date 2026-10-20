@@ -96,6 +96,9 @@ struct BrowseScreen: View {
         // a genre is up — and the shell stands its own handler down meanwhile (it won otherwise);
         // the rest of the time the shell's Menu (open the side menu) applies.
         .onExitCommand(perform: genre == nil ? nil : { self.genre = nil })
+        // A new genre starts on the canvas: the old genre's wash must not sit behind the new
+        // genre's skeletons. Its grid seeds the backdrop from its first title when they land.
+        .onChange(of: genre?.tmdbID) { _, _ in genrePreview.clear() }
         .claimsMenuPress(genre != nil && isVisiblePage)
         // Load the selected segment whenever it changes (and on first show). Keyed on kind TOO,
         // so Find's Movies→Shows flip re-fires the load even when both stores sit on the same
@@ -163,6 +166,10 @@ struct BrowseScreen: View {
                 // the rails' real metrics, so the page does not change height when they land.
                 BrowseSkeleton().id(PageRow.skeleton)
             }
+        }
+        // A retry lets go of its failed row only when the segment has answered (see `failed`).
+        .onChange(of: browse.segmentState(segment)) { _, state in
+            if retrying == segment, state.hasAnswered { retrying = nil }
         }
         // Until a tile of THIS segment has had focus, the header shows the segment's first title —
         // and follows it while the rails arrive, and when a segment switch brings in new ones.
@@ -237,7 +244,11 @@ struct BrowseScreen: View {
                 retrying = segment
                 Task {
                     await browse.loadSegment(segment)
-                    if retrying == segment { retrying = nil }
+                    // Only once the load has ANSWERED. `loadSegment` can return while the segment
+                    // still reads loading (it joined, or found, a load already under way); letting
+                    // go then flipped the row to the skeleton under the focused button. The
+                    // segment-state change below lets go when the answer does land.
+                    if retrying == segment, browse.segmentState(segment).hasAnswered { retrying = nil }
                 }
             }
             .buttonStyle(SeretPillStyle(selected: false))
@@ -303,4 +314,9 @@ private struct BrowseSkeleton: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityHidden(true)
     }
+}
+
+private extension DiscoverStore.State {
+    /// The segment's load has finished, either way.
+    var hasAnswered: Bool { self == .loaded || self == .failed }
 }

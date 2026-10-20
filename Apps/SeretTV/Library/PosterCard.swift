@@ -13,9 +13,11 @@ struct PosterCard: View {
     var onRemove: (MediaItem) -> Void = { _ in }
     /// Focus landed on this card — the grid's backdrop follows it.
     var onFocus: () -> Void = {}
+    /// Focus arrived (true) or left (false).
+    var onFocusChange: ((Bool) -> Void)?
 
     var body: some View {
-        CaptionedPoster(caption: item.title) {
+        CaptionedPoster(caption: item.title, onFocusChange: onFocusChange) {
             PosterTile(posterPath: item.posterPath, title: item.title, watched: watched,
                        onFocus: onFocus, value: item)
                 .libraryTitleMenu(for: item, session: session, onRemove: onRemove)

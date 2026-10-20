@@ -72,7 +72,12 @@ struct MyLibraryScreen: View {
                     session: session,
                     onRemove: { pendingRemoval = $0 },
                     onFocus: { preview.focus(PreviewSubject(item: $0)) },
-                    downloads: downloads)
+                    downloads: downloads,
+                    onFocusDownload: { tile in
+                        if case .detail(let item) = downloadDestination(for: tile, library: store) {
+                            preview.focus(PreviewSubject(item: item))
+                        }
+                    })
                     .task(id: session.activeProfileID) { await store.reloadWatchStates() }
                     .libraryRemovalConfirmation(pending: $pendingRemoval,
                                                 errorMessage: $removeErrorMessage,
@@ -101,6 +106,10 @@ struct MyLibraryScreen: View {
 struct DownloadingStrip: View {
     let tiles: [DownloadTile]
     let library: LibraryStore?
+    /// A card took focus — My Library's backdrop follows it.
+    var onFocus: (DownloadTile) -> Void = { _ in }
+    /// Focus arrived at (true) or left (false) the card with this id.
+    var onFocusChange: (String, Bool) -> Void = { _, _ in }
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Downloading").font(.seret(.title3, .bold))
@@ -109,7 +118,10 @@ struct DownloadingStrip: View {
                 HStack(spacing: 30) {
                     ForEach(tiles) { tile in
                         DownloadingRailCard(tile: tile,
-                                            destination: downloadDestination(for: tile, library: library))
+                                            destination: downloadDestination(for: tile, library: library),
+                                            onFocus: { onFocus(tile) })
+                        // Prefixed: a card and the library title it becomes can share an id.
+                        .reportsFocusChange { onFocusChange("strip/\(tile.id)", $0) }
                     }
                 }
                 .padding(.horizontal, PosterGridLayout.rootInset)

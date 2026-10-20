@@ -54,7 +54,9 @@ import DebridCore
 ///     `BrowseScreenPreview`). A genre pill opens that genre's grid on fixture titles.
 ///     `browsefailed`: every rail fails — the failed row, whose Retry must keep focus
 ///   - `library` — My Library on a fixture library (real art) with two downloads in flight, focus
-///     on the first poster, the backdrop following it (see `MyLibraryScreenPreview`)
+///     on the Movies pill, the backdrop following focus into the grid (see `MyLibraryScreenPreview`).
+///     `librarydownloadends` / `librarydownloadstarts`: the strip goes / appears 14 s in — walk
+///     down to a lower row first; the focused cell must stay where it is
 ///   - `search` — Search with "dune" already typed, fixture results, real art (see
 ///     `SearchScreenPreview`)
 ///
@@ -112,6 +114,8 @@ struct PlayerUIPreview: View {
         case "browseinsert":        BrowseScreenPreview(insertAbove: true)
         case "browsefailed":        BrowseScreenPreview(failing: true)
         case "library":             MyLibraryScreenPreview()
+        case "librarydownloadends":   MyLibraryScreenPreview(downloadChange: .ends)
+        case "librarydownloadstarts": MyLibraryScreenPreview(downloadChange: .starts)
         case "search":              SearchScreenPreview()
         default:           ScrubBarPreview()
         }

@@ -115,7 +115,9 @@ struct WatchlistScreen: View {
     /// to go at the row edges instead of being clipped against them.
     private func grid(_ model: WatchlistModel) -> some View {
         let preview = preview
-        let first = model.entries.first.flatMap { MediaItem.watchlistTitle($0, library: session.libraryStore) }
+        // The films with a page: the backdrop's possible subjects. An unmatched film has no art.
+        let matched = model.entries.compactMap { MediaItem.watchlistTitle($0, library: session.libraryStore) }
+        let matchedIDs = Set(matched.map(\.id))
         return ScrollView {
             LazyVGrid(columns: PosterGridLayout.columns, spacing: PosterGridLayout.rowSpacing) {
                 ForEach(model.entries) { entry in
@@ -130,9 +132,11 @@ struct WatchlistScreen: View {
         .gridTopFade()
         .frame(maxWidth: .infinity, alignment: .leading)
         .focusSection()
-        // The newest film until focus picks one. Ids are the films' page ids (owned or not).
-        .seedsGridBackdrop(preview, key: first?.id ?? "", first: first.map(PreviewSubject.init(item:)),
-                           contains: { _ in true })
+        // The newest matched film until focus picks one — and again when the film on the backdrop
+        // leaves the list (removed here, or gone after a sync). Ids are the films' page ids.
+        .seedsGridBackdrop(preview, key: matched.map(\.id).joined(separator: "|"),
+                           first: matched.first.map(PreviewSubject.init(item:)),
+                           contains: { matchedIDs.contains($0) })
     }
 
     /// The sync affordance, pinned above the scroll like `GenreGridScreen`'s sort row — a control

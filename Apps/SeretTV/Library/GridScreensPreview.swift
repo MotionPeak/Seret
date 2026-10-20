@@ -5,10 +5,20 @@ import SwiftUI
 
 /// `-uiPreview library`: the real `MyLibraryScreen` on a fixture library — real TMDB posters and
 /// backdrops, through the store's own load — with two downloads in flight above the grid, inside
-/// the shell's leading inset. Focus starts on the first poster (the screen's own focus rules), and
-/// the backdrop follows it.
+/// the shell's leading inset. Focus starts on the Movies pill (the screen's own focus rules), and
+/// the backdrop follows focus into the grid.
+///
+/// `downloadChange` makes the strip above the grid come or go `changeAfter` in, while the viewer sits
+/// on a lower row — the case where the focused cell must not move:
+///   - `.ends` (`-uiPreview librarydownloadends`): the last download finishes, the strip goes;
+///   - `.starts` (`-uiPreview librarydownloadstarts`): a first download starts, the strip appears.
 struct MyLibraryScreenPreview: View {
+    enum DownloadChange { case ends, starts }
+    var downloadChange: DownloadChange?
+    static let changeAfter: Duration = .seconds(14)
+
     @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()))
+    @State private var downloads: [DownloadTile] = []
     @State private var library: LibraryStore?
     @State private var art = TitleArtStore(details: TMDBDetailsService(
         client: TMDBClient(apiKey: Secrets.tmdbAPIKey)))
@@ -17,8 +27,7 @@ struct MyLibraryScreenPreview: View {
         NavigationStack {
             Group {
                 if let library {
-                    MyLibraryScreen(previewLibrary: library, previewArt: art,
-                                    previewDownloads: [DownloadPreviewFixture.dune, DownloadPreviewFixture.noArt])
+                    MyLibraryScreen(previewLibrary: library, previewArt: art, previewDownloads: downloads)
                 } else {
                     Color.clear
                 }
@@ -29,9 +38,14 @@ struct MyLibraryScreenPreview: View {
         .environment(session)
         .environment(session.makeTileWatchMarks())
         .task {
+            let both = [DownloadPreviewFixture.dune, DownloadPreviewFixture.noArt]
+            downloads = downloadChange == .starts ? [] : both
             let store = LibraryStore(library: GridPreviewFixture.Listing())
             await store.load()
             library = store
+            guard let downloadChange else { return }
+            try? await Task.sleep(for: Self.changeAfter)
+            downloads = downloadChange == .ends ? [] : both
         }
     }
 }

@@ -13,6 +13,20 @@ import SwiftUI
 /// shorter than one poster: the focused first row sat cut off at the bottom of the screen and could
 /// never scroll into view. One scroll in every state also means the strip never moves between two
 /// containers when the library finishes loading — a card focused then is never rebuilt.
+///
+/// ⚠️ The strip comes and goes ABOVE the grid in the same scroll: a first download starting, or the
+/// last one finishing, grows or shrinks the content above the focused cell by ~480pt, and tvOS does
+/// not re-scroll when focus did not move — the focused cell jumped under the pills or off screen.
+/// Scrolling it back does not work: measured, a programmatic scroll while the focused cell is off
+/// screen makes tvOS hand focus to a visible cell (Heat → Dune: Part Two in
+/// `-uiPreview librarydownloadstarts`). So the strip never changes SHAPE while focus is inside this
+/// scroll (a grid cell or a strip card): it keeps showing what it showed — its last cards, or
+/// nothing — and takes its new shape once focus leaves (the pills, the side menu, a pushed page).
+/// While its shape holds, live tiles still flow in: only appearing and disappearing wait.
+///
+/// The hold is decided IN the body (`ScrollFocusTracker.tiles(for:)`), not in an `onChange`: an
+/// `onChange` runs after the body has already laid the new shape out once, and that one transient
+/// layout was enough — measured — to push the focused cell off screen and lose its focus.
 struct LibraryScreen: View {
     let title: String
     let items: [MediaItem]
@@ -25,15 +39,27 @@ struct LibraryScreen: View {
     var onFocus: (MediaItem) -> Void = { _ in }
     /// Downloads in flight, shown above the grid.
     var downloads: [DownloadTile] = []
+    /// A Downloading card took focus.
+    var onFocusDownload: (DownloadTile) -> Void = { _ in }
+
+    /// Which view in this scroll has focus, and the strip it last showed. A reference in `@State`:
+    /// written on every focus move, never observed, so a move never re-renders the page.
+    @State private var scrollFocus = ScrollFocusTracker()
+    /// Bumped when focus has left the scroll while the strip's shape was held: one re-render, in
+    /// which the strip takes its new shape.
+    @State private var releaseHold = 0
 
     /// The top fade's band, and the scroll's top inset to match.
     private static let fadeBand: CGFloat = 50
 
     var body: some View {
-        ScrollView {
+        let _ = releaseHold      // read, so a release re-renders
+        let stripTiles = scrollFocus.tiles(for: downloads)
+        return ScrollView {
             VStack(alignment: .leading, spacing: 24) {
-                if !downloads.isEmpty {
-                    DownloadingStrip(tiles: downloads, library: session.libraryStore)
+                if !stripTiles.isEmpty {
+                    DownloadingStrip(tiles: stripTiles, library: session.libraryStore,
+                                     onFocus: onFocusDownload, onFocusChange: scrollFocusChanged)
                         .focusSection()
                 }
                 content
@@ -44,6 +70,26 @@ struct LibraryScreen: View {
         }
         .gridTopFade(Self.fadeBand)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// Focus arrived at (true) or left (false) the view `id` in this scroll. Once focus has left
+    /// the scroll altogether — settled, since a move between two cells passes through "nothing
+    /// focused" for an instant — a held strip takes its new shape.
+    private func scrollFocusChanged(_ id: String, _ focused: Bool) {
+        let tracker = scrollFocus
+        if focused {
+            tracker.focusedID = id
+            tracker.leaving?.cancel()
+            return
+        }
+        guard tracker.focusedID == id else { return }
+        tracker.focusedID = nil
+        let release = $releaseHold
+        tracker.leaving = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(100))
+            guard !Task.isCancelled, tracker.focusedID == nil, tracker.holding else { return }
+            release.wrappedValue += 1
+        }
     }
 
     @ViewBuilder private var content: some View {
@@ -61,7 +107,8 @@ struct LibraryScreen: View {
                 message("No \(title.lowercased()) yet.", systemImage: "tray", action: nil)
             } else {
                 PosterGrid(items: items, watchedIDs: watchedIDs,
-                           session: session, onRemove: onRemove, onFocus: onFocus)
+                           session: session, onRemove: onRemove, onFocus: onFocus,
+                           onFocusChange: scrollFocusChanged)
             }
         }
     }
@@ -78,5 +125,30 @@ struct LibraryScreen: View {
         }
         .frame(maxWidth: .infinity)
         .containerRelativeFrame(.vertical)   // centred in the visible page, inside the scroll
+    }
+}
+
+/// Which view in a scroll has focus — see `LibraryScreen.scrollFocusChanged`.
+@MainActor
+final class ScrollFocusTracker {
+    /// The focused view's id; nil while focus is anywhere else.
+    var focusedID: String?
+    /// The settle before "focus has left" counts.
+    var leaving: Task<Void, Never>?
+    /// The strip's cards as last shown.
+    private(set) var shown: [DownloadTile] = []
+    /// The strip is showing a shape other than the live one.
+    private(set) var holding = false
+
+    /// The cards the strip shows for the live `downloads`: those, unless focus is inside the scroll
+    /// and they would make the strip appear or disappear — then the strip keeps its last cards.
+    func tiles(for downloads: [DownloadTile]) -> [DownloadTile] {
+        if focusedID == nil || shown.isEmpty == downloads.isEmpty {
+            shown = downloads
+            holding = false
+        } else {
+            holding = true
+        }
+        return shown
     }
 }

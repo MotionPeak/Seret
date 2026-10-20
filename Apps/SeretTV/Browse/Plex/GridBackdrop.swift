@@ -36,8 +36,12 @@ struct GridBackdrop: View {
 
     /// Superseded (cancelled) the moment a newer subject settles, so only the latest lands.
     private func settle(_ subject: PreviewSubject?) async {
-        // Nothing shown yet (an empty grid): keep the canvas, or whatever is up.
-        guard let subject else { return }
+        // Nothing to describe (nothing shown yet, or the owner cleared it — a new genre whose
+        // titles have not landed): the canvas, never a plate from what was there before.
+        guard let subject else {
+            backdropPath = nil
+            return
+        }
         if let cached = artFor(subject) {
             backdropPath = cached.backdropPath ?? subject.backdropPath
             return
@@ -122,13 +126,17 @@ enum PosterGridLayout {
 struct CaptionedPoster<Tile: View>: View {
     let caption: String
     var note = false
+    /// Focus arrived (true) or left (false).
+    var onFocusChange: ((Bool) -> Void)?
     @ViewBuilder var tile: Tile
 
     @FocusState private var focused: Bool
 
-    init(caption: String, note: Bool = false, @ViewBuilder tile: () -> Tile) {
+    init(caption: String, note: Bool = false, onFocusChange: ((Bool) -> Void)? = nil,
+         @ViewBuilder tile: () -> Tile) {
         self.caption = caption
         self.note = note
+        self.onFocusChange = onFocusChange
         self.tile = tile()
     }
 
@@ -142,6 +150,28 @@ struct CaptionedPoster<Tile: View>: View {
                 .foregroundStyle(focused && !note ? Theme.Palette.textPrimary : Theme.Palette.textSecondary)
                 .frame(width: PosterTileMetrics.width, alignment: .leading)
                 .animation(Theme.Anim.focus, value: focused)
+                // The tile already speaks its title; a note says something it does not.
+                .accessibilityHidden(!note)
         }
+        .onChange(of: focused) { _, now in onFocusChange?(now) }
+    }
+}
+
+extension View {
+    /// Calls `action` when focus arrives at (true) or leaves (false) this view or the one focusable
+    /// view inside it. Its own `@FocusState`, so it re-renders only itself.
+    func reportsFocusChange(_ action: @escaping (Bool) -> Void) -> some View {
+        modifier(FocusChangeReporter(action: action))
+    }
+}
+
+private struct FocusChangeReporter: ViewModifier {
+    let action: (Bool) -> Void
+    @FocusState private var focused: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .focused($focused)
+            .onChange(of: focused) { _, now in action(now) }
     }
 }

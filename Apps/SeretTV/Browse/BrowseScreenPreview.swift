@@ -137,10 +137,12 @@ enum BrowsePreviewFixture {
         }
     }
 
-    /// A genre grid: twenty pool titles per page, offset by genre, sort and page.
+    /// A genre grid: twenty pool titles per page, offset by genre, sort and page — 2 s late, so a
+    /// screenshot can catch a genre switch before its titles land (the backdrop must be the canvas,
+    /// never the previous genre's wash).
     struct Genres: GenreBrowsing {
         func titles(kind: MediaKind, genreID: Int, sort: GenreSort, page: Int) async throws -> [TMDBSearchResult] {
-            try? await Task.sleep(for: .milliseconds(400))
+            try? await Task.sleep(for: .seconds(2))
             let sortOffset = GenreSort.allCases.firstIndex(of: sort) ?? 0
             return slice(genreID % 23 + sortOffset * 5 + (page - 1) * 20, 20)
         }

@@ -43,6 +43,13 @@ public final class FocusPreviewModel {
         shown = subject
     }
 
+    /// Shows nothing and drops any pending focus — what is on screen no longer describes anything
+    /// on the page (a genre grid swapped for another, before its titles land).
+    public func clear() {
+        cancelPending()
+        shown = nil
+    }
+
     private func cancelPending() {
         generation &+= 1
         pending?.cancel()

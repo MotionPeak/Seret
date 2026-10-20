@@ -13,6 +13,8 @@ struct PosterGrid: View {
     let session: AppSession
     var onRemove: (MediaItem) -> Void = { _ in }
     var onFocus: (MediaItem) -> Void = { _ in }
+    /// Focus arrived at (true) or left (false) the card with this id.
+    var onFocusChange: (String, Bool) -> Void = { _, _ in }
 
     var body: some View {
         LazyVGrid(columns: PosterGridLayout.columns, spacing: PosterGridLayout.rowSpacing) {
@@ -21,7 +23,8 @@ struct PosterGrid: View {
                            watched: watchedIDs.contains(item.id),
                            session: session,
                            onRemove: onRemove,
-                           onFocus: { onFocus(item) })
+                           onFocus: { onFocus(item) },
+                           onFocusChange: { onFocusChange(item.id, $0) })
             }
         }
         .padding(.horizontal, PosterGridLayout.rootInset)

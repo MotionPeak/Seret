@@ -106,10 +106,11 @@ struct PersonScreen: View {
         // The first credit sits below the header, off-screen on open. Without this the remote is
         // dead — and an .onAppear focus seed does NOT reliably focus an off-screen element.
         .defaultFocus($focusedCredit, firstCreditID(store))
-        // Their first credit on the backdrop until focus picks one.
-        .seedsGridBackdrop(preview, key: firstCreditID(store),
+        // Their first credit on the backdrop until focus picks one — and again if the credit on it
+        // is no longer on the page.
+        .seedsGridBackdrop(preview, key: (store.acting + store.directing).map(\.id).joined(separator: "|"),
                            first: (store.acting.first ?? store.directing.first).map(PreviewSubject.init(hit:)),
-                           contains: { _ in true })
+                           contains: { id in (store.acting + store.directing).contains { $0.id == id } })
     }
 
     /// `.loaded` guarantees at least one section is non-empty, so this always names a real tile.

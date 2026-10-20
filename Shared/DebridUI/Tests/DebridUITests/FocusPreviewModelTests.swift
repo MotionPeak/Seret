@@ -55,6 +55,18 @@ private final class GatedSleeper: @unchecked Sendable {
         #expect(model.shown == x)                    // the pending focus never lands
     }
 
+    @MainActor @Test func clearEmptiesTheSubjectAndCancelsAPendingFocus() async {
+        let sleeper = GatedSleeper(count: 1)
+        let model = FocusPreviewModel(sleeper: sleeper.sleep)
+        model.showImmediately(Self.subject("old"))
+        model.focus(Self.subject("pending"))
+        await sleeper.entered.wait(atLeast: 1)
+        model.clear()
+        #expect(model.shown == nil)
+        await sleeper.gates[0].open(); await settle()
+        #expect(model.shown == nil)                  // the pending focus never lands
+    }
+
     @MainActor @Test func refocusingTheShownSubjectCancelsAPendingOne() async {
         let sleeper = GatedSleeper(count: 1)
         let model = FocusPreviewModel(sleeper: sleeper.sleep)
