@@ -62,6 +62,11 @@ struct PlayerControlRow: View {
     /// after it. The first button otherwise.
     var initialFocus: PlayerControl? = nil
 
+    /// The row's whole height — the close target, the circles and their lift room. `PlayerView`
+    /// holds exactly this much under the bar while the side sheet is up, so the bar never moves
+    /// between the row and the sheet.
+    static let height: CGFloat = 2 + 12 + ExpandingIconButtonStyle.diameter + 12
+
     private enum Target: Hashable { case control(PlayerControl), close }
     @FocusState private var focused: Target?
     /// Set once a button has held focus. The close target only means "Up from a button": if the
@@ -92,6 +97,7 @@ struct PlayerControlRow: View {
             .padding(.vertical, 12)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .frame(height: Self.height)
         .defaultFocus($focused, landing)
         .onAppear { focused = landing }
         .onChange(of: focused) { _, new in

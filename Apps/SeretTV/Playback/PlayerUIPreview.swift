@@ -23,7 +23,8 @@ import DebridCore
 ///   - `playerupnext` — an episode in its last seconds: the Up Next bar (Play Now focused) above
 ///     the scrub bar, which the open reveals
 ///   - `playerloading` / `playererror` — the real player before its first frame, and after a
-///     source that could not be opened (Retry focused)
+///     source that could not be opened (Retry focused). `playererrorrow`: the open fails while the
+///     control row is up — the row must go, leaving Retry focused and nothing hidden behind it
 ///   - `subtitles` — the full subtitle browser with ranked, badged results
 ///   - `subtitlesfailed` — the same browser after a pick that could not be honoured
 ///   - `detail`    — the Movie Detail page with a rating-capable stub store (no art: the title
@@ -98,6 +99,7 @@ struct PlayerUIPreview: View {
         case "playerupnext":        PlayerChromePreview(overlay: .none, show: true, nearEnd: true)
         case "playerloading":       PlayerChromePreview(overlay: .none, stage: .loading)
         case "playererror":         PlayerChromePreview(overlay: .none, stage: .failed)
+        case "playererrorrow":      PlayerChromePreview(overlay: .controls, stage: .failed)
         case "subtitles":  SubtitleBrowserPreview()
         case "subtitlesfailed": SubtitleBrowserPreview(failing: true)
         case "inputprobe": InputProbePreview()
@@ -995,9 +997,9 @@ private struct ScrubBarPreview: View {
         ZStack {
             Color.black.ignoresSafeArea()
             VStack(spacing: 70) {
-                labelled("Playing — 8pt bar, pause glyph (what Select does)") { m in }
+                labelled("Playing — 8pt bar, play glyph (the state)") { m in }
                 labelled("Buffering — spinner in the glyph slot") { m in m.driveBuffering() }
-                labelled("Paused — 10pt bar, larger knob, play glyph") { m in m.drivePaused() }
+                labelled("Paused — 10pt bar, larger knob, pause glyph") { m in m.drivePaused() }
                 labelled("Scrubbing — target time over the knob, tick at the live playhead") { m in
                     m.driveScrubbing()
                 }
@@ -1339,8 +1341,7 @@ private struct PlayerChromePreview: View {
         ZStack {
             Color.black.ignoresSafeArea()
             if primed {
-                PlayerView(previewModel: driver.model, frame: Self.frame, year: show ? nil : 2024,
-                           opening: overlay)
+                PlayerView(previewModel: driver.model, frame: Self.frame, opening: overlay)
             }
         }
         .task {

@@ -126,6 +126,11 @@ private struct PlaybackSettingsList: View {
     @ViewBuilder private var audioRows: some View {
         ForEach(labeled(model.audioTracks), id: \.track.id) { entry in
             CheckRow(title: entry.label, checked: model.displayedAudioID == entry.track.id) {
+                // The sheet opens with focus ON the playing track, so the first Select often lands
+                // here. Re-selecting it is not free: libvlc tears the audio decoder down and builds
+                // it again, which is audible silence. A press on the track already playing does
+                // nothing.
+                guard model.displayedAudioID != entry.track.id else { return }
                 model.selectAudio(id: entry.track.id)        // stay open — pick more / compare
             }
             .focused($landing, equals: .audio(entry.track.id))
@@ -140,7 +145,10 @@ private struct PlaybackSettingsList: View {
 
     private var subtitleRows: some View {
         Group {
-            CheckRow(title: "Off", checked: model.displayedSubtitleID == nil) { model.selectSubtitleOff() }
+            CheckRow(title: "Off", checked: model.displayedSubtitleID == nil) {
+                guard model.displayedSubtitleID != nil else { return }   // already off
+                model.selectSubtitleOff()
+            }
                 .focused($landing, equals: .off)
 
             // Muxed subtitle tracks that ship inside the file.
@@ -148,7 +156,7 @@ private struct PlaybackSettingsList: View {
                 groupCaption("IN THIS FILE")
                 ForEach(labeled(model.embeddedTracks), id: \.track.id) { entry in
                     CheckRow(title: entry.label, checked: model.displayedSubtitleID == entry.track.id) {
-                        model.selectSubtitle(id: entry.track.id)
+                        selectSubtitle(entry.track.id)
                     }
                     .focused($landing, equals: .track(entry.track.id))
                 }
@@ -158,7 +166,7 @@ private struct PlaybackSettingsList: View {
                 groupCaption("DOWNLOADED")
                 ForEach(labeled(model.downloadedTracks), id: \.track.id) { entry in
                     CheckRow(title: entry.label, checked: model.displayedSubtitleID == entry.track.id) {
-                        model.selectSubtitle(id: entry.track.id)
+                        selectSubtitle(entry.track.id)
                     }
                     .focused($landing, equals: .track(entry.track.id))
                 }
@@ -237,6 +245,13 @@ private struct PlaybackSettingsList: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
+    }
+
+    /// A press on the subtitle already showing does nothing — like the audio rows, the sheet opens
+    /// with focus on it, and re-selecting a track makes libvlc reload it for no change.
+    private func selectSubtitle(_ id: String) {
+        guard model.displayedSubtitleID != id else { return }
+        model.selectSubtitle(id: id)
     }
 
     /// The timing group's caption doubles as its readout: whether the attached subtitle was already

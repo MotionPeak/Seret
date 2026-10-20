@@ -23,21 +23,18 @@ struct PlayerHost: View {
     private let pushSignal: LetterboxdPushSignal
     /// Passed for the same reason as the signal above.
     private let filmRating: FinishedFilmRating
-    /// The film's year, for the player's top line.
-    private let year: Int?
 
     init(request: PlaybackRequest, app: AppSession, backdropSize: String) {
         _session = StateObject(wrappedValue: PlayerSession(request: request, app: app))
         backdropURL = TMDBClient.imageURL(path: request.item.backdropPath, size: backdropSize)
         pushSignal = app.letterboxdPushSignal
         filmRating = app.finishedFilmRating
-        year = request.episode == nil ? request.item.year : nil
     }
 
     var body: some View {
         if let model = session.model {
             PlayerView(model: model, engine: session.engine, backdropURL: backdropURL,
-                       pushSignal: pushSignal, filmRating: filmRating, year: year)
+                       pushSignal: pushSignal, filmRating: filmRating)
         } else {
             PlaybackUnavailableView()
         }

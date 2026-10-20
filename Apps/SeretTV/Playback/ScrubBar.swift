@@ -14,6 +14,8 @@ import DebridUI
 struct ScrubBar: View {
     @Bindable var model: PlayerModel
     let buffering: Bool
+    /// Off while the side sheet covers the bar's right end.
+    var showsRemaining: Bool = true
 
     /// The flanking timecodes always show the LIVE playhead — where you are, and where you return
     /// to if you cancel a scrub. The scrub TARGET is shown only in the floating time over the
@@ -30,6 +32,9 @@ struct ScrubBar: View {
     private var trackHeight: CGFloat { expanded ? 10 : 8 }
     private var knobDiameter: CGFloat { expanded ? 30 : 22 }
     private static let laneHeight: CGFloat = 34
+    /// The knob's centre travels from this far inside one end of the track to this far inside the
+    /// other, so the largest knob never overhangs the track's rounded ends.
+    private static let knobInset: CGFloat = 15
     private static let timeFont = Font.seret(28, .semibold)
 
     /// The loading hint, shown only once a wait has outlasted `hintDelay`.
@@ -54,6 +59,8 @@ struct ScrubBar: View {
                 .font(Self.timeFont).monospacedDigit()
                 .foregroundStyle(Theme.Palette.textPrimary.opacity(0.8))
                 .frame(minWidth: 130, alignment: .trailing)
+                .opacity(showsRemaining ? 1 : 0)
+                .animation(Theme.Anim.pageFade, value: showsRemaining)
         }
         .shadow(color: .black.opacity(0.35), radius: 6, y: 1)
         .task(id: buffering) {
@@ -66,11 +73,12 @@ struct ScrubBar: View {
         .animation(Theme.Anim.focus, value: model.skipFeedback)
     }
 
-    /// What Select would do — play while paused, pause while playing — or a spinner while a wait
-    /// has outlasted the hint delay. One fixed slot, so neither swap moves the timecode.
+    /// The STATE, as Plex draws it — ⏸ while paused, ▶ while playing — matching the paused glyph
+    /// in the middle of the frame; or a spinner while a wait has outlasted the hint delay. One fixed
+    /// slot, so neither swap moves the timecode.
     private var stateGlyph: some View {
         ZStack {
-            Image(systemName: model.phase == .paused ? "play.fill" : "pause.fill")
+            Image(systemName: model.phase == .paused ? "pause.fill" : "play.fill")
                 .font(.system(size: 30, weight: .bold))
                 .foregroundStyle(Theme.Palette.textPrimary)
                 .opacity(showsLoadingHint ? 0 : 1)
@@ -86,10 +94,12 @@ struct ScrubBar: View {
     private var track: some View {
         GeometryReader { geo in
             let width = geo.size.width
-            let headX = min(width, max(0, width * headFraction))
-            let playheadX = model.duration > 0
-                ? width * min(1, max(0, model.position / model.duration))
-                : 0
+            // One mapping from time to x for the fill's end, the knob, the tick and the badge, inset
+            // so the knob stays on the track at both ends.
+            let span = max(0, width - Self.knobInset * 2)
+            let headX = Self.knobInset + span * headFraction
+            let playheadX = Self.knobInset + span * (model.duration > 0
+                ? min(1, max(0, model.position / model.duration)) : 0)
             let midY = geo.size.height / 2
 
             ZStack(alignment: .leading) {
@@ -106,14 +116,14 @@ struct ScrubBar: View {
                 Capsule()
                     .fill(.white.opacity(0.9))
                     .frame(width: 3, height: trackHeight + 12)
-                    .position(x: min(width - 2, max(2, playheadX)), y: midY)
+                    .position(x: playheadX, y: midY)
             }
 
             Circle()
                 .fill(Theme.Palette.focus)
                 .frame(width: knobDiameter, height: knobDiameter)
                 .shadow(color: .black.opacity(0.5), radius: 6, y: 2)
-                .position(x: min(width, max(0, headX)), y: midY)
+                .position(x: headX, y: midY)
 
             if model.isScrubbing {
                 Text(Timecode.format(model.scrubTarget))
@@ -126,6 +136,9 @@ struct ScrubBar: View {
             } else if let feedback = model.skipFeedback {
                 SkipBadge(feedback: feedback)
                     .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { badgeWidth = $0 }
+                    // Unseen until it has been measured once: its first frame would otherwise be
+                    // placed with a zero width — unclamped, half off the bar at either end.
+                    .opacity(badgeWidth > 0 ? 1 : 0)
                     .position(x: clamped(headX, halfWidth: badgeWidth / 2, in: width), y: midY - 42)
                     .transition(.opacity.combined(with: .scale(scale: 0.85)))
             }
