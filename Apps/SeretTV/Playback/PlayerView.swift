@@ -158,7 +158,7 @@ struct PlayerView: View {
             if case .failed(let reason) = model.phase {
                 ErrorOverlay(reason: reason, canTryAnother: model.canTryAnotherVersion, backdropURL: backdropURL,
                              onRetry: { model.retry() }, onTryAnother: { model.tryAnotherVersion() },
-                             onBack: { dismiss() })
+                             onBack: { leave() })
                     .transition(.opacity.combined(with: .scale(scale: 0.98)))
             } else if model.isColdOpen {
                 LoadingOverlay(caption: model.phase == .preparing ? "Preparing…" : "Buffering…",
@@ -294,7 +294,7 @@ struct PlayerView: View {
                     let film = LetterboxdContentKey.tmdbID(fromMovieKey: model.contentKey) {
                 Task { await dismissRating(tmdbID: film) }
             }
-            else { dismiss() }
+            else { leave() }
         }
         .onAppear {
             model.start()
@@ -330,7 +330,7 @@ struct PlayerView: View {
             showSubtitleBrowser = false
             if showManualSync { showManualSync = false; model.endManualSync() }
         }
-        .onChange(of: model.shouldDismiss) { _, dismissNow in if dismissNow { dismiss() } }
+        .onChange(of: model.shouldDismiss) { _, dismissNow in if dismissNow { leave() } }
         // Each prompt starts as an invitation, whatever happened to the last one.
         .onChange(of: isAskingRating) { _, asking in if !asking { ratingEngaged = false } }
         // Up Next does not count down to the next episode underneath an open panel.
@@ -442,6 +442,13 @@ struct PlayerView: View {
     private func dismissRating(tmdbID: Int) async {
         await filmRating?.dismiss(tmdbID: tmdbID)
         model.revealScrubBar()
+    }
+
+    /// Leave the player: silence it at once (see `PlayerModel.beginClosing`), then dismiss. The
+    /// teardown itself still runs from `.onDisappear`.
+    private func leave() {
+        model.beginClosing()
+        dismiss()
     }
 
     private var hasFailed: Bool {

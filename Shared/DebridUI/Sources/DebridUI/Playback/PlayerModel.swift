@@ -522,6 +522,10 @@ public final class PlayerModel {
     /// taking that echo for a dropped seek issued the same seek twice.
     var earlyResumeSeekIssued = false
 
+    /// The viewer is leaving (`beginClosing`): the engine is silenced and nothing it reports
+    /// is acted on any more — teardown follows once the screen has gone.
+    var isClosing = false
+
     /// One silent reopen is allowed for the failure in progress (see `beginSilentRecovery`).
     var silentRecoveryArmed = true
     /// The silent reopen on its way — held so the test seam can wait for it.

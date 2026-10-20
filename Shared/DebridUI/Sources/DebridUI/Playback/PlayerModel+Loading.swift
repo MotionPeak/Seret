@@ -40,10 +40,14 @@ extension PlayerModel {
 
     func consumeEvents() async {
         for await event in engine.events {
-            switch event {
-            case .state(let s): handle(state: s)
-            case .time(let t): await tick(t)
-            case .tracksChanged: refreshTracks()
+            // Leaving: the playhead stays where the viewer left it, and a track refresh may not
+            // re-assert the volume `beginClosing` just took away.
+            if !isClosing {
+                switch event {
+                case .state(let s): handle(state: s)
+                case .time(let t): await tick(t)
+                case .tracksChanged: refreshTracks()
+                }
             }
             // Counted AFTER the handling, so the test seam's "has this landed yet?" means the work
             // is done rather than merely started. See `waitForIdleForTesting`.
@@ -582,6 +586,21 @@ extension PlayerModel {
         guard hasStarted, !isTornDown else { return }
         if phase == .playing { engine.pause() }
         await recordCurrentProgress()
+    }
+
+    /// The viewer is leaving the player — call it right before dismissing.
+    ///
+    /// Teardown runs from the screen's `.onDisappear`, i.e. only once the dismiss animation is
+    /// over, and until then the film played on: picture and SOUND through the whole pop, plus
+    /// another tick or so of progress past the point the viewer actually left. Pausing and
+    /// muting here makes leaving instant; the place recorded is the one on screen when Menu was
+    /// pressed.
+    public func beginClosing() {
+        guard hasStarted, !isTornDown, !isClosing else { return }
+        isClosing = true
+        engine.setVolume(0)
+        engine.pause()
+        engine.note("close: paused and muted for the dismiss")
     }
 
     public func teardown() async {

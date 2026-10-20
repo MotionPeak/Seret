@@ -250,3 +250,37 @@ import DebridCore
         await m.teardown()
     }
 }
+
+/// Leaving the player (D14): teardown runs from `.onDisappear`, after the dismiss animation, and
+/// the film played on — picture, sound and progress — through the whole pop.
+@MainActor
+@Suite struct PlayerClosingTests {
+    @Test func closingSilencesAtOnceAndFreezesThePlace() async {
+        let engine = FakeVideoPlayerEngine()
+        var saved: [Double] = []
+        let m = PlayerModel(request: Fixture.request(), engine: engine,
+                            unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
+                            recordProgress: { _, _, position, _, _ in saved.append(position) },
+                            subtitles: nil)
+        m.start(); await m.waitForIdleForTesting()
+        m.setVolume(150)
+        engine.emit(.state(.playing))
+        engine.emit(.time(.init(position: 600, duration: 6000)))
+        engine.emit(.time(.init(position: 601, duration: 6000)))
+        await m.waitForIdleForTesting()
+
+        m.beginClosing()
+        #expect(engine.volumesSet.last == 0)
+        #expect(engine.pauseCount == 1)
+
+        // The dismiss animation: the engine keeps talking until teardown.
+        engine.emit(.time(.init(position: 602, duration: 6000)))
+        engine.emit(.tracksChanged)
+        await m.waitForIdleForTesting()
+        #expect(m.position == 601, "the place moved on after Menu: \(m.position)")
+        #expect(engine.volumesSet.last == 0, "a track refresh turned the sound back on")
+
+        await m.teardown()
+        #expect(saved.last == 601)
+    }
+}

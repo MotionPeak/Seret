@@ -250,6 +250,7 @@ final class QAScriptRunner {
                 case "close":
                     let pos = QA.currentModel.map { QA.t($0.position) } ?? "-"
                     QA.log("close at \(pos)")
+                    QA.currentModel?.beginClosing()       // as Menu does
                     popToRoot()
                 case "wait":
                     try? await Task.sleep(for: .seconds(Double(step.dropFirst(5)) ?? 1))
