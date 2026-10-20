@@ -107,7 +107,8 @@ struct LibraryShell: View {
                         case .episodeVersions(let hit, let season, let number):
                             VersionsScreen(hit: hit, episode: (season: season, number: number))
                         case .person(let ref): PersonScreen(ref: ref)
-                        case .genre(let kind, let genre): GenreGridScreen(kind: kind, genre: genre)
+                        case .genre(let kind, let genre, let seed):
+                            GenreGridScreen(kind: kind, genre: genre, seed: seed)
                         case .play(let request):
                             PlayerHost(request: request, app: session, backdropSize: "original")
                         }

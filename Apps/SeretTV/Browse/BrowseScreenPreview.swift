@@ -49,8 +49,8 @@ struct BrowseScreenPreview: View {
             .background(CanvasBackground())
             // The shell registers the real destinations; the harness only needs See All's.
             .navigationDestination(for: BrowseDestination.self) { dest in
-                if case .genre(let kind, let genre) = dest {
-                    GenreGridScreen(kind: kind, genre: genre,
+                if case .genre(let kind, let genre, let seed) = dest {
+                    GenreGridScreen(kind: kind, genre: genre, seed: seed,
                                     previewBrowsing: BrowsePreviewFixture.Genres(), previewArt: art)
                 }
             }

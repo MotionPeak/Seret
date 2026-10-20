@@ -11,6 +11,8 @@ final class BrowseFocusMemory {
     /// A tile has had focus. Until then the header follows the data (the page's first title)
     /// instead of focus.
     var tileHasHadFocus = false
+    /// The index of the row focus is in, or was last in — where focus goes when that row leaves.
+    var lastRowIndex: Int?
     /// Recording that focus left the page, once it has settled (see `focusChanged`).
     var departure: Task<Void, Never>?
 }
@@ -18,6 +20,13 @@ final class BrowseFocusMemory {
 extension BrowseScreen {
     static func tileID(_ row: String, _ hit: SearchHit) -> String { "\(row)/\(hit.id)" }
     static func seeAllID(_ genre: DiscoverStore.Genre) -> String { "seeall/\(genre.tmdbID)" }
+
+    /// The first tile of the row at `index` (clamped to the last row), if there is one.
+    static func firstTileID(ofRowAt index: Int?, in rows: [DiscoverStore.Row]) -> String? {
+        guard let index, !rows.isEmpty else { return nil }
+        let row = rows[min(max(index, 0), rows.count - 1)]
+        return row.hits.first.map { tileID(row.id, $0) }
+    }
 
     /// Every focus id on the page: the failed row's Retry while it is up, each rail's tiles, and
     /// each genre row's See All.

@@ -25,13 +25,22 @@ enum FocusBrowseLayout {
     static let railSpacing: CGFloat = -36
     /// Empty space after the last rail, so it too can scroll up to the top of the rail area.
     static let bottomRunway: CGFloat = 160
+    /// A rail's title to its tiles (`PlexRail`).
+    static let railTitleSpacing: CGFloat = 24
+    /// A rail title's line, rounded UP from the 34pt section title's — the pitch below must never
+    /// come out short.
+    static let railTitleLineHeight: CGFloat = 48
+    /// One rail's share of the stack: its paddings, title, tiles, less the overlap (~462pt).
+    static let railPitch: CGFloat = railVerticalPadding * 2 + railTitleLineHeight + railTitleSpacing
+        + PosterTileMetrics.height + railSpacing
     /// How far the rail area's scroll view reaches up under the header — invisible (masked out),
     /// but inside its bounds. The focused rail sits flush at the top of the rail area, so the rail
     /// above it was entirely outside the scroll view: the lazy stack released it once focus was two
     /// rails further down and never built it again while it stayed out of bounds, so Up from the
     /// top rail had nothing to land on — focus left the page (measured, `-uiPreview browse`: Down,
-    /// Down, Up, Up). With the bounds reaching one rail pitch up, the rail above always exists.
-    static let hiddenRailBand: CGFloat = headerHeight
+    /// Down, Up, Up). TWO rail pitches, so a held Up — which moves focus again before the page's
+    /// scroll has caught up — still finds the next rail built.
+    static let hiddenRailBand: CGFloat = railPitch * 2
     /// How long a subject whose art is not cached may hold its title slot empty, waiting for the
     /// logo, before it shows the title as text. The header's own fade covers most of it.
     static let logoBudget: Duration = .milliseconds(200)
@@ -156,7 +165,7 @@ struct FocusBrowsePage<Rails: View>: View {
             // Up under the header: the hidden band. Drawn after the header, but transparent there.
             .padding(.top, -FocusBrowseLayout.hiddenRailBand)
             // Rails run to the bottom of the screen, so the next rail's title peeks in.
-            .ignoresSafeArea(edges: .bottom)
+            .ignoresSafeArea(edges: [.top, .bottom])
         }
         .background { backdrop }
         .defaultFocus($focusedID, initialFocus, priority: focusOnEntry ? .userInitiated : .automatic)

@@ -26,7 +26,7 @@ struct PlexRail<Content: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 24) {
+        VStack(alignment: .leading, spacing: FocusBrowseLayout.railTitleSpacing) {
             Text(title)
                 .sectionTitle()
                 .foregroundStyle(Theme.Palette.textPrimary)

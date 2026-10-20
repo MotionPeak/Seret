@@ -30,6 +30,11 @@ struct BrowseScreen: View {
     /// boundary — which is the `EnvironmentValues.subscript.getter → assertionFailure` SIGTRAP in
     /// this app's crash reports. Absent marks must mean "no ticks yet", never a dead process.
     @Environment(TileWatchMarks.self) private var marks: TileWatchMarks?
+    /// False while this is a kept-alive page behind another one (the shell disables it).
+    @Environment(\.isEnabled) private var isVisiblePage
+    /// The launch preload's backstop: past this, the page loads even if Home never answers (no
+    /// profile, no library) — see `mayLoad`.
+    @State private var preloadDeadlinePassed = false
 
     /// Drives the preview header: tiles report focus, it publishes the one focus settles on.
     @State private var preview = FocusPreviewModel()
@@ -72,12 +77,32 @@ struct BrowseScreen: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    /// Home has answered its first build — or there is no Home to wait for.
+    private var homeHasAnswered: Bool { session.home.map(\.hasBuiltForProfile) ?? true }
+
+    /// Whether the page may load. Both browse pages are built at launch, kept alive behind Home,
+    /// and each is ~20 TMDB rows — so they wait for Home's first paint rather than compete with it
+    /// (the preload stays; it only starts later). On screen, it loads at once.
+    private var mayLoad: Bool { isVisiblePage || homeHasAnswered || preloadDeadlinePassed }
+
     private func content(_ browse: DiscoverStore) -> some View {
         page(browse)
-            // Keyed on kind, so a store for the other kind re-asks. The store owns the load; this
-            // only asks (and joins one already running) — a return to the page asks a loaded page,
-            // which is a no-op.
-            .task(id: kind.rawValue) { await browse.loadBrowsePage() }
+            // Keyed on kind (a store for the other kind re-asks) and on `mayLoad`. The store owns
+            // the load; this only asks (and joins one already running) — a return to the page
+            // asks a loaded page, which is a no-op.
+            .task(id: "\(kind.rawValue)/\(mayLoad)") {
+                guard mayLoad else { return }
+                await browse.loadBrowsePage()
+            }
+            .task {
+                try? await Task.sleep(for: .seconds(8))
+                preloadDeadlinePassed = true
+            }
+            // A page that failed while kept alive (at launch, offline) is asked again when it is
+            // shown — as a Retry, so its failed row stays up, saying "Trying…", until it answers.
+            .onChange(of: isVisiblePage) { _, visible in
+                if visible, browse.browseState == .failed { retry(browse) }
+            }
             // A For You built before the library or the profile had landed is rebuilt — quietly,
             // only that block, in one step — when they do. On the CHANGE only: hanging it off the
             // load above put skeletons under the viewer on the way back to the page.
@@ -110,8 +135,11 @@ struct BrowseScreen: View {
         // page, else the first poster. (Nothing loaded yet: nothing on the page takes focus.)
         // `lastFocused` is read, not observed: it is current whenever the body runs, and the body
         // runs when the rows change and when focus leaves (`entryFocus`).
+        // A focused row that left the page (a For You row dropped by a rebuild) hands focus to the
+        // row now in its place, not back to the top.
         let focusTarget = [focusMemory.lastFocused, entryFocus].compactMap { $0 }.first(where: keys.contains)
             ?? (pageFailed ? PageRow.retry : nil)
+            ?? Self.firstTileID(ofRowAt: focusMemory.lastRowIndex, in: rows)
             ?? rows.first?.hits.first.map { Self.tileID(rows[0].id, $0) }
         // While the page has no title to preview — failed, or still loading — the header names
         // the page instead of standing empty.
@@ -124,11 +152,12 @@ struct BrowseScreen: View {
                 failed(browse)
             } else if state == .loaded {
                 ForEach(rows) { row in
+                    let index = rows.firstIndex { $0.id == row.id } ?? 0
                     PlexRail(title: row.title, id: row.id) {
-                        ForEach(row.hits) { hit in tile(hit, row: row.id, browse: browse) }
+                        ForEach(row.hits) { hit in tile(hit, row: row.id, index: index, browse: browse) }
                         // Fixed for the row's life (a row's id fixes its genre), so this is never
                         // a branch swap inside the lazy row.
-                        if let genre = row.genre { seeAll(genre) }
+                        if let genre = row.genre { seeAll(genre, seed: row.hits, index: index) }
                     }
                     // One batched read per rail; already-known titles cost nothing.
                     .task(id: row.hits.map(\.id).joined()) { await marks?.load(row.hits) }
@@ -159,20 +188,37 @@ struct BrowseScreen: View {
         .onAppear { focusHandle.onChange = { focusChanged($0) } }
     }
 
-    private func tile(_ hit: SearchHit, row: String, browse: DiscoverStore) -> some View {
+    private func tile(_ hit: SearchHit, row: String, index: Int, browse: DiscoverStore) -> some View {
         let memory = focusMemory, preview = preview
         return BrowseTile(hit: hit, cam: browse.isCAM(hit.result), onFocus: {
             memory.tileHasHadFocus = true
+            memory.lastRowIndex = index
             preview.focus(PreviewSubject(hit: hit))
         })
         .plexFocusID(Self.tileID(row, hit))
     }
 
-    /// A genre row's last tile: opens the genre's full grid. The header keeps the title last
-    /// focused — the tile names its genre itself.
-    private func seeAll(_ genre: DiscoverStore.Genre) -> some View {
-        SeeAllTile(title: genre.name, value: BrowseDestination.genre(kind, genre))
+    /// A genre row's last tile: opens the genre's full grid, seeded with the row's titles (its
+    /// first page). The header keeps the title last focused — the tile names its genre itself.
+    private func seeAll(_ genre: DiscoverStore.Genre, seed: [SearchHit], index: Int) -> some View {
+        let memory = focusMemory
+        return SeeAllTile(title: genre.name, value: BrowseDestination.genre(kind, genre, seed: seed),
+                          onFocus: { memory.lastRowIndex = index })
             .plexFocusID(Self.seeAllID(genre))
+    }
+
+    /// Reloads a failed page, keeping its failed row (and a focused Retry) up until it answers.
+    private func retry(_ browse: DiscoverStore) {
+        guard !retrying else { return }
+        retrying = true
+        Task {
+            await browse.loadBrowsePage()
+            // Only once the load has ANSWERED. `loadBrowsePage` can return while the page still
+            // reads loading (it joined a load already under way); letting go then flipped the row
+            // to the skeleton under the focused button. The state change in `page` lets go when
+            // the answer does land.
+            if browse.browseState.hasAnswered { retrying = false }
+        }
     }
 
     private func failed(_ browse: DiscoverStore) -> some View {
@@ -182,18 +228,7 @@ struct BrowseScreen: View {
                 .foregroundStyle(Theme.Palette.textSecondary)
             Text("Couldn't load.").sectionTitle()
             // The label changes; the button does not — it keeps focus while the retry runs.
-            Button(trying ? "Trying…" : "Retry") {
-                guard !trying else { return }
-                retrying = true
-                Task {
-                    await browse.loadBrowsePage()
-                    // Only once the load has ANSWERED. `loadBrowsePage` can return while the page
-                    // still reads loading (it joined a load already under way); letting go then
-                    // flipped the row to the skeleton under the focused button. The state change
-                    // above lets go when the answer does land.
-                    if browse.browseState.hasAnswered { retrying = false }
-                }
-            }
+            Button(trying ? "Trying…" : "Retry") { retry(browse) }
             .buttonStyle(SeretPillStyle(selected: false))
             .plexFocusID(PageRow.retry)
             .reportsPlexRailFocus()
@@ -211,6 +246,7 @@ struct BrowseScreen: View {
 private struct SeeAllTile: View {
     let title: String
     let value: BrowseDestination
+    var onFocus: () -> Void = {}
 
     var body: some View {
         NavigationLink(value: value) {
@@ -234,7 +270,7 @@ private struct SeeAllTile: View {
                         in: RoundedRectangle(cornerRadius: Theme.Layout.posterCorner, style: .continuous))
         }
         .focusCardButtonStyle()
-        .reportsPlexRailFocus()
+        .reportsPlexRailFocus(onFocus)
         .accessibilityLabel("See all \(title)")
     }
 }

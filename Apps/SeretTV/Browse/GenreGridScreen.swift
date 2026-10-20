@@ -9,6 +9,10 @@ import SwiftUI
 struct GenreGridScreen: View {
     let kind: MediaKind
     let genre: DiscoverStore.Genre
+    /// The opening row's titles — the Popular sort's page 1. Drawn from the first frame (before
+    /// the store exists) and handed to the store, so the grid never starts on a skeleton and the
+    /// first poster can be the page's default focus.
+    var seed: [SearchHit] = []
 #if DEBUG
     /// `-uiPreview browse`: the fixture's genre titles (the preview session builds no grid store).
     var previewBrowsing: GenreBrowsing?
@@ -34,6 +38,11 @@ struct GenreGridScreen: View {
     /// threw away every page it had loaded and dropped the viewer back at the top of page 1.
     @State private var loadedGenreID: Int?
     @FocusState private var focusedSort: GenreSort?
+    /// Whether the FIRST poster has focus — the page's default focus. Bound to that one cell only,
+    /// so it changes when focus enters or leaves it, never on every move across the grid (a
+    /// per-cell focus state here would re-render the screen and its cells on each move).
+    /// (`prefersDefaultFocus(_:in:)` was tried first: measured, tvOS still opened on the pills.)
+    @FocusState private var firstPosterFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -47,6 +56,9 @@ struct GenreGridScreen: View {
             content
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        // The page opens on the first poster, not the sort pills above it. The seed puts that
+        // poster on screen in the first frame, so this needs no claim-after-load.
+        .defaultFocus($firstPosterFocused, true)
         .background { GridBackdrop(preview: preview, art: art) }
         // Rebuild the store when the genre actually changes — each grid is a fresh drill-down, but
         // merely coming back to this one is not.
@@ -54,10 +66,10 @@ struct GenreGridScreen: View {
             guard loadedGenreID != genre.tmdbID else { return }
             loadedGenreID = genre.tmdbID
 #if DEBUG
-            let s = previewBrowsing.map { GenreGridStore(kind: kind, genre: genre, browsing: $0) }
-                ?? session.makeGenreGrid(kind: kind, genre: genre)
+            let s = previewBrowsing.map { GenreGridStore(kind: kind, genre: genre, browsing: $0, seed: seed) }
+                ?? session.makeGenreGrid(kind: kind, genre: genre, seed: seed)
 #else
-            let s = session.makeGenreGrid(kind: kind, genre: genre)
+            let s = session.makeGenreGrid(kind: kind, genre: genre, seed: seed)
 #endif
             store = s
             await s?.load()
@@ -81,7 +93,9 @@ struct GenreGridScreen: View {
     }
 
     @ViewBuilder private var content: some View {
-        switch store?.state ?? .loading {
+        // Until the store exists (its `.task` runs after the first frame) the seed stands in for
+        // it — the same titles the seeded store then holds, so nothing is swapped under focus.
+        switch store?.state ?? (seed.isEmpty ? .loading : .loaded) {
         case .idle, .loading:
             // Fixed-height skeletons. A grid that goes empty→full under a ScrollView collapses its
             // height and snaps the page to the top — this app has hit that twice.
@@ -96,7 +110,7 @@ struct GenreGridScreen: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .loaded:
-            grid(store?.hits ?? [])
+            grid(store?.hits ?? seed)
         }
     }
 
@@ -107,6 +121,8 @@ struct GenreGridScreen: View {
                 ForEach(hits) { hit in
                     CaptionedPoster(caption: hit.result.displayTitle) {
                         BrowseTile(hit: hit, onFocus: { preview.focus(PreviewSubject(hit: hit)) })
+                            .modifier(FirstPosterFocus(isFirst: hit.id == hits.first?.id,
+                                                       focused: $firstPosterFocused))
                     }
                     .onAppear {
                         // Page in when the tail comes into view.
@@ -125,6 +141,16 @@ struct GenreGridScreen: View {
         .task(id: hits.map(\.id).joined()) { await marks?.load(hits) }
         .frame(maxWidth: .infinity, alignment: .leading)
         .focusSection()
+    }
+}
+
+/// Binds the grid's first poster to the page's default-focus state; every other cell is left as is.
+private struct FirstPosterFocus: ViewModifier {
+    let isFirst: Bool
+    let focused: FocusState<Bool>.Binding
+
+    func body(content: Content) -> some View {
+        if isFirst { content.focused(focused) } else { content }
     }
 }
 
