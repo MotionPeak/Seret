@@ -131,6 +131,28 @@ import DebridCore
         await model.teardown()
     }
 
+    /// A media that never reports a length (review of D13): every tick looked like the echo, so
+    /// the deferred seek never went out and twelve ticks later the resume was abandoned — the
+    /// film played on from the top. Once its playhead moves past the echo, it is playing.
+    @Test func aMediaWithNoLengthStillGetsItsDeferredResumeSeek() async {
+        let engine = FakeVideoPlayerEngine()
+        let model = makeModel(engine, resume: 600)
+        model.start(); await model.waitForIdleForTesting()
+        engine.emit(.time(.init(position: 0, duration: 0)))       // the echo
+        await model.waitForIdleForTesting()
+        #expect(engine.seeks == [600])
+
+        engine.emit(.time(.init(position: 0.5, duration: 0)))     // playing from the top
+        await model.waitForIdleForTesting()
+        #expect(engine.seeks == [600, 600])
+
+        engine.emit(.time(.init(position: 600.2, duration: 0)))   // and it lands
+        await model.waitForIdleForTesting()
+        #expect(model.resumeTarget == 0)
+        #expect(model.position == 600.2)
+        await model.teardown()
+    }
+
     /// The landing tick sits at the target, so it never counted as "advance" and the stall clock
     /// kept the stamp from before the seek: a seek slower than the threshold flashed the spinner
     /// back up the moment it landed.

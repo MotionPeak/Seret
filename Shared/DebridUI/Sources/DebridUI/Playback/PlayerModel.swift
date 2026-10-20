@@ -521,6 +521,9 @@ public final class PlayerModel {
     /// time notification carrying the STALE time — 0, from a media not yet open (length 0) — and
     /// taking that echo for a dropped seek issued the same seek twice.
     var earlyResumeSeekIssued = false
+    /// Where the latest length-less tick after the early resume seek stood: taken for VLCKit's
+    /// echo until a later one moves past it (a media that never reports a length is playing).
+    var resumeEchoPosition: Double?
 
     /// The viewer is leaving (`beginClosing`): the engine is silenced and nothing it reports
     /// is acted on any more — teardown follows once the screen has gone.

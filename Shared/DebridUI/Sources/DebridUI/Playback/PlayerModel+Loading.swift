@@ -171,11 +171,18 @@ extension PlayerModel {
                 position = t.position
                 positionStamp = .now
                 settlePlayhead()
-            } else if !resumeSeekIssued, !(earlyResumeSeekIssued && t.duration <= 0) {
-                // (A tick from a media that has not even reported its length is VLCKit's echo of
+            } else if !resumeSeekIssued {
+                // A tick from a media that has not even reported its length is VLCKit's echo of
                 // the pre-seek time — see `earlyResumeSeekIssued` — not proof the seek was
                 // dropped: nothing has played yet. A dropped seek shows itself once the media is
-                // open, with the film running from the top.)
+                // open, with the film running from the top — or, for a media that never reports
+                // a length, with its playhead moving past the echo. Echoes cost no grace ticks:
+                // counted, twelve of them gave up on the resume without ever seeking.
+                let movedPastEcho = resumeEchoPosition.map { t.position > $0 + 0.05 } ?? false
+                if earlyResumeSeekIssued, t.duration <= 0, !movedPastEcho {
+                    resumeEchoPosition = t.position
+                    return
+                }
                 #if DEBUG
                 resumeProbe("DEFERRED seek — early one was DROPPED")
                 #endif
@@ -299,6 +306,7 @@ extension PlayerModel {
         playheadSettled = false
         resumeSeekIssued = false
         earlyResumeSeekIssued = false
+        resumeEchoPosition = nil
         resumeTicksSinceSeek = 0
         pendingSeek = nil
         pendingSeekTicks = 0
