@@ -89,17 +89,19 @@ struct BrowseScreen: View {
                             .pressable()
                         }
                     }
-                    // One batched read per rail; already-known titles cost nothing.
-                    .task(id: row.hits.map(\.id).joined()) { await marks?.load(row.hits) }
+                    // One batched read per rail; already-known titles cost nothing. Keyed on the row
+                    // and its size — a quiet For You rebuild can change a row's titles in place.
+                    .task(id: "\(row.id)/\(row.hits.count)") { await marks?.load(row.hits) }
                 }
                 if state == .failed && rows.isEmpty {
                     failed(browse)
-                } else if state != .loaded || rows.isEmpty {
-                    // Beside — never inside — the rails, at their real metrics.
+                } else if state != .loaded || rows.isEmpty || browse.browseIsStreaming {
+                    // Below the last row while more are still arriving — beside, never inside, the
+                    // rails, at their real metrics — so a row lands where its skeleton was.
                     RailSkeleton(rows: rows.isEmpty ? 3 : 1)
                 }
             }
-            .padding(.top, Theme.Space.sm)
+            .padding(.top, Theme.Space.xxl)   // clear of the header shade's fade at rest
             .padding(.bottom, Theme.Space.xxxl)
         }
         // Warm the first screenful of posters as rows land.

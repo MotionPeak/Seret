@@ -32,7 +32,7 @@ struct MyLibraryScreen: View {
                 }
                 .pickerStyle(.segmented)
                 .padding(.horizontal, Theme.Space.lg)
-                .padding(.top, Theme.Space.sm)
+                .padding(.top, Theme.Space.xxl)   // clear of the header shade's fade
 
                 if let tiles = session.downloadStore?.activeTiles, !tiles.isEmpty {
                     DownloadingStrip(tiles: tiles, library: session.libraryStore, router: router)

@@ -18,8 +18,11 @@ struct HomeScreen: View {
     @Environment(AppSession.self) private var session
     @Environment(\.horizontalSizeClass) private var hSize
     @Environment(AppRouter.self) private var router
-    /// How far the iPad sidebar covers the page's leading edge — the art runs on under it.
-    @Environment(\.shellLeadingInset) private var leadingInset
+    /// iPad: the shell draws the hero art behind the floating sidebar; Home reports its scroll
+    /// and hides it under a pushed page. Optional — absent outside the shell.
+    @Environment(HomeBackdropModel.self) private var shellBackdrop: HomeBackdropModel?
+    /// Home's own stack — a page pushed over it (See All) hides the shell's art.
+    @State private var navPath = NavigationPath()
     @State private var showingProfiles = false
     @State private var showingSettings = false
     /// A title awaiting removal confirmation, and the failure to surface if RD refuses.
@@ -46,13 +49,18 @@ struct HomeScreen: View {
     private var margin: CGFloat { PosterTileMetrics.margin(hSize) }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $navPath) {
             ZStack(alignment: .top) {
-                CanvasBackground()
+                // On iPad the shell's art layer IS the background (see `HomeBackdropModel`).
+                if !(isRegular && shellBackdrop != nil) { CanvasBackground() }
                 content
                 if !isRegular { header }
             }
             .toolbar(.hidden, for: .navigationBar)
+            // The stack paints an opaque page background of its own; on iPad the shell's art
+            // must show through it.
+            .containerBackground(isRegular && shellBackdrop != nil ? Color.clear : Theme.Palette.canvas,
+                                 for: .navigation)
             .navigationDestination(for: HomeRoute.self) { route in
                 switch route {
                 case .recentlyAdded(let kind): RecentlyAddedGrid(kind: kind)
@@ -62,6 +70,7 @@ struct HomeScreen: View {
                                         errorMessage: $removeErrorMessage,
                                         store: session.libraryStore)
         }
+        .onChange(of: navPath.isEmpty) { _, atRoot in shellBackdrop?.hidden = !atRoot }
         .fullScreenCover(isPresented: $showingProfiles) {
             WhoIsWatchingScreen(onPicked: { showingProfiles = false }).environment(session)
         }
@@ -106,7 +115,10 @@ struct HomeScreen: View {
     /// "Seret" + Search + Settings over the art. Its shade stays faint over the hero, so the art
     /// reads through as in the mockup, and firms up once the hero has scrolled away.
     private var header: some View {
-        GlassPageHeader(title: "Seret", shade: pastHero ? 1 : 0.3) {
+        // Faint only while hero art is under it; firm once that has scrolled away — or when there
+        // is no hero at all (only downloads), so the first rail never shows through.
+        let overArt = homeStore.map { heroSubject($0) != nil } ?? false
+        return GlassPageHeader(title: "Seret", shade: pastHero || !overArt ? 1 : 0.3) {
             SearchCircleLink()
             GlassCircleButton(systemImage: "gearshape", label: "Settings") { showingSettings = true }
             // The avatar is gone while profiles are off. See `ProfilesFeature`.
@@ -168,25 +180,29 @@ struct HomeScreen: View {
                     if let subject {
                         HomeHero(subject: subject, home: home, art: art, session: session,
                                  regular: isRegular, height: heroHeight,
-                                 artHeight: geo.size.height * 0.92,
-                                 leadingInset: leadingInset, leadingMargin: margin,
+                                 artHeight: geo.size.height * 0.92, leadingMargin: margin,
                                  actions: heroActions)
                             // A new featured title re-runs the hero (its art, its settle budget).
                             .id(subject.item.id)
                     }
                     rails(home, featured: subject)
                 }
+                // No hero (only downloads under way): the page starts below the header, never
+                // under it and the status bar.
+                .padding(.top, subject == nil ? (isRegular ? Theme.Space.xxl : 84) : 0)
                 .padding(.bottom, Theme.Space.xxxl)
             }
-            // The iPad art reaches back under the floating sidebar, past the scroll view's edge.
-            .scrollClipDisabled(isRegular)
-            .onScrollGeometryChange(for: Bool.self) { geometry in
-                geometry.contentOffset.y + geometry.contentInsets.top > heroHeight - 150
-            } action: { _, past in
-                pastHero = past
+            .onScrollGeometryChange(for: CGFloat.self) { geometry in
+                geometry.contentOffset.y + geometry.contentInsets.top
+            } action: { _, offset in
+                let past = offset > heroHeight - 150
+                if past != pastHero { pastHero = past }
+                // The shell's art scrolls with the page (iPad).
+                if isRegular { shellBackdrop?.offset = offset }
             }
         }
-        .ignoresSafeArea(edges: .top)
+        // Only a hero runs under the status bar and the header.
+        .ignoresSafeArea(edges: heroSubject(home) == nil ? [] : .top)
     }
 
     @ViewBuilder private func rails(_ home: HomeStore, featured: HomeHeroSubject?) -> some View {

@@ -24,6 +24,8 @@ struct MainShell: View {
     /// The section, restored when the system relaunches the scene.
     @SceneStorage("seret.mobile.section") private var storedSection = Section.home.rawValue
     @State private var restoredSection = false
+    /// iPad Home's art, drawn by the shell behind the sidebar (see `HomeBackdropModel`).
+    @State private var homeBackdrop = HomeBackdropModel()
 
     var body: some View {
         Group {
@@ -112,6 +114,11 @@ struct MainShell: View {
         let inset = width + ShellSidebar.margin
         return ZStack(alignment: .topLeading) {
             CanvasBackground()
+            // Home's art, full width BEHIND the panel as in m5 — the page itself is laid out
+            // beside the panel and cannot draw past it (see `HomeBackdropModel`).
+            if router.selectedSection == .home {
+                HomeBackdropLayer(model: homeBackdrop, pageInset: inset)
+            }
             screen(for: router.selectedSection)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 // The page lays out beside the panel. Padding, not a leading safe-area inset: a
@@ -120,6 +127,7 @@ struct MainShell: View {
                 // panel, as the mockup's Home does, reads `shellLeadingInset` and bleeds by it.
                 .padding(.leading, inset)
                 .environment(\.shellLeadingInset, inset)
+                .environment(homeBackdrop)
             ShellSidebar(selection: Binding(get: { router.selectedSection },
                                             set: { router.selectedSection = $0 }),
                          expanded: $sidebarExpanded,

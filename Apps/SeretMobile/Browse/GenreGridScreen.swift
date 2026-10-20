@@ -63,7 +63,7 @@ struct GenreGridScreen: View {
                     LazyVGrid(columns: PosterTileMetrics.gridColumns(hSize),
                               spacing: PosterTileMetrics.spacing + 4) {
                         ForEach(store.hits) { hit in
-                            HitTile(hit: hit, width: nil, onRemove: { pendingRemoval = $0 })
+                            HitTile(hit: hit, width: nil, cam: isCAM(hit), onRemove: { pendingRemoval = $0 })
                                 .onAppear {
                                     // The last row coming into view asks for the next page.
                                     if hit.id == store.hits.last?.id { Task { await store.loadMore() } }
@@ -80,6 +80,15 @@ struct GenreGridScreen: View {
             .padding(.bottom, Theme.Space.xxxl)
         }
         .task(id: store.hits.count) { await marks?.load(store.hits) }
+    }
+
+    /// Theatrical-window films carry the CAM chip here as in the rows they came from.
+    private func isCAM(_ hit: SearchHit) -> Bool {
+        guard route.kind == .movie else { return false }
+#if DEBUG
+        if let browse = preview?.moviesBrowse { return browse.isCAM(hit.result) }
+#endif
+        return session.moviesBrowse?.isCAM(hit.result) ?? false
     }
 
     private func sortPills(_ store: GenreGridStore) -> some View {

@@ -35,17 +35,11 @@ struct GlassPageHeader<Trailing: View>: View {
         .padding(.top, Theme.Space.xs)
         .padding(.bottom, Theme.Space.md)
         .background(alignment: .top) {
-            // A soft shade, not a bar: enough that the title reads over scrolled posters, faded
-            // out so the art still shows through as it does in the mockups.
-            // Runs a little past the bar, so a rail title sliding under "Movies" is already faint
-            // by the time it meets it.
-            LinearGradient(stops: [.init(color: Theme.Palette.shadeInk.opacity(0.9 * shade), location: 0),
-                                   .init(color: Theme.Palette.shadeInk.opacity(0.75 * shade), location: 0.55),
-                                   .init(color: Theme.Palette.shadeInk.opacity(0), location: 1)],
-                           startPoint: .top, endPoint: .bottom)
-                .padding(.bottom, -28)
-                .ignoresSafeArea(edges: .top)
-                .allowsHitTesting(false)
+            // Legibility for the title and circles over whatever scrolls beneath: held firm to the
+            // bar's bottom edge, then faded out just below it (`TopBarShade`). iOS 18 has no blur
+            // behind a custom bar, so a gradient that faded from the very top let rail titles
+            // run straight through "Movies" and the status-bar clock.
+            TopBarShade(opacity: shade).ignoresSafeArea(edges: .top)
         }
     }
 }
@@ -56,7 +50,63 @@ extension View {
                                          @ViewBuilder trailing: () -> Trailing) -> some View {
         let header = GlassPageHeader(title: title, trailing: trailing)
         return self
-            .safeAreaInset(edge: .top, spacing: 0) { header }
+            .modifier(TopBar(bar: header))
             .toolbar(.hidden, for: .navigationBar)
+    }
+}
+
+/// Mounts a custom top bar. On iOS 26 as a safe-area BAR, so the scroll view beneath knows it is
+/// there and draws its own soft scroll-edge effect under it; on iOS 18 as a plain inset.
+private struct TopBar<Bar: View>: ViewModifier {
+    let bar: Bar
+
+    func body(content: Content) -> some View {
+        if #available(iOS 26, *) {
+            content
+                .safeAreaBar(edge: .top, spacing: 0) { bar }
+                .scrollEdgeEffectStyle(.soft, for: .top)
+        } else {
+            content.safeAreaInset(edge: .top, spacing: 0) { bar }
+        }
+    }
+}
+
+/// The one legibility shade behind a top bar — the glass page header, Home's header once its hero
+/// has scrolled away, the title page's bar once it scrolls. Held at `hold` down to the bar's
+/// bottom edge, then faded to nothing over `fade` points below it.
+///
+/// Sized by its container (a header's background) — or, given `barHeight`, as an overlay over a
+/// whole page: the top safe area plus that many points.
+struct TopBarShade: View {
+    var opacity: Double = 1
+    var color: Color = Theme.Palette.shadeInk
+    /// Nearly solid, measured: at 0.85–0.93 a white pill (Home's Resume) scrolling under the bar
+    /// still read plainly through it on the iPhone 17 Pro simulator.
+    var hold: Double = 0.97
+    var fade: CGFloat = 24
+    var barHeight: CGFloat?
+
+    var body: some View {
+        Group {
+            if let barHeight {
+                GeometryReader { geo in
+                    stack.frame(height: geo.safeAreaInsets.top + barHeight + fade, alignment: .top)
+                        .ignoresSafeArea(edges: .top)
+                }
+            } else {
+                stack.padding(.bottom, -fade)
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    private var stack: some View {
+        VStack(spacing: 0) {
+            color.opacity(hold * opacity)
+            LinearGradient(colors: [color.opacity(hold * opacity), color.opacity(0)],
+                           startPoint: .top, endPoint: .bottom)
+                .frame(height: fade)
+        }
     }
 }

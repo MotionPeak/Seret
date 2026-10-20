@@ -5,7 +5,13 @@ import SwiftUI
 struct SafariSheet: UIViewControllerRepresentable {
     let url: URL
     func makeUIViewController(context: Context) -> SFSafariViewController {
-        SFSafariViewController(url: url)
+        let safari = SFSafariViewController(url: url)
+        // Safari takes the app's tint for its controls, and the app's tint is WHITE — on Safari's
+        // light bars that would be white-on-white. Pin it dark with white controls instead.
+        safari.overrideUserInterfaceStyle = .dark
+        safari.preferredBarTintColor = UIColor(Theme.Palette.canvas)
+        safari.preferredControlTintColor = .white
+        return safari
     }
     func updateUIViewController(_ controller: SFSafariViewController, context: Context) {}
 }

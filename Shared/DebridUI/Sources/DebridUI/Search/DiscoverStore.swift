@@ -101,6 +101,9 @@ public final class DiscoverStore {
     public private(set) var browseRows: [Row] = []
     /// The browse page's load state.
     public private(set) var browseState: State = .idle
+    /// True while the browse page's rows are still arriving. `browseState` reads `.loaded` from the
+    /// FIRST row on, so a page that wants to hold space for the rows still to come asks this.
+    public private(set) var browseIsStreaming = false
     /// The ids of the browse page's For You rows as last built — the block a quiet rebuild swaps.
     private var browseForYouIDs: Set<String> = []
     /// At most this many For You rows lead the browse page.
@@ -300,6 +303,8 @@ public final class DiscoverStore {
 
     /// Builds the target's rows from scratch, publishing each as it lands (see `loadSegment`).
     private func performLoad(_ target: LoadTarget) async {
+        if target == .page { browseIsStreaming = true }
+        defer { if target == .page { browseIsStreaming = false } }
         setState(.loading, of: target)
         setRows([], of: target)
         await loadCAMIDsIfNeeded()

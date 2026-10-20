@@ -11,7 +11,8 @@ import SwiftUI
 ///     xcrun simctl launch <udid> com.solomons.seret.mobile -uiPreview <target>
 ///
 /// - `home` — hero (American History X, part-way), Continue Watching (incl. an up-next episode),
-///   Recently Added Movies / Shows. `homedownloading` adds a Downloading rail.
+///   Recently Added Movies / Shows. `homedownloading` adds a Downloading rail;
+///   `homedownloadsonly` has downloads and nothing else (no hero).
 /// - `movies` / `shows` — the browse page's rows, arriving progressively (For You first, then
 ///   Trending, New, Top Rated, then a row per genre); `-browseDelay N` (ms) slows each row.
 /// - `genregrid` — the Drama grid a genre row's "See All" opens, seeded from its row.
@@ -60,12 +61,17 @@ struct PagesUIPreview: View {
         }
         let home = HomeStore(watch: PagesFixture.Watch())
         home.activeProfileID = "preview"
-        await home.rebuild(movies: PagesFixture.movies, shows: PagesFixture.shows)
+        // `homedownloadsonly`: nothing watched, nothing in the library — only a download under way,
+        // so Home has no hero and its first rail must start below the header.
+        let downloadsOnly = target == "homedownloadsonly"
+        await home.rebuild(movies: downloadsOnly ? [] : PagesFixture.movies,
+                           shows: downloadsOnly ? [] : PagesFixture.shows)
         let delay = UserDefaults.standard.integer(forKey: "browseDelay")
         stores = UIPreviewStores(
             home: home,
             art: TitleArtStore(details: TMDBDetailsService(client: TMDBClient(apiKey: Secrets.tmdbAPIKey))),
-            downloads: target == "homedownloading" ? [PagesFixture.download] : [],
+            downloads: target == "homedownloading" ? [PagesFixture.download]
+                : downloadsOnly ? [PagesFixture.download, PagesFixture.noArtDownload] : [],
             moviesBrowse: DiscoverStore(kind: .movie, discover: PagesFixture.Discover(delay: delay),
                                         seeds: PagesFixture.Seeds()),
             showsBrowse: DiscoverStore(kind: .show, discover: PagesFixture.Discover(delay: delay),
@@ -185,6 +191,13 @@ enum PagesFixture {
                                phase: .downloading, fraction: 0.42, speedBytesPerSecond: 12_000_000,
                                secondsRemaining: 540, title: "Dune: Part Two",
                                posterPath: "/1pdfLvkbY9ohJlCjQH2CZjjYVvJ.jpg"))
+
+    /// No poster: the title on a surface, never a blank card.
+    static let noArtDownload = DownloadTile(
+        tmdbID: 0, title: "גבעת חלפון אינה עונה", posterPath: nil,
+        status: DownloadStatus(torrentID: "dl-0", contentKey: "movie:tmdb:0", tmdbID: 0,
+                               phase: .downloading, fraction: 0.08, speedBytesPerSecond: 3_000_000,
+                               secondsRemaining: nil, title: "גבעת חלפון אינה עונה", posterPath: nil))
 
     // MARK: Browse
 

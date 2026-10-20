@@ -140,14 +140,9 @@ struct DetailScreen: View {
             // on both iOS versions: the page runs under the bar (`ignoresSafeArea`), which keeps
             // UIKit's own scroll-edge treatment from knowing there is content beneath it.
             .overlay(alignment: .top) {
-                GeometryReader { geo in
-                    LinearGradient(stops: [.init(color: Theme.Palette.canvas, location: 0),
-                                           .init(color: Theme.Palette.canvas.opacity(0.94), location: 0.7),
-                                           .init(color: Theme.Palette.canvas.opacity(0), location: 1)],
-                                   startPoint: .top, endPoint: .bottom)
-                        .frame(height: geo.safeAreaInsets.top + 78)
-                        .ignoresSafeArea(edges: .top)
-                }
+                // The shared bar shade (`TopBarShade`), in the canvas colour and held solid: the
+                // title page's text must vanish under its bar, not show through it.
+                TopBarShade(color: Theme.Palette.canvas, hold: 0.96, barHeight: 50)
                 .opacity(heroScrolled ? 1 : 0)
                 .animation(Theme.Motion.fade, value: heroScrolled)
                 .allowsHitTesting(false)

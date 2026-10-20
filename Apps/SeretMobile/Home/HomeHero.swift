@@ -46,14 +46,15 @@ struct HomeHero: View {
     let regular: Bool
     /// The hero's own height — where the rails start.
     let height: CGFloat
-    /// iPad: how tall the art runs (on behind the first rails), and how far it reaches back under
-    /// the floating sidebar.
+    /// iPad, outside the shell only (no `HomeBackdropModel`): how tall the art runs.
     var artHeight: CGFloat = 0
-    var leadingInset: CGFloat = 0
     var leadingMargin: CGFloat = 0
     let actions: HomeHeroActions
 
     @Environment(WatchlistMarks.self) private var watchlist: WatchlistMarks?
+    /// iPad: the shell draws the art full-width BEHIND the floating sidebar (m5); the hero only
+    /// says which. Optional — a non-optional `@Observable` environment read traps when absent.
+    @Environment(HomeBackdropModel.self) private var shellBackdrop: HomeBackdropModel?
     /// The art load has answered (with or without art) — the poster stands in for a missing
     /// backdrop only then, so a backdrop on its way is not preceded by the poster.
     @State private var artSettledFor: String?
@@ -73,6 +74,22 @@ struct HomeHero: View {
             _ = await art.load(item.kind, tmdbID: id)
             artSettledFor = item.id
         }
+        .onChange(of: regular ? backdropPath : nil, initial: true) { _, path in
+            if regular { shellBackdrop?.path = path }
+        }
+        .onDisappear { if regular { shellBackdrop?.path = nil } }
+    }
+
+    /// The art itself opens the title's page — a button to VoiceOver, named for where it goes.
+    private func openArea(height: CGFloat) -> some View {
+        Color.clear
+            .frame(height: height)
+            .contentShape(Rectangle())
+            .onTapGesture { actions.open(item) }
+            .accessibilityElement()
+            .accessibilityLabel("Open \(item.title)")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { actions.open(item) }
     }
 
     private var settling: Bool { artSettledFor != item.id && titleArt == nil }
@@ -89,8 +106,7 @@ struct HomeHero: View {
         ZStack(alignment: .bottom) {
             HomeHeroBackdrop(path: backdropPath)
                 .frame(height: height)
-                .contentShape(Rectangle())
-                .onTapGesture { actions.open(item) }
+            openArea(height: height)
             compactContent.padding(.bottom, 2)
         }
         .frame(height: height)
@@ -111,16 +127,15 @@ struct HomeHero: View {
 
     private var regularLayout: some View {
         ZStack(alignment: .topLeading) {
-            // Taller than the hero: it runs on behind the first rails, and back under the sidebar.
-            HomeHeroBackdrop(path: backdropPath, leadingShade: true, shadeInset: leadingInset)
-                .frame(height: artHeight)
-                .padding(.leading, -leadingInset)
-                .allowsHitTesting(false)
+            // In the shell the art is drawn behind the sidebar (`HomeBackdropLayer`); only outside
+            // it (a preview) does the hero draw its own, running on behind the first rails.
+            if shellBackdrop == nil {
+                HomeHeroBackdrop(path: backdropPath, leadingShade: true)
+                    .frame(height: artHeight)
+                    .allowsHitTesting(false)
+            }
             // Only the hero's own area opens the page — not the art behind the rails.
-            Color.clear
-                .frame(height: height)
-                .contentShape(Rectangle())
-                .onTapGesture { actions.open(item) }
+            openArea(height: height)
             regularContent
                 .padding(.leading, leadingMargin)
                 .padding(.trailing, Theme.Space.xxxl)
@@ -321,5 +336,38 @@ struct HomeHeroBackdrop: View {
             }
             .animation(Theme.Motion.fade, value: path)
             .accessibilityHidden(true)
+    }
+}
+
+/// iPad Home's art, which lives in the SHELL rather than on the page: the page is laid out beside
+/// the floating sidebar, and nothing inside its NavigationStack can draw past that edge — so the
+/// art the mockup runs under and around the panel has to come from behind it. Home's hero says
+/// which picture (`path`), Home's scroll view how far it has moved (`offset`), and whether a page
+/// pushed over Home should hide it (`hidden`).
+@MainActor
+@Observable
+final class HomeBackdropModel {
+    var path: String?
+    var offset: CGFloat = 0
+    var hidden = false
+}
+
+/// The shell's layer for `HomeBackdropModel`: full width from the screen's leading edge, the
+/// leading shade starting where the page does, scrolling up with Home's content.
+struct HomeBackdropLayer: View {
+    let model: HomeBackdropModel
+    let pageInset: CGFloat
+
+    var body: some View {
+        GeometryReader { geo in
+            HomeHeroBackdrop(path: model.path, leadingShade: true, shadeInset: pageInset)
+                .frame(width: geo.size.width, height: geo.size.height * 0.92)
+                .offset(y: -max(0, model.offset))
+        }
+        .ignoresSafeArea()
+        .opacity(model.path == nil || model.hidden ? 0 : 1)
+        .animation(Theme.Motion.fade, value: model.hidden)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }
