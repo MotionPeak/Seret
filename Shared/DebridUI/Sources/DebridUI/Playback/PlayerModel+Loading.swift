@@ -361,7 +361,7 @@ extension PlayerModel {
                 resumeTarget = saved > 0 ? saved : 0     // authoritative: overrides the UI hint
                 position = resumeTarget                  // …and is where the viewer is until playback says so
             }
-            let url = try await unrestrict(currentSource.restrictedLink)
+            let url = try await unrestrictForLoad(currentSource.restrictedLink)
             guard !Task.isCancelled, !isTornDown else { return }   // superseded, or the player closed
             let playURL = await openStream(for: url)
             guard !Task.isCancelled, !isTornDown else { return }
@@ -387,7 +387,9 @@ extension PlayerModel {
         } catch is CancellationError {
             return                                       // superseded; not a real failure
         } catch {
-            phase = .failed("The Real-Debrid link could not be opened.")
+            // Retried already when it was RD or the network failing for now — say so plainly.
+            phase = .failed(Self.isTransient(error) ? Self.unreachableMessage
+                                                    : "The Real-Debrid link could not be opened.")
         }
     }
 

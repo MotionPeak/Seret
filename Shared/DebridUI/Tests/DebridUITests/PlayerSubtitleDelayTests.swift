@@ -72,6 +72,9 @@ import DebridCore
     private func atPosition(_ seconds: Double, engine: FakeVideoPlayerEngine) async -> PlayerModel {
         let m = model(engine: engine)
         m.start()
+        // The load (unrestrict included) has to have handed the engine its media first: a tick
+        // before that belongs to the outgoing file and is dropped (`engineHoldsCurrentMedia`).
+        await m.waitForIdleForTesting()
         engine.emit(.time(PlaybackTime(position: seconds, duration: 5400)))
         await m.waitForIdleForTesting()
         return m

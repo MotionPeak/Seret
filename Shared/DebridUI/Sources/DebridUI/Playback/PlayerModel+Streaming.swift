@@ -32,8 +32,15 @@ extension PlayerModel {
     }
 
     /// Re-unrestrict for the cache when RD says the link it holds has expired.
+    ///
+    /// Under the same per-attempt deadline as a load: a refresh that hangs would hold every read
+    /// waiting on it — the film frozen with no error and nothing to retry. A timeout is reported
+    /// to the cache as a failed refresh, which it treats as RD failing for now.
     func freshLink(_ link: String) async throws -> URL {
-        try await unrestrict(link)
+        try await withDeadline(unrestrictAttemptTimeout) { [weak self] in
+            guard let self else { throw CancellationError() }
+            return try await self.unrestrict(link)
+        }
     }
 
     /// Let the current session go: it keeps its resume region and frees its RAM.
@@ -60,6 +67,10 @@ extension PlayerModel {
             return "Real-Debrid stopped sending this file."
         }
     }
+
+    /// RD (or the network) failing for longer than the app can wait it out — said plainly, since
+    /// nothing is wrong with the file and Retry is exactly the right next step.
+    static let unreachableMessage = "Real-Debrid isn't responding right now. Check your connection, then try again."
 
     /// The first frame is on screen: what the session has read is what the next open will need.
     func markStreamPlaybackStarted() {

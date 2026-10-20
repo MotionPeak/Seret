@@ -522,6 +522,14 @@ public final class PlayerModel {
     /// taking that echo for a dropped seek issued the same seek twice.
     var earlyResumeSeekIssued = false
 
+    /// The longest one RD `unrestrict` may take before it is abandoned and asked again.
+    let unrestrictAttemptTimeout: Double
+    /// The pauses before each retry of an `unrestrict` that failed for now (see
+    /// `unrestrictForLoad`). Two retries: a POST is never retried by URLSession itself.
+    let unrestrictRetryDelays: [Double]
+    /// The whole pre-load phase's limit: no retry starts that would run past it.
+    let unrestrictBudget: Double
+
     // MARK: - Up Next (binge)
     /// Last subtitle cue (seconds), when a sub was downloaded. A FLOOR for the Up Next bar — it
     /// won't fire while a line is still being spoken — but no longer triggers it directly (the last
@@ -666,8 +674,14 @@ public final class PlayerModel {
          autoSyncWindow: Double = 300,
          autoSyncMaxLag: Double = 120,
          autoSyncMinimumHalf: Double = SubtitleSync.minimumHalfSeconds,
-         stallThreshold: Double = 2.5) {
+         stallThreshold: Double = 2.5,
+         unrestrictAttemptTimeout: Double = 10,
+         unrestrictRetryDelays: [Double] = [0.5, 1.5],
+         unrestrictBudget: Double = 15) {
         self.stallThreshold = stallThreshold
+        self.unrestrictAttemptTimeout = unrestrictAttemptTimeout
+        self.unrestrictRetryDelays = unrestrictRetryDelays
+        self.unrestrictBudget = unrestrictBudget
         self.subtitleFallbackDelay = subtitleFallbackDelay
         self.subtitleShiftDebounce = subtitleShiftDebounce
         self.audioProbe = audioProbe
