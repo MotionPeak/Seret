@@ -119,8 +119,7 @@ extension PlayerModel {
             // An open that failed — on the Apple TV, the proxy socket reclaimed while the app was
             // idle — or a stream that died mid-film gets one silent reopen first.
             if beginSilentRecovery() { break }
-            phase = .failed(reason)
-            isBuffering = false     // it is not waiting on frames; it is over
+            fail(reason)
         }
     }
 
@@ -244,6 +243,10 @@ extension PlayerModel {
         if advanced {
             lastAdvanceStamp = .now
             markRendered()
+            // This media really plays: a later failure is a new one, and gets its own silent
+            // reopen. Here and not in `markRendered`, which `.playing` and `.paused` reach before
+            // any frame — see `beginSilentRecovery`.
+            if playheadSettled, !silentRecoveryArmed { silentRecoveryArmed = true }
             if phase == .buffering || phase == .preparing {
                 phase = .playing
                 refreshTracks()
@@ -429,8 +432,6 @@ extension PlayerModel {
         if !hasRenderedFrame {
             hasRenderedFrame = true
             markStreamPlaybackStarted()
-            // This media plays: a later failure is a new one, and gets its own silent reopen.
-            silentRecoveryArmed = true
         }
         if isBuffering { isBuffering = false }
         if loadWatchdog != nil {
@@ -453,7 +454,7 @@ extension PlayerModel {
             try? await Task.sleep(for: .seconds(timeout))
             guard !Task.isCancelled, let self, !self.hasRenderedFrame else { return }
             if case .failed = self.phase { return }     // already failed for a better reason
-            self.phase = .failed("This stream didn't start. The Real-Debrid link may have expired.")
+            self.fail("This stream didn't start. The Real-Debrid link may have expired.")
         }
     }
 
@@ -484,7 +485,7 @@ extension PlayerModel {
         if !hasRenderedFrame, position < 1 || resumeTarget > 0 {
             // One silent reopen first, on a fresh socket and link (see `beginSilentRecovery`).
             if beginSilentRecovery() { return }
-            phase = .failed("The stream stopped before it started. The Real-Debrid link may have expired.")
+            fail("The stream stopped before it started. The Real-Debrid link may have expired.")
             return
         }
         // …and one the stream cache saw RD refuse did not end either. With the file's index on
@@ -502,7 +503,7 @@ extension PlayerModel {
             // fresh link and asks RD again. Even in the credits — an outage is not an end, and
             // must never be recorded as one.
             guard !isTornDown, mediaGeneration == generation else { return }
-            if interruptedAt.map({ abs(position - $0) > 30 }) ?? true {
+            if interruptedAt.map({ abs(position - $0) > 30 }) ?? true, claimAutomaticReopen() {
                 let place = position
                 interruptedAt = place
                 silentRecoveryArmed = false            // this reopen IS the automatic recovery
@@ -533,7 +534,7 @@ extension PlayerModel {
         // the store is a write behind the player, and once answered "no place" for a drop the
         // player knew was mid-dialogue.
         if stoppedShortOfTheEnd, recordKeepsAPlace(at: position, duration: duration),
-           interruptedAt.map({ abs(position - $0) > 30 }) ?? true {
+           interruptedAt.map({ abs(position - $0) > 30 }) ?? true, claimAutomaticReopen() {
             let place = position
             interruptedAt = place
             silentRecoveryArmed = false    // this reopen IS the automatic recovery
@@ -569,6 +570,7 @@ extension PlayerModel {
     /// The viewer asking again: a fresh attempt, with its own silent reopen should the open fail.
     public func retry() {
         silentRecoveryArmed = true
+        automaticReopens = []
         reload()
     }
 
@@ -576,6 +578,7 @@ extension PlayerModel {
         guard sourceIndex + 1 < sources.count else { return }
         sourceIndex += 1
         silentRecoveryArmed = true
+        automaticReopens = []
         reload()
     }
 
@@ -617,6 +620,7 @@ extension PlayerModel {
         seekDispatchTask?.cancel()
         loadWatchdog?.cancel()
         recoveryTask?.cancel()
+        failureWordingTask?.cancel()
         subtitleFallbackTask?.cancel()          // else it spends OpenSubtitles quota on a dead engine
         filmEndTask?.cancel()                   // …and so would this
         subtitleAttachTimeoutTask?.cancel()

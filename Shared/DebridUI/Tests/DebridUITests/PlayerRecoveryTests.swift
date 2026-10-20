@@ -132,6 +132,102 @@ import DebridCore
         await m.teardown()
     }
 
+    /// The review's loop (D2): libvlc reports `.playing` before any frame, and that re-armed the
+    /// silent reopen — so an open that "played" and failed reopened forever, an RD unrestrict and
+    /// a libvlc open each time, until RD throttled the account.
+    @Test func anOpenThatOnlyReportsPlayingCannotReopenForever() async {
+        let engine = FakeVideoPlayerEngine(), unrestricts = Box(0)
+        let m = model(engine, unrestricts: unrestricts)
+        m.start(); await m.waitForIdleForTesting()
+
+        for _ in 0..<5 {
+            engine.emit(.state(.playing))
+            engine.emit(.state(.failed("Playback failed.")))
+            await m.waitForIdleForTesting()
+        }
+
+        #expect(engine.loadCount <= 2, "reopened \(engine.loadCount - 1) times")
+        #expect(unrestricts.value <= 2)
+        #expect(m.phase == .failed("Playback failed."))
+        await m.teardown()
+    }
+
+    /// The same mid-film: the reopen sits at the place it reopened at until its playhead settles,
+    /// and failing there again is failing at the same place.
+    @Test func aMidFilmReopenThatOnlyReportsPlayingCannotReopenForever() async {
+        let engine = FakeVideoPlayerEngine()
+        let m = model(engine)
+        m.start(); await m.waitForIdleForTesting()
+        await playTo(1200, m, engine)
+
+        engine.emit(.state(.failed("Playback failed."))); await m.waitForIdleForTesting()
+        for _ in 0..<5 {
+            engine.emit(.state(.playing))
+            engine.emit(.state(.failed("Playback failed.")))
+            await m.waitForIdleForTesting()
+        }
+
+        #expect(engine.loadCount == 2)
+        #expect(m.phase.isFailed)
+        await m.teardown()
+    }
+
+    /// Whatever asks — failures at new places each time — no more than two automatic reopens a
+    /// minute. The viewer's Retry starts the count afresh.
+    @Test func automaticReopensAreCappedAndRetryResetsTheCap() async {
+        let engine = FakeVideoPlayerEngine()
+        let m = model(engine)
+        m.start(); await m.waitForIdleForTesting()
+
+        await playTo(1200, m, engine)
+        engine.emit(.state(.failed("Playback failed."))); await m.waitForIdleForTesting()
+        await playTo(2400, m, engine)
+        engine.emit(.state(.failed("Playback failed."))); await m.waitForIdleForTesting()
+        #expect(engine.loadCount == 3)
+        await playTo(3600, m, engine)
+        engine.emit(.state(.failed("Playback failed."))); await m.waitForIdleForTesting()
+        #expect(engine.loadCount == 3, "a third automatic reopen within a minute")
+        #expect(m.phase.isFailed)
+
+        m.retry(); await m.waitForIdleForTesting()
+        #expect(engine.loadCount == 4)
+        await playTo(4800, m, engine)
+        engine.emit(.state(.failed("Playback failed."))); await m.waitForIdleForTesting()
+        #expect(!m.phase.isFailed)
+        #expect(engine.loadCount == 5)
+        await m.teardown()
+    }
+
+    /// A reopen that fails while RD is down says that RD is down — not "Playback failed."
+    @Test func aReopenThatFailsDuringAnOutageIsWordedAsOne() async {
+        let engine = FakeVideoPlayerEngine(), proxy = FakeStreamProxy()
+        let m = model(engine, proxy: proxy)
+        m.start(); await m.waitForIdleForTesting()
+        await proxy.outageWith(.transport("The network connection was lost."))
+        engine.emit(.state(.failed("Playback failed."))); await m.waitForIdleForTesting()
+        #expect(engine.loadCount == 2)
+
+        engine.emit(.state(.failed("Playback failed."))); await m.waitForIdleForTesting()
+
+        #expect(m.phase == .failed(PlayerModel.unreachableMessage))
+        await m.teardown()
+    }
+
+    /// …and so does one that ends before its first frame.
+    @Test func aReopenThatEndsUnstartedDuringAnOutageIsWordedAsOne() async {
+        let engine = FakeVideoPlayerEngine(), proxy = FakeStreamProxy()
+        let m = model(engine, proxy: proxy)
+        m.start(); await m.waitForIdleForTesting()
+        await proxy.outageWith(.transport("The network connection was lost."))
+        engine.emit(.state(.ended)); await m.waitForIdleForTesting()
+        #expect(engine.loadCount == 2)
+
+        engine.emit(.state(.ended)); await m.waitForIdleForTesting()
+
+        #expect(m.phase == .failed(PlayerModel.unreachableMessage))
+        await m.teardown()
+    }
+
     // MARK: - D6: unrestrict, with a deadline and retries
 
     @Test func anUnrestrictThatFailsForNowIsAskedAgain() async {

@@ -16,11 +16,15 @@ extension PlayerModel {
 
     /// Reopen once — on a fresh socket and a fresh link — instead of showing `.failed`.
     ///
-    /// One per failure: armed again only once this media renders a frame (`markRendered`) or the
-    /// viewer asks again (`retry`, `tryAnotherVersion`), so a stream that keeps failing reaches the
-    /// error screen after exactly one more try. A refusal from RD is final and skips it. Mid-film
-    /// the reopen resumes at the playhead, and a second failure within 30 s of the same place is
-    /// shown — a file that cannot get past a point must not loop.
+    /// One per failure: armed again only once this media really plays — a tick that advances a
+    /// settled playhead (`tick`) — or the viewer asks again (`retry`, `tryAnotherVersion`), so a
+    /// stream that keeps failing reaches the error screen after exactly one more try. Not on
+    /// libvlc's `.playing`/`.paused`: those come before any frame, and re-arming there let a
+    /// stream that opened and failed reopen forever, an RD unrestrict and a libvlc open each
+    /// time. A refusal from RD is final and skips it. Mid-film the reopen resumes at the
+    /// playhead, and a second failure within 30 s of the same place is shown — a file that
+    /// cannot get past a point must not loop. And whatever asks, no more than
+    /// `maxAutomaticReopens` a minute (`claimAutomaticReopen`).
     ///
     /// Synchronous on purpose: it disowns the dying media at once (`engineHoldsCurrentMedia`), so
     /// the `.ended` libvlc sends after an error cannot be taken for this media's end meanwhile.
@@ -29,8 +33,11 @@ extension PlayerModel {
     @discardableResult
     func beginSilentRecovery() -> Bool {
         guard !isTornDown, silentRecoveryArmed, !phase.isFailed else { return false }
-        let place: Double? = hasRenderedFrame && playheadSettled && position > 0 ? position : nil
+        let playhead: Double? = hasRenderedFrame && playheadSettled && position > 0 ? position : nil
+        // A reopen that failed before its playhead settled is still at the place it reopened at.
+        let place = playhead ?? reopenAt
         if let place, let last = interruptedAt, abs(place - last) <= 30 { return false }
+        guard claimAutomaticReopen() else { return false }
         silentRecoveryArmed = false
         engineHoldsCurrentMedia = false        // the failing media's trailing events are not ours
         isBuffering = true
@@ -57,6 +64,45 @@ extension PlayerModel {
             self.reload()
         }
         return true
+    }
+
+    /// Take one of the automatic reopens this minute allows; false when they are spent.
+    ///
+    /// The backstop under every automatic reopen: each costs an RD unrestrict, a stream session
+    /// and a libvlc open, and a loop of them gets the account throttled by RD. The viewer asking
+    /// again (`retry`, `tryAnotherVersion`) or a new episode starts the count afresh.
+    func claimAutomaticReopen() -> Bool {
+        let now = ContinuousClock.now
+        automaticReopens.removeAll { $0.duration(to: now) > automaticReopenWindow }
+        guard automaticReopens.count < maxAutomaticReopens else {
+            engine.note("recover: \(maxAutomaticReopens) reopens within \(automaticReopenWindow), "
+                        + "showing the failure")
+            return false
+        }
+        automaticReopens.append(now)
+        return true
+    }
+
+    /// Show a failure — in RD's terms when the stream cache knows why. A reopen that failed
+    /// because RD is down said "Playback failed." or "the link may have expired", when the true
+    /// answer — and the useful one, since Retry is the next step — is that RD isn't responding.
+    func fail(_ message: String) {
+        phase = .failed(message)
+        isBuffering = false     // it is not waiting on frames; it is over
+        guard streamHandle != nil else { return }
+        let generation = mediaGeneration
+        failureWordingTask = Task { [weak self] in
+            guard let self, let failure = await self.streamFailure() else { return }
+            guard self.mediaGeneration == generation, self.phase == .failed(message) else { return }
+            self.phase = .failed(Self.message(for: failure))
+        }
+    }
+
+    static func message(for failure: UpstreamFailure) -> String {
+        switch failure {
+        case .refused(let refusal): return refusalMessage(refusal)
+        case .unavailable: return unreachableMessage
+        }
     }
 
     // MARK: - Unrestrict with a deadline and retries

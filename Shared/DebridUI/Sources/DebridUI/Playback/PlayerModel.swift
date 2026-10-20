@@ -528,6 +528,13 @@ public final class PlayerModel {
 
     /// One silent reopen is allowed for the failure in progress (see `beginSilentRecovery`).
     var silentRecoveryArmed = true
+    /// When each automatic reopen of this source began — the silent one and `finish()`'s — so a
+    /// stream that keeps failing cannot reopen more than `maxAutomaticReopens` times a minute.
+    var automaticReopens: [ContinuousClock.Instant] = []
+    let maxAutomaticReopens = 2
+    let automaticReopenWindow: Duration = .seconds(60)
+    /// Rewording a failure the stream cache can explain (see `fail(_:)`) — held for the test seam.
+    var failureWordingTask: Task<Void, Never>?
     /// The silent reopen on its way — held so the test seam can wait for it.
     var recoveryTask: Task<Void, Never>?
     /// The longest one RD `unrestrict` may take before it is abandoned and asked again.
@@ -1079,6 +1086,8 @@ public final class PlayerModel {
         await filmEndTask?.value
         // A silent reopen decides (and reloads) in a task of its own.
         await recoveryTask?.value
+        // …and a failure is reworded in RD's terms in one.
+        await failureWordingTask?.value
         // A handler can start a new load (retry, the next episode) — let that one land too.
         if awaitingLoad { await loadTask?.value }
     }
