@@ -34,6 +34,9 @@ extension PlayerModel {
         silentRecoveryArmed = false
         engineHoldsCurrentMedia = false        // the failing media's trailing events are not ours
         isBuffering = true
+        // The failed load's watchdog must not call the reopen a failure before it has begun.
+        loadWatchdog?.cancel()
+        loadWatchdog = nil
         let generation = mediaGeneration
         engine.note("recover: reopening silently" + (place.map { " at \(Int($0))s" } ?? " (open)"))
         recoveryTask = Task { [weak self] in

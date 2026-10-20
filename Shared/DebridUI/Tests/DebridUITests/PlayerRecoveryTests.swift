@@ -316,3 +316,31 @@ import DebridCore
         #expect(engine.loadCount == 0)
     }
 }
+
+@MainActor
+@Suite struct PlayerRecoveryWatchdogTests {
+    /// The failed load's 30 s watchdog was still armed while the silent reopen resolved its link:
+    /// firing then, it put "This stream didn't start" up over a reopen that was about to play.
+    @Test func theFailedLoadsWatchdogDoesNotFireDuringTheReopen() async throws {
+        let engine = FakeVideoPlayerEngine()
+        let (gate, release) = AsyncStream.makeStream(of: Void.self)
+        var calls = 0
+        let m = PlayerModel(request: Fixture.request(), engine: engine,
+                            unrestrict: { _ in
+                                calls += 1
+                                if calls == 2 { for await _ in gate {} }   // the reopen's link is slow
+                                return URL(string: "https://cdn/x.mkv")!
+                            },
+                            recordProgress: { _, _, _, _, _ in }, subtitles: nil,
+                            loadTimeout: 0.3)
+        m.start(); await m.waitForIdleForTesting()
+        try await Task.sleep(for: .milliseconds(150))
+        engine.emit(.state(.failed("Playback failed.")))
+        await m.waitForIdleWhileLoadIsHeldForTesting()
+        try await Task.sleep(for: .milliseconds(300))           // past the first load's deadline
+        #expect(!m.phase.isFailed, "the old watchdog fired over the reopen: \(m.phase)")
+        release.finish()
+        await m.waitForIdleForTesting()
+        await m.teardown()
+    }
+}
