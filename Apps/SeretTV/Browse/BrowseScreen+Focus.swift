@@ -15,6 +15,12 @@ final class BrowseFocusMemory {
     var lastRowIndex: Int?
     /// Recording that focus left the page, once it has settled (see `focusChanged`).
     var departure: Task<Void, Never>?
+    /// The tile a long-press action was just taken on (Watchlist's Remove). Its menu and the
+    /// confirmation hold focus meanwhile, so when the action takes the tile away there is no
+    /// focused tile to notice it went.
+    var actedOn: String?
+    /// A focus hand-on in progress (see `WatchlistScreen.rehomeFocus`).
+    var rehomeTask: Task<Void, Never>?
 }
 
 extension BrowseScreen {

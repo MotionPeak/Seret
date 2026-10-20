@@ -20,6 +20,8 @@ struct WatchlistScreen: View {
     @Environment(AppSession.self) private var session
     /// False while this is a kept-alive page behind another one (the shell disables it).
     @Environment(\.isEnabled) private var isVisiblePage
+    /// The side menu holds focus — the page must not move focus by itself then.
+    @Environment(\.sideMenuHoldsFocus) private var sideMenuHoldsFocus
     /// OPTIONAL, deliberately — a non-optional `@Environment` read of an `@Observable` traps when it
     /// is absent. A film added or removed elsewhere reaches this page through its outcomes.
     @Environment(WatchlistMarks.self) private var watchlistMarks: WatchlistMarks?
@@ -48,6 +50,10 @@ struct WatchlistScreen: View {
     var previewArt: TitleArtStore?
     /// The harness's details store (no session details provider either).
     var previewDetails: WatchlistDetailsStore?
+    /// `-uiPreview watchlistremove`: this long after the page appears, the removal confirmation
+    /// opens for the focused film — the long-press without the long press, since a keyboard long
+    /// press leaves the Simulator one stale Select that swallows the dialog's next press.
+    var previewRemoveFocusedAfter: Duration?
     private var art: TitleArtStore? { previewArt ?? session.titleArt }
 #else
     private var art: TitleArtStore? { session.titleArt }
@@ -113,6 +119,12 @@ struct WatchlistScreen: View {
             if let previewModel {
                 model = previewModel
                 detailsStore = previewDetails
+                if let delay = previewRemoveFocusedAfter {
+                    try? await Task.sleep(for: delay)
+                    // What a tile's long-press Remove does (`onRemove`).
+                    focusMemory.actedOn = focusMemory.lastFocused
+                    pendingRemoval = focusedFilm.entry
+                }
                 return
             }
 #endif
@@ -214,6 +226,10 @@ struct WatchlistScreen: View {
             try? await Task.sleep(for: .seconds(8))
             preloadDeadlinePassed = true
         }
+        // A removed film's tile goes; focus goes on to its neighbour (see `rehomeFocus`).
+        .onChange(of: Self.tileOrder(rows)) { old, new in rehomeFocus(old: old, new: new) }
+        .onChange(of: sideMenuHoldsFocus) { _, inMenu in if inMenu { cancelRehome() } }
+        .onChange(of: isVisiblePage) { _, visible in if !visible { cancelRehome() } }
         .onAppear { focusHandle.onChange = { focusChanged($0) } }
     }
 
@@ -223,7 +239,10 @@ struct WatchlistScreen: View {
         let details = entry.tmdbID.flatMap { data.details[$0] }
         return WatchlistTile(entry: entry, owned: data.showsOwnedMark(entry, in: row.kind),
                              badge: data.badge(for: entry),
-                             onRemove: { pendingRemoval = $0 },
+                             onRemove: {
+                                 memory.actedOn = Self.tileID(row.id, $0)
+                                 pendingRemoval = $0
+                             },
                              onFocus: {
                                  memory.tileHasHadFocus = true
                                  film.rowTrail = trail
@@ -284,6 +303,48 @@ struct WatchlistScreen: View {
         return row.entries.first.map { tileID(row.id, $0) }
     }
 
+    /// Every film tile's focus id, rail by rail, in screen order — See All tiles left out, so a
+    /// rail is one run of keys sharing its row's prefix (what `RailFocusNeighbour` reads).
+    static func tileOrder(_ rows: [WatchlistRow]) -> [String] {
+        rows.flatMap { row in row.entries.prefix(WatchlistRows.railLimit).map { tileID(row.id, $0) } }
+    }
+
+    /// Hands focus on when the film that had it — or whose long-press menu had it — is gone.
+    ///
+    /// tvOS leaves NOTHING focused in that case: the confirmation closes, focus goes back to the
+    /// tile it came from, and that tile is gone (measured: no ring anywhere, the header still
+    /// showing the removed film, until the next press) — the same as Home's (`HomeScreen
+    /// .rehomeFocus`). Only then, though: a tile leaving while focus is anywhere else must not pull
+    /// focus. Retried, because tvOS ignores the write while the dialog is still animating away.
+    private func rehomeFocus(old: [String], new: [String]) {
+        guard !sideMenuHoldsFocus, isVisiblePage else { return }
+        let gone: String
+        if let focused = focusHandle.focused, old.contains(focused), !new.contains(focused) {
+            gone = focused
+        } else if focusHandle.focused == nil, let acted = focusMemory.actedOn, !new.contains(acted) {
+            gone = acted
+        } else {
+            return
+        }
+        focusMemory.actedOn = nil
+        guard let next = RailFocusNeighbour.of(gone, old: old, new: new) else { return }
+        cancelRehome()
+        let handle = focusHandle
+        focusMemory.rehomeTask = Task { @MainActor in
+            for _ in 0..<20 {
+                handle.move(to: next)
+                try? await Task.sleep(for: .milliseconds(100))
+                if Task.isCancelled { return }
+                if let now = handle.focused, now != gone { return }
+            }
+        }
+    }
+
+    private func cancelRehome() {
+        focusMemory.rehomeTask?.cancel()
+        focusMemory.rehomeTask = nil
+    }
+
     /// Every focus id on the page: each rail's films and See All, and the header's pills.
     private func focusKeys(_ rows: [WatchlistRow], canSpin: Bool) -> Set<String> {
         var keys: Set<String> = [PageID.sync]
@@ -300,6 +361,9 @@ struct WatchlistScreen: View {
     private func focusChanged(_ key: String?) {
         focusMemory.departure?.cancel()
         if let key {
+            // Focus is somewhere real again: an acted-on tile that goes now is noticed as the
+            // focused one, or not at all (a Cancel), never from a stale record.
+            focusMemory.actedOn = nil
             focusMemory.lastFocused = key
             return
         }

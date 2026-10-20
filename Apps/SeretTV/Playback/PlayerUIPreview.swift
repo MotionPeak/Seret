@@ -145,6 +145,7 @@ struct PlayerUIPreview: View {
         case "homedownloadsonly":   HomeScreenPreview(downloading: true, downloadsOnly: true)
         case "downloadstrip":       DownloadStripPreview()
         case "watchlist":           WatchlistScreenPreview()
+        case "watchlistremove":     WatchlistScreenPreview(removeFocusedAfter: .seconds(20))
         case "homemenu":            MenuWrappedPreview { HomeScreenPreview() }
         case "browsemenu":          MenuWrappedPreview { BrowseScreenPreview() }
         case "watchlistmenu":       MenuWrappedPreview { WatchlistScreenPreview() }
@@ -1790,7 +1791,10 @@ private struct WatchlistScreenPreview: View {
     @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()))
     @State private var model: WatchlistModel
 
-    init(partnerUnreadable: Bool = false, slowDetails: Bool = false) {
+    private var removeFocusedAfter: Duration?
+
+    init(partnerUnreadable: Bool = false, slowDetails: Bool = false, removeFocusedAfter: Duration? = nil) {
+        self.removeFocusedAfter = removeFocusedAfter
         _model = State(initialValue: Self.makeModel(partnerUnreadable: partnerUnreadable))
         if slowDetails {
             let service = TMDBDetailsService(client: TMDBClient(apiKey: Secrets.tmdbAPIKey))
@@ -1809,7 +1813,8 @@ private struct WatchlistScreenPreview: View {
 
     var body: some View {
         NavigationStack {
-            WatchlistScreen(previewModel: model, previewArt: art, previewDetails: details)
+            WatchlistScreen(previewModel: model, previewArt: art, previewDetails: details,
+                            previewRemoveFocusedAfter: removeFocusedAfter)
                 // A root page: the shell's content inset, so x positions match the real app.
                 .sideMenuContentInset()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
