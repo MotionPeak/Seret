@@ -37,6 +37,7 @@ struct UltrablurBackdrop: View {
 
     /// Bottom to top. Usually one; two or three while fades overlap.
     @State private var plates: [BackdropPlate] = []
+    @Environment(\.layoutDirection) private var direction
     @State private var nextSerial = 0
 
     var body: some View {
@@ -71,7 +72,9 @@ struct UltrablurBackdrop: View {
         // Already the plate on top (or, for nil, nothing has ever been shown): nothing to do.
         if let top = plates.last { guard top.path != path else { return } } else if path == nil { return }
         // Hold the current plate until this one can draw — never fade towards an empty layer.
-        if let path { await UltrablurPlates.warm(path, sharp: showsArt) }
+        if let path {
+            await UltrablurPlates.warm(path, sharp: showsArt, rtl: direction == .rightToLeft)
+        }
         guard !Task.isCancelled else { return }
 
         let plate = BackdropPlate(serial: nextSerial, path: path)
@@ -111,6 +114,9 @@ private struct UltrablurPlate: View {
     /// decoded-image budget, so the cache may evict this one while its title is still on screen;
     /// a re-render then has to draw what it held, not fall back to bare canvas.
     @State private var held: UIImage?
+    /// The same for the dissolved sharp art.
+    @State private var heldArt: UIImage?
+    @Environment(\.layoutDirection) private var direction
 
     var body: some View {
         GeometryReader { geo in
@@ -126,18 +132,30 @@ private struct UltrablurPlate: View {
             }
             .frame(width: geo.size.width, height: geo.size.height, alignment: .topTrailing)
         }
-        // Hold the cached wash at once (the backdrop warmed it before showing this plate) — or,
-        // if it was evicted in between, render it again.
-        .task(id: path) { held = await UltrablurPlates.wash(for: path) }
+        // Hold the cached layers at once (the backdrop warmed them before showing this plate) —
+        // or, if one was evicted in between, render it again.
+        .task(id: path) {
+            held = await UltrablurPlates.wash(for: path)
+            if showsArt { heldArt = await UltrablurPlates.art(for: path, rtl: direction == .rightToLeft) }
+        }
     }
 
     /// The sharp backdrop in the trailing 70% × top 76%, dissolving towards the leading and bottom
-    /// edges.
+    /// edges — drawn as ONE plain bitmap with the dissolve already in its alpha.
+    ///
+    /// It used to be the decoded `w1280` image under a `.mask`: a masked layer is rendered
+    /// offscreen every frame it changes, and a title change crossfades two or three plates for
+    /// half a second — a ~2700 × 1600 px offscreen pass each, each frame, on an A12 at 4K.
+    /// Measured on the real Apple TV with a scripted walk along a rail (40 title changes): 4.3
+    /// dropped frames per title with the masked art, 1.6 with no art at all. Baking the dissolve
+    /// once per title, off the main actor, costs the same as the wash does.
+    @ViewBuilder
     private func sharpArt(_ size: CGSize) -> some View {
-        RemoteImage(url: TMDBClient.imageURL(path: path, size: "w1280"), contentMode: .fill) { _ in
-            Color.clear
+        if let art = UltrablurPlates.cachedArt(path, rtl: direction == .rightToLeft) ?? heldArt {
+            Image(uiImage: art)
+                .resizable()
+                .frame(width: size.width * UltrablurArt.width, height: size.height * UltrablurArt.height)
         }
-        .ultrablurArtRegion(size)
     }
 }
 
@@ -180,9 +198,39 @@ enum UltrablurArt {
         return across * down
     }
 
+    /// The pixel size the dissolved art is baked at: the region's shape on a 1920 × 1080 screen, at
+    /// about the `w1280` source's own resolution (the region is drawn at 2× — upscaling a
+    /// backdrop this soft at its edges does not show).
+    nonisolated static let bakedSize = CGSize(width: 1344, height: 821)
+
+    /// The `w1280` backdrop cropped to the region's shape (centred, like `.fill`) with the
+    /// dissolve multiplied into its alpha. `rtl` mirrors the dissolve, not the picture.
+    nonisolated static func bake(_ image: UIImage, rtl: Bool) -> UIImage? {
+        guard let source = image.cgImage else { return nil }
+        let w = Int(bakedSize.width), h = Int(bakedSize.height)
+        guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        let bounds = CGRect(x: 0, y: 0, width: w, height: h)
+        // Fill: scale to cover the region, centred.
+        let scale = max(CGFloat(w) / CGFloat(source.width), CGFloat(h) / CGFloat(source.height))
+        let drawn = CGSize(width: CGFloat(source.width) * scale, height: CGFloat(source.height) * scale)
+        ctx.interpolationQuality = .high
+        ctx.draw(source, in: CGRect(x: (CGFloat(w) - drawn.width) / 2, y: (CGFloat(h) - drawn.height) / 2,
+                                    width: drawn.width, height: drawn.height))
+        // Keep the art only as opaque as the dissolve: destination × mask alpha.
+        ctx.setBlendMode(.destinationIn)
+        if rtl {
+            ctx.translateBy(x: CGFloat(w), y: 0)
+            ctx.scaleBy(x: -1, y: 1)
+        }
+        ctx.draw(mask, in: bounds)
+        return ctx.makeImage().map { UIImage(cgImage: $0) }
+    }
+
     /// `alpha` drawn once into a 256² bitmap, sampled at texel centres; stretched over the region
     /// with linear filtering it reproduces the piecewise-linear ramps.
-    static let mask: CGImage = {
+    nonisolated static let mask: CGImage = {
         let side = 256
         var pixels = [UInt8](repeating: 0, count: side * side * 4)
         for row in 0..<side {
@@ -248,18 +296,47 @@ enum UltrablurPlates {
         washKey(path).flatMap { ImageMemoryCache.shared.object(forKey: $0) }
     }
 
-    /// Brings both layers of `path` into memory: the rendered wash and (`sharp`) the decoded sharp
-    /// art. Returns when both have loaded or failed.
-    static func warm(_ path: String, sharp: Bool = true) async {
+    /// Brings both layers of `path` into memory: the rendered wash and (`sharp`) the dissolved
+    /// sharp art. Returns when both have loaded or failed.
+    static func warm(_ path: String, sharp: Bool = true, rtl: Bool = false) async {
         guard sharp else { _ = await wash(for: path); return }
         async let wash = wash(for: path)
-        async let art = sharpArt(for: path)
+        async let art = art(for: path, rtl: rtl)
         _ = await (wash, art)
     }
 
-    private static func sharpArt(for path: String) async -> UIImage? {
-        guard let url = TMDBClient.imageURL(path: path, size: "w1280") else { return nil }
-        return await ImageMemoryCache.load(url)
+    private static func artKey(_ path: String, rtl: Bool) -> NSURL? {
+        var parts = URLComponents()
+        parts.scheme = rtl ? "seret-art-rtl" : "seret-art"
+        parts.path = path.hasPrefix("/") ? path : "/" + path
+        return parts.url as NSURL?
+    }
+
+    static func cachedArt(_ path: String, rtl: Bool) -> UIImage? {
+        artKey(path, rtl: rtl).flatMap { ImageMemoryCache.shared.object(forKey: $0) }
+    }
+
+    private static var artInFlight: [String: Task<UIImage?, Never>] = [:]
+
+    /// The sharp art for `path` with its dissolve baked in (`UltrablurArt.bake`), rendered off the
+    /// main actor from TMDB's `w1280` image and cached beside the washes. Nil when the image could
+    /// not be fetched; a later call tries again.
+    static func art(for path: String, rtl: Bool) async -> UIImage? {
+        if let hit = cachedArt(path, rtl: rtl) { return hit }
+        let flight = (rtl ? "rtl:" : "") + path
+        if let running = artInFlight[flight] { return await running.value }
+        let task = Task { () -> UIImage? in
+            guard let url = TMDBClient.imageURL(path: path, size: "w1280"),
+                  let source = await ImageMemoryCache.load(url) else { return nil }
+            return await Task.detached(priority: .userInitiated) { UltrablurArt.bake(source, rtl: rtl) }.value
+        }
+        artInFlight[flight] = task
+        let art = await task.value
+        artInFlight[flight] = nil
+        if let art, let key = artKey(path, rtl: rtl) {
+            ImageMemoryCache.shared.setObject(art, forKey: key, cost: ImageMemoryCache.cost(of: art))
+        }
+        return art
     }
 
     /// The blurred wash for `path`, rendered from TMDB's `w300` image. Nil when the image could
