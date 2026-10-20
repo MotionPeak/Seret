@@ -136,7 +136,8 @@ import DebridCore
     /// back up the moment it landed.
     @Test func aLandedSeekRestartsTheStallClock() async throws {
         let engine = FakeVideoPlayerEngine()
-        let model = makeModel(engine, stallThreshold: 1.0)
+        // Wide margins: a loaded CI box must not be able to make the landing look late.
+        let model = makeModel(engine, stallThreshold: 3.0)
         model.start(); await model.waitForIdleForTesting()
         engine.emit(.state(.playing))
         engine.emit(.time(.init(position: 100, duration: 3600)))
@@ -144,12 +145,12 @@ import DebridCore
         await model.waitForIdleForTesting()
 
         model.skip(30)
-        try await Task.sleep(for: .milliseconds(1200))     // a slow seek
+        try await Task.sleep(for: .milliseconds(3300))     // a seek slower than the threshold
         engine.emit(.time(.init(position: 130.5, duration: 3600)))   // lands
         await model.waitForIdleForTesting()
         #expect(model.isBuffering == false)
 
-        try await Task.sleep(for: .milliseconds(600))      // under the threshold since it landed
+        try await Task.sleep(for: .seconds(1))             // well under the threshold since it landed
         #expect(model.isBuffering == false, "the spinner came back over a seek that had landed")
         await model.teardown()
     }
