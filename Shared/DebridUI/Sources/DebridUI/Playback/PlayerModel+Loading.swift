@@ -165,10 +165,11 @@ extension PlayerModel {
                 position = t.position
                 positionStamp = .now
                 settlePlayhead()
-            } else if !resumeSeekIssued, !(earlyResumeSeekIssued && t.position < 1) {
-                // (A tick under a second, right after the early seek, is VLCKit's echo of the
-                // pre-seek time — see `earlyResumeSeekIssued` — not a seek that was dropped. A
-                // dropped one shows itself a tick later, with the film running from the top.)
+            } else if !resumeSeekIssued, !(earlyResumeSeekIssued && t.duration <= 0) {
+                // (A tick from a media that has not even reported its length is VLCKit's echo of
+                // the pre-seek time — see `earlyResumeSeekIssued` — not proof the seek was
+                // dropped: nothing has played yet. A dropped seek shows itself once the media is
+                // open, with the film running from the top.)
                 #if DEBUG
                 resumeProbe("DEFERRED seek — early one was DROPPED")
                 #endif

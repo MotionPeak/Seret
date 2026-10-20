@@ -518,8 +518,8 @@ public final class PlayerModel {
     /// well-trodden seek-while-playing path, which resets the clock. See `resumeEngine()`.
     var pausedSeekSent = false
     /// The load's early resume seek went out (see `loadCurrentSource`). VLCKit's `setTime:` posts a
-    /// time notification carrying the STALE time, so a tick near 0 right after it is that echo, not
-    /// proof the seek was dropped — and treating it as one issued the same seek twice.
+    /// time notification carrying the STALE time — 0, from a media not yet open (length 0) — and
+    /// taking that echo for a dropped seek issued the same seek twice.
     var earlyResumeSeekIssued = false
 
     // MARK: - Up Next (binge)
