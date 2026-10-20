@@ -19,9 +19,11 @@ extension BrowseScreen {
     static func tileID(_ row: String, _ hit: SearchHit) -> String { "\(row)/\(hit.id)" }
     static func segmentID(_ segment: DiscoverStore.Segment) -> String { "segment/\(segment.rawValue)" }
 
-    /// Every focus id on the page: the controls, then each rail's tiles.
-    func focusKeys(_ rows: [DiscoverStore.Row]) -> Set<String> {
+    /// Every focus id on the page: the controls, the failed row's Retry while it is up, then each
+    /// rail's tiles.
+    func focusKeys(_ rows: [DiscoverStore.Row], retry: Bool) -> Set<String> {
         var keys = Set(DiscoverStore.Segment.allCases.map(Self.segmentID))
+        if retry { keys.insert(PageRow.retry) }
         keys.insert(GenreStrip.focusID(for: nil))
         for genre in DiscoverStore.genres(for: kind) { keys.insert(GenreStrip.focusID(for: genre)) }
         for row in rows { for hit in row.hits { keys.insert(Self.tileID(row.id, hit)) } }

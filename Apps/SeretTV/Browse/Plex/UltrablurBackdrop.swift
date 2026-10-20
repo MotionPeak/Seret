@@ -22,8 +22,14 @@ import UIKit
 /// there — so a change that lands mid-fade never restarts or pops the plate below it: that plate
 /// just carries on fading in underneath. A plate is removed only once the one above it has fully
 /// covered it. A nil path is a plate too — plain canvas — so "no art" fades the same way.
+///
+/// `showsArt: false` draws the wash alone — Plex's library-grid background. A grid has no header
+/// in the leading third for the art to sit beside: its posters, captions and status line run the
+/// full width, and over the sharp art the light parts of a backdrop swallowed them (measured on the
+/// Watchlist: the partner line vanished into a bright poster-like backdrop).
 struct UltrablurBackdrop: View {
     let backdropPath: String?
+    var showsArt = true
 
     /// Bottom to top. Usually one; two or three while fades overlap.
     @State private var plates: [BackdropPlate] = []
@@ -35,7 +41,7 @@ struct UltrablurBackdrop: View {
             ForEach(plates) { plate in
                 Group {
                     if let path = plate.path {
-                        UltrablurPlate(path: path)
+                        UltrablurPlate(path: path, showsArt: showsArt)
                     } else {
                         Theme.Palette.canvas
                     }
@@ -55,7 +61,7 @@ struct UltrablurBackdrop: View {
         // Already the plate on top (or, for nil, nothing has ever been shown): nothing to do.
         if let top = plates.last { guard top.path != path else { return } } else if path == nil { return }
         // Hold the current plate until this one can draw — never fade towards an empty layer.
-        if let path { await UltrablurPlates.warm(path) }
+        if let path { await UltrablurPlates.warm(path, sharp: showsArt) }
         guard !Task.isCancelled else { return }
 
         let plate = BackdropPlate(serial: nextSerial, path: path)
@@ -89,6 +95,8 @@ private struct BackdropPlate: Identifiable {
 /// backdrop has warmed draws complete on its first frame.
 private struct UltrablurPlate: View {
     let path: String
+    /// Fixed for the backdrop's life — never a swap under focus.
+    let showsArt: Bool
 
     /// The sharp art's share of the screen, from the approved mockup.
     private static let artWidth: CGFloat = 0.70
@@ -104,25 +112,31 @@ private struct UltrablurPlate: View {
                         .frame(width: geo.size.width, height: geo.size.height)
                         .clipped()
                 }
-                RemoteImage(url: TMDBClient.imageURL(path: path, size: "w1280"), contentMode: .fill) { _ in
-                    Color.clear
-                }
-                .frame(width: geo.size.width * Self.artWidth, height: geo.size.height * Self.artHeight)
-                .clipped()
-                .mask {
-                    // Opaque from the trailing edge to 45% in, gone at the leading edge — and the
-                    // same from the top down to 45% above the bottom. The two multiply.
-                    LinearGradient(stops: [.init(color: .clear, location: 0),
-                                           .init(color: .black, location: 0.55)],
-                                   startPoint: .leading, endPoint: .trailing)
-                        .mask {
-                            LinearGradient(stops: [.init(color: .black, location: 0.55),
-                                                   .init(color: .clear, location: 1)],
-                                           startPoint: .top, endPoint: .bottom)
-                        }
-                }
+                if showsArt { sharpArt(geo.size) }
             }
             .frame(width: geo.size.width, height: geo.size.height, alignment: .topTrailing)
+        }
+    }
+
+    /// The sharp backdrop in the trailing 70% × top 76%, dissolving towards the leading and bottom
+    /// edges.
+    private func sharpArt(_ size: CGSize) -> some View {
+        RemoteImage(url: TMDBClient.imageURL(path: path, size: "w1280"), contentMode: .fill) { _ in
+            Color.clear
+        }
+        .frame(width: size.width * Self.artWidth, height: size.height * Self.artHeight)
+        .clipped()
+        .mask {
+            // Opaque from the trailing edge to 45% in, gone at the leading edge — and the
+            // same from the top down to 45% above the bottom. The two multiply.
+            LinearGradient(stops: [.init(color: .clear, location: 0),
+                                   .init(color: .black, location: 0.55)],
+                           startPoint: .leading, endPoint: .trailing)
+                .mask {
+                    LinearGradient(stops: [.init(color: .black, location: 0.55),
+                                           .init(color: .clear, location: 1)],
+                                   startPoint: .top, endPoint: .bottom)
+                }
         }
     }
 }
@@ -166,12 +180,13 @@ enum UltrablurPlates {
         washes.object(forKey: path as NSString)
     }
 
-    /// Brings both layers of `path` into memory: the rendered wash and the decoded sharp art.
-    /// Returns when both have loaded or failed.
-    static func warm(_ path: String) async {
+    /// Brings both layers of `path` into memory: the rendered wash and (`sharp`) the decoded sharp
+    /// art. Returns when both have loaded or failed.
+    static func warm(_ path: String, sharp: Bool = true) async {
+        guard sharp else { _ = await wash(for: path); return }
         async let wash = wash(for: path)
-        async let sharp = sharpArt(for: path)
-        _ = await (wash, sharp)
+        async let art = sharpArt(for: path)
+        _ = await (wash, art)
     }
 
     private static func sharpArt(for path: String) async -> UIImage? {

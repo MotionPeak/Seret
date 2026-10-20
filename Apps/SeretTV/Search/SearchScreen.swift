@@ -5,6 +5,7 @@ import SwiftUI
 /// Full-screen search, pushed from the Browse "Search" button. It owns the keyboard, so search only
 /// opens when explicitly chosen — navigating the discover rows never triggers it. Results reuse the
 /// shared `BrowseTile`, so tapping one pushes Detail (owned) or the Add flow (new) on the shell stack.
+/// The focused result's ultrablur sits behind it all (`GridBackdrop`).
 struct SearchScreen: View {
     /// The kind the side menu guessed from the section you were in — a starting point, not a
     /// constraint. Without the in-place toggle below, searching for a show from Home is a dead end.
@@ -19,15 +20,37 @@ struct SearchScreen: View {
     @State private var query = ""
     @State private var kind: MediaKind
     @FocusState private var focusedKind: MediaKind?
+    /// The backdrop's subject: results report focus, it publishes the one focus settles on. Only
+    /// the backdrop reads it, so a move across the results never re-renders this screen.
+    @State private var preview = FocusPreviewModel()
 
     init(kind: MediaKind) {
         self.initialKind = kind
         _kind = State(initialValue: kind)
     }
 
+#if DEBUG
+    /// `-uiPreview search`: a fixture store, the harness's art, and a query already typed.
+    private var previewSearch: SearchStore?
+    private var previewArt: TitleArtStore?
+
+    init(kind: MediaKind, previewSearch: SearchStore, previewArt: TitleArtStore?, query: String) {
+        self.init(kind: kind)
+        self.previewSearch = previewSearch
+        self.previewArt = previewArt
+        _query = State(initialValue: query)
+    }
+
+    private var searchStore: SearchStore? { previewSearch ?? session.searchStore }
+    private var art: TitleArtStore? { previewArt ?? session.titleArt }
+#else
+    private var searchStore: SearchStore? { session.searchStore }
+    private var art: TitleArtStore? { session.titleArt }
+#endif
+
     var body: some View {
         Group {
-            if let search = session.searchStore {
+            if let search = searchStore {
                 VStack(alignment: .leading, spacing: 0) {
                     kindToggle
                     content(search)
@@ -46,7 +69,7 @@ struct SearchScreen: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(CanvasBackground())
+        .background { GridBackdrop(preview: preview, art: art) }
     }
 
     /// Movies / TV Shows in place. Commit-on-press like every other pill row in the app — and the
@@ -95,14 +118,23 @@ struct SearchScreen: View {
     }
 
     private func resultsGrid(_ hits: [SearchHit]) -> some View {
-        let columns = [GridItem(.adaptive(minimum: 220, maximum: 260), spacing: 50)]
+        let preview = preview
         return ScrollView {
-            LazyVGrid(columns: columns, spacing: 50) {
-                ForEach(hits) { BrowseTile(hit: $0) }
+            LazyVGrid(columns: PosterGridLayout.columns, spacing: PosterGridLayout.rowSpacing) {
+                ForEach(hits) { hit in
+                    CaptionedPoster(caption: hit.result.displayTitle) {
+                        BrowseTile(hit: hit, onFocus: { preview.focus(PreviewSubject(hit: hit)) })
+                    }
+                }
             }
-            .padding(Theme.Layout.contentMargin)
+            .padding(.horizontal, Theme.Layout.contentMargin)
+            .padding(.vertical, PosterGridLayout.topPadding)
         }
         .gridTopFade()
+        // A new search shows its best result until focus picks one.
+        .seedsGridBackdrop(preview, key: hits.first?.id ?? "",
+                           first: hits.first.map(PreviewSubject.init(hit:)),
+                           contains: { id in hits.contains { $0.id == id } })
         // One batched read for whatever this search turned up, so the posters can say what you
         // have already seen.
         .task(id: hits.map(\.id).joined()) { await marks?.load(hits) }

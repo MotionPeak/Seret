@@ -28,7 +28,7 @@ enum BrowseDestination: Hashable {
 /// cinemas, and the press-and-hold menu (watched, watchlist, remove). Owned or not, it opens the
 /// SAME page — an un-owned title is a source-less placeholder that `DetailStore` fills in from TMDB
 /// exactly as it fills in a library item. Shared by Movies/Shows, Search, the genre grid, a
-/// person's credits and "More Like This".
+/// person's credits and "More Like This"; the grids wrap it in `CaptionedPoster` for its title.
 ///
 /// ⚠️ The link must be ONE stable view whose VALUE varies — not an owned/not-owned branch of two
 /// links. The background library load flips `ownedItem` while the user browses; a branch swap
@@ -57,6 +57,8 @@ struct BrowseTile: View {
         // Watched beats owned beats CAM — the tile shows one mark at a time, as it always has.
         return PosterTile(posterPath: hit.result.posterPath, title: hit.result.displayTitle,
                           chip: cam && owned == nil && !watched ? "CAM" : nil,
+                          // A warning, not a label: a cinema recording is worth avoiding.
+                          chipTint: Theme.Palette.destructive.opacity(0.85),
                           watched: watched, owned: owned != nil, onFocus: onFocus,
                           value: BrowseDestination.detail(owned ?? .placeholder(for: hit)))
             // Press and hold to say you have seen it. `PosterCard` in the library grid already

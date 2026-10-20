@@ -39,6 +39,11 @@ struct BrowseScreen: View {
 
     /// Drives the preview header: tiles report focus, it publishes the one focus settles on.
     @State private var preview = FocusPreviewModel()
+    /// The genre grid's backdrop subject — its own, so the rails' header keeps its title under it.
+    @State private var genrePreview = FocusPreviewModel()
+    /// The segment a Retry press is reloading. Its failed row stays up — saying "Trying…" — until
+    /// the load answers, so the focused Retry is never swapped for the skeleton under the viewer.
+    @State private var retrying: DiscoverStore.Segment?
     /// The page's focus, followed without a `FocusState` of this screen's own — that re-rendered
     /// the screen, and rebuilt every rail, on each move along a rail (measured on Home).
     @State var focusHandle = FocusBrowseHandle()
@@ -54,6 +59,8 @@ struct BrowseScreen: View {
     var previewBrowse: DiscoverStore?
     /// The harness's art store (the unsigned preview session has none).
     var previewArt: TitleArtStore?
+    /// The harness's genre titles (the preview session builds no genre grid store).
+    var previewGenres: GenreBrowsing?
     private var browse: DiscoverStore? {
         previewBrowse ?? (kind == .movie ? session.moviesBrowse : session.showsBrowse)
     }
@@ -113,32 +120,37 @@ struct BrowseScreen: View {
         static let controls = "browse-controls"
         static let skeleton = "browse-skeleton"
         static let failed = "browse-failed"
+        /// The failed row's Retry — its `plexFocusID`.
+        static let retry = "browse-retry"
     }
 
     private func page(_ browse: DiscoverStore) -> some View {
         let segment = browse.selectedSegment
         let rows = browse.rows
-        let keys = focusKeys(rows)
+        let state = browse.segmentState(segment)
+        // ONE value feeding ONE branch (Home's rule): a retry's loading keeps the failed row, so
+        // the flip failed → loading never rebuilds the focused button.
+        let segmentFailed = state == .failed
+            || (retrying == segment && (state == .loading || state == .idle))
+        let keys = focusKeys(rows, retry: segmentFailed)
         // Where focus goes on the way in — and where tvOS re-homes it when the focused view is
         // rebuilt (measured: a For You rebuild that inserts a rail above the focused one re-homed
         // focus to the page's default, the new first poster): back where it was while that is
         // still on the page, else the first poster, else — nothing loaded yet — the selected
         // segment's pill. `lastFocused` is read, not observed: it is current whenever the body
         // runs, and the body runs when the rails change and when focus leaves (`entryFocus`).
+        // A failed segment's Retry comes before the first poster: re-homing after a failed reload
+        // keeps Try Again focused rather than handing focus to a stale tile or the pills.
         let focusTarget = [focusMemory.lastFocused, entryFocus].compactMap { $0 }.first(where: keys.contains)
+            ?? (segmentFailed ? PageRow.retry : nil)
             ?? rows.first?.hits.first.map { Self.tileID(rows[0].id, $0) }
             ?? Self.segmentID(segment)
         return FocusBrowsePage(preview: preview, art: art, initialFocus: focusTarget,
                                focusOnEntry: true, handle: focusHandle) {
             controls(browse)
-            switch browse.segmentState(segment) {
-            case .idle, .loading:
-                // Its own row with its own id, beside — never inside — the rails' lazy rows, and at
-                // the rails' real metrics, so the page does not change height when they land.
-                BrowseSkeleton().id(PageRow.skeleton)
-            case .failed:
-                failed(browse)
-            case .loaded:
+            if segmentFailed {
+                failed(browse, segment: segment)
+            } else if state == .loaded {
                 ForEach(rows) { row in
                     PlexRail(title: row.title, id: row.id) {
                         ForEach(row.hits) { hit in tile(hit, row: row.id, segment: segment, browse: browse) }
@@ -146,6 +158,10 @@ struct BrowseScreen: View {
                     // One batched read per rail; already-known titles cost nothing.
                     .task(id: row.hits.map(\.id).joined()) { await marks?.load(row.hits) }
                 }
+            } else {
+                // Its own row with its own id, beside — never inside — the rails' lazy rows, and at
+                // the rails' real metrics, so the page does not change height when they land.
+                BrowseSkeleton().id(PageRow.skeleton)
             }
         }
         // Until a tile of THIS segment has had focus, the header shows the segment's first title —
@@ -209,14 +225,24 @@ struct BrowseScreen: View {
         .plexFocusID(Self.tileID(row, hit))
     }
 
-    private func failed(_ browse: DiscoverStore) -> some View {
-        VStack(spacing: 24) {
+    private func failed(_ browse: DiscoverStore, segment: DiscoverStore.Segment) -> some View {
+        let trying = retrying == segment
+        return VStack(spacing: 24) {
             Image(systemName: "exclamationmark.triangle").font(.system(size: 54))
                 .foregroundStyle(Theme.Palette.textSecondary)
             Text("Couldn't load.").sectionTitle()
-            Button("Retry") { Task { await browse.loadSegment(browse.selectedSegment) } }
-                .buttonStyle(SeretPillStyle(selected: false))
-                .reportsPlexRailFocus()
+            // The label changes; the button does not — it keeps focus while the retry runs.
+            Button(trying ? "Trying…" : "Retry") {
+                guard !trying else { return }
+                retrying = segment
+                Task {
+                    await browse.loadSegment(segment)
+                    if retrying == segment { retrying = nil }
+                }
+            }
+            .buttonStyle(SeretPillStyle(selected: false))
+            .plexFocusID(PageRow.retry)
+            .reportsPlexRailFocus()
         }
         .padding(.vertical, 60)
         .frame(maxWidth: .infinity)
@@ -226,17 +252,27 @@ struct BrowseScreen: View {
 
     // MARK: - Genre grid
 
-    /// The genre strip again, over that genre's grid. Its strip claims focus, so the page's
-    /// focused pill — gone under it the moment the grid swaps in — hands focus to the same genre
-    /// here rather than to the side menu.
+    /// The genre strip again, over that genre's grid, over the focused title's ultrablur. Its strip
+    /// claims focus, so the page's focused pill — gone under it the moment the grid swaps in —
+    /// hands focus to the same genre here rather than to the side menu. At the page's own inset,
+    /// so the pills do not jump sideways when the grid swaps in.
     private func genreLayer(_ selected: DiscoverStore.Genre) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            GenreStrip(kind: kind, selection: $genre, leadingInset: Theme.Layout.contentMargin,
+            GenreStrip(kind: kind, selection: $genre, leadingInset: PosterGridLayout.rootInset,
                        claimsFocus: true)
                 .padding(.bottom, 6)
-            GenreGridScreen(kind: kind, genre: selected)
+            genreGrid(selected)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background { GridBackdrop(preview: genrePreview, art: art) }
+    }
+
+    private func genreGrid(_ selected: DiscoverStore.Genre) -> some View {
+#if DEBUG
+        GenreGridScreen(kind: kind, genre: selected, preview: genrePreview, previewBrowsing: previewGenres)
+#else
+        GenreGridScreen(kind: kind, genre: selected, preview: genrePreview)
+#endif
     }
 }
 

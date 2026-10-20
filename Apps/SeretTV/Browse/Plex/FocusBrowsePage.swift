@@ -155,13 +155,7 @@ struct FocusBrowsePage<Rails: View>: View {
     /// The backdrop, full-bleed: out past the safe area AND past the shell's leading inset, so the
     /// art runs under the side menu as it does in Plex.
     private var backdrop: some View {
-        GeometryReader { geo in
-            let lead = max(0, geo.frame(in: .global).minX)
-            UltrablurBackdrop(backdropPath: backdropPath)
-                .frame(width: geo.size.width + lead, height: geo.size.height)
-                .offset(x: -lead)
-        }
-        .ignoresSafeArea()
+        FullBleedUltrablur(backdropPath: backdropPath)
     }
 
     /// Puts the focused row back at the top when something moved it — or, while the page's own

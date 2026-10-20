@@ -10,12 +10,17 @@ import SwiftUI
 /// load: For You's first two rails land within a second, the third (`More like Parasite`) 4 s in,
 /// appended below. A film in cinemas carries the CAM chip.
 ///
+/// A genre pill opens that genre's grid on fixture titles (`BrowsePreviewFixture.Genres`).
+///
 /// `browseinsert` also lands a watch history 9 s in and asks the store to rebuild For You, as the
 /// page does when the profile resolves: the quiet rebuild (all rails in, then one swap) adds
 /// "Because you watched Oldboy" ABOVE the rails already on screen — the case where the page must
 /// keep the focused rail at the top.
 struct BrowseScreenPreview: View {
     var insertAbove = false
+    /// `browsefailed`: every Discover call fails (after 1.5 s), so For You lands on its failed
+    /// row — Retry, "Trying…", failed again — to check the button keeps focus throughout.
+    var failing = false
 
     @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()))
     @State private var seeds = BrowsePreviewFixture.Seeds()
@@ -27,7 +32,8 @@ struct BrowseScreenPreview: View {
         NavigationStack {
             Group {
                 if let store {
-                    BrowseScreen(kind: .movie, previewBrowse: store, previewArt: art)
+                    BrowseScreen(kind: .movie, previewBrowse: store, previewArt: art,
+                                 previewGenres: BrowsePreviewFixture.Genres())
                 } else {
                     Color.black
                 }
@@ -39,7 +45,9 @@ struct BrowseScreenPreview: View {
         }
         .environment(session)
         .task {
-            let browse = DiscoverStore(kind: .movie, discover: BrowsePreviewFixture.Discover(), seeds: seeds)
+            let discover: DiscoverProviding = failing ? BrowsePreviewFixture.FailingDiscover()
+                                                      : BrowsePreviewFixture.Discover()
+            let browse = DiscoverStore(kind: .movie, discover: discover, seeds: seeds)
             store = browse
             guard insertAbove else { return }
             try? await Task.sleep(for: .seconds(9))
@@ -127,6 +135,32 @@ enum BrowsePreviewFixture {
             }
             return Array(list.prefix(limit))
         }
+    }
+
+    /// A genre grid: twenty pool titles per page, offset by genre, sort and page.
+    struct Genres: GenreBrowsing {
+        func titles(kind: MediaKind, genreID: Int, sort: GenreSort, page: Int) async throws -> [TMDBSearchResult] {
+            try? await Task.sleep(for: .milliseconds(400))
+            let sortOffset = GenreSort.allCases.firstIndex(of: sort) ?? 0
+            return slice(genreID % 23 + sortOffset * 5 + (page - 1) * 20, 20)
+        }
+    }
+
+    /// Every call fails, a beat late — the "Couldn't load." row and its Retry.
+    struct FailingDiscover: DiscoverProviding {
+        private func fail() async throws -> [TMDBSearchResult] {
+            try? await Task.sleep(for: .milliseconds(1_500))
+            throw URLError(.notConnectedToInternet)
+        }
+        func nowPlayingMovies() async throws -> [TMDBSearchResult] { try await fail() }
+        func trending(_ kind: MediaKind, window: TMDBTrendingWindow) async throws -> [TMDBSearchResult] { try await fail() }
+        func topRatedCurated(_ kind: MediaKind) async throws -> [TMDBSearchResult] { try await fail() }
+        func newOverall(_ kind: MediaKind, from: String, to: String) async throws -> [TMDBSearchResult] { try await fail() }
+        func decade(_ kind: MediaKind, from: String, to: String) async throws -> [TMDBSearchResult] { try await fail() }
+        func recommended(_ kind: MediaKind, tmdbID: Int) async throws -> [TMDBSearchResult] { try await fail() }
+        func newByGenre(_ kind: MediaKind, _ genreID: Int, from: String, to: String) async throws -> [TMDBSearchResult] { try await fail() }
+        func popularByGenre(_ kind: MediaKind, _ genreID: Int) async throws -> [TMDBSearchResult] { try await fail() }
+        func topRatedByGenre(_ kind: MediaKind, _ genreID: Int) async throws -> [TMDBSearchResult] { try await fail() }
     }
 
     struct Discover: DiscoverProviding {

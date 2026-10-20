@@ -3,9 +3,18 @@ import DebridUI
 import SwiftUI
 
 /// One genre's titles as a dense poster grid, with the old segment pills demoted to a sort control.
+/// Its cells report focus to `preview`, which drives the backdrop its host draws behind the strip
+/// and the grid together (see `BrowseScreen.genreLayer`).
 struct GenreGridScreen: View {
     let kind: MediaKind
     let genre: DiscoverStore.Genre
+    /// The host's backdrop subject. Never read here (only the backdrop reads `shown`), so a move
+    /// across the grid re-renders neither this screen nor its host.
+    let preview: FocusPreviewModel
+#if DEBUG
+    /// `-uiPreview browse`: the fixture's genre titles (the preview session builds no grid store).
+    var previewBrowsing: GenreBrowsing?
+#endif
 
     @Environment(AppSession.self) private var session
     /// OPTIONAL, deliberately. A non-optional `@Environment` read of an `@Observable` TRAPS when
@@ -31,7 +40,12 @@ struct GenreGridScreen: View {
         .task(id: genre.tmdbID) {
             guard loadedGenreID != genre.tmdbID else { return }
             loadedGenreID = genre.tmdbID
+#if DEBUG
+            let s = previewBrowsing.map { GenreGridStore(kind: kind, genre: genre, browsing: $0) }
+                ?? session.makeGenreGrid(kind: kind, genre: genre)
+#else
             let s = session.makeGenreGrid(kind: kind, genre: genre)
+#endif
             store = s
             await s?.load()
         }
@@ -47,7 +61,7 @@ struct GenreGridScreen: View {
                 .focused($focusedSort, equals: sort)
             }
         }
-        .padding(.leading, Theme.Layout.contentMargin)
+        .padding(.leading, PosterGridLayout.rootInset)
         .padding(.bottom, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
         .focusSection()
@@ -74,40 +88,53 @@ struct GenreGridScreen: View {
     }
 
     private func grid(_ hits: [SearchHit]) -> some View {
-        let columns = [GridItem(.adaptive(minimum: 220, maximum: 260), spacing: 50)]
+        let preview = preview
         return ScrollView {
-            LazyVGrid(columns: columns, spacing: 50) {
+            LazyVGrid(columns: PosterGridLayout.columns, spacing: PosterGridLayout.rowSpacing) {
                 ForEach(hits) { hit in
-                    BrowseTile(hit: hit)
-                        .onAppear {
-                            // Page in when the tail comes into view.
-                            if hit == hits.last { Task { await store?.loadMore() } }
-                        }
+                    CaptionedPoster(caption: hit.result.displayTitle) {
+                        BrowseTile(hit: hit, onFocus: { preview.focus(PreviewSubject(hit: hit)) })
+                    }
+                    .onAppear {
+                        // Page in when the tail comes into view.
+                        if hit == hits.last { Task { await store?.loadMore() } }
+                    }
                 }
             }
-            .padding(.horizontal, Theme.Layout.contentMargin)
-            .padding(.vertical, 30)
+            .padding(.horizontal, PosterGridLayout.rootInset)
+            .padding(.vertical, PosterGridLayout.topPadding)
         }
         .gridTopFade()
+        // The genre's first title until focus picks one — and again for a new sort or genre.
+        .seedsGridBackdrop(preview, key: hits.first?.id ?? "",
+                           first: hits.first.map(PreviewSubject.init(hit:)),
+                           contains: { id in hits.contains { $0.id == id } })
         .task(id: hits.map(\.id).joined()) { await marks?.load(hits) }
         .frame(maxWidth: .infinity, alignment: .leading)
         .focusSection()
     }
 }
 
-/// Redacted posters at the grid's real size, so the page height never changes while it loads.
+/// Redacted cells at the grid's real size — the 236×354 poster and its caption line, in the grid's
+/// columns and insets — so the page height never changes while it loads. A plain grid outside the
+/// real one (never a skeleton branch inside a lazy container).
 private struct GenreGridSkeleton: View {
     var body: some View {
-        let columns = [GridItem(.adaptive(minimum: 220, maximum: 260), spacing: 50)]
-        return LazyVGrid(columns: columns, spacing: 50) {
+        LazyVGrid(columns: PosterGridLayout.columns, spacing: PosterGridLayout.rowSpacing) {
             ForEach(0..<12, id: \.self) { _ in
-                RoundedRectangle(cornerRadius: Theme.Layout.posterCorner, style: .continuous)
-                    .fill(Theme.Palette.surface2)
-                    .frame(height: 330)
+                VStack(alignment: .leading, spacing: PosterGridLayout.captionSpacing) {
+                    RoundedRectangle(cornerRadius: Theme.Layout.posterCorner, style: .continuous)
+                        .fill(Theme.Palette.surface2)
+                        .frame(width: PosterTileMetrics.width, height: PosterTileMetrics.height)
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(Theme.Palette.surface2)
+                        .frame(width: PosterTileMetrics.width * 0.6, height: 28)
+                }
             }
         }
-        .padding(.horizontal, Theme.Layout.contentMargin)
-        .padding(.vertical, 30)
+        .padding(.horizontal, PosterGridLayout.rootInset)
+        .padding(.vertical, PosterGridLayout.topPadding)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .accessibilityHidden(true)
     }
 }

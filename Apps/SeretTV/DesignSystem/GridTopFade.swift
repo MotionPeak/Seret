@@ -1,8 +1,13 @@
 import SwiftUI
 
 extension View {
-    /// Fades a scroll view's top band into the canvas, so a row crossing the top edge dissolves
-    /// instead of being cut in half.
+    /// Fades a scroll view's top band out, so a row crossing the top edge dissolves instead of
+    /// being cut in half.
+    ///
+    /// It is a MASK — it makes the band transparent, it never paints a colour over it — so the band
+    /// dissolves into whatever is behind the scroll view: on every grid page that is the focused
+    /// title's ultrablur (`GridBackdrop`), on a browse page the same backdrop under its header. A
+    /// gradient to a flat canvas colour would draw a navy bar across the art.
     ///
     /// Every grid in the app scrolls under a pinned header (the Movies/Shows pills, the genre
     /// strip). A raw `ScrollView` clips at its bounds, which reads as a rendering bug: half a
@@ -13,7 +18,7 @@ extension View {
     /// the rails already work around with negative horizontal padding.
     ///
     /// `height` is the fade band in points, measured from the top. 100pt was chosen against the
-    /// `-uiPreview gridfade` harness: it dissolves roughly the top third of a 330pt poster, which
+    /// `-uiPreview gridfade` harness: it dissolves roughly the top third of a 354pt poster, which
     /// reads as a soft edge rather than a dimmed row. A focused row is always fully scrolled into
     /// view, so it is never touched.
     ///

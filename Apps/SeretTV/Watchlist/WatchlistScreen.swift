@@ -6,8 +6,8 @@ import SwiftUI
 ///
 /// Laid out as the app's other grid screens are: no in-content page title (the side menu already
 /// names the section — see `LibraryScreen`), a pinned control row above a grid that scrolls under
-/// a top fade, and `PosterGrid`'s column metrics so a poster here is the same size it is on Home
-/// and in My Library.
+/// a top fade, `PosterGridLayout`'s metrics so a poster here is the same size it is on Home and in
+/// My Library, and the focused film's ultrablur behind it all (`GridBackdrop`).
 struct WatchlistScreen: View {
     @Environment(AppSession.self) private var session
     @State private var model: WatchlistModel?
@@ -21,21 +21,24 @@ struct WatchlistScreen: View {
     /// The model the `-uiPreview watchlist` harness renders instead of the session's, so the real
     /// screen can be screenshot-verified without a signed-in session or a Letterboxd account.
     var previewModel: WatchlistModel?
+    /// The harness's art store (the unsigned preview session has none).
+    var previewArt: TitleArtStore?
+    private var art: TitleArtStore? { previewArt ?? session.titleArt }
+#else
+    private var art: TitleArtStore? { session.titleArt }
 #endif
+
+    /// The backdrop's subject: tiles report focus, it publishes the one focus settles on. Only the
+    /// backdrop reads it, so a move across the grid never re-renders this screen.
+    @State private var preview = FocusPreviewModel()
 
     /// The spin in progress. Replacing it re-runs the reel, which is how "Spin Again" works.
     @State private var spin: WatchlistRandomizer.Spin?
     /// A film awaiting removal confirmation. Removing is the one destructive thing on this screen.
     @State private var pendingRemoval: WatchlistEntry?
 
-    /// `PosterGrid`'s metrics verbatim — six across at 1080p. The grid pads itself rather than
-    /// being padded by a parent, so the focus lift has somewhere to go at the row edges instead of
-    /// being clipped against them.
-    private let columns = [GridItem(.adaptive(minimum: 220, maximum: 260), spacing: 50)]
-
     var body: some View {
         ZStack {
-            CanvasBackground()
             if let model {
                 content(model)
             } else {
@@ -44,6 +47,7 @@ struct WatchlistScreen: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background { GridBackdrop(preview: preview, art: art) }
         .fullScreenCover(item: $spin) { current in
             WatchlistSpinScreen(
                 spin: current,
@@ -107,20 +111,28 @@ struct WatchlistScreen: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
+    /// The grid pads itself rather than being padded by a parent, so the focus lift has somewhere
+    /// to go at the row edges instead of being clipped against them.
     private func grid(_ model: WatchlistModel) -> some View {
-        ScrollView {
-            LazyVGrid(columns: columns, spacing: 50) {
+        let preview = preview
+        let first = model.entries.first.flatMap { MediaItem.watchlistTitle($0, library: session.libraryStore) }
+        return ScrollView {
+            LazyVGrid(columns: PosterGridLayout.columns, spacing: PosterGridLayout.rowSpacing) {
                 ForEach(model.entries) { entry in
                     WatchlistTile(entry: entry, owned: model.isOwned(entry),
-                                  onRemove: { pendingRemoval = $0 })
+                                  onRemove: { pendingRemoval = $0 },
+                                  onFocus: { preview.focus(PreviewSubject(item: $0)) })
                 }
             }
-            .padding(.horizontal, Theme.Layout.contentMargin)
-            .padding(.vertical, 30)
+            .padding(.horizontal, PosterGridLayout.rootInset)
+            .padding(.vertical, PosterGridLayout.topPadding)
         }
         .gridTopFade()
         .frame(maxWidth: .infinity, alignment: .leading)
         .focusSection()
+        // The newest film until focus picks one. Ids are the films' page ids (owned or not).
+        .seedsGridBackdrop(preview, key: first?.id ?? "", first: first.map(PreviewSubject.init(item:)),
+                           contains: { _ in true })
     }
 
     /// The sync affordance, pinned above the scroll like `GenreGridScreen`'s sort row — a control
@@ -175,7 +187,7 @@ struct WatchlistScreen: View {
                     .foregroundStyle(Theme.Palette.destructive)
             }
         }
-        .padding(.leading, Theme.Layout.contentMargin)
+        .padding(.leading, PosterGridLayout.rootInset)
         .padding(.bottom, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
         .focusSection()
@@ -192,9 +204,10 @@ struct WatchlistScreen: View {
     }
 }
 
-/// One watchlist film — `PosterCard`'s shape, so the grid reads as the same grid it is everywhere
-/// else: the poster is the `FocusCardStyle` button (focus lift + ring), the title sits below it as plain text and
-/// brightens with focus.
+/// One watchlist film — the grid cell every grid uses (`CaptionedPoster` over a `PosterTile`), so
+/// the grid reads as the same grid it is everywhere else: the poster lifts with a ring, the title
+/// sits below it and brightens with focus, and a film already in the library carries the grey
+/// "in library" ✓.
 ///
 /// A film that resolved to nothing is still shown — as a plain card, not a link. Hiding it would
 /// make the count disagree with Letterboxd and give no way to find out why; making it a link would
@@ -205,10 +218,8 @@ private struct WatchlistTile: View {
     /// Long-press → remove. Raised rather than handled here so the confirmation belongs to the
     /// screen: a dialog owned by a tile dies with the tile the moment the grid updates.
     var onRemove: (WatchlistEntry) -> Void = { _ in }
-
-    private let width: CGFloat = 220
-    private let height: CGFloat = 330
-    @FocusState private var focused: Bool
+    /// Focus landed on a matched film — the page's backdrop follows it.
+    var onFocus: (MediaItem) -> Void = { _ in }
 
     private var title: String { WatchlistName.stripYear(from: entry.name) }
 
@@ -217,92 +228,31 @@ private struct WatchlistTile: View {
     private var item: MediaItem? { MediaItem.watchlistTitle(entry, library: session.libraryStore) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        let item = item
+        // Short enough to survive one line at the caption size — "Couldn't match this on TMDB"
+        // truncated to "Couldn't matc…", which explains nothing at all. The poster surface above
+        // already carries the film's name, so this only has to say why it is grey.
+        CaptionedPoster(caption: item == nil ? "No TMDB match" : title, note: item == nil) {
             if let item {
-                NavigationLink(value: BrowseDestination.detail(item)) { poster }
-                    .buttonStyle(FocusCardStyle())
-                    .focused($focused)
+                PosterTile(posterPath: entry.posterPath, title: title, owned: owned,
+                           onFocus: { onFocus(item) }, value: BrowseDestination.detail(item))
                     .contextMenu { removeButton }
             } else {
-                // Focusable although it goes nowhere. tvOS scrolls by MOVING FOCUS, so a tile with
-                // no focus target cannot be scrolled to: a trailing row of unmatched films — and
-                // the caption explaining why they are grey — sat permanently below the fold with
-                // the d-pad refusing to advance. Verified in the simulator, six presses, no move.
-                poster
-                    .focusable()
-                    .focused($focused)
-                    .scaleEffect(focused ? Theme.Anim.focusScale : 1)
-                    .animation(Theme.Anim.focus, value: focused)
+                // Focusable although it goes nowhere (a button with no action). tvOS scrolls by
+                // MOVING FOCUS, so a tile with no focus target cannot be scrolled to: a trailing
+                // row of unmatched films — and the caption explaining why they are grey — sat
+                // permanently below the fold with the d-pad refusing to advance.
+                PosterTile(posterPath: entry.posterPath, title: title, owned: owned, action: {})
                     // Removable too — an unmatched film is the one you are most likely to want
                     // rid of, since it is the one Seret can do nothing with.
                     .contextMenu { removeButton }
             }
-            caption
         }
-    }
-
-    @ViewBuilder private var poster: some View {
-        Group {
-            if let url = TMDBClient.imageURL(path: entry.posterPath, size: "w500") {
-                RemoteImage(url: url)
-            } else {
-                noPoster
-            }
-        }
-        .frame(width: width, height: height)
-        .clipShape(RoundedRectangle(cornerRadius: Theme.Layout.posterCorner, style: .continuous))
-        .overlay(alignment: .topTrailing) {
-            if owned {
-                // The same white ✓ a watched title carries elsewhere: on a list of things to
-                // acquire, "you already have this" is the one thing worth marking.
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 34))
-                    .foregroundStyle(Theme.Palette.focus)
-                    .background(Circle().fill(.black.opacity(0.55)))
-                    .padding(12)
-                    .accessibilityLabel("In your library")
-            }
-        }
-    }
-
-    /// No artwork — the title on a palette surface, exactly as `PosterCard` falls back.
-    private var noPoster: some View {
-        Theme.Palette.surface1
-            .overlay {
-                Text(title)
-                    .cardTitle()
-                    .foregroundStyle(Theme.Palette.textSecondary)
-                    .multilineTextAlignment(.center)
-                    .padding(12)
-            }
     }
 
     private var removeButton: some View {
         Button("Remove from Watchlist", systemImage: "minus.circle", role: .destructive) {
             onRemove(entry)
-        }
-    }
-
-    @ViewBuilder private var caption: some View {
-        if item == nil {
-            // Short enough to survive one line at the caption size — "Couldn't match this on TMDB"
-            // truncated to "Couldn't matc…", which explains nothing at all. The poster surface
-            // above already carries the film's name, so this only has to say why it is grey.
-            //
-            // textSecondary, not a third step: the tvOS ramp is deliberately two steps because a
-            // dimmer one does not read across a room. See Theme.Palette.
-            Text("No TMDB match")
-                .cardTitle()
-                .lineLimit(1)
-                .foregroundStyle(Theme.Palette.textSecondary)
-                .frame(width: width, alignment: .leading)
-        } else {
-            Text(title)
-                .cardTitle()
-                .lineLimit(1)
-                .foregroundStyle(focused ? Theme.Palette.textPrimary : Theme.Palette.textSecondary)
-                .frame(width: width, alignment: .leading)
-                .animation(Theme.Anim.focus, value: focused)
         }
     }
 }

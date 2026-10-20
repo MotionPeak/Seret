@@ -3,7 +3,8 @@ import DebridUI
 import SwiftUI
 
 /// The user's Real-Debrid library, split into Movies / TV via a focusable selector over the
-/// shared `LibraryStore`. Reuses `LibraryScreen` (states + poster grid + Detail/play).
+/// shared `LibraryStore`. Reuses `LibraryScreen` (states + poster grid + Detail/play), over the
+/// focused title's ultrablur (`GridBackdrop`).
 struct MyLibraryScreen: View {
     @Environment(AppSession.self) private var session
     @State private var kind: MediaKind = .movie
@@ -12,6 +13,23 @@ struct MyLibraryScreen: View {
     /// Which kind pill has focus. Focus only highlights; a Select press switches the kind
     /// (commit-on-press).
     @FocusState private var focusedKind: MediaKind?
+    /// The backdrop's subject: cards report focus, it publishes the one focus settles on. Only the
+    /// backdrop reads it, so a move across the grid never re-renders this screen.
+    @State private var preview = FocusPreviewModel()
+
+#if DEBUG
+    /// The `-uiPreview library` harness's stores (the unsigned preview session has none).
+    var previewLibrary: LibraryStore?
+    var previewArt: TitleArtStore?
+    var previewDownloads: [DownloadTile]?
+    private var library: LibraryStore? { previewLibrary ?? session.libraryStore }
+    private var art: TitleArtStore? { previewArt ?? session.titleArt }
+    private var downloads: [DownloadTile] { previewDownloads ?? session.downloadStore?.activeTiles ?? [] }
+#else
+    private var library: LibraryStore? { session.libraryStore }
+    private var art: TitleArtStore? { session.titleArt }
+    private var downloads: [DownloadTile] { session.downloadStore?.activeTiles ?? [] }
+#endif
 
     /// My Library shows the whole Real-Debrid library (every title you've added) — the Movies/TV
     /// selector is the only filter.
@@ -25,7 +43,8 @@ struct MyLibraryScreen: View {
     }
 
     var body: some View {
-        VStack(spacing: 24) {
+        // No gap of its own under the pills: the scroll below starts with its top fade band.
+        VStack(spacing: 0) {
             HStack(spacing: 24) {
                 Button("Movies") { kind = .movie }
                     .buttonStyle(SeretPillStyle(selected: kind == .movie))
@@ -35,38 +54,41 @@ struct MyLibraryScreen: View {
                     .focused($focusedKind, equals: .show)
             }
             .padding(.top, 30)
-            // The grid below is inset by the page margin; without the same inset the pills sat at
-            // the page's raw edge, visibly left of the first column.
-            .padding(.horizontal, Theme.Layout.contentMargin)
+            // The grid's own inset, so the pills line up with its first column.
+            .padding(.horizontal, PosterGridLayout.rootInset)
             .frame(maxWidth: .infinity, alignment: .leading)
             // The grid below already has a section (so DOWN worked); the pills did not (so UP did not).
             .focusSection()
 
-            if let tiles = session.downloadStore?.activeTiles, !tiles.isEmpty {
-                DownloadingStrip(tiles: tiles, library: session.libraryStore)
-                    .focusSection()
-            }
-
-            if let store = session.libraryStore {
+            if let store = library {
+                let shown = items(store)
+                let preview = preview
                 LibraryScreen(
                     title: kind == .movie ? "Movies" : "Shows",
-                    items: items(store),
+                    items: shown,
                     state: store.state,
                     onRetry: { store.retry() },
                     watchedIDs: watchedIDs(store),
                     session: session,
-                    onRemove: { pendingRemoval = $0 })
+                    onRemove: { pendingRemoval = $0 },
+                    onFocus: { preview.focus(PreviewSubject(item: $0)) },
+                    downloads: downloads)
                     .task(id: session.activeProfileID) { await store.reloadWatchStates() }
                     .libraryRemovalConfirmation(pending: $pendingRemoval,
                                                 errorMessage: $removeErrorMessage,
                                                 store: store)
                     .focusSection()      // let DOWN from the Movies/TV pills enter the grid and scroll it
                                           // (same fix as SettingsView / the player SettingsPanel)
+                    // The first title until focus picks one, and again after a Movies/TV switch.
+                    .seedsGridBackdrop(preview, key: "\(kind.rawValue)|\(shown.first?.id ?? "")",
+                                       first: shown.first.map(PreviewSubject.init(item:)),
+                                       contains: { id in shown.contains { $0.id == id } })
             } else {
                 SeretLoader()
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background { GridBackdrop(preview: preview, art: art) }
     }
 }
 
@@ -82,7 +104,7 @@ struct DownloadingStrip: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Downloading").font(.seret(.title3, .bold))
-                .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, Theme.Layout.contentMargin)
+                .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, PosterGridLayout.rootInset)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 30) {
                     ForEach(tiles) { tile in
@@ -90,7 +112,7 @@ struct DownloadingStrip: View {
                                             destination: downloadDestination(for: tile, library: library))
                     }
                 }
-                .padding(.horizontal, Theme.Layout.contentMargin)
+                .padding(.horizontal, PosterGridLayout.rootInset)
                 .padding(.vertical, 20)       // room for the card's focus lift
             }
             .scrollClipDisabled()

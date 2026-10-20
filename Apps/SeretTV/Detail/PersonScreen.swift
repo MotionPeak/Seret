@@ -10,6 +10,9 @@ import SwiftUI
 ///
 /// Sections are split by role rather than merged, because "what have they been in" and "what have
 /// they made" are different questions and one person can answer both.
+///
+/// Every credit is a captioned grid cell, and the focused credit's ultrablur is the page's
+/// background (`GridBackdrop`).
 struct PersonScreen: View {
     let ref: TMDBPersonRef
 
@@ -22,19 +25,25 @@ struct PersonScreen: View {
     /// and the shell's object does not cross this boundary.
     @State private var watchlist: WatchlistMarks?
     @State private var store: PersonStore?
+    /// The backdrop's subject: credits report focus, it publishes the one focus settles on. Only
+    /// the backdrop reads it, so a move across the credits never re-renders this page.
+    @State private var preview = FocusPreviewModel()
+    /// nil = the session's.
+    private let artOverride: TitleArtStore?
+    private var art: TitleArtStore? { artOverride ?? session.titleArt }
 
-    /// `store` is the seam the DEBUG `-uiPreview person` harness loads through. Production passes
-    /// nothing and the session builds one on arrival — navigation only carries a ref.
-    init(ref: TMDBPersonRef, store: PersonStore? = nil) {
+    /// `store` and `art` are the seams the DEBUG `-uiPreview person` harness loads through.
+    /// Production passes neither and the session builds the store on arrival — navigation only
+    /// carries a ref.
+    init(ref: TMDBPersonRef, store: PersonStore? = nil, art: TitleArtStore? = nil) {
         self.ref = ref
+        self.artOverride = art
         _store = State(initialValue: store)
     }
 
     /// Focus is keyed by credit id, and EVERY tile carries the modifier unconditionally — so no
     /// branch can swap a focused view out from under the focus engine.
     @FocusState private var focusedCredit: String?
-
-    private let columns = [GridItem(.adaptive(minimum: 220, maximum: 260), spacing: 50)]
 
     var body: some View {
         Group {
@@ -45,7 +54,7 @@ struct PersonScreen: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(CanvasBackground())
+        .background { GridBackdrop(preview: preview, art: art) }
         // Hand the page's own marks to its tiles. `BrowseTile` reads `TileWatchMarks` from the
         // environment, so without this the batched read below loaded into an object nothing on
         // screen consulted — an actor's page was the one grid in the app where a title you had
@@ -97,6 +106,10 @@ struct PersonScreen: View {
         // The first credit sits below the header, off-screen on open. Without this the remote is
         // dead — and an .onAppear focus seed does NOT reliably focus an off-screen element.
         .defaultFocus($focusedCredit, firstCreditID(store))
+        // Their first credit on the backdrop until focus picks one.
+        .seedsGridBackdrop(preview, key: firstCreditID(store),
+                           first: (store.acting.first ?? store.directing.first).map(PreviewSubject.init(hit:)),
+                           contains: { _ in true })
     }
 
     /// `.loaded` guarantees at least one section is non-empty, so this always names a real tile.
@@ -129,14 +142,19 @@ struct PersonScreen: View {
     }
 
     private func section(_ title: String, hits: [SearchHit]) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
+        let preview = preview
+        return VStack(alignment: .leading, spacing: 16) {
             Text(title).sectionTitle()
-            LazyVGrid(columns: columns, spacing: 50) {
+            LazyVGrid(columns: PosterGridLayout.columns, spacing: PosterGridLayout.rowSpacing) {
                 ForEach(hits) { hit in
-                    BrowseTile(hit: hit)
-                        .focused($focusedCredit, equals: hit.id)
+                    CaptionedPoster(caption: hit.result.displayTitle) {
+                        BrowseTile(hit: hit, onFocus: { preview.focus(PreviewSubject(hit: hit)) })
+                            .focused($focusedCredit, equals: hit.id)
+                    }
                 }
             }
+            // Room above the first row for the focus lift.
+            .padding(.top, PosterGridLayout.topPadding / 2)
         }
         // Widen the focus target to the page BEFORE sectioning: a section only counts when its
         // frame intersects the direction of travel, so a narrow one leaves the outer columns of

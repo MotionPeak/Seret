@@ -5,9 +5,13 @@ import SwiftUI
 /// the rails says what the focused tile is.
 ///
 /// Optional extras sit ON the art: a white progress line inset 12pt from the bottom, a chip at
-/// the top centre ("Next", "New Season"…), and a white ✓ at the top right for a finished title.
-/// With no poster the title is printed on a `surface1` card instead, so a title TMDB could not
-/// match still says what it is.
+/// the top centre ("Next", "New Season"…; neutral, or tinted when it is a warning — CAM is a muted
+/// red), a white ✓ at the top right for a finished title (which also dims the art), and a GREY ✓
+/// in the same place for a title in the library (`owned`). Watched wins over owned. With no poster
+/// the title is printed on a `surface1` card instead, so a title TMDB could not match still says
+/// what it is.
+///
+/// A grid wraps it in `CaptionedPoster` for the title beneath it; a rail does not.
 ///
 /// Two flavours, one look: `init(…, value:)` is a `NavigationLink(value:)`; `init(…, action:)`
 /// (where `Destination == Never`) is a plain button. Which one a tile is never changes after it
@@ -18,6 +22,8 @@ struct PosterTile<Destination: Hashable>: View {
     let title: String
     var progress: Double?
     var chip: String?
+    /// The chip's fill when it is a warning (white text on it); nil = the neutral chip.
+    var chipTint: Color?
     var watched: Bool
     var owned: Bool
     let onFocus: () -> Void
@@ -29,10 +35,11 @@ struct PosterTile<Destination: Hashable>: View {
     }
 
     init(posterPath: String?, title: String, progress: Double? = nil, chip: String? = nil,
-         watched: Bool = false, owned: Bool = false, onFocus: @escaping () -> Void = {},
-         value: Destination) {
+         chipTint: Color? = nil, watched: Bool = false, owned: Bool = false,
+         onFocus: @escaping () -> Void = {}, value: Destination) {
         self.posterPath = posterPath; self.title = title; self.progress = progress
-        self.chip = chip; self.watched = watched; self.owned = owned; self.onFocus = onFocus
+        self.chip = chip; self.chipTint = chipTint; self.watched = watched; self.owned = owned
+        self.onFocus = onFocus
         self.target = .link(value)
     }
 
@@ -49,17 +56,18 @@ struct PosterTile<Destination: Hashable>: View {
     }
 
     private var artModel: PosterTileArt.Model {
-        .init(posterPath: posterPath, title: title, progress: progress, chip: chip, watched: watched,
-              owned: owned)
+        .init(posterPath: posterPath, title: title, progress: progress, chip: chip,
+              chipTint: chipTint, watched: watched, owned: owned)
     }
 }
 
 extension PosterTile where Destination == Never {
     init(posterPath: String?, title: String, progress: Double? = nil, chip: String? = nil,
-         watched: Bool = false, owned: Bool = false, onFocus: @escaping () -> Void = {},
-         action: @escaping () -> Void) {
+         chipTint: Color? = nil, watched: Bool = false, owned: Bool = false,
+         onFocus: @escaping () -> Void = {}, action: @escaping () -> Void) {
         self.posterPath = posterPath; self.title = title; self.progress = progress
-        self.chip = chip; self.watched = watched; self.owned = owned; self.onFocus = onFocus
+        self.chip = chip; self.chipTint = chipTint; self.watched = watched; self.owned = owned
+        self.onFocus = onFocus
         self.target = .action(action)
     }
 }
@@ -77,6 +85,7 @@ private struct PosterTileArt: View {
         let title: String
         let progress: Double?
         let chip: String?
+        let chipTint: Color?
         let watched: Bool
         let owned: Bool
     }
@@ -102,11 +111,11 @@ private struct PosterTileArt: View {
             if let chip = tile.chip {
                 Text(chip)
                     .font(.seret(19, .semibold))
-                    .foregroundStyle(Theme.Palette.textPrimary)
+                    .foregroundStyle(tile.chipTint == nil ? Theme.Palette.textPrimary : .white)
                     .lineLimit(1)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 5)
-                    .background(Theme.Palette.surface1.opacity(0.88),
+                    .background(tile.chipTint ?? Theme.Palette.surface1.opacity(0.88),
                                 in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                     .padding(.top, 12)
             }

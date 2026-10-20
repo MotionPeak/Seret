@@ -23,8 +23,10 @@ import DebridCore
 ///   - `sidemenucollapsedfocus` — at rest with a row focused (the white circle)
 ///   - `sidemenulive` — the menu driven by the shell's open/close rules, for a remote walkthrough
 ///   - `opensubtitles` — the OpenSubtitles pairing card: QR, LAN address, keyboard fallback
-///   - `gridfade`  — a pre-scrolled grid under a pinned header, for tuning the top fade
-///   - `person`    — the person page: header, As Actor / As Director, ranked credits
+///   - `gridfade`  — a pre-scrolled grid under a pinned header over a real backdrop, for tuning
+///     the top fade (it must dissolve into the art, not a flat bar)
+///   - `person`    — the person page: header, As Actor / As Director, ranked credits, the focused
+///     credit's backdrop
 ///   - `autosync` / `autosyncdone` / `autosyncfailed` — the subtitle-sync bar over the picture
 ///   - `manualsync` / `manualsyncpressed` — sync-to-a-line, before and after the press
 ///   - `home`      — the Home screen whole: hero, Continue Watching rail, Recently Added grid
@@ -49,7 +51,12 @@ import DebridCore
 ///     `PlexRailsPreview`)
 ///   - `browse` — the Movies page on fixture Discover rails that arrive progressively (one 4 s
 ///     late, below); `browseinsert` adds a For You rail ABOVE the others 9 s in (see
-///     `BrowseScreenPreview`)
+///     `BrowseScreenPreview`). A genre pill opens that genre's grid on fixture titles.
+///     `browsefailed`: every rail fails — the failed row, whose Retry must keep focus
+///   - `library` — My Library on a fixture library (real art) with two downloads in flight, focus
+///     on the first poster, the backdrop following it (see `MyLibraryScreenPreview`)
+///   - `search` — Search with "dune" already typed, fixture results, real art (see
+///     `SearchScreenPreview`)
 ///
 /// Not compiled into release builds.
 struct PlayerUIPreview: View {
@@ -103,6 +110,9 @@ struct PlayerUIPreview: View {
         case "plexrailsinsertearly": PlexRailsPreview(variant: .insertEarly)
         case "browse":              BrowseScreenPreview()
         case "browseinsert":        BrowseScreenPreview(insertAbove: true)
+        case "browsefailed":        BrowseScreenPreview(failing: true)
+        case "library":             MyLibraryScreenPreview()
+        case "search":              SearchScreenPreview()
         default:           ScrubBarPreview()
         }
     }
@@ -178,11 +188,14 @@ private struct PersonScreenPreview: View {
     private static let ref = TMDBPersonRef(id: 1234, name: "Denis Villeneuve")
 
     @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()))
+    @State private var art = TitleArtStore(details: TMDBDetailsService(
+        client: TMDBClient(apiKey: Secrets.tmdbAPIKey)))
 
     var body: some View {
         NavigationStack {
             PersonScreen(ref: Self.ref,
-                         store: PersonStore(ref: Self.ref, credits: FakePersonCredits()))
+                         store: PersonStore(ref: Self.ref, credits: FakePersonCredits()),
+                         art: art)
         }
         .environment(session)
         // `BrowseTile` reads this, and in the app the shell provides it above every pushed
@@ -193,25 +206,32 @@ private struct PersonScreenPreview: View {
 
 private struct FakePersonCredits: PersonCreditsProviding {
     func person(tmdbID: Int) async throws -> TMDBPersonDetails {
-        func credit(_ id: Int, _ title: String, _ popularity: Double,
+        // Real TMDB ids and posters, so the backdrop has art to follow. (A credit with no poster
+        // is dropped by the filmography rules, so every shown one needs a poster.)
+        func credit(_ id: Int, _ title: String, _ popularity: Double, poster: String? = nil,
                     character: String? = nil, job: String? = nil) -> TMDBPersonCredit {
             TMDBPersonCredit(
                 result: TMDBSearchResult(id: id, title: title, name: nil,
                                          releaseDate: "2021-01-01", firstAirDate: nil,
-                                         posterPath: "/p.jpg", overview: nil, voteAverage: 7.5),
+                                         posterPath: poster, overview: nil, voteAverage: 7.5),
                 kind: .movie, character: character, job: job, popularity: popularity)
         }
         return TMDBPersonDetails(
             id: tmdbID, name: "Denis Villeneuve", profilePath: nil,
             knownForDepartment: "Directing",
-            castCredits: [credit(1, "Talk Show", 99, character: "Self"),      // must NOT appear
-                          credit(2, "Cameo Role", 20, character: "Man in Bar"),
-                          credit(3, "Bit Part", 10, character: "Officer")],
-            crewCredits: [credit(4, "Dune: Part Two", 140, job: "Director"),
-                          credit(5, "Arrival", 90, job: "Director"),
-                          credit(6, "Blade Runner 2049", 80, job: "Director"),
-                          credit(7, "Sicario", 70, job: "Director"),
-                          credit(8, "Produced Thing", 200, job: "Producer")]) // must NOT appear
+            castCredits: [credit(1, "Talk Show", 99, poster: "/p.jpg", character: "Self"),  // must NOT appear
+                          credit(949, "Heat", 20, poster: "/umSVjVdbVwtx5ryCA2QXL44Durm.jpg",
+                                 character: "Man in Bar"),
+                          credit(670, "Oldboy", 10, poster: "/pWDtjs568ZfOTMbURQBYuT4Qxka.jpg",
+                                 character: "Officer")],
+            crewCredits: [credit(693134, "Dune: Part Two", 140, poster: "/6izwz7rsy95ARzTR3poZ8H6c5pp.jpg", job: "Director"),
+                          credit(329865, "Arrival", 90, poster: "/pEzNVQfdzYDzVK0XqxERIw2x2se.jpg", job: "Director"),
+                          credit(335984, "Blade Runner 2049", 80, poster: "/gajva2L0rPYkEWjzgFlBXCAVBE5.jpg", job: "Director"),
+                          credit(273481, "Sicario", 70, poster: "/lz8vNyXeidqqOdJW9ZjnDAMb5Vr.jpg", job: "Director"),
+                          credit(146233, "Prisoners", 65, poster: "/uhviyknTT5cEQXbn6vWIqfM4vGm.jpg", job: "Director"),
+                          credit(181886, "Enemy", 40, poster: "/vf40tyDRKZsBmaLsYeopzfFLzLx.jpg", job: "Director"),
+                          credit(46738, "Incendies", 35, poster: "/yH6DAQVgbyj72S66gN4WWVoTjuf.jpg", job: "Director"),
+                          credit(8, "Produced Thing", 200, poster: "/p.jpg", job: "Producer")]) // must NOT appear
     }
 }
 
@@ -222,10 +242,13 @@ private struct FakePersonCredits: PersonCreditsProviding {
 ///
 /// The tiles are flat white on purpose. The fade is a brightness ramp, and a ramp is measurable on
 /// a flat field and guesswork on a poster; the 100pt default was picked by sampling a column here.
+/// They sit over a real ultrablur backdrop, as every grid page now does: the faded band must show
+/// the art through it, never a navy bar.
 /// Booting straight to it also takes the focus engine out of the question — reaching a real
 /// scrolled grid means walking the nav rail with synthesized presses that land where they like.
 private struct GridTopFadePreview: View {
-    private let columns = [GridItem(.adaptive(minimum: 220, maximum: 260), spacing: 50)]
+    /// Dune: Part Two's backdrop — busy, bright art, the hardest case for a fade to read as soft.
+    private static let backdrop = "/eZ239CUp1d6OryZEBPnO2n87gMG.jpg"
 
     var body: some View {
         ZStack {
@@ -236,21 +259,22 @@ private struct GridTopFadePreview: View {
                     Button("TV Shows") {}.buttonStyle(SeretPillStyle(selected: false))
                 }
                 .padding(.top, 30)
-                .padding(.horizontal, Theme.Layout.contentMargin)
+                .padding(.horizontal, PosterGridLayout.rootInset)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
                 ScrollViewReader { proxy in
                     ScrollView {
-                        LazyVGrid(columns: columns, spacing: 50) {
+                        LazyVGrid(columns: PosterGridLayout.columns, spacing: PosterGridLayout.rowSpacing) {
                             ForEach(0..<40, id: \.self) { i in
                                 Color.white
-                                    .frame(height: 330)
+                                    .frame(width: PosterTileMetrics.width, height: PosterTileMetrics.height)
                                     .clipShape(RoundedRectangle(cornerRadius: Theme.Layout.posterCorner,
                                                                 style: .continuous))
                                     .id(i)
                             }
                         }
-                        .padding(60)
+                        .padding(.horizontal, PosterGridLayout.rootInset)
+                        .padding(.vertical, PosterGridLayout.topPadding)
                     }
                     .gridTopFade()
                     // Scrolled on arrival, so a row is genuinely crossing the top edge. Without it
@@ -258,6 +282,8 @@ private struct GridTopFadePreview: View {
                     .onAppear { proxy.scrollTo(20, anchor: .top) }
                 }
             }
+            .sideMenuContentInset()
+            .background { FullBleedUltrablur(backdropPath: Self.backdrop, showsArt: false) }
         }
     }
 }
@@ -1333,7 +1359,7 @@ private struct HomeScreenPreview: View {
 
 
 /// Downloads in flight, for the Home rail and the My Library strip.
-private enum DownloadPreviewFixture {
+enum DownloadPreviewFixture {
     static let dune = tile(693134, "Dune: Part Two", poster: "/1pdfLvkbY9ohJlCjQH2CZjjYVvJ.jpg",
                            fraction: 0.42, secondsRemaining: 540)
     /// No poster: the title on a surface, never a blank card.
@@ -1386,8 +1412,16 @@ private struct WatchlistScreenPreview: View {
         _model = State(initialValue: Self.makeModel(partnerUnreadable: partnerUnreadable))
     }
 
+    @State private var art = TitleArtStore(details: TMDBDetailsService(
+        client: TMDBClient(apiKey: Secrets.tmdbAPIKey)))
+
     var body: some View {
-        NavigationStack { WatchlistScreen(previewModel: model) }
+        NavigationStack {
+            WatchlistScreen(previewModel: model, previewArt: art)
+                // A root page: the shell's content inset, so x positions match the real app.
+                .sideMenuContentInset()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
             .environment(session)
             // The screen's own `.task` does not run in preview mode, so the status is read here.
             .task { await model.refreshStatus() }
