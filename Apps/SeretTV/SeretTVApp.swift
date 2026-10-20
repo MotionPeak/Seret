@@ -8,6 +8,9 @@ struct SeretTVApp: App {
         realDebrid: RealDebridSession(store: KeychainTokenStore()))
 
     init() {
+        #if DEBUG
+        RailScrollTrace.install()
+        #endif
         // The stream cache's lines go into vlc.log beside libvlc's own (see DiagnosticsLog).
         AppSession.streamDiagnostics = { DiagnosticsLog.shared.write($0) }
         // Generous shared image cache — TMDB posters/backdrops/episode stills are small

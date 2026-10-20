@@ -13,9 +13,20 @@ enum FocusBrowseLayout {
     /// moves where a rail's last tile stops too.
     static let leadingInset: CGFloat = 30
     /// The fixed preview header, from the top of the safe area to the top of the rail area.
-    static let headerHeight: CGFloat = 470
-    /// Header text starts this far below the safe area — 60 + 50 = the mockup's 110.
-    static let headerTopPadding: CGFloat = 50
+    ///
+    /// ⚠️ Not a free design value: it puts a focused poster exactly where tvOS's own focus
+    /// scroller wants it. UIKit scrolls this page's vertical scroll view on EVERY focus move — a
+    /// move along a rail too — until the focused poster's top is ~551pt from the top of the screen
+    /// (measured in the sim with the page's own scrolling off: from 626 at a 470 header, from 568
+    /// at a 400 one; the target did not move with the header). At 470 the page parked rows 75pt
+    /// below that, so each press along a rail scrolled the page up and the realign scrolled it
+    /// back down: the "pops up and down" on the real Apple TV. 60 (safe area) + 383 + the rail's
+    /// 108 above its tiles = 551, and tvOS has nothing left to correct.
+    static let headerHeight: CGFloat = 383
+    /// Header text starts this far below the safe area. With `FocusPreviewHeader.logoHeight`, the
+    /// tallest header — logo, episode line, metadata row, two lines of synopsis — still ends above
+    /// the rail area.
+    static let headerTopPadding: CGFloat = 35
     /// Header accessories start this far below the safe area (the Watchlist's Surprise Me, at the
     /// mockup's 120).
     static let accessoryTopPadding: CGFloat = 60
@@ -44,6 +55,11 @@ enum FocusBrowseLayout {
     /// Down, Up, Up). TWO rail pitches, so a held Up — which moves focus again before the page's
     /// scroll has caught up — still finds the next rail built.
     static let hiddenRailBand: CGFloat = railPitch * 2
+    /// How far the focused row may sit from the top before the page puts it back. A row inserted
+    /// above moves it by a whole rail; tvOS's focus scroller, finishing alongside the page's own
+    /// scroll, can leave it a few points off. Chasing those few points is what made the page
+    /// bounce, so they are left alone.
+    static let realignTolerance: CGFloat = 24
     /// How long a subject whose art is not cached may hold its title slot empty, waiting for the
     /// logo, before it shows the title as text. The header's own fade covers most of it.
     static let logoBudget: Duration = .milliseconds(200)
@@ -303,9 +319,11 @@ private struct FocusBrowseRailsArea<Rails: View>: View {
             // The focused row moved without a focus change — a row was inserted (or resized)
             // above it. Put it back at the top, once any scroll of our own has finished.
             .onPreferenceChange(FocusedRowOffsetKey.self) { offset in
-                // Measured from the scroll view's top, which is `hiddenRailBand` above the
-                // rail area's.
-                focusedRowOffset = offset.map { $0 - FocusBrowseLayout.hiddenRailBand }
+                // Zero when the row is in place: `.scrollView` is measured from the top of the
+                // content margins, i.e. the rail area's top. (It used to subtract the hidden band
+                // as well, so every row read 924pt out of place and every layout pass re-armed the
+                // realign.)
+                focusedRowOffset = offset
                 realignFocusedRow(proxy)
             }
         }
@@ -320,7 +338,8 @@ private struct FocusBrowseRailsArea<Rails: View>: View {
     /// scroll is still running, re-checks once that scroll is over. Never drops the request: rails
     /// streaming in right after the initial-focus scroll are exactly the ones that must be caught.
     private func realignFocusedRow(_ proxy: ScrollViewProxy) {
-        guard let offset = focusedRowOffset, abs(offset) > 1, let row = rows.focused else { return }
+        guard let offset = focusedRowOffset, abs(offset) > FocusBrowseLayout.realignTolerance,
+              let row = rows.focused else { return }
         let since = ContinuousClock.now - lastRowScroll
         if since >= Self.scrollSettle {
             lastRowScroll = .now

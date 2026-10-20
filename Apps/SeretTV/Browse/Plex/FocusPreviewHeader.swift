@@ -22,6 +22,9 @@ struct FocusPreviewHeader: View {
 
     /// Width of the text block, from the mockup.
     static let width: CGFloat = 920
+    /// The logo slot's height: a logo (or a two-line title) sits on its bottom edge. Sized with
+    /// `FocusBrowseLayout.headerHeight` — the tallest header must end above the rails.
+    static let logoHeight: CGFloat = 160
 
     /// Whether a subject was already on screen. The first one (a page appearing, or
     /// `showImmediately` onto an empty header) is drawn at once; only a change of subject fades.
@@ -66,7 +69,7 @@ private struct PlaceholderContent: View {
                 .tracking(-1)
                 .foregroundStyle(Theme.Palette.textPrimary)
                 .lineLimit(1)
-                .frame(height: 170, alignment: .bottomLeading)
+                .frame(height: FocusPreviewHeader.logoHeight, alignment: .bottomLeading)
             Text(placeholder.hint)
                 .font(.seret(25))
                 .foregroundStyle(Theme.Palette.textSecondary)
@@ -87,7 +90,7 @@ private struct PreviewHeaderContent: View {
             PreviewLogo(title: subject.title,
                         url: TMDBClient.imageURL(path: art?.logoPath, size: "w500"),
                         holdTitle: holdTitle)
-                .frame(height: 170, alignment: .bottomLeading)
+                .frame(height: FocusPreviewHeader.logoHeight, alignment: .bottomLeading)
 
             if let episode = subject.episodeLine {
                 Text(episode)
@@ -158,7 +161,7 @@ private struct PreviewLogo: View {
                 Image(uiImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
-                    .frame(maxWidth: 600, maxHeight: 170, alignment: .bottomLeading)
+                    .frame(maxWidth: 600, maxHeight: FocusPreviewHeader.logoHeight, alignment: .bottomLeading)
                     .transition(.opacity)
             } else if holdTitle {
                 Color.clear
