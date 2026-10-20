@@ -33,7 +33,6 @@ struct MainShell: View {
                 sidebarLayout
             }
         }
-        .tint(Theme.Palette.focus)
         .onAppear {
             // Once per shell, and only over the default: a later re-appearance must not drag the
             // viewer back to a stale tab, and a section someone already chose wins.
@@ -77,12 +76,15 @@ struct MainShell: View {
                 }
             }
         }
-        .onAppear(perform: Self.styleLegacyTabBar)
     }
 
     /// iOS 18 only: the standard bar, translucent over the canvas, white when selected. iOS 26's
     /// Liquid Glass bar is left exactly as the system draws it — an appearance object would flatten
     /// it back into a plain bar.
+    ///
+    /// Called once from the app's `init`: a UIAppearance proxy only styles bars created AFTER it is
+    /// set, so applying it from the shell's `onAppear` (as this first did) came too late for the
+    /// bar already in the window.
     static func styleLegacyTabBar() {
         if #available(iOS 26, *) { return }
         let appearance = UITabBarAppearance()
@@ -127,17 +129,16 @@ struct MainShell: View {
                 .frame(width: width)
                 .padding(ShellSidebar.margin)
         }
-        .animation(Theme.Motion.standard, value: sidebarExpanded)
     }
 
     @ViewBuilder private func screen(for section: Section) -> some View {
         switch section {
         case .home:      HomeScreen()
-        case .movies:    NavigationStack { FindScreen(mode: .browse, kind: .movie) }
-        case .shows:     NavigationStack { FindScreen(mode: .browse, kind: .show) }
+        case .movies:    NavigationStack { BrowseScreen(kind: .movie) }
+        case .shows:     NavigationStack { BrowseScreen(kind: .show) }
         case .watchlist: NavigationStack { WatchlistScreen() }
         case .library:   NavigationStack { MyLibraryScreen() }
-        case .search:    NavigationStack { FindScreen(mode: .search) }
+        case .search:    NavigationStack { FindScreen() }
         }
     }
 

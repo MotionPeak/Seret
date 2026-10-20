@@ -7,7 +7,11 @@ import SwiftUI
 /// only — a page pushed on top keeps its normal bar and back button.
 struct GlassPageHeader<Trailing: View>: View {
     let title: String
+    /// How firm the shade behind the bar is, 0…1. Home keeps it faint while its hero art is under
+    /// the bar and firms it up once the art has scrolled away.
+    var shade: Double = 1
     @ViewBuilder var trailing: Trailing
+    @Environment(\.horizontalSizeClass) private var hSize
 
     var body: some View {
         HStack(alignment: .center, spacing: Theme.Space.md) {
@@ -20,18 +24,26 @@ struct GlassPageHeader<Trailing: View>: View {
                 .shadow(color: .black.opacity(0.35), radius: 8, y: 1)
                 .accessibilityAddTraits(.isHeader)
             Spacer(minLength: Theme.Space.md)
-            GlassGroup(spacing: Theme.Space.md) {
+            // The container's merge distance sits BELOW the visual gap, so iOS 26 keeps the circles
+            // apart at rest and only blends them when they genuinely touch.
+            GlassGroup(spacing: Theme.Space.sm) {
                 HStack(spacing: Theme.Space.md) { trailing }
             }
         }
-        .padding(.horizontal, Theme.Space.xl)
+        // On the rails' own leading line, so the page title and the rail titles align.
+        .padding(.horizontal, PosterTileMetrics.margin(hSize))
         .padding(.top, Theme.Space.xs)
         .padding(.bottom, Theme.Space.md)
         .background(alignment: .top) {
             // A soft shade, not a bar: enough that the title reads over scrolled posters, faded
             // out so the art still shows through as it does in the mockups.
-            LinearGradient(colors: [Theme.Palette.shadeInk.opacity(0.72), Theme.Palette.shadeInk.opacity(0)],
+            // Runs a little past the bar, so a rail title sliding under "Movies" is already faint
+            // by the time it meets it.
+            LinearGradient(stops: [.init(color: Theme.Palette.shadeInk.opacity(0.9 * shade), location: 0),
+                                   .init(color: Theme.Palette.shadeInk.opacity(0.75 * shade), location: 0.55),
+                                   .init(color: Theme.Palette.shadeInk.opacity(0), location: 1)],
                            startPoint: .top, endPoint: .bottom)
+                .padding(.bottom, -28)
                 .ignoresSafeArea(edges: .top)
                 .allowsHitTesting(false)
         }

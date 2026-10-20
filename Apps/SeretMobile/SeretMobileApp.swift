@@ -11,6 +11,7 @@ struct SeretMobileApp: App {
     init() {
         // The stream cache's lines go into vlc.log beside libvlc's own (see DiagnosticsLog).
         AppSession.streamDiagnostics = { DiagnosticsLog.shared.write($0) }
+        MainShell.styleLegacyTabBar()
     }
 
     var body: some Scene {
@@ -22,6 +23,8 @@ struct SeretMobileApp: App {
                 #if DEBUG
                 if preview == "shell" || preview == "glass" {
                     ShellUIPreview(target: preview)    // -uiPreview shell [-shellSection movies]
+                } else if ["home", "homedownloading", "movies", "shows", "genregrid"].contains(preview) {
+                    PagesUIPreview(target: preview)    // -uiPreview home|movies|shows|genregrid
                 } else if preview == "versions" {
                     VersionsUIPreview()                // -uiPreview versions
                 } else if preview.hasPrefix("magnet") {

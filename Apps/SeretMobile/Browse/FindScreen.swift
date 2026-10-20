@@ -2,23 +2,15 @@ import DebridCore
 import DebridUI
 import SwiftUI
 
-/// The "get new content" surface, in two modes:
+/// The Search page: a Movies/Shows filter + a glass search field over the selected kind's
+/// Discover rails (when idle) or search results (when typing). Pushed from the glass Search circle
+/// on Home / Movies / Shows on iPhone; the Search row of the iPad sidebar.
 ///
-/// - `.browse` — the Movies or the Shows tab: that kind's `DiscoverStore` rails under a glass page
-///   header whose search circle pushes this screen again in `.search` mode.
-/// - `.search` — a Movies/Shows filter + a glass search field over the selected kind's rails (when
-///   idle) or search results (when typing). Pushed from Home / Movies / Shows on iPhone; the Search
-///   row of the iPad sidebar.
-///
-/// Posters already in the library get an "In Library" badge; every poster opens the title's page.
+/// Every poster opens the title's page (`HitTile`).
 struct FindScreen: View {
-    enum Mode: Hashable { case browse, search }
-
-    let mode: Mode
     @State private var kind: MediaKind
 
-    init(mode: Mode, kind: MediaKind = .movie) {
-        self.mode = mode
+    init(kind: MediaKind = .movie) {
         _kind = State(initialValue: kind)
     }
 
@@ -35,9 +27,6 @@ struct FindScreen: View {
     /// boundary — which is the `EnvironmentValues.subscript.getter → assertionFailure` SIGTRAP in
     /// this app's crash reports. Absent marks must mean "no ticks yet", never a dead process.
     @Environment(TileWatchMarks.self) private var marks: TileWatchMarks?
-    /// Optional for the same reason as `marks` above: a non-optional `@Environment` read of an
-    /// `@Observable` traps when the object has not crossed a presentation boundary.
-    @Environment(WatchlistMarks.self) private var watchlist: WatchlistMarks?
     @Environment(\.horizontalSizeClass) private var hSize
     @State private var query = ""
     /// Owned so the keyboard can be put away: scrolling never dismissed it, and closing a title
@@ -51,48 +40,14 @@ struct FindScreen: View {
 
     private var browse: DiscoverStore? { kind == .movie ? session.moviesBrowse : session.showsBrowse }
 
-    private var columns: [GridItem] {
-        let minW: CGFloat = hSize == .regular ? 158 : 110
-        let maxW: CGFloat = hSize == .regular ? 220 : 170
-        return [GridItem(.adaptive(minimum: minW, maximum: maxW), spacing: Theme.Space.lg)]
-    }
+    private var columns: [GridItem] { PosterTileMetrics.gridColumns(hSize) }
 
-    var body: some View {
-        switch mode {
-        case .browse:
-            browsePage
-        case .search:
-            searchPage
-        }
-    }
-
-    /// The Movies / Shows tab: the kind's rails under the glass header.
-    private var browsePage: some View {
-        ZStack {
-            CanvasBackground()
-            if session.searchStore != nil { rails } else { loadingView }
-        }
-        .glassPageHeader(kind == .movie ? "Movies" : "Shows") {
-            NavigationLink {
-                FindScreen(mode: .search, kind: kind)
-            } label: {
-                GlassCircleLabel(systemImage: "magnifyingglass")
-            }
-            .buttonStyle(GlassPressStyle())
-            .accessibilityLabel("Search")
-        }
-        .libraryRemovalConfirmation(pending: $pendingRemoval,
-                                    errorMessage: $removeErrorMessage,
-                                    store: session.libraryStore)
-    }
+    var body: some View { searchPage }
 
     private var searchPage: some View {
         ZStack {
             CanvasBackground()
             VStack(alignment: .leading, spacing: Theme.Space.md) {
-                Text("Search").font(Theme.Typo.pageTitle())
-                    .foregroundStyle(Theme.Palette.textPrimary)
-                    .padding(.horizontal, Theme.Space.lg)
                 kindFilter
                 searchField
                 if let search = session.searchStore {
@@ -121,11 +76,14 @@ struct FindScreen: View {
         // Opening a title — from a tile here or from anywhere else — gives up the field, so the
         // keyboard does not come back when the page closes.
         .onChange(of: router.detail == nil) { _, closed in if !closed { searchFocused = false } }
-        .navigationTitle("")                       // we render our own inset title above
+        // The title sits on the bar's own row — inline beside the back button when pushed (iPhone),
+        // large at the root of the iPad sidebar's Search. A title of our own under the bar left a
+        // ~100pt band of nothing above the field.
+        .navigationTitle("Search")
+        .navigationBarTitleDisplayMode(hSize == .regular ? .large : .inline)
         .libraryRemovalConfirmation(pending: $pendingRemoval,
                                     errorMessage: $removeErrorMessage,
                                     store: session.libraryStore)
-        .navigationBarTitleDisplayMode(.inline)
     }
 
     /// The light movie/show filter — a single control, not a second top-level destination.
@@ -214,8 +172,8 @@ struct FindScreen: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: Theme.Space.lg) {
                     ForEach(browse.rows) { row in
-                        Rail(title: row.title) {
-                            ForEach(row.hits) { tile($0, width: 120, cam: isCAM($0)) }
+                        PosterRail(title: row.title) {
+                            ForEach(row.hits) { tile($0, width: PosterTileMetrics.width(hSize), titled: false) }
                         }
                     }
                 }
@@ -244,7 +202,7 @@ struct FindScreen: View {
     private func resultsGrid(_ hits: [SearchHit]) -> some View {
         ScrollView {
             LazyVGrid(columns: columns, spacing: Theme.Space.xl) {
-                ForEach(hits) { tile($0, width: nil, cam: isCAM($0)) }
+                ForEach(hits) { tile($0, width: nil, titled: true) }
             }
             .padding(Theme.Space.lg)
         }
@@ -253,102 +211,9 @@ struct FindScreen: View {
         .task(id: hits.map(\.id).joined()) { await marks?.load(hits) }
     }
 
-    /// A poster that opens the title's page. Owned or not, it is the same page — an un-owned title
-    /// is a source-less placeholder that `DetailStore` fills in from TMDB. Owned posters carry an
-    /// In-Library badge, watched ones dim and tick, and `cam` posters get a CAM tag.
-    private func tile(_ hit: SearchHit, width: CGFloat?, cam: Bool) -> some View {
-        let owned = session.libraryStore?.ownedItem(tmdbID: hit.result.id, kind: hit.kind)
-        let watched = marks?.isWatched(hit) ?? false
-        return Button {
-            searchFocused = false
-            router.detail = owned ?? .placeholder(for: hit)
-        } label: {
-            PosterCard(title: hit.result.displayTitle,
-                       posterURL: TMDBClient.imageURL(path: hit.result.posterPath, size: "w342"),
-                       width: width)
-                .opacity(watched ? 0.55 : 1)          // a watched title reads as already-seen
-                .overlay(alignment: .topTrailing) {
-                    // Watched beats owned: having seen it is the more useful thing at a glance.
-                    if watched { watchedBadge.padding(6) }
-                    else if owned != nil { inLibraryBadge.padding(6) }
-                }
-                .overlay(alignment: .topLeading) {
-                    if cam, owned == nil { camBadge.padding(6) }
-                }
-        }
-        .pressable()
-        .contextMenu {
-            Button(watched ? unmarkLabel(hit) : markLabel(hit),
-                   systemImage: watched ? "checkmark.circle.fill" : "checkmark.circle") {
-                toggleWatched(hit, watched: watched)
-            }
-            // Films only: Letterboxd has no watchlist a show can go on.
-            if let film = WatchlistFilm(hit: hit), let watchlist {
-                let on = watchlist.contains(tmdbID: film.tmdbID)
-                Button(on ? "Remove from Watchlist" : "Add to Watchlist",
-                       systemImage: on ? "bookmark.fill" : "bookmark") {
-                    Task { await watchlist.toggle(film: film) }
-                }
-            }
-
-            // Only for a title you actually own — a Find result you have not added has nothing to
-            // remove. Find could mark watched but never remove.
-            if let owned {
-                Button("Remove from Library", systemImage: "trash", role: .destructive) {
-                    pendingRemoval = owned
-                }
-            }
-        }
-    }
-
-    private func markLabel(_ hit: SearchHit) -> String {
-        hit.kind == .movie ? "Mark Watched" : "Mark Show Watched"
-    }
-    private func unmarkLabel(_ hit: SearchHit) -> String {
-        hit.kind == .movie ? "Mark Unwatched" : "Mark Show Unwatched"
-    }
-
-    /// The tick flips immediately; the write follows. A show fans out over every episode TMDB
-    /// lists, which is why it runs detached rather than blocking the gesture.
-    private func toggleWatched(_ hit: SearchHit, watched: Bool) {
-        // Not before a profile has resolved (see `LibraryTitleMenu.markShow`) — and before the
-        // tick flips, so it never shows a mark that was not written.
-        guard let profileID = session.activeProfileID else { return }
-        marks?.set(!watched, for: hit)
-        Task {
-            switch hit.kind {
-            case .movie:
-                await session.watchStore?.setWatched(!watched, contentKey: hit.contentKey,
-                                                     sourceKey: "", profileID: profileID)
-            case .show:
-                await session.makeShowWatchMarker()?.mark(!watched, show: .placeholder(for: hit),
-                                                          profileID: profileID)
-            }
-        }
-    }
-
-    private var watchedBadge: some View {
-        Image(systemName: "checkmark.circle.fill")
-            .font(.system(size: 18, weight: .bold))
-            .foregroundStyle(Theme.Palette.onFocus, Theme.Palette.focus)
-            .background(Circle().fill(.black.opacity(0.35)))
-            .accessibilityLabel("Watched")
-    }
-
-    private var inLibraryBadge: some View {
-        Image(systemName: "checkmark.circle.fill")
-            .font(.system(size: 18, weight: .bold))
-            .foregroundStyle(Theme.Palette.onFocus, Theme.Palette.focus)
-            .background(Circle().fill(.black.opacity(0.35)))
-    }
-
-    /// Marks a theatrical-window title — likely only a cam/telesync is cached.
-    private var camBadge: some View {
-        Text("CAM")
-            .font(.system(size: 10, weight: .heavy))
-            .foregroundStyle(.white)
-            .padding(.horizontal, 6).padding(.vertical, 3)
-            .background(Color.red.opacity(0.85), in: Capsule())
+    private func tile(_ hit: SearchHit, width: CGFloat?, titled: Bool) -> some View {
+        HitTile(hit: hit, width: width, cam: isCAM(hit), showsTitle: titled,
+                onOpen: { searchFocused = false }, onRemove: { pendingRemoval = $0 })
     }
 
     /// Centered loading spinner. Extracted so the result-builder switch cases that use it stay

@@ -2,43 +2,66 @@ import DebridCore
 import DebridUI
 import SwiftUI
 
-/// A poster tile for a download in flight, with live percent and remaining time.
+/// A poster tile for a download in flight: the poster dimmed at its foot, the live percent and
+/// time left, and a white progress line — the same rounded 2:3 tile as every rail.
 /// Shared by the Home "Downloading" rail and the My Library strip so the two cannot drift apart.
 struct DownloadingTile: View {
     let tile: DownloadTile
+    var width: CGFloat = 100
+    /// The title under the poster (the My Library strip); Home's rail, like its others, has none.
+    var showsTitle = true
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            ZStack(alignment: .bottom) {
-                poster
-                progressOverlay
+            Color.clear
+                .aspectRatio(2.0 / 3.0, contentMode: .fit)
+                .overlay { poster }
+                .overlay(alignment: .bottom) { progressOverlay }
+                .clipShape(RoundedRectangle(cornerRadius: PosterTileMetrics.corner, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: PosterTileMetrics.corner, style: .continuous)
+                    .stroke(Theme.Palette.hairline, lineWidth: 0.5))
+            if showsTitle {
+                Text(tile.title).font(Theme.Typo.caption()).lineLimit(1)
+                    .foregroundStyle(Theme.Palette.textSecondary)
             }
-            .frame(width: 100, height: 150)
-            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.chip))
-            Text(tile.title).font(Theme.Typo.caption()).lineLimit(1)
-                .frame(width: 100, alignment: .leading).foregroundStyle(Theme.Palette.textSecondary)
         }
+        .frame(width: width)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(tile.title), downloading, \(DownloadProgressText.line(for: tile.status))")
     }
 
     @ViewBuilder private var poster: some View {
-        if let url = TMDBClient.imageURL(path: tile.posterPath, size: "w300") {
-            RemoteImage(url: url) { Rectangle().fill(.gray.opacity(0.25)) }
+        if let url = TMDBClient.imageURL(path: tile.posterPath, size: "w342") {
+            RemoteImage(url: url) { noArt }
         } else {
-            Rectangle().fill(.gray.opacity(0.25))
+            noArt
+        }
+    }
+
+    private var noArt: some View {
+        Theme.Palette.surface1.overlay {
+            Text(tile.title)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Theme.Palette.textSecondary)
+                .multilineTextAlignment(.center).lineLimit(4).padding(10)
         }
     }
 
     private var progressOverlay: some View {
-        VStack(spacing: 3) {
+        VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 4) {
                 Image(systemName: "arrow.down.circle.fill")
                 Text(DownloadProgressText.line(for: tile.status))
-                Spacer()
             }
-            .font(.caption2.weight(.semibold)).foregroundStyle(.white)
-            ProgressView(value: tile.status.fraction).tint(Theme.Palette.focus)
+            .font(.system(size: 11, weight: .semibold)).monospacedDigit()
+            .foregroundStyle(.white)
+            .lineLimit(1).minimumScaleFactor(0.8)
+            ProgressLine(fraction: tile.status.fraction, height: 3)
         }
-        .padding(6)
-        .background(.black.opacity(0.55))
+        .padding(.horizontal, 8).padding(.bottom, 8).padding(.top, 28)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(LinearGradient(colors: [.black.opacity(0), .black.opacity(0.75)],
+                                   startPoint: .top, endPoint: .bottom))
     }
 }
 
