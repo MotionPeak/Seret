@@ -114,7 +114,7 @@ struct SettingsView: View {
                 Toggle("Autoplay trailers", isOn: Binding(
                     get: { session.trailerSettings.autoplayTrailers },
                     set: { session.trailerSettings.autoplayTrailers = $0 }))
-                    .tint(.green)    // a white track under the white knob would read as off
+                    .tint(Theme.Palette.toggleOn)    // a white track under the white knob would read as off
             } header: {
                 Text("Trailers").foregroundStyle(Theme.Palette.textSecondary)
             } footer: {

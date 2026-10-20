@@ -80,7 +80,9 @@ struct MyLibraryScreen: View {
                 }
             }
         }
-        .navigationTitle("My Library")
+        // The root pages' own glass header. The system large title sat under a hidden-title
+        // inset, leaving a tall empty band above "My Library".
+        .glassPageHeader("Library") { EmptyView() }
     }
 }
 

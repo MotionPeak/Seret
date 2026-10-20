@@ -48,6 +48,9 @@ enum Theme {
         /// The near-black a page's legibility shade fades from, over backdrop art.
         static let shadeInk = Color(hex: 0x080A11)
 
+        /// A switch that is on. Not `focus`: a white track under the white knob reads as off.
+        static let toggleOn = Color(hex: 0x34C759)
+
         /// Destructive intent (Remove, Disconnect, Sign Out).
         static let destructive = SeretPalette.destructive
         /// Critic-score bands — the chips keep their own colours.

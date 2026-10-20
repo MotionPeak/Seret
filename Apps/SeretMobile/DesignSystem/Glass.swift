@@ -41,6 +41,19 @@ struct GlassFallbackBackground<S: Shape>: View {
     var body: some View {
         shape
             .fill(.ultraThinMaterial)
+            .background {
+                // The shadow on its own underlay, cut away under the glass: a shadow on the
+                // translucent fill itself darkened the picture seen THROUGH the glass.
+                shape.fill(Color.black.opacity(0.32))
+                    .blur(radius: 12)
+                    .offset(y: 6)
+                    .mask {
+                        Rectangle().padding(-40)
+                            .overlay { shape.blendMode(.destinationOut) }
+                            .compositingGroup()
+                    }
+                    .allowsHitTesting(false)
+            }
             // A touch of white so the glass reads as a raised surface over a dark canvas, not a hole.
             .overlay(shape.fill(Color.white.opacity(0.07)))
             .overlay(shape.stroke(Color.white.opacity(0.30), lineWidth: 1))
@@ -51,7 +64,6 @@ struct GlassFallbackBackground<S: Shape>: View {
                                    startPoint: .top, endPoint: .center),
                     lineWidth: 1.2)
             )
-            .shadow(color: .black.opacity(0.32), radius: 12, y: 6)
     }
 }
 

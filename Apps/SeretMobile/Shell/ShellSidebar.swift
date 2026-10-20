@@ -145,7 +145,9 @@ struct ShellSidebar: View {
         .accessibilityLabel("Settings")
 
         let toggle = Button {
-            expanded.toggle()
+            // Animated here, in the toggle's own transaction — the panel width and the page padding
+            // move together, and nothing else on screen picks up the spring.
+            withAnimation(Theme.Motion.standard) { expanded.toggle() }
         } label: {
             Image(systemName: "sidebar.left")
                 .font(.system(size: 16, weight: .medium))
