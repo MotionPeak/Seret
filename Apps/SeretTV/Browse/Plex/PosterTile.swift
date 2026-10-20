@@ -50,7 +50,8 @@ struct PosterTile<Destination: Hashable>: View {
             case .action(let action): Button(action: action) { PosterTileArt(tile: artModel) }
             }
         }
-        .buttonStyle(FocusCardStyle())
+        // Focus from a `@FocusState`: any tile may carry a long-press menu (see `FocusCardStyle`).
+        .focusCardButtonStyle()
         .reportsPlexRailFocus(onFocus)
         .accessibilityLabel(title)
     }
