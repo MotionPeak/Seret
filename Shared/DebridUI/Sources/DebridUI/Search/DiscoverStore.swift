@@ -68,6 +68,11 @@ public struct TMDBDiscoverService: DiscoverProviding {
 /// Kind-aware browse content across 5 segments, each a stack of horizontal rails. Segments load
 /// **lazily** (the first time they're shown) and are cached for the session. Per-rail failures are
 /// dropped; a segment with zero successful rails is `.failed`.
+///
+/// Separately, the **browse page** (`loadBrowsePage()` / `browseRows` / `browseState`): ONE list of
+/// rows with no segments — up to three For You rows, Trending This Week, New This Month, Top Rated
+/// of All Time, then a row per genre, Netflix-style. The Apple TV's Movies/Shows pages use it; the
+/// iPhone and the Mac browse by segment. Both share the same progressive-load machinery.
 @MainActor
 @Observable
 public final class DiscoverStore {
@@ -81,6 +86,9 @@ public final class DiscoverStore {
         public let id: String
         public let title: String
         public let hits: [SearchHit]
+        /// The genre a browse-page genre row shows — what its "See All" opens. Nil on every other
+        /// row (and on every segment rail).
+        public let genre: Genre?
     }
     public enum State: Equatable { case idle, loading, loaded, failed }
 
@@ -88,6 +96,21 @@ public final class DiscoverStore {
     public private(set) var rowsBySegment: [Segment: [Row]] = [:]
     private var statesBySegment: [Segment: State] = [:]
     public private(set) var camIDs: Set<Int> = []
+
+    /// The browse page's rows, in page order (see `loadBrowsePage`).
+    public private(set) var browseRows: [Row] = []
+    /// The browse page's load state.
+    public private(set) var browseState: State = .idle
+    /// The ids of the browse page's For You rows as last built — the block a quiet rebuild swaps.
+    private var browseForYouIDs: Set<String> = []
+    /// At most this many For You rows lead the browse page.
+    static let browseForYouLimit = 3
+
+    /// What a load fills: one segment, or the browse page.
+    private enum LoadTarget: Hashable {
+        case segment(Segment)
+        case page
+    }
 
     public let kind: MediaKind
     private let discover: DiscoverProviding
@@ -99,10 +122,11 @@ public final class DiscoverStore {
         case history    // "Because you watched…" — as personal as it gets
         static func < (a: Self, b: Self) -> Bool { a.rawValue < b.rawValue }
     }
-    private var forYouBasis: ForYouBasis = .history
-    /// The load running for each segment. Owned by the store, NOT by whichever view asked: see
+    /// Per target. A target that was never built reads `.history`, so it is never "rebuilt".
+    private var forYouBasis: [LoadTarget: ForYouBasis] = [:]
+    /// The load running for each target. Owned by the store, NOT by whichever view asked: see
     /// `loadSegment`.
-    private var segmentLoads: [Segment: Task<Void, Never>] = [:]
+    private var loads: [LoadTarget: Task<Void, Never>] = [:]
     private let now: @Sendable () -> Date
 
     /// Selected-segment state, so existing view code can read one `state`.
@@ -177,23 +201,64 @@ public final class DiscoverStore {
     /// to `.idle`. Nobody was loading any more: skeletons for good. Now the load runs to completion
     /// in a task of its own, and every ask joins it — so a segment left mid-load is simply finished
     /// when the viewer comes back.
-    public func loadSegment(_ segment: Segment) async {
-        if let running = segmentLoads[segment] { await running.value; return }
-        switch statesBySegment[segment] ?? .idle {
+    public func loadSegment(_ segment: Segment) async { await load(.segment(segment)) }
+
+    /// Load the browse page if not already loaded/loading. Idempotent; a failed page loads again
+    /// (Retry). Row order: up to three For You rows ("Because you watched…" / "More like…"; none
+    /// without seeds — Trending leads then), Trending This Week, New This Month, Top Rated of All
+    /// Time, then one row per genre in the genre table's order, titled with the genre's name and
+    /// carrying it (`Row.genre`) for its "See All".
+    ///
+    /// Progressive and store-owned exactly like `loadSegment`, with one difference: rows are NOT
+    /// de-duplicated against each other — a title may be in Drama and in Thriller, as on Netflix.
+    /// Inside one row a title appears once.
+    public func loadBrowsePage() async { await load(.page) }
+
+    private func load(_ target: LoadTarget) async {
+        if let running = loads[target] { await running.value; return }
+        switch state(of: target) {
         case .loading, .loaded: return
         case .idle, .failed: break
         }
         // The task clears its own entry before it completes, so whoever awaits it finds the
         // registry already empty — see `refreshForYouIfBetterSeeds`, which waits in a loop. Only
-        // one load per segment is ever registered (every ask joins a running one), so the entry it
+        // one load per target is ever registered (every ask joins a running one), so the entry it
         // clears is its own.
         let load = Task { @MainActor [weak self] in
             guard let self else { return }
-            await self.performSegmentLoad(segment)
-            self.segmentLoads[segment] = nil
+            await self.performLoad(target)
+            self.loads[target] = nil
         }
-        segmentLoads[segment] = load
+        loads[target] = load
         await load.value
+    }
+
+    private func state(of target: LoadTarget) -> State {
+        switch target {
+        case .segment(let s): statesBySegment[s] ?? .idle
+        case .page: browseState
+        }
+    }
+
+    private func setState(_ state: State, of target: LoadTarget) {
+        switch target {
+        case .segment(let s): statesBySegment[s] = state
+        case .page: browseState = state
+        }
+    }
+
+    private func rows(of target: LoadTarget) -> [Row] {
+        switch target {
+        case .segment(let s): rowsBySegment[s] ?? []
+        case .page: browseRows
+        }
+    }
+
+    private func setRows(_ rows: [Row], of target: LoadTarget) {
+        switch target {
+        case .segment(let s): rowsBySegment[s] = rows
+        case .page: browseRows = rows
+        }
     }
 
     /// Rebuild For You when better seeds exist than it was built from — called when what seeds it
@@ -209,32 +274,81 @@ public final class DiscoverStore {
     /// from the seeds there were when it STARTED, and at launch the library usually lands while
     /// For You's first build is still fetching: joining it and stopping there — or giving up because
     /// it still read "loading" — kept Trending for the session.
+    ///
+    /// Covers both the For You segment and the browse page's For You block — each only if it has
+    /// been built. On the page only that block is rebuilt; the rows below it are not fetched again.
     public func refreshForYouIfBetterSeeds() async {
-        while let running = segmentLoads[.forYou] { await running.value }
-        guard statesBySegment[.forYou] == .loaded, forYouBasis < .history,
-              await availableForYouBasis() > forYouBasis else { return }
+        await refreshForYou(.segment(.forYou))
+        await refreshForYou(.page)
+    }
+
+    private func refreshForYou(_ target: LoadTarget) async {
+        while let running = loads[target] { await running.value }
+        let basis = forYouBasis[target] ?? .history
+        guard state(of: target) == .loaded, basis < .history,
+              await availableForYouBasis() > basis else { return }
         // Asking the seeds suspended: another refresh may have started a rebuild meanwhile.
-        guard segmentLoads[.forYou] == nil else { return await refreshForYouIfBetterSeeds() }
+        guard loads[target] == nil else { return await refreshForYou(target) }
         let rebuild = Task { @MainActor [weak self] in
             guard let self else { return }
-            await self.performSegmentLoad(.forYou, quietly: true)
-            self.segmentLoads[.forYou] = nil
+            await self.rebuildForYouQuietly(target)
+            self.loads[target] = nil
         }
-        segmentLoads[.forYou] = rebuild
+        loads[target] = rebuild
         await rebuild.value
     }
 
-    /// - Parameter quietly: build the rails without publishing anything until they are all in, and
-    ///   keep what is on screen if the rebuild comes back empty.
-    private func performSegmentLoad(_ segment: Segment, quietly: Bool = false) async {
-        if !quietly {
-            statesBySegment[segment] = .loading
-            rowsBySegment[segment] = []
+    /// Builds the target's rows from scratch, publishing each as it lands (see `loadSegment`).
+    private func performLoad(_ target: LoadTarget) async {
+        setState(.loading, of: target)
+        setRows([], of: target)
+        await loadCAMIDsIfNeeded()
+        let specs = await rowSpecs(for: target)
+        let dedup = target != .page
+        _ = await fetch(specs) { [weak self] completed in
+            guard let self else { return }
+            let rows = Self.assemble(specs: specs, completed: completed, dedupAcrossRows: dedup)
+            self.setRows(rows, of: target)
+            if self.state(of: target) != .loaded, !rows.isEmpty {
+                self.setState(.loaded, of: target)   // show as soon as the first rail has content
+            }
         }
+        if rows(of: target).isEmpty { setState(.failed, of: target) }
+    }
+
+    /// Rebuilds the target's For You rows without publishing anything until they are all in, then
+    /// swaps them in in one step — or keeps what is on screen if the rebuild comes back empty. For
+    /// the segment the For You rows are the whole segment; on the page they are the leading block.
+    private func rebuildForYouQuietly(_ target: LoadTarget) async {
+        await loadCAMIDsIfNeeded()
+        switch target {
+        case .segment:
+            let specs = await forYouSpecs(for: target)
+            let completed = await fetch(specs)
+            let rebuilt = Self.assemble(specs: specs, completed: completed)
+            if !rebuilt.isEmpty { setRows(rebuilt, of: target) }   // one swap, or keep what was there
+        case .page:
+            let specs = await forYouSpecs(for: target)
+            let completed = await fetch(specs)
+            let block = Self.assemble(specs: specs, completed: completed, dedupAcrossRows: false)
+            guard !block.isEmpty else { return }
+            // Read the rows AFTER the fetch: they are whatever is on screen now.
+            let old = browseForYouIDs
+            browseRows = block + browseRows.filter { !old.contains($0.id) }
+            browseForYouIDs = Set(specs.map(\.id))
+        }
+    }
+
+    private func loadCAMIDsIfNeeded() async {
         if kind == .movie && camIDs.isEmpty {
             camIDs = Set(((try? await discover.nowPlayingMovies()) ?? []).map(\.id))
         }
-        let specs = await rowSpecs(for: segment)
+    }
+
+    /// Fetches every spec with a small concurrency cap, calling `progress` (on the main actor)
+    /// with everything completed so far after each one lands. Returns them all, keyed by index.
+    private func fetch(_ specs: [RowSpec],
+                       progress: (([Int: [SearchHit]]) -> Void)? = nil) async -> [Int: [SearchHit]] {
         let kind = self.kind
         let cap = 6
         var completed: [Int: [SearchHit]] = [:]
@@ -247,21 +361,11 @@ public final class DiscoverStore {
             while next < specs.count && running < cap { addTask(next); next += 1; running += 1 }
             for await (i, hits) in group {
                 completed[i] = hits
-                if !quietly {
-                    rowsBySegment[segment] = Self.assemble(specs: specs, completed: completed)
-                    if statesBySegment[segment] != .loaded, !(rowsBySegment[segment]?.isEmpty ?? true) {
-                        statesBySegment[segment] = .loaded   // show as soon as the first rail has content
-                    }
-                }
+                progress?(completed)
                 if next < specs.count { addTask(next); next += 1 } else { running -= 1 }
             }
         }
-        if quietly {
-            let rebuilt = Self.assemble(specs: specs, completed: completed)
-            if !rebuilt.isEmpty { rowsBySegment[segment] = rebuilt }   // one swap, or keep what was there
-            return
-        }
-        if rowsBySegment[segment]?.isEmpty ?? true { statesBySegment[segment] = .failed }
+        return completed
     }
 
     // MARK: - Row specs per segment
@@ -271,16 +375,40 @@ public final class DiscoverStore {
         let id: String
         let title: String
         let fetch: @Sendable () async -> [TMDBSearchResult]
+        /// See `Row.genre`.
+        var genre: Genre? = nil
     }
 
-    private func rowSpecs(for segment: Segment) async -> [RowSpec] {
-        switch segment {
-        case .forYou:      return await forYouSpecs()
-        case .trending:    return trendingSpecs()
-        case .newReleases: return newSpecs()
-        case .popular:     return popularSpecs()
-        case .topRated:    return topRatedSpecs()
+    private func rowSpecs(for target: LoadTarget) async -> [RowSpec] {
+        switch target {
+        case .segment(.forYou):      return await forYouSpecs(for: target)
+        case .segment(.trending):    return trendingSpecs()
+        case .segment(.newReleases): return newSpecs()
+        case .segment(.popular):     return popularSpecs()
+        case .segment(.topRated):    return topRatedSpecs()
+        case .page:                  return await browsePageSpecs()
         }
+    }
+
+    /// For You (≤ 3), Trending This Week, New This Month, Top Rated of All Time, a row per genre.
+    private func browsePageSpecs() async -> [RowSpec] {
+        let d = discover, k = kind
+        let (from, to) = releaseWindow()
+        let forYou = await forYouSpecs(for: .page)
+        browseForYouIDs = Set(forYou.map(\.id))
+        var specs = forYou
+        specs.append(RowSpec(id: "trend-week", title: "Trending This Week",
+                             fetch: { (try? await d.trending(k, window: .week)) ?? [] }))
+        specs.append(RowSpec(id: "new-all", title: "New This Month",
+                             fetch: { (try? await d.newOverall(k, from: from, to: to)) ?? [] }))
+        specs.append(RowSpec(id: "top-curated", title: "Top Rated of All Time",
+                             fetch: { (try? await d.topRatedCurated(k)) ?? [] }))
+        for (name, gid) in genreTable {
+            specs.append(RowSpec(id: "genre-\(gid)", title: name,
+                                 fetch: { (try? await d.popularByGenre(k, gid)) ?? [] },
+                                 genre: Genre(name: name, tmdbID: gid)))
+        }
+        return specs
     }
 
     private func trendingSpecs() -> [RowSpec] {
@@ -329,12 +457,16 @@ public final class DiscoverStore {
         return specs
     }
 
-    private func forYouSpecs() async -> [RowSpec] {
+    /// The For You rows for a target, recording the basis they were built from. The segment
+    /// falls back to Trending without seeds (it must never be blank); the page has no personal rows
+    /// then — its own Trending row leads.
+    private func forYouSpecs(for target: LoadTarget) async -> [RowSpec] {
         let d = discover, k = kind
-        let seedList = await seeds?.seeds(kind: kind, limit: 10) ?? []
-        forYouBasis = seedList.isEmpty ? .trending
+        let limit = target == .page ? Self.browseForYouLimit : 10
+        let seedList = Array((await seeds?.seeds(kind: kind, limit: limit) ?? []).prefix(limit))
+        forYouBasis[target] = seedList.isEmpty ? .trending
             : seedList.contains(where: \.watched) ? .history : .library
-        guard !seedList.isEmpty else { return trendingSpecs() }   // fallback: never blank
+        guard !seedList.isEmpty else { return target == .page ? [] : trendingSpecs() }
         return seedList.map { seed in
             let title = seed.watched ? "Because you watched \(seed.title)" : "More like \(seed.title)"
             return RowSpec(id: "rec-\(seed.tmdbID)", title: title,
@@ -361,14 +493,18 @@ public final class DiscoverStore {
     /// with a new earliest claimant pulled posters out of a rail they were already showing in.
     /// Growing only at the bottom means nothing on screen ever moves, and the finished layout is
     /// identical either way.
-    static func assemble(specs: [RowSpec], completed: [Int: [SearchHit]]) -> [Row] {
+    ///
+    /// `dedupAcrossRows: false` (the browse page) de-duplicates within each row only.
+    static func assemble(specs: [RowSpec], completed: [Int: [SearchHit]],
+                         dedupAcrossRows: Bool = true) -> [Row] {
         var seen = Set<Int>()
         var rows: [Row] = []
         for i in specs.indices {
             guard let hits0 = completed[i] else { break }      // rail not finished yet
+            if !dedupAcrossRows { seen.removeAll(keepingCapacity: true) }
             let hits = hits0.filter { seen.insert($0.result.id).inserted }
             if hits.isEmpty { continue }
-            rows.append(Row(id: specs[i].id, title: specs[i].title, hits: hits))
+            rows.append(Row(id: specs[i].id, title: specs[i].title, hits: hits, genre: specs[i].genre))
         }
         return rows
     }

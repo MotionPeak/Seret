@@ -9,6 +9,16 @@ private enum FakeError: Error { case boom }
 /// doesn't shrink rail counts in assertions).
 private final class FakeDiscover: DiscoverProviding, @unchecked Sendable {
     var failGenres = false
+    /// Every call throws — the page's failed state.
+    var failAll = false
+    /// When set, every genre's popular titles include this id — twice (a within-row duplicate),
+    /// and in every genre (a cross-row duplicate).
+    var sharedGenreHit: Int?
+    /// Holds ONE seed's recommendations until opened, so a For You rebuild can be caught in flight.
+    var recommendGate: DiscoverGate?
+    var gatedRecommendation: Int?
+    private var _popularCalls = 0
+    var popularCalls: Int { lock.withLock { _popularCalls } }
     private(set) var calledTrending = false
     private(set) var calledTopRatedCurated = false
     private let lock = NSLock()
@@ -23,26 +33,36 @@ private final class FakeDiscover: DiscoverProviding, @unchecked Sendable {
     var trendingGate: DiscoverGate?
     var gatedWindow: TMDBTrendingWindow?
     func trending(_ kind: MediaKind, window: TMDBTrendingWindow) async throws -> [TMDBSearchResult] {
+        if failAll { throw FakeError.boom }
         calledTrending = true
         if let trendingGate, gatedWindow == nil || gatedWindow == window { await trendingGate.wait() }
         return window == .day ? [movie(9001)] : [movie(9002)]
     }
     func topRatedCurated(_ kind: MediaKind) async throws -> [TMDBSearchResult] {
+        if failAll { throw FakeError.boom }
         calledTopRatedCurated = true; return [movie(9100)]
     }
-    func newOverall(_ kind: MediaKind, from: String, to: String) async throws -> [TMDBSearchResult] { [movie(9200)] }
+    func newOverall(_ kind: MediaKind, from: String, to: String) async throws -> [TMDBSearchResult] {
+        if failAll { throw FakeError.boom }
+        return [movie(9200)]
+    }
     func decade(_ kind: MediaKind, from: String, to: String) async throws -> [TMDBSearchResult] {
         [movie(40000 + (Int(from.prefix(4)) ?? 0))]
     }
     func recommended(_ kind: MediaKind, tmdbID: Int) async throws -> [TMDBSearchResult] {
+        if failAll { throw FakeError.boom }
         lock.withLock { _recommendedFor.append(tmdbID) }
+        if let recommendGate, gatedRecommendation == tmdbID { await recommendGate.wait() }
         return [movie(70000 + tmdbID)]
     }
     func newByGenre(_ kind: MediaKind, _ genreID: Int, from: String, to: String) async throws -> [TMDBSearchResult] {
         if failGenres { throw FakeError.boom }; return [movie(10000 + genreID)]
     }
     func popularByGenre(_ kind: MediaKind, _ genreID: Int) async throws -> [TMDBSearchResult] {
-        if failGenres { throw FakeError.boom }; return [movie(20000 + genreID)]
+        lock.withLock { _popularCalls += 1 }
+        if failGenres || failAll { throw FakeError.boom }
+        if let shared = sharedGenreHit { return [movie(shared), movie(20000 + genreID), movie(shared)] }
+        return [movie(20000 + genreID)]
     }
     func topRatedByGenre(_ kind: MediaKind, _ genreID: Int) async throws -> [TMDBSearchResult] {
         if failGenres { throw FakeError.boom }; return [movie(30000 + genreID)]
@@ -282,5 +302,200 @@ private func movie(_ id: Int) -> TMDBSearchResult {
 
         #expect((store.rowsBySegment[.forYou] ?? []).map(\.title).first == "Trending Today")
         #expect(fake.recommendedFor.isEmpty)
+    }
+}
+
+/// Lets the store's own tasks run until `condition` holds — no wall-clock sleeps.
+@MainActor
+private func spin(until condition: () -> Bool) async {
+    for _ in 0..<200_000 where !condition() { await Task.yield() }
+}
+
+/// The Apple TV's Movies/Shows page: ONE list of rows (no segments) — For You, Trending, New, Top
+/// Rated, then a row per genre, Netflix-style. Additive: the segment API the iPhone and Mac use
+/// must not change under it.
+@MainActor
+@Suite struct DiscoverBrowsePageTests {
+    private let fixed = ["Trending This Week", "New This Month", "Top Rated of All Time"]
+
+    @Test func moviePageOrderIsForYouThenTrendingNewTopRatedThenOneRowPerGenre() async {
+        let seeds = FakeSeeds()
+        seeds.value = [RecommendationSeed(tmdbID: 100, title: "Dune", watched: true),
+                       RecommendationSeed(tmdbID: 200, title: "Heat", watched: false)]
+        let store = DiscoverStore(kind: .movie, discover: FakeDiscover(), seeds: seeds)
+        await store.loadBrowsePage()
+
+        let genreNames = DiscoverStore.genres(for: .movie).map(\.name)
+        #expect(store.browseState == .loaded)
+        #expect(store.browseRows.map(\.title)
+                == ["Because you watched Dune", "More like Heat"] + fixed + genreNames)
+        #expect(genreNames.contains("Drama") && genreNames.contains("Fantasy") && genreNames.contains("Sci-Fi"))
+    }
+
+    @Test func showPageUsesTheTVGenreTable() async {
+        let store = DiscoverStore(kind: .show, discover: FakeDiscover(), seeds: FakeSeeds())
+        await store.loadBrowsePage()
+
+        #expect(store.browseRows.map(\.title)
+                == fixed + DiscoverStore.genres(for: .show).map(\.name))
+    }
+
+    /// Genre rows carry their genre — the "See All" tile at a row's end opens that genre's grid —
+    /// and hold the genre's popular titles. The fixed rows have no genre.
+    @Test func genreRowsCarryTheirGenreAndItsPopularTitles() async {
+        let store = DiscoverStore(kind: .movie, discover: FakeDiscover(), seeds: FakeSeeds())
+        await store.loadBrowsePage()
+
+        let genres = DiscoverStore.genres(for: .movie)
+        let genreRows = store.browseRows.filter { $0.genre != nil }
+        #expect(genreRows.map(\.genre) == genres)
+        #expect(genreRows.map { $0.hits.map(\.result.id) } == genres.map { [20000 + $0.tmdbID] })
+        #expect(store.browseRows.prefix(3).allSatisfy { $0.genre == nil })
+    }
+
+    /// At most three personal rows, however many seeds there are.
+    @Test func forYouIsCappedAtThreeRows() async {
+        let seeds = FakeSeeds()
+        seeds.value = (1...6).map { RecommendationSeed(tmdbID: $0, title: "S\($0)", watched: true) }
+        let store = DiscoverStore(kind: .movie, discover: FakeDiscover(), seeds: seeds)
+        await store.loadBrowsePage()
+
+        #expect(store.browseRows.prefix(4).map(\.title)
+                == ["Because you watched S1", "Because you watched S2", "Because you watched S3",
+                    "Trending This Week"])
+    }
+
+    /// Netflix shows a title in Drama AND in Thriller — rows are not de-duplicated against each
+    /// other. Inside one row a title still appears once.
+    @Test func aTitleMayRepeatAcrossRowsButNeverWithinOne() async {
+        let fake = FakeDiscover()
+        fake.sharedGenreHit = 555
+        let store = DiscoverStore(kind: .movie, discover: fake, seeds: FakeSeeds())
+        await store.loadBrowsePage()
+
+        let genreRows = store.browseRows.filter { $0.genre != nil }
+        #expect(genreRows.count == DiscoverStore.movieGenreCount)
+        for row in genreRows {
+            #expect(row.hits.filter { $0.result.id == 555 }.count == 1, "\(row.title)")
+            #expect(Set(row.hits.map(\.id)).count == row.hits.count, "\(row.title)")
+        }
+    }
+
+    /// Rows arrive progressively, and only ever at the bottom: a row that finishes early waits
+    /// behind an unfinished one above it, so nothing on screen moves. The page shows as soon as the
+    /// first row has content.
+    @Test func thePageShowsEarlyAndGrowsOnlyAtTheBottom() async {
+        let fake = FakeDiscover()
+        let gate = DiscoverGate()
+        fake.trendingGate = gate                                   // Trending This Week waits
+        let seeds = FakeSeeds()
+        seeds.value = [RecommendationSeed(tmdbID: 100, title: "Dune", watched: true)]
+        let store = DiscoverStore(kind: .movie, discover: fake, seeds: seeds)
+
+        let load = Task { await store.loadBrowsePage() }
+        await spin { store.browseState == .loaded }
+        // Every other row can finish meanwhile — none of them may show above the gated one.
+        await spin { fake.popularCalls >= 6 }
+        for _ in 0..<1_000 { await Task.yield() }
+
+        #expect(store.browseState == .loaded)
+        let early = store.browseRows.map(\.title)
+        #expect(early == ["Because you watched Dune"])
+
+        await gate.open()
+        await load.value
+        let full = store.browseRows.map(\.title)
+        #expect(Array(full.prefix(early.count)) == early)
+        #expect(full.count == 1 + 3 + DiscoverStore.movieGenreCount)
+    }
+
+    /// When better seeds arrive (the library, then the watch history), only the For You block is
+    /// rebuilt — quietly: the rows on screen stay until the new block is in, then it is swapped in
+    /// one step. Nothing below the block is fetched again or changes.
+    @Test func betterSeedsReplaceOnlyTheForYouBlockInOneStep() async {
+        let fake = FakeDiscover()
+        let seeds = FakeSeeds()
+        seeds.value = [RecommendationSeed(tmdbID: 200, title: "Heat", watched: false)]
+        let store = DiscoverStore(kind: .movie, discover: fake, seeds: seeds)
+        await store.loadBrowsePage()
+        let before = store.browseRows
+        #expect(before.first?.title == "More like Heat")
+        let popularCalls = fake.popularCalls
+
+        let gate = DiscoverGate()
+        fake.recommendGate = gate
+        fake.gatedRecommendation = 100
+        seeds.value = [RecommendationSeed(tmdbID: 100, title: "Dune", watched: true),
+                       RecommendationSeed(tmdbID: 200, title: "Heat", watched: false)]
+        let refresh = Task { await store.refreshForYouIfBetterSeeds() }
+        await spin { fake.recommendedFor.contains(100) }
+        for _ in 0..<1_000 { await Task.yield() }
+        #expect(store.browseRows == before, "the old block stays until the new one is all in")
+        #expect(store.browseState == .loaded)
+
+        await gate.open()
+        await refresh.value
+        #expect(store.browseRows.map(\.title)
+                == ["Because you watched Dune", "More like Heat"] + before.dropFirst().map(\.title))
+        #expect(Array(store.browseRows.dropFirst(2)) == Array(before.dropFirst()))
+        #expect(fake.popularCalls == popularCalls, "only the For You block is fetched again")
+    }
+
+    /// No seeds yet (the library had not loaded): no personal rows — Trending leads. When seeds
+    /// arrive, the For You block is added above it.
+    @Test func aPageBuiltWithoutSeedsGainsForYouWhenTheyArrive() async {
+        let seeds = FakeSeeds()
+        let store = DiscoverStore(kind: .movie, discover: FakeDiscover(), seeds: seeds)
+        await store.loadBrowsePage()
+        let before = store.browseRows
+        #expect(before.first?.title == "Trending This Week")
+
+        seeds.value = [RecommendationSeed(tmdbID: 100, title: "Dune", watched: true)]
+        await store.refreshForYouIfBetterSeeds()
+
+        #expect(store.browseRows.map(\.title) == ["Because you watched Dune"] + before.map(\.title))
+    }
+
+    @Test func aPersonalPageIsNotRebuiltOnEveryAsk() async {
+        let fake = FakeDiscover()
+        let seeds = FakeSeeds()
+        seeds.value = [RecommendationSeed(tmdbID: 100, title: "Dune", watched: true)]
+        let store = DiscoverStore(kind: .movie, discover: fake, seeds: seeds)
+        await store.loadBrowsePage()
+        let asked = fake.recommendedFor.count
+
+        await store.loadBrowsePage()
+        await store.refreshForYouIfBetterSeeds()
+
+        #expect(fake.recommendedFor.count == asked)
+    }
+
+    @Test func aPageWithNothingToShowFailsAndRetryReloadsIt() async {
+        let fake = FakeDiscover()
+        fake.failAll = true
+        let store = DiscoverStore(kind: .movie, discover: fake, seeds: FakeSeeds())
+        await store.loadBrowsePage()
+        #expect(store.browseState == .failed)
+        #expect(store.browseRows.isEmpty)
+
+        fake.failAll = false
+        await store.loadBrowsePage()                    // Retry
+        #expect(store.browseState == .loaded)
+        #expect(store.browseRows.first?.title == "Trending This Week")
+    }
+
+    /// The page and the segments are separate: the iPhone and the Mac still browse by segment, and
+    /// loading one never touches the other.
+    @Test func thePageLeavesTheSegmentsAlone() async {
+        let store = DiscoverStore(kind: .movie, discover: FakeDiscover(), seeds: FakeSeeds())
+        await store.loadBrowsePage()
+        #expect(store.rowsBySegment.isEmpty)
+        for segment in DiscoverStore.Segment.allCases { #expect(store.segmentState(segment) == .idle) }
+        #expect(store.camIDs == [7, 8])
+
+        await store.loadSegment(.popular)
+        #expect(store.browseRows.count == 3 + DiscoverStore.movieGenreCount)
+        #expect(store.rowsBySegment[.popular]?.map(\.title).first == "Popular in Action")
+        #expect(store.rowsBySegment[.popular]?.allSatisfy { $0.genre == nil } == true)
     }
 }
