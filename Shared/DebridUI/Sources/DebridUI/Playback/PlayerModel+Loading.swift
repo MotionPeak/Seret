@@ -282,6 +282,7 @@ extension PlayerModel {
         resumeTicksSinceSeek = 0
         pendingSeek = nil
         pendingSeekTicks = 0
+        pausedSeekSent = false  // a new media has no paused seek of its own
         isFinishing = false     // a new media may end again
         cancelScan()            // a hold that outlived the swap would travel through the NEW media
         cancelCoalescedSeek()

@@ -11,8 +11,42 @@ extension PlayerModel {
         // overwrote the saved place — and the end it then reached was ignored, because the failed
         // load had already latched `isFinishing`.
         if phase.isFailed { retry(); return }
-        if phase == .playing { engine.pause() } else { engine.play() }
+        if phase == .playing { engine.pause() } else { resumeEngine() }
         revealScrubBar()
+    }
+
+    /// Play — and, when the viewer moved the playhead while paused, land it again once playing.
+    ///
+    /// A paused seek leaves libvlc 4's clock wrong (see `pausedSeekSent`): resuming straight from it
+    /// made libvlc drop every picture for 15 s of film. Seeking right after `play()` takes the
+    /// path every ordinary skip takes — the seek flushes what was decoded against the bad clock and
+    /// re-anchors it — for one short re-buffer from the cache. Play first, then seek: a seek issued
+    /// while still paused would go down the broken path again (and frame-step besides).
+    ///
+    /// A target still waiting in the coalescing window is folded into this seek rather than sent
+    /// separately after it.
+    func resumeEngine() {
+        guard phase == .paused, engineHoldsCurrentMedia,
+              pausedSeekSent || coalescedSeekTarget != nil else {
+            engine.play()
+            return
+        }
+        let target = coalescedSeekTarget ?? position
+        let origin = pendingSeek?.from ?? position
+        cancelCoalescedSeek()
+        pausedSeekSent = false
+        engine.play()
+        engine.seek(to: target)
+        position = target
+        lastTickPosition = target
+        holdBar(from: origin, to: target)
+        isBuffering = true
+    }
+
+    /// Every user seek reaches the engine through here, so a paused one is remembered.
+    func seekEngine(to target: Double) {
+        if phase == .paused { pausedSeekSent = true }
+        engine.seek(to: target)
     }
 
     public func skip(_ delta: Double) { skip(delta, seekEngine: true) }
@@ -72,7 +106,7 @@ extension PlayerModel {
         if phase != .paused, !phase.isFailed { isBuffering = true }   // see `skip`
         lastTickPosition = target    // re-arm advance detection past the target
         holdBar(from: origin, to: target)
-        engine.seek(to: target)
+        seekEngine(to: target)
     }
 
     /// Hold the displayed playhead at `target` through VLCKit's stale pre-seek ticks (see `tick`),
@@ -127,8 +161,10 @@ extension PlayerModel {
     /// real target even began.
     func scheduleCoalescedSeek(to target: Double) {
         coalescedSeekTarget = target
-        if seekDispatchTask == nil {                    // idle → respond to this tap at once
-            engine.seek(to: target)
+        // Idle → respond to this tap at once. Not while PAUSED: libvlc's paused seek is the broken
+        // path (see `pausedSeekSent`), so a paused burst reaches it as the trailing seek alone.
+        if seekDispatchTask == nil, phase != .paused {
+            seekEngine(to: target)
             dispatchedSeekTarget = target
         }
         seekDispatchTask?.cancel()                      // a burst in progress → restart the quiet period
@@ -141,7 +177,7 @@ extension PlayerModel {
             try? await Task.sleep(for: .seconds(seekCoalesceWindow))
             guard !Task.isCancelled, seekGeneration == generation else { return }
             if let final = coalescedSeekTarget, final != dispatchedSeekTarget {
-                engine.seek(to: final)
+                seekEngine(to: final)
             }
             coalescedSeekTarget = nil
             dispatchedSeekTarget = nil
@@ -155,7 +191,7 @@ extension PlayerModel {
         let target = coalescedSeekTarget
         let dispatched = dispatchedSeekTarget
         cancelCoalescedSeek()
-        if let target, target != dispatched { engine.seek(to: target) }
+        if let target, target != dispatched { seekEngine(to: target) }
     }
 
     /// Drop any open coalescing window (a direct seek — scrub commit / reload — supersedes it).
@@ -211,7 +247,7 @@ extension PlayerModel {
         if phase != .paused, !phase.isFailed { isBuffering = true }   // hint only while playing — see `skip`
         holdBar(from: from, to: scrubTarget)
         cancelCoalescedSeek()                  // a commit supersedes any open skip window
-        engine.seek(to: scrubTarget)
+        seekEngine(to: scrubTarget)
         armAutoHide()
         revealScrubBar()                       // sticky 5s after commit
     }

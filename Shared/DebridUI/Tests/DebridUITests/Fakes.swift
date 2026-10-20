@@ -57,10 +57,16 @@ final class FakeVideoPlayerEngine: VideoPlayerEngine, EventCountingEngineForTest
         loadedAudioLanguage = audioLanguage
         loadedAudioTrackID = audioTrackID
     }
-    func play() { playCalled = true }
-    func pause() { pauseCount += 1 }
+    /// Play, pause and seek in the order the model issued them — the paused-seek tests care that
+    /// a resume plays BEFORE it re-seeks.
+    private(set) var transport: [String] = []
+    func play() { playCalled = true; transport.append("play") }
+    func pause() { pauseCount += 1; transport.append("pause") }
     func stop() { stopCalled = true; continuation.finish() }
-    func seek(to seconds: Double) { seekedTo = seconds; seeks.append(seconds) }
+    func seek(to seconds: Double) {
+        seekedTo = seconds; seeks.append(seconds)
+        transport.append("seek \(Int(seconds))")
+    }
     func setRate(_ rate: Double) { rateSet = rate }
     func setVolume(_ percent: Int) { volumesSet.append(percent) }
     func selectAudioTrack(id: String?) { selectedAudioID = id }

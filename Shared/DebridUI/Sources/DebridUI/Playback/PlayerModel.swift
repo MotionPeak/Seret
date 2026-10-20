@@ -508,6 +508,15 @@ public final class PlayerModel {
     /// Nulling it there made the next skip open a fresh window and seek eagerly instead of
     /// coalescing, which is the burst-rebuffering the coalescer exists to prevent.
     var seekGeneration: UInt64 = 0
+    /// An engine seek went out while PAUSED, and playback has not resumed since.
+    ///
+    /// libvlc 4's paused seek is the broken path on the Apple TV: every one logged `reading while
+    /// paused (buggy demux?)` and a flood of input controls, and its clock came out wrong — on the
+    /// worst case (Her, 10-16) libvlc took every picture after Play for 15 s late and dropped 390 of
+    /// them in 150 ms, a visible jump. So a paused burst reaches the engine as ONE trailing seek
+    /// (the picture still updates to the target), and Play re-seeks to the bar once playing — the
+    /// well-trodden seek-while-playing path, which resets the clock. See `resumeEngine()`.
+    var pausedSeekSent = false
 
     // MARK: - Up Next (binge)
     /// Last subtitle cue (seconds), when a sub was downloaded. A FLOOR for the Up Next bar — it
@@ -728,7 +737,7 @@ public final class PlayerModel {
         // On the failure screen "play" means "try again". `engine.play()` on the dead media made
         // libvlc reopen it from 0: the error vanished and the ticks overwrote the saved place.
         if phase.isFailed { retry(); return }
-        engine.play()
+        resumeEngine()
         revealScrubBar()
     }
 
