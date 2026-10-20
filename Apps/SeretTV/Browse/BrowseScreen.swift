@@ -2,11 +2,20 @@ import DebridCore
 import DebridUI
 import SwiftUI
 
-/// A browse page (Movies or Shows), reached from the side menu. A genre strip runs across the top:
-/// "All" shows the kind's `DiscoverStore` rails (For You / Trending / …), any genre swaps in that
-/// genre's grid. Search lives in the side menu and is a SEPARATE full-screen screen, so navigating
-/// these rows never pops the keyboard. Owned titles get an "In Library" badge and push their library
-/// Detail; new titles push the Add flow. (Destinations are registered by the shell.)
+/// A browse page (Movies or Shows), reached from the side menu — Plex-style, like Home: a
+/// focus-driven preview header (logo, metadata, synopsis over the ultrablur backdrop of the
+/// focused title) above the page's scroll, whose first row is the controls — the genre strip and
+/// the For You / Trending / New / Popular / Top Rated pills — and then the selected segment's
+/// `DiscoverStore` rails of `BrowseTile`s.
+///
+/// - The header follows focus along the rails. On the controls it keeps the last title focused —
+///   or, until a tile in this segment has had focus, the first title of the segment's first rail —
+///   so it is never blank and never describes another segment's rails.
+/// - A genre pill swaps in that genre's grid over the page (kept alive underneath, so coming back
+///   finds the rails where they were). Menu, or "All", returns to the rails.
+/// - Search lives in the side menu and is a SEPARATE full-screen screen, so navigating these rows
+///   never pops the keyboard. Owned titles get a ✓ and push their library page; new titles push the
+///   placeholder page. (Destinations are registered by the shell.)
 struct BrowseScreen: View {
     let kind: MediaKind
 
@@ -22,285 +31,240 @@ struct BrowseScreen: View {
     /// boundary — which is the `EnvironmentValues.subscript.getter → assertionFailure` SIGTRAP in
     /// this app's crash reports. Absent marks must mean "no ticks yet", never a dead process.
     @Environment(TileWatchMarks.self) private var marks: TileWatchMarks?
-    /// Which segment pill has focus. Focus only highlights; a Select press switches the section
-    /// (commit-on-press — see `segmentPicker`).
-    @FocusState private var focusedSegment: DiscoverStore.Segment?
-    /// nil = "All" (the segment rails). A genre swaps the page for that genre's grid.
+    /// nil = "All" (the segment rails). A genre swaps in that genre's grid.
     @State private var genre: DiscoverStore.Genre?
+    /// False while this is a kept-alive page behind another one (the shell disables it) — a hidden
+    /// page must not claim the Menu press.
+    @Environment(\.isEnabled) private var isVisiblePage
 
+    /// Drives the preview header: tiles report focus, it publishes the one focus settles on.
+    @State private var preview = FocusPreviewModel()
+    /// The page's focus, followed without a `FocusState` of this screen's own — that re-rendered
+    /// the screen, and rebuilt every rail, on each move along a rail (measured on Home).
+    @State var focusHandle = FocusBrowseHandle()
+    /// What every focus move writes. Not observed: nothing in it is drawn.
+    @State var focusMemory = BrowseFocusMemory()
+    /// Where focus was when it last left the page (the side menu, a pushed title, the genre grid):
+    /// coming back in lands there. Written once per departure, not per move.
+    @State var entryFocus: String?
+
+#if DEBUG
+    /// The store the `-uiPreview browse` harness renders instead of the session's — fixture rails
+    /// that arrive progressively, without a TMDB key or a signed-in session.
+    var previewBrowse: DiscoverStore?
+    /// The harness's art store (the unsigned preview session has none).
+    var previewArt: TitleArtStore?
+    private var browse: DiscoverStore? {
+        previewBrowse ?? (kind == .movie ? session.moviesBrowse : session.showsBrowse)
+    }
+    private var art: TitleArtStore? { previewArt ?? session.titleArt }
+#else
     private var browse: DiscoverStore? { kind == .movie ? session.moviesBrowse : session.showsBrowse }
+    private var art: TitleArtStore? { session.titleArt }
+#endif
 
     var body: some View {
-        rows
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(CanvasBackground())
+        ZStack {
+            CanvasBackground()
+            if let browse {
+                content(browse)
+            } else {
+                SeretLoader()
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    @ViewBuilder private var rows: some View {
-        if let browse {
-            VStack(alignment: .leading, spacing: 0) {
-                GenreStrip(kind: kind, selection: $genre)
-                    .padding(.leading, Theme.Layout.contentMargin)
-                    .padding(.bottom, 6)
-                if let genre {
-                    GenreGridScreen(kind: kind, genre: genre)
-                } else {
-                    segmentPicker(browse)
-                        .padding(.leading, Theme.Layout.contentMargin)
-                        .padding(.bottom, 8)
-                    segmentContent(browse)
-                }
+    private func content(_ browse: DiscoverStore) -> some View {
+        // The page stays alive under the genre grid — its scroll, its focus memory and its header
+        // stay as they were, so Menu out of a genre comes back to the same place.
+        page(browse)
+            .opacity(genre == nil ? 1 : 0)
+            .disabled(genre != nil)
+            .accessibilityHidden(genre != nil)
+            .overlay(alignment: .topLeading) {
+                if let genre { genreLayer(genre) }
             }
-            // Load the selected segment whenever it changes (and on first show). Keyed on kind TOO,
-            // so Find's Movies→Shows flip re-fires the load even when both stores sit on the same
-            // segment (else the id wouldn't change and the new kind's rails would stay stuck loading).
-            .task(id: "\(kind.rawValue)/\(browse.selectedSegment.rawValue)") {
-                await browse.loadSegment(browse.selectedSegment)
-            }
-            // A For You built before the library or the profile had landed is rebuilt — quietly —
-            // when they do. On the CHANGE only: a return to this page re-runs the task above, and
-            // hanging the rebuild off that put skeletons under the viewer on the way back.
-            .onChange(of: seedSignature) { _, _ in
-                Task { await browse.refreshForYouIfBetterSeeds() }
-            }
-        } else {
-            SeretLoader()
+        // Menu out of a genre returns to the rails rather than opening the side menu. Only while
+        // a genre is up — and the shell stands its own handler down meanwhile (it won otherwise);
+        // the rest of the time the shell's Menu (open the side menu) applies.
+        .onExitCommand(perform: genre == nil ? nil : { self.genre = nil })
+        .claimsMenuPress(genre != nil && isVisiblePage)
+        // Load the selected segment whenever it changes (and on first show). Keyed on kind TOO,
+        // so Find's Movies→Shows flip re-fires the load even when both stores sit on the same
+        // segment (else the id wouldn't change and the new kind's rails would stay stuck loading).
+        // The store owns the load; this only asks (and joins one already running).
+        .task(id: "\(kind.rawValue)/\(browse.selectedSegment.rawValue)") {
+            await browse.loadSegment(browse.selectedSegment)
+        }
+        // A For You built before the library or the profile had landed is rebuilt — quietly —
+        // when they do. On the CHANGE only: a return to this page re-runs the task above, and
+        // hanging the rebuild off that put skeletons under the viewer on the way back.
+        .onChange(of: seedSignature) { _, _ in
+            Task { await browse.refreshForYouIfBetterSeeds() }
         }
     }
 
-    @ViewBuilder private func segmentContent(_ browse: DiscoverStore) -> some View {
-        Group {
-            switch browse.segmentState(browse.selectedSegment) {
+    // MARK: - The Plex page
+
+    /// Stable ids for the page's non-rail rows. Rail ids are the store's row ids (`trend-day`,
+    /// `rec-603`…), which never collide with these.
+    enum PageRow {
+        static let controls = "browse-controls"
+        static let skeleton = "browse-skeleton"
+        static let failed = "browse-failed"
+    }
+
+    private func page(_ browse: DiscoverStore) -> some View {
+        let segment = browse.selectedSegment
+        let rows = browse.rows
+        let keys = focusKeys(rows)
+        // Where focus goes on the way in — and where tvOS re-homes it when the focused view is
+        // rebuilt (measured: a For You rebuild that inserts a rail above the focused one re-homed
+        // focus to the page's default, the new first poster): back where it was while that is
+        // still on the page, else the first poster, else — nothing loaded yet — the selected
+        // segment's pill. `lastFocused` is read, not observed: it is current whenever the body
+        // runs, and the body runs when the rails change and when focus leaves (`entryFocus`).
+        let focusTarget = [focusMemory.lastFocused, entryFocus].compactMap { $0 }.first(where: keys.contains)
+            ?? rows.first?.hits.first.map { Self.tileID(rows[0].id, $0) }
+            ?? Self.segmentID(segment)
+        return FocusBrowsePage(preview: preview, art: art, initialFocus: focusTarget,
+                               focusOnEntry: true, handle: focusHandle) {
+            controls(browse)
+            switch browse.segmentState(segment) {
             case .idle, .loading:
-                BrowseSkeleton()                          // something to look at — not a black void
+                // Its own row with its own id, beside — never inside — the rails' lazy rows, and at
+                // the rails' real metrics, so the page does not change height when they land.
+                BrowseSkeleton().id(PageRow.skeleton)
             case .failed:
-                VStack(spacing: 24) {
-                    Image(systemName: "exclamationmark.triangle").font(.system(size: 54))
-                        .foregroundStyle(Theme.Palette.textSecondary)
-                    Text("Couldn't load.").sectionTitle()
-                    Button("Retry") { Task { await browse.loadSegment(browse.selectedSegment) } }
-                        .buttonStyle(SeretPillStyle(selected: false))
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                failed(browse)
             case .loaded:
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 44) {
-                        ForEach(browse.rows) { row in
-                            rail(title: row.title, hits: row.hits, cam: false)
-                        }
+                ForEach(rows) { row in
+                    PlexRail(title: row.title, id: row.id) {
+                        ForEach(row.hits) { hit in tile(hit, row: row.id, segment: segment, browse: browse) }
                     }
-                    .padding(.vertical, 20)
+                    // One batched read per rail; already-known titles cost nothing.
+                    .task(id: row.hits.map(\.id).joined()) { await marks?.load(row.hits) }
                 }
-                // Rails pass under the genre strip and the segment pills, which is the busiest
-                // pinned header in the app — so this is where the hard cut was most visible.
-                .gridTopFade()
             }
         }
+        // Until a tile of THIS segment has had focus, the header shows the segment's first title —
+        // and follows it while the rails arrive, and when a segment switch brings in new ones.
+        .onChange(of: headerKey(segment, rows), initial: true) { _, _ in
+            guard focusMemory.headerSegment != segment,
+                  let first = rows.first?.hits.first else { return }
+            focusMemory.headerSegment = nil
+            preview.showImmediately(PreviewSubject(hit: first))
+        }
+        .onAppear { focusHandle.onChange = { focusChanged($0) } }
     }
 
-    /// For You / Trending / New / Popular / Top Rated selector, shown only under "All".
+    /// The first row of the page's scroll: the genre strip over the segment pills. A
+    /// `plexBrowseRow`, so moving up into it (or back down out of it into the first rail) moves the
+    /// page like any rail does.
+    private func controls(_ browse: DiscoverStore) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            GenreStrip(kind: kind, selection: $genre)
+            segmentPicker(browse)
+        }
+        .padding(.top, 12)
+        // A rail's own room below, so with the first rail at the top nothing of the pills shows
+        // above it (the rails' negative spacing overlaps exactly one such padding).
+        .padding(.bottom, FocusBrowseLayout.railVerticalPadding)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .plexBrowseRow(id: PageRow.controls)
+    }
+
+    /// For You / Trending / New / Popular / Top Rated.
     /// Commit-on-press: moving focus across the pills only highlights them; a click switches the
     /// section — consistent with the side menu, so gliding the remote never reloads a rail set by
-    /// accident.
+    /// accident. (`DiscoverStore` owns every segment's load, so a switch mid-load cannot strand one.)
     private func segmentPicker(_ browse: DiscoverStore) -> some View {
-        HStack(spacing: 16) {
-            ForEach(DiscoverStore.Segment.allCases) { seg in
-                Button(seg.title) { browse.select(seg) }
-                    .buttonStyle(SeretPillStyle(selected: seg == browse.selectedSegment))
-                    .focused($focusedSegment, equals: seg)
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 16) {
+                ForEach(DiscoverStore.Segment.allCases) { seg in
+                    Button(seg.title) { browse.select(seg) }
+                        .buttonStyle(SeretPillStyle(selected: seg == browse.selectedSegment))
+                        .plexFocusID(Self.segmentID(seg))
+                        .reportsPlexRailFocus()
+                }
             }
+            .padding(.horizontal, FocusBrowseLayout.leadingInset)
+            .padding(.vertical, 12)
         }
+        .scrollClipDisabled()
         // The pill row is narrower than the edge-to-edge rails below it, so without a full-width
         // section a card scrolled to the right had nothing above it.
         .frame(maxWidth: .infinity, alignment: .leading)
         .focusSection()
     }
 
-    private func rail(title: String, hits: [SearchHit], cam: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
-            if !title.isEmpty { Text(title).sectionTitle().padding(.leading, Theme.Layout.contentMargin) }
-            ScrollView(.horizontal) {
-                LazyHStack(spacing: 36) {
-                    ForEach(hits) { BrowseTile(hit: $0, cam: cam || (browse?.isCAM($0.result) ?? false)) }
-                }
-                // One batched read per rail; already-known titles cost nothing.
-                .task(id: hits.map(\.id).joined()) { await marks?.load(hits) }
-                .padding(.horizontal, Theme.Layout.contentMargin).padding(.vertical, 40)
-            }
-            .scrollClipDisabled()
-            // Each rail is ONE target for vertical travel; independent scroll offsets otherwise make
-            // UP/DOWN between rails land arbitrarily.
-            .focusSection()
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+    private func tile(_ hit: SearchHit, row: String, segment: DiscoverStore.Segment,
+                      browse: DiscoverStore) -> some View {
+        let memory = focusMemory, preview = preview
+        return BrowseTile(hit: hit, cam: browse.isCAM(hit.result), onFocus: {
+            memory.headerSegment = segment
+            preview.focus(PreviewSubject(hit: hit))
+        })
+        .plexFocusID(Self.tileID(row, hit))
     }
 
+    private func failed(_ browse: DiscoverStore) -> some View {
+        VStack(spacing: 24) {
+            Image(systemName: "exclamationmark.triangle").font(.system(size: 54))
+                .foregroundStyle(Theme.Palette.textSecondary)
+            Text("Couldn't load.").sectionTitle()
+            Button("Retry") { Task { await browse.loadSegment(browse.selectedSegment) } }
+                .buttonStyle(SeretPillStyle(selected: false))
+                .reportsPlexRailFocus()
+        }
+        .padding(.vertical, 60)
+        .frame(maxWidth: .infinity)
+        .focusSection()
+        .plexBrowseRow(id: PageRow.failed)
+    }
+
+    // MARK: - Genre grid
+
+    /// The genre strip again, over that genre's grid. Its strip claims focus, so the page's
+    /// focused pill — gone under it the moment the grid swaps in — hands focus to the same genre
+    /// here rather than to the side menu.
+    private func genreLayer(_ selected: DiscoverStore.Genre) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            GenreStrip(kind: kind, selection: $genre, leadingInset: Theme.Layout.contentMargin,
+                       claimsFocus: true)
+                .padding(.bottom, 6)
+            GenreGridScreen(kind: kind, genre: selected)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
 }
 
-/// Loading state for a browse segment — a few redacted poster rails so the screen reads as
-/// "filling in" rather than flashing black while the genre rails fan out.
+/// Loading state for a browse segment — redacted rails at `PlexRail`'s real metrics, so the screen
+/// reads as "filling in" rather than flashing black, and the first rail lands where its skeleton
+/// was. Not focusable, and a plain stack — nothing lazy that real tiles could ever share ids with.
 private struct BrowseSkeleton: View {
     var body: some View {
-        VStack(alignment: .leading, spacing: 44) {
-            ForEach(0..<3, id: \.self) { _ in
-                VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: FocusBrowseLayout.railSpacing) {
+            ForEach(0..<2, id: \.self) { _ in
+                VStack(alignment: .leading, spacing: 24) {
                     RoundedRectangle(cornerRadius: 6, style: .continuous)
                         .fill(Theme.Palette.surface2)
-                        .frame(width: 280, height: 30)
-                        .padding(.leading, Theme.Layout.contentMargin)
-                    HStack(spacing: 36) {
-                        ForEach(0..<6, id: \.self) { _ in
+                        .frame(width: 300, height: 34)
+                        .padding(.leading, FocusBrowseLayout.leadingInset)
+                    HStack(spacing: 28) {
+                        ForEach(0..<8, id: \.self) { _ in
                             RoundedRectangle(cornerRadius: Theme.Layout.posterCorner, style: .continuous)
                                 .fill(Theme.Palette.surface2)
-                                .frame(width: 220, height: 330)
+                                .frame(width: PosterTileMetrics.width, height: PosterTileMetrics.height)
                         }
                     }
-                    .padding(.horizontal, Theme.Layout.contentMargin)
+                    .padding(.leading, FocusBrowseLayout.leadingInset)
                 }
+                .padding(.vertical, FocusBrowseLayout.railVerticalPadding)
             }
         }
-        .padding(.vertical, 20)
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-/// Where a browse/search poster goes: the title's page, or the full-screen Search. ONE value type
-/// so a tile is ONE stable `NavigationLink` — see BrowseTile.
-enum BrowseDestination: Hashable {
-    case detail(MediaItem)
-    case search(MediaKind)
-    /// An actor or director — their photo and the work of theirs you can watch.
-    case person(TMDBPersonRef)
-    /// Straight to the full-screen versions list, skipping the page.
-    case versions(SearchHit)
-    /// The versions list for ONE episode of a show. A separate case rather than optional payload
-    /// on `versions`, so an episode row's link carries one unambiguous value.
-    case episodeVersions(SearchHit, season: Int, number: Int)
-    /// Straight into playback, skipping the page — what a Continue Watching card means.
-    ///
-    /// A destination CASE rather than pushing a bare `PlaybackRequest`, because a link must offer
-    /// one value type: Home has to choose between resuming and (when the file no longer resolves)
-    /// opening the page, and choosing between two differently-typed links would swap the identity
-    /// of a focused view, which is how this app has lost focus before.
-    case play(PlaybackRequest)
-}
-
-/// A focusable browse poster. Owned or not, it opens the SAME page — an un-owned title is a
-/// source-less placeholder that `DetailStore` fills in from TMDB exactly as it fills in a library
-/// item. Owned posters carry an "In Library" badge, watched ones dim and tick. Shared by Browse +
-/// Search.
-///
-/// ⚠️ The link must be ONE stable view whose VALUE varies — not an owned/not-owned branch of two
-/// links. The background library load flips `ownedItem` while the user browses; a branch swap
-/// destroys the focused tile, tvOS silently drops focus back to the first stable element (the
-/// Search pill), and the next click opened the search keyboard instead of the title.
-struct BrowseTile: View {
-    let hit: SearchHit
-    var cam: Bool = false
-    @Environment(AppSession.self) private var session
-    /// OPTIONAL, deliberately. A non-optional `@Environment` read of an `@Observable` TRAPS when
-    /// the object is not in the environment, and it does not reliably cross a presentation
-    /// boundary — which is the `EnvironmentValues.subscript.getter → assertionFailure` SIGTRAP in
-    /// this app's crash reports. Absent marks must mean "no ticks yet", never a dead process.
-    @Environment(TileWatchMarks.self) private var marks: TileWatchMarks?
-    /// Optional for the same reason as `marks` above.
-    @Environment(WatchlistMarks.self) private var watchlist: WatchlistMarks?
-    /// Set by the shell; a no-op anywhere else. See `requestLibraryRemoval`.
-    @Environment(\.requestLibraryRemoval) private var requestRemoval
-    private let width: CGFloat = 220
-    private let height: CGFloat = 330
-
-    var body: some View {
-        let owned = session.libraryStore?.ownedItem(tmdbID: hit.result.id, kind: hit.kind)
-        let watched = marks?.isWatched(hit) ?? false
-        // No title label — posters already carry their title in the artwork.
-        return NavigationLink(value: BrowseDestination.detail(owned ?? .placeholder(for: hit))) {
-            poster(owned: owned != nil, watched: watched)
-        }
-        .buttonStyle(FocusCardStyle())
-        // Press and hold to say you have seen it. `PosterCard` in the library grid already proves
-        // this works on a `.card` NavigationLink with the Siri remote.
-        .contextMenu {
-            Button(watched ? unmarkLabel : markLabel,
-                   systemImage: watched ? "checkmark.circle.fill" : "checkmark.circle") {
-                toggleWatched(watched)
-            }
-            // Films only: Letterboxd has no watchlist a show can go on.
-            if let film = WatchlistFilm(hit: hit), let watchlist {
-                let on = watchlist.contains(tmdbID: film.tmdbID)
-                Button(on ? "Remove from Watchlist" : "Add to Watchlist",
-                       systemImage: on ? "bookmark.fill" : "bookmark") {
-                    Task { await watchlist.toggle(film: film) }
-                }
-            }
-
-            // Only for a title you actually own — a Find result you have not added has nothing to
-            // remove. Find could mark watched but never remove, which is half of "the option isn't
-            // there in all screens".
-            if let owned {
-                Button("Remove from Library", systemImage: "trash", role: .destructive) {
-                    requestRemoval(owned)
-                }
-            }
-        }
-    }
-
-    private var markLabel: String { hit.kind == .movie ? "Mark Watched" : "Mark Show Watched" }
-    private var unmarkLabel: String { hit.kind == .movie ? "Mark Unwatched" : "Mark Show Unwatched" }
-
-    /// The tick flips immediately; the write follows. A movie is one row. A show fans out over
-    /// every episode TMDB lists, which is why it runs detached rather than blocking the gesture.
-    private func toggleWatched(_ watched: Bool) {
-        marks?.set(!watched, for: hit)
-        let profileID = session.activeProfileID ?? ""
-        Task {
-            switch hit.kind {
-            case .movie:
-                await session.watchStore?.setWatched(!watched, contentKey: hit.contentKey,
-                                                     sourceKey: "", profileID: profileID)
-            case .show:
-                await session.makeShowWatchMarker()?.mark(!watched, show: .placeholder(for: hit),
-                                                          profileID: profileID)
-            }
-        }
-    }
-
-    @ViewBuilder private func poster(owned: Bool, watched: Bool) -> some View {
-        ZStack(alignment: .topTrailing) {
-            if let url = TMDBClient.imageURL(path: hit.result.posterPath, size: "w500") {
-                RemoteImage(url: url)
-                    .frame(width: width, height: height)
-                    .overlay { if watched { Color.black.opacity(0.45) } }   // dim a watched title
-                    .clipShape(RoundedRectangle(cornerRadius: Theme.Layout.posterCorner, style: .continuous))
-            } else {
-                RoundedRectangle(cornerRadius: Theme.Layout.posterCorner, style: .continuous)
-                    .fill(Theme.Palette.surface1)
-                    .overlay {
-                        Text(hit.result.displayTitle).cardTitle().foregroundStyle(Theme.Palette.textSecondary)
-                            .multilineTextAlignment(.center).padding(12)
-                    }
-                    .frame(width: width, height: height)
-            }
-            // Watched beats owned: having seen it is the more useful thing to know at a glance.
-            if watched {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 28, weight: .bold))
-                    .foregroundStyle(Theme.Palette.onFocus, Theme.Palette.focus)
-                    .padding(10)
-                    .accessibilityLabel("Watched")
-            } else if owned {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 28, weight: .bold))
-                    .foregroundStyle(Theme.Palette.onFocus, Theme.Palette.textSecondary)
-                    .padding(10)
-            } else if cam {
-                Text("CAM")
-                    .font(.seret(15, .bold)).foregroundStyle(.white)
-                    .padding(.horizontal, 10).padding(.vertical, 4)
-                    .background(Color.red.opacity(0.85), in: Capsule())
-                    .padding(10)
-                    .frame(maxWidth: .infinity, alignment: .leading)   // CAM tag top-leading
-            }
-        }
+        .accessibilityHidden(true)
     }
 }

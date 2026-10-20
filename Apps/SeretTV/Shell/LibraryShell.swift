@@ -42,6 +42,9 @@ struct LibraryShell: View {
     /// Whether the side menu is on screen yet. False only for the first moments after launch — see
     /// `revealMenuAfterLaunchFocus()`.
     @State private var menuRevealed = false
+    /// The page on screen handles Menu itself for now (Movies/Shows with a genre grid up: Menu goes
+    /// back to the rails). See `claimsMenuPress`.
+    @State private var pageClaimsMenu = false
 
     private var menuOpen: Bool { menuExpanded }
 
@@ -155,7 +158,7 @@ struct LibraryShell: View {
                                     store: session.libraryStore)
         // Menu button opens the nav from anywhere; a second press falls through and exits, because
         // the handler is removed while the menu is already open.
-        .onExitCommand(perform: menuOpen || !path.isEmpty ? nil : {
+        .onExitCommand(perform: menuOpen || !path.isEmpty || pageClaimsMenu ? nil : {
             menuRevealed = true
             menuFocus = tab
             menuExpanded = true
@@ -280,6 +283,7 @@ struct LibraryShell: View {
             if tab == .settings { SettingsView() }
         }
         .focusSection()
+        .onPreferenceChange(PageClaimsMenuKey.self) { pageClaimsMenu = $0 }
     }
 
     @ViewBuilder private func keptAlive<V: View>(_ visible: Bool, @ViewBuilder _ make: () -> V) -> some View {
@@ -297,6 +301,22 @@ struct LibraryShell: View {
 /// `requestLibraryRemoval` has one: a missing closure must be a no-op, never a trap.
 private struct OpenBrowseDestinationKey: EnvironmentKey {
     static let defaultValue: @MainActor (BrowseDestination) -> Void = { _ in }
+}
+
+/// A root page asking for the Menu press. Measured: with the shell's own `.onExitCommand` set, it
+/// won over a page's inner one (Menu out of the Movies genre grid opened the side menu) — so the
+/// shell stands down while the visible page claims it.
+struct PageClaimsMenuKey: PreferenceKey {
+    static let defaultValue = false
+    static func reduce(value: inout Bool, nextValue: () -> Bool) { value = value || nextValue() }
+}
+
+extension View {
+    /// Claims the Menu press from the shell while `active` — pair it with this view's own
+    /// `.onExitCommand`. Only a VISIBLE page may claim it: kept-alive pages stay in the tree.
+    func claimsMenuPress(_ active: Bool) -> some View {
+        preference(key: PageClaimsMenuKey.self, value: active)
+    }
 }
 
 /// Whether the side menu holds focus. A page that moves focus by itself (Home handing focus on

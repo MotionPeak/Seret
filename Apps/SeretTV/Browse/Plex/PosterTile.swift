@@ -19,6 +19,7 @@ struct PosterTile<Destination: Hashable>: View {
     var progress: Double?
     var chip: String?
     var watched: Bool
+    var owned: Bool
     let onFocus: () -> Void
     private let target: Target
 
@@ -28,9 +29,10 @@ struct PosterTile<Destination: Hashable>: View {
     }
 
     init(posterPath: String?, title: String, progress: Double? = nil, chip: String? = nil,
-         watched: Bool = false, onFocus: @escaping () -> Void = {}, value: Destination) {
+         watched: Bool = false, owned: Bool = false, onFocus: @escaping () -> Void = {},
+         value: Destination) {
         self.posterPath = posterPath; self.title = title; self.progress = progress
-        self.chip = chip; self.watched = watched; self.onFocus = onFocus
+        self.chip = chip; self.watched = watched; self.owned = owned; self.onFocus = onFocus
         self.target = .link(value)
     }
 
@@ -47,15 +49,17 @@ struct PosterTile<Destination: Hashable>: View {
     }
 
     private var artModel: PosterTileArt.Model {
-        .init(posterPath: posterPath, title: title, progress: progress, chip: chip, watched: watched)
+        .init(posterPath: posterPath, title: title, progress: progress, chip: chip, watched: watched,
+              owned: owned)
     }
 }
 
 extension PosterTile where Destination == Never {
     init(posterPath: String?, title: String, progress: Double? = nil, chip: String? = nil,
-         watched: Bool = false, onFocus: @escaping () -> Void = {}, action: @escaping () -> Void) {
+         watched: Bool = false, owned: Bool = false, onFocus: @escaping () -> Void = {},
+         action: @escaping () -> Void) {
         self.posterPath = posterPath; self.title = title; self.progress = progress
-        self.chip = chip; self.watched = watched; self.onFocus = onFocus
+        self.chip = chip; self.watched = watched; self.owned = owned; self.onFocus = onFocus
         self.target = .action(action)
     }
 }
@@ -74,6 +78,7 @@ private struct PosterTileArt: View {
         let progress: Double?
         let chip: String?
         let watched: Bool
+        let owned: Bool
     }
     let tile: Model
 
@@ -114,6 +119,14 @@ private struct PosterTileArt: View {
                     .background(Circle().fill(Theme.Palette.badgeBacking))
                     .padding(12)
                     .accessibilityLabel("Watched")
+            } else if tile.owned {
+                // Watched beats owned: having seen it is the more useful thing to know at a glance.
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 34))
+                    .foregroundStyle(Theme.Palette.textSecondary)
+                    .background(Circle().fill(Theme.Palette.badgeBacking))
+                    .padding(12)
+                    .accessibilityLabel("In Library")
             }
         }
     }

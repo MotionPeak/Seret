@@ -47,6 +47,9 @@ import DebridCore
 ///     `plexrailsinsert` starts in the second rail and inserts a rail above it 4 s in
 ///     (`plexrailsinsertearly`: 300ms after focus lands, inside the initial scroll's settle window) (see
 ///     `PlexRailsPreview`)
+///   - `browse` — the Movies page on fixture Discover rails that arrive progressively (one 4 s
+///     late, below); `browseinsert` adds a For You rail ABOVE the others 9 s in (see
+///     `BrowseScreenPreview`)
 ///
 /// Not compiled into release builds.
 struct PlayerUIPreview: View {
@@ -98,6 +101,8 @@ struct PlayerUIPreview: View {
         case "plexrailsnoart":      PlexRailsPreview(variant: .noArt)
         case "plexrailsinsert":     PlexRailsPreview(variant: .insert)
         case "plexrailsinsertearly": PlexRailsPreview(variant: .insertEarly)
+        case "browse":              BrowseScreenPreview()
+        case "browseinsert":        BrowseScreenPreview(insertAbove: true)
         default:           ScrubBarPreview()
         }
     }
