@@ -90,8 +90,13 @@ struct PlayerView: View {
         // Up Next sits above the bottom cluster — except on a landscape phone with the controls
         // up, where there is no room between the cluster and the centre circles: it moves under
         // the title instead (measured with -uiPreview upnext in both orientations).
-        .overlay(alignment: upNextOnTop ? .top : .bottom) {
-            if model.upNextVisible, let next = model.nextEpisode { upNextBar(next) }
+        .overlay(alignment: .bottom) {
+            if model.upNextVisible, !upNextOnTop, let next = model.nextEpisode {
+                upNextCard(next)
+                    .padding(.horizontal, 24)
+                    // Above the scrub bar, the pills and the episode strip's peek with controls up.
+                    .padding(.bottom, model.controlsVisible ? 190 : 28)
+            }
         }
         // A sync runs for minutes while the film keeps playing, so it reports from up here rather
         // than from the sheet that started it. Below the transport's own top row when the controls
@@ -129,6 +134,9 @@ struct PlayerView: View {
         // Held open while the panel is up, so the controls behind it never fade mid-choice.
         .onChange(of: settingsFocus, initial: true) { _, focus in setHold(.panel, focus != nil) }
         .onChange(of: holds) { _, now in model.holdControls(!now.isEmpty) }
+        // A rotation or a split-view resize that changes which presentation the panel uses: close
+        // it (which releases its hold) rather than leave the state pointing at the wrong one.
+        .onChange(of: panelIsPopover) { _, _ in settingsFocus = nil }
         .animation(.easeInOut(duration: 0.2), value: model.controlsVisible)
         .animation(.easeInOut(duration: 0.25), value: model.upNextVisible)
         .animation(.easeInOut(duration: 0.2), value: model.autoSyncBanner)
@@ -139,9 +147,19 @@ struct PlayerView: View {
         .onChange(of: model.shouldDismiss) { _, done in if done { onExit() } }
         // Locked, switched away, a call: pause and keep the place.
         .onChange(of: scenePhase) { _, phase in
-            if phase == .background { Task { await model.appDidLeaveForeground() } }
+            guard phase == .background else { return }
+            // The route list is gone once the app is; its "did end" may never arrive.
+            setHold(.routePicker, false)
+            Task { await model.appDidLeaveForeground() }
         }
-        .onDisappear { OrientationGate.setPlayerActive(false); Task { await model.teardown() } }
+        .onDisappear {
+            // Closing the player ends every hold, whatever was open at the time.
+            settingsFocus = nil
+            holds.removeAll()
+            model.holdControls(false)
+            OrientationGate.setPlayerActive(false)
+            Task { await model.teardown() }
+        }
     }
 
     // MARK: - Gestures (Balanced)
@@ -176,20 +194,25 @@ struct PlayerView: View {
         if on { holds.insert(hold) } else { holds.remove(hold) }
     }
 
-    private var regularWidth: Bool { hSize == .regular }
+    /// The panel is an iPad popover only when BOTH size classes are regular. Width alone is also
+    /// regular on a Plus / Pro Max iPhone in landscape, where a 440pt-tall popover does not fit a
+    /// ~430pt screen; there, as on every iPhone, the panel is the root sheet.
+    private var panelIsPopover: Bool { hSize == .regular && vSize == .regular }
 
-    /// A landscape phone with the controls up — see the Up Next overlay.
+    /// A landscape phone with the controls up: no room between the bottom cluster and the centre
+    /// circles, so Up Next joins the top bar's row (beside the title) — under it would sit in the
+    /// slot the AutoSync / Letterboxd bars use.
     private var upNextOnTop: Bool { vSize == .compact && model.controlsVisible }
 
     /// `settingsFocus` as the iPhone sheet sees it — nothing on iPad, where the popover owns it.
     private var compactPanel: Binding<PlayerSettingsSection?> {
-        Binding(get: { regularWidth ? nil : settingsFocus },
+        Binding(get: { panelIsPopover ? nil : settingsFocus },
                 set: { settingsFocus = $0 })
     }
 
     /// `settingsFocus` as one pill's iPad popover sees it.
     private func popoverBinding(_ section: PlayerSettingsSection) -> Binding<Bool> {
-        Binding(get: { regularWidth && settingsFocus == section },
+        Binding(get: { panelIsPopover && settingsFocus == section },
                 set: { if !$0, settingsFocus == section { settingsFocus = nil } })
     }
 
@@ -275,14 +298,15 @@ struct PlayerView: View {
         .seretGlass(in: Capsule(), interactive: false)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: forward ? .trailing : .leading)
         .padding(forward ? .trailing : .leading, 56)
-        // Below the centre circles while the controls are up — the burst reveals them, and the
-        // badge sat right on top of the ⏩ circle.
-        .offset(y: model.controlsVisible ? 92 : 0)
+        // A portrait phone with the controls up: below the centre circles, which span the width
+        // there and sat under the badge. Landscape and iPad have room beside the circles, and
+        // below them is the scrub bar — so the badge stays on the circles' row.
+        .offset(y: model.controlsVisible && hSize == .compact && vSize == .regular ? 92 : 0)
     }
 
     /// Netflix-style "Up Next" bar near content-end: a countdown that auto-advances, Play Now to
     /// skip the wait, and Dismiss to keep watching (e.g. the credits).
-    private func upNextBar(_ next: Episode) -> some View {
+    private func upNextCard(_ next: Episode) -> some View {
         HStack(spacing: Theme.Space.md) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Up Next").font(.caption.weight(.semibold)).foregroundStyle(.white.opacity(0.7))
@@ -305,11 +329,6 @@ struct PlayerView: View {
         .padding(.horizontal, 18).padding(.vertical, 12)
         .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         .seretGlass(in: RoundedRectangle(cornerRadius: 20, style: .continuous), interactive: false)
-        .padding(.horizontal, 24)
-        // Above the scrub bar, the pills and the episode strip's peek when the controls are up;
-        // under the title when it has moved to the top.
-        .padding(.bottom, upNextOnTop ? 0 : (model.controlsVisible ? 190 : 28))
-        .padding(.top, upNextOnTop ? 76 : 0)
     }
 
     /// Three independently-anchored layers so expanding the episode strip only grows the bottom
@@ -352,14 +371,18 @@ struct PlayerView: View {
             .accessibilityElement(children: .combine)
             .accessibilityAddTraits(.isHeader)
             Spacer(minLength: Theme.Space.md)
+            // A landscape phone: Up Next rides in this row (see `upNextOnTop`).
+            if upNextOnTop, model.upNextVisible, let next = model.nextEpisode {
+                upNextCard(next)
+                    .frame(maxWidth: 440)
+                    .layoutPriority(1)
+                    .transition(.opacity)
+            }
             GlassCircleButton(systemImage: "chevron.down", label: "Close Player", action: onExit)
         }
     }
 
     private var centerControls: some View {
-        // Dead to touch while a double-tap burst is running: the burst reveals the controls on its
-        // first skip, and the taps after it landed on these 80pt circles — a tap on the right half
-        // that should have added ten seconds paused the film instead.
         GlassGroup(spacing: 10) {
             HStack(spacing: 36) {
                 GlassCircleButton(systemImage: "gobackward.10", label: "Back 10 Seconds", size: 62) {
@@ -369,12 +392,15 @@ struct PlayerView: View {
                                   label: model.phase == .playing ? "Pause" : "Play", size: 80) {
                     model.togglePlayPause()
                 }
+                // Dead to touch while a skip burst runs: the burst reveals the controls on its first
+                // skip, and the next taps on the right half landed here and paused the film. ⏪/⏩
+                // stay live — a tap on them during the burst is another skip, which is what was meant.
+                .allowsHitTesting(model.skipFeedback == nil)
                 GlassCircleButton(systemImage: "goforward.10", label: "Forward 10 Seconds", size: 62) {
                     model.skip(10); model.showControls()
                 }
             }
         }
-        .allowsHitTesting(model.skipFeedback == nil)
     }
 
     private var scrubber: some View {
@@ -447,7 +473,12 @@ struct PlayerView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         // An iPad popover lives on its pill: when the transport goes (a reload, a failure) the
         // popover goes with it, and the state must not outlive it.
-        .onDisappear { if regularWidth { settingsFocus = nil } }
+        // The route picker lives here too, and its list's "did end" is not guaranteed once its
+        // view is gone.
+        .onDisappear {
+            if panelIsPopover { settingsFocus = nil }
+            setHold(.routePicker, false)
+        }
     }
 
     private func panelPill(_ section: PlayerSettingsSection, title: String, systemImage: String?,
@@ -668,19 +699,29 @@ struct AirPlayAudioPicker: UIViewRepresentable {
 
     func updateUIView(_ uiView: AVRoutePickerView, context: Context) {
         context.coordinator.onPresenting = onPresenting
+        // VoiceOver reads the picker's inner button, which calls itself "AirPlay" whatever the
+        // view's own label says — and AirPlay promises the picture, when this only moves the sound.
+        for case let button as UIButton in uiView.subviews {
+            button.accessibilityLabel = "Sound Output"
+            button.accessibilityHint = "Plays the sound on AirPods, a HomePod or an AirPlay speaker. The picture stays here."
+        }
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(onPresenting: onPresenting) }
 
+    /// Main-actor isolated: the delegate callbacks change SwiftUI state (the player's holds).
+    @MainActor
     final class Coordinator: NSObject, AVRoutePickerViewDelegate {
         var onPresenting: (Bool) -> Void
         init(onPresenting: @escaping (Bool) -> Void) { self.onPresenting = onPresenting }
 
-        func routePickerViewWillBeginPresentingRoutes(_ routePickerView: AVRoutePickerView) {
-            onPresenting(true)
+        // AVKit calls these on the main thread but its protocol is not main-actor isolated, so
+        // they are nonisolated and step onto the main actor they are already on.
+        nonisolated func routePickerViewWillBeginPresentingRoutes(_ routePickerView: AVRoutePickerView) {
+            MainActor.assumeIsolated { onPresenting(true) }
         }
-        func routePickerViewDidEndPresentingRoutes(_ routePickerView: AVRoutePickerView) {
-            onPresenting(false)
+        nonisolated func routePickerViewDidEndPresentingRoutes(_ routePickerView: AVRoutePickerView) {
+            MainActor.assumeIsolated { onPresenting(false) }
         }
     }
 }

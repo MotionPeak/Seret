@@ -20,7 +20,12 @@ struct EpisodePeekStrip: View {
             .animation(.spring(response: 0.34, dampingFraction: 0.86), value: expanded)
             // Open, it is being browsed: the transport it lives in must not auto-hide under it.
             .onChange(of: expanded) { _, open in onHold(open) }
-            .onDisappear { if expanded { onHold(false) } }
+            // Collapsed as well as released: an expanded strip coming back (the transport faded in
+            // again) would be open without the hold that keeps the controls up under it.
+            .onDisappear {
+                if expanded { onHold(false) }
+                expanded = false
+            }
         }
     }
 
