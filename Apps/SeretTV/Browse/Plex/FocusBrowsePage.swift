@@ -48,6 +48,10 @@ enum FocusBrowseLayout {
 /// - `initialFocus` names the tile (or button) that takes focus when the page first resolves
 ///   focus; mark it with `.plexFocusID(_:)`. Also the target tvOS re-homes to when the focused
 ///   view vanishes, which is what keeps a Try Again button focused through a reload.
+/// - `focusOnEntry`: `initialFocus` is also where focus lands when the viewer moves INTO the page
+///   (back from the side menu), not just the first time it resolves. Off by default; a page that
+///   keeps `initialFocus` pointed at its last focused tile returns the viewer to it, as Plex does —
+///   without it tvOS picks by geometry, and Right out of the open menu landed a tile further on.
 /// - The page reads `TitleArtStore` results only: its `.task(id:)` asks the store to load the
 ///   shown subject's art (the store owns the fetch), and the body looks up the art for the
 ///   subject on screen — so an older title's art can never paint over a newer one.
@@ -55,6 +59,7 @@ struct FocusBrowsePage<Rails: View>: View {
     @Bindable var preview: FocusPreviewModel
     let art: TitleArtStore?
     var initialFocus: String?
+    var focusOnEntry = false
     @ViewBuilder var rails: Rails
 
     static var leadingInset: CGFloat { FocusBrowseLayout.leadingInset }
@@ -81,10 +86,11 @@ struct FocusBrowsePage<Rails: View>: View {
     @FocusState private var focusedID: String?
 
     init(preview: FocusPreviewModel, art: TitleArtStore?, initialFocus: String? = nil,
-         @ViewBuilder rails: () -> Rails) {
+         focusOnEntry: Bool = false, @ViewBuilder rails: () -> Rails) {
         self.preview = preview
         self.art = art
         self.initialFocus = initialFocus
+        self.focusOnEntry = focusOnEntry
         self.rails = rails()
     }
 
@@ -127,7 +133,7 @@ struct FocusBrowsePage<Rails: View>: View {
             .ignoresSafeArea(edges: .bottom)
         }
         .background { backdrop }
-        .defaultFocus($focusedID, initialFocus)
+        .defaultFocus($focusedID, initialFocus, priority: focusOnEntry ? .userInitiated : .automatic)
         .environment(\.focusBrowseRowFocused, { focusedRow = $0 })
         .environment(\.focusBrowseFocusedRow, focusedRow)
         .environment(\.focusBrowseFocusID, $focusedID)

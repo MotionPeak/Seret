@@ -455,4 +455,40 @@ private struct FakeWatch: WatchProgressProviding {
 
         #expect(store.recentlyAdded.map(\.id) == ["movie:10", "movie:9", "movie:8"])
     }
+    /// The Apple TV shows Recently Added as one rail per kind. Cut from the combined list, a
+    /// film-heavy library pushed every show past the cap — measured on a real account: 346 films
+    /// and 6 shows, the newest show 250th — so the Shows rail never appeared at all. Each kind is
+    /// capped on its own.
+    @MainActor @Test func eachKindIsCappedOnItsOwn() async {
+        let movies = (1...10).map {
+            MediaItem(id: "movie:\($0)", kind: .movie, title: "M\($0)", year: 2024, sources: [],
+                      seasons: [], addedAt: Date(timeIntervalSince1970: 1_000 + Double($0)))
+        }
+        let shows = (1...4).map {
+            MediaItem(id: "show:\($0)", kind: .show, title: "S\($0)", year: 2024, sources: [],
+                      seasons: [], addedAt: Date(timeIntervalSince1970: Double($0)))
+        } + [MediaItem(id: "show:undated", kind: .show, title: "U", year: 2024, sources: [], seasons: [])]
+        let store = HomeStore(watch: FakeWatch(states: []), recentlyAddedLimit: 3)
+        store.activeProfileID = "p1"
+
+        await store.rebuild(movies: movies, shows: shows)
+
+        #expect(store.recentlyAdded.map(\.id) == ["movie:10", "movie:9", "movie:8"])   // unchanged
+        #expect(store.recentlyAddedMovies.map(\.id) == ["movie:10", "movie:9", "movie:8"])
+        #expect(store.recentlyAddedShows.map(\.id) == ["show:4", "show:3", "show:2"])
+    }
+
+    /// Recently Added needs no profile, and neither do its per-kind rails.
+    @MainActor @Test func eachKindFillsBeforeAProfileResolves() async {
+        let movie = MediaItem(id: "movie:1", kind: .movie, title: "M", year: 2024, sources: [],
+                              seasons: [], addedAt: Date(timeIntervalSince1970: 2))
+        let show = MediaItem(id: "show:1", kind: .show, title: "S", year: 2024, sources: [],
+                             seasons: [], addedAt: Date(timeIntervalSince1970: 1))
+        let store = HomeStore(watch: FakeWatch(states: []))
+
+        await store.rebuild(movies: [movie], shows: [show])
+
+        #expect(store.recentlyAddedMovies.map(\.id) == ["movie:1"])
+        #expect(store.recentlyAddedShows.map(\.id) == ["show:1"])
+    }
 }

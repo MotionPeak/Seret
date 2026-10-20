@@ -2,8 +2,14 @@ import DebridCore
 import DebridUI
 import SwiftUI
 
-/// Home tab: a featured hero (most recent Continue item), a Continue Watching rail and a Recently
-/// Added grid, composed on the shared `session.home`. Cards push library Detail.
+/// Home tab, Plex-style: a focus-driven preview header (logo, metadata, synopsis over the ultrablur
+/// backdrop of the focused title) above sideways poster rails — Continue Watching, Downloading
+/// (while anything is), Recently Added Movies and Recently Added Shows — composed on the shared
+/// `session.home`.
+///
+/// Continue Watching resumes on Select (its page only when the file no longer resolves) and keeps
+/// its press-and-hold menu; Recently Added tiles open the title's page and keep the library menu and
+/// the watched ✓; Downloading tiles open the title's page.
 struct HomeScreen: View {
     @Environment(AppSession.self) private var session
     /// Pushes a page onto the shell's stack. A no-op outside the shell (previews, the harness).
@@ -16,13 +22,34 @@ struct HomeScreen: View {
 
 #if DEBUG
     /// The store the `-uiPreview home` harness renders instead of the session's, so the real screen
-    /// — hero, rail and grid together — can be screenshot-verified without a signed-in session and
+    /// — header and every rail together — can be screenshot-verified without a signed-in session and
     /// without a watch history the simulator has no cheap way to produce.
     var previewHome: HomeStore?
     private var homeStore: HomeStore? { previewHome ?? session.home }
+    /// The harness's art store (the unsigned preview session has none), so the header and backdrop
+    /// are measured with real logos and plates.
+    var previewArt: TitleArtStore?
+    private var art: TitleArtStore? { previewArt ?? session.titleArt }
+    /// The harness's library failure (`-uiPreview homefailed`) — the preview session has no library.
+    var previewFailure: String?
 #else
     private var homeStore: HomeStore? { session.home }
+    private var art: TitleArtStore? { session.titleArt }
 #endif
+
+    /// Drives the preview header: tiles report focus, it publishes the one focus settles on.
+    @State private var preview = FocusPreviewModel()
+    /// A tile has taken focus since Home appeared — from then on focus, not the data, says what the
+    /// header shows.
+    @State private var tileHasFocused = false
+    /// Which tile holds focus, by its focus id — Home's own handle on it, stacked on the page's.
+    @FocusState private var tileFocus: String?
+    /// The tile a long-press action was just taken on. Its menu holds focus while it is open, so
+    /// when the action takes the tile away there is no focused tile to notice it went.
+    @State private var actedOnTile: String?
+    @State private var rehomeTask: Task<Void, Never>?
+    /// The tile focus was last on — where coming back into the page lands.
+    @State private var lastFocusedTile: String?
 
     /// True once there's anything to show — a download under way counts: a first title being fetched
     /// into an empty library is exactly when the viewer wants to see it.
@@ -41,6 +68,9 @@ struct HomeScreen: View {
     /// branches that both drew `failed(…)`, the flip from failed to loading swapped one for the
     /// other, the focused Try Again went with it, and tvOS put focus on the side menu.
     private var failureMessage: String? {
+#if DEBUG
+        if let previewFailure { return previewFailure }
+#endif
         if case .failed(let message) = session.libraryStore?.state { return message }
         return retrying ? lastFailure : nil
     }
@@ -74,54 +104,7 @@ struct HomeScreen: View {
 
     @ViewBuilder private var content: some View {
         if let home = homeStore, homeReady {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 50) {
-                    hero(home)
-                    if let tiles = session.downloadStore?.activeTiles, !tiles.isEmpty {
-                        HomeRail(title: "Downloading") {
-                            ForEach(tiles) { tile in
-                                DownloadingRailCard(
-                                    tile: tile,
-                                    destination: downloadDestination(for: tile,
-                                                                     library: session.libraryStore))
-                            }
-                        }
-                    }
-                    if !home.continueWatching.isEmpty {
-                        HomeRail(title: "Continue Watching") {
-                            ForEach(home.continueWatching) { hi in
-                                NavigationLink(value: resumeDestination(hi)) {
-                                    LandscapeProgressCard(title: hi.item.title,
-                                                          subtitle: hi.isUpNext ? "Next · \(hi.subtitle)" : hi.subtitle,
-                                                          imageURL: backdropURL(hi.item), fraction: hi.fraction)
-                                }.buttonStyle(FocusCardStyle())
-                                    // Press-and-hold to clear it: the rail had no way to remove a
-                                    // title you only started, so it kept the top of Home for good.
-                                    .contextMenu {
-                                        ContinueWatchingActions(entry: hi, home: home, session: session,
-                                                                openTitle: { openDestination(.detail(hi.item)) },
-                                                                play: { openDestination(.play($0)) })
-                                    }
-                            }
-                        }
-                    }
-                    if !home.recentlyAdded.isEmpty {
-                        // A grid, not a rail: this is the section you browse, and sideways it
-                        // showed six of sixty while the rest of the page sat empty. `PosterCard`
-                        // rather than a private copy, so a title here carries the same ✓, the same
-                        // label and the same long-press actions it does in My Library.
-                        HomeGrid(title: "Recently Added") {
-                            ForEach(home.recentlyAdded) { item in
-                                PosterCard(item: item,
-                                           watched: session.libraryStore?.watchState(for: item)?.finished == true,
-                                           session: session,
-                                           onRemove: { pendingRemoval = $0 })
-                            }
-                        }
-                    }
-                }
-                .padding(.vertical, 40)
-            }
+            rails(home)
         } else if let failureMessage {
             failed(failureMessage)         // the button stays put, saying "Trying…", until it answers
         } else if stillLoading {
@@ -129,6 +112,213 @@ struct HomeScreen: View {
         } else {
             empty
         }
+    }
+
+    /// Stable ids for the rails — the page scrolls to them, and a tile's focus id is prefixed by
+    /// its rail's, so a title in two rails is two distinct focus targets.
+    private enum Rail {
+        static let continueWatching = "continue"
+        static let downloading = "downloading"
+        static let movies = "movies"
+        static let shows = "shows"
+    }
+
+    /// The rails, each present only while it has something in it. A rail appearing or leaving is
+    /// never a swap under a focused tile: an empty rail has nothing in it that could hold focus, and
+    /// each rail keeps one id for its whole life.
+    private func rails(_ home: HomeStore) -> some View {
+        let downloads = session.downloadStore?.activeTiles ?? []
+        let movies = home.recentlyAddedMovies
+        let shows = home.recentlyAddedShows
+        let keys = tileKeys(home)
+        // Where focus goes: the tile the viewer was last on while it is still there (so coming back
+        // from the side menu returns to it), else the tile Home opens on.
+        let focusTarget = lastFocusedTile.flatMap { keys.contains($0) ? $0 : nil } ?? initialFocusID(home)
+        return FocusBrowsePage(preview: preview, art: art, initialFocus: focusTarget, focusOnEntry: true) {
+            if !home.continueWatching.isEmpty {
+                PlexRail(title: "Continue Watching", id: Rail.continueWatching) {
+                    ForEach(home.continueWatching) { hi in continueTile(hi, home: home) }
+                }
+            }
+            if !downloads.isEmpty {
+                PlexRail(title: "Downloading", id: Rail.downloading) {
+                    ForEach(downloads) { tile in
+                        let destination = downloadDestination(for: tile, library: session.libraryStore)
+                        let key = Self.focusID(Rail.downloading, tile.id)
+                        DownloadingRailCard(tile: tile, destination: destination, showsCaption: false,
+                                            onFocus: { focus(Self.subject(for: destination)) })
+                            .plexFocusID(key)
+                            .focused($tileFocus, equals: key)
+                    }
+                }
+            }
+            if !movies.isEmpty {
+                PlexRail(title: "Recently Added Movies", id: Rail.movies) {
+                    ForEach(movies) { item in recentTile(item, rail: Rail.movies) }
+                }
+            }
+            if !shows.isEmpty {
+                PlexRail(title: "Recently Added Shows", id: Rail.shows) {
+                    ForEach(shows) { item in recentTile(item, rail: Rail.shows) }
+                }
+            }
+        }
+        // Until a tile has focus, the header shows what the page opens on — and follows it while
+        // the rails are still arriving (Recently Added lands before Continue Watching).
+        .onChange(of: initialSubject(home), initial: true) { _, subject in
+            guard !tileHasFocused, let subject else { return }
+            preview.showImmediately(subject)
+        }
+        // A tile that held focus — or whose long-press menu did — left the rails: marked watched,
+        // removed, its download finished. tvOS then leaves NOTHING focused (measured: no ring
+        // anywhere, the header still describing the gone title) until the next press, so focus
+        // is handed to its neighbour here.
+        .onChange(of: tileKeys(home)) { old, new in rehomeFocus(old: old, new: new) }
+        .onChange(of: tileFocus) { _, key in
+            guard let key else { return }
+            actedOnTile = nil
+            lastFocusedTile = key
+        }
+        // A rebuild that changed the entry on screen (new progress after watching → a new "Xm
+        // left") re-shows it; the focused tile does not re-report focus for a data change.
+        .onChange(of: home.continueWatching) { _, entries in
+            guard let shown = preview.shown,
+                  let entry = entries.first(where: { $0.id == shown.id }) else { return }
+            let fresh = Self.subject(for: entry)
+            if fresh != shown { preview.showImmediately(fresh) }
+        }
+    }
+
+    /// A Continue Watching tile: progress along its foot, "Next" for an up-next episode, Select
+    /// resumes. Press-and-hold to clear it: the rail had no way to remove a title you only started,
+    /// so it kept the top of Home for good.
+    private func continueTile(_ hi: HomeItem, home: HomeStore) -> some View {
+        let key = Self.focusID(Rail.continueWatching, hi.id)
+        return PosterTile(posterPath: hi.item.posterPath, title: hi.item.title,
+                          progress: hi.fraction, chip: hi.isUpNext ? "Next" : nil,
+                          onFocus: { focus(Self.subject(for: hi)) },
+                          value: resumeDestination(hi))
+            .plexFocusID(key)
+            .focused($tileFocus, equals: key)
+            .contextMenu {
+                ContinueWatchingActions(entry: hi, home: home, session: session,
+                                        openTitle: { openDestination(.detail(hi.item)) },
+                                        play: { openDestination(.play($0)) },
+                                        didMark: { actedOnTile = key })
+            }
+    }
+
+    /// A Recently Added tile: the same ✓ and long-press actions the title carries in My Library.
+    private func recentTile(_ item: MediaItem, rail: String) -> some View {
+        let key = Self.focusID(rail, item.id)
+        return PosterTile(posterPath: item.posterPath, title: item.title,
+                          watched: session.libraryStore?.watchState(for: item)?.finished == true,
+                          onFocus: { focus(PreviewSubject(item: item)) },
+                          value: item)
+            .plexFocusID(key)
+            .focused($tileFocus, equals: key)
+            .libraryTitleMenu(for: item, session: session, onRemove: {
+                actedOnTile = key
+                pendingRemoval = $0
+            })
+    }
+
+    private func focus(_ subject: PreviewSubject?) {
+        tileHasFocused = true
+        guard let subject else { return }
+        preview.focus(subject)
+    }
+
+    private static func focusID(_ rail: String, _ id: String) -> String { "\(rail)/\(id)" }
+
+    /// Every tile's focus id, rail by rail, in screen order.
+    private func tileKeys(_ home: HomeStore) -> [String] {
+        home.continueWatching.map { Self.focusID(Rail.continueWatching, $0.id) }
+            + (session.downloadStore?.activeTiles ?? []).map { Self.focusID(Rail.downloading, $0.id) }
+            + home.recentlyAddedMovies.map { Self.focusID(Rail.movies, $0.id) }
+            + home.recentlyAddedShows.map { Self.focusID(Rail.shows, $0.id) }
+    }
+
+    /// Hands focus on when the tile that had it — or whose long-press menu had it — is gone.
+    /// Only then: a tile leaving while focus is anywhere else (the side menu, another tile) must
+    /// not pull focus to it.
+    private func rehomeFocus(old: [String], new: [String]) {
+        let gone: String
+        if let focused = tileFocus, !new.contains(focused) {
+            gone = focused
+        } else if tileFocus == nil, let acted = actedOnTile, !new.contains(acted) {
+            gone = acted
+        } else {
+            return
+        }
+        actedOnTile = nil
+        guard let next = Self.neighbour(of: gone, old: old, new: new) else { return }
+        // Retried, not set once: while a long-press menu is still animating away tvOS ignores the
+        // write (measured: ~0.9s of no-ops in the simulator, then it lands). The tile it names may
+        // also be one this same change inserts — a show's card moving on to its next episode.
+        // Stops as soon as a tile other than the gone one holds focus, so it never fights the viewer.
+        rehomeTask?.cancel()
+        rehomeTask = Task { @MainActor in
+            for _ in 0..<20 {
+                tileFocus = next
+                try? await Task.sleep(for: .milliseconds(100))
+                if Task.isCancelled { return }
+                if let now = tileFocus, now != gone { return }
+            }
+        }
+    }
+
+    /// Where focus goes when `gone` leaves: the tile now at its place in the same rail (the one
+    /// after it, or the new last); with the rail emptied, the first tile of the rail that took
+    /// its place below, else of the nearest rail above.
+    private static func neighbour(of gone: String, old: [String], new: [String]) -> String? {
+        func rail(_ key: String) -> Substring { key.prefix { $0 != "/" } }
+        let goneRail = rail(gone)
+        let sameRail = new.filter { rail($0) == goneRail }
+        if !sameRail.isEmpty {
+            let index = old.filter { rail($0) == goneRail }.firstIndex(of: gone) ?? 0
+            return sameRail[min(index, sameRail.count - 1)]
+        }
+        var oldRails: [Substring] = []
+        for key in old where oldRails.last != rail(key) { oldRails.append(rail(key)) }
+        guard let position = oldRails.firstIndex(of: goneRail) else { return new.first }
+        let below = oldRails[(position + 1)...], above = oldRails[..<position].reversed()
+        for candidate in Array(below) + Array(above) {
+            if let first = new.first(where: { rail($0) == candidate }) { return first }
+        }
+        return new.first
+    }
+
+    /// The tile Home opens on: the first Continue Watching entry, else the first Recently Added
+    /// title — the top-leading tile either way, the one the header starts on.
+    private func initialFocusID(_ home: HomeStore) -> String? {
+        if let hi = home.continueWatching.first { return Self.focusID(Rail.continueWatching, hi.id) }
+        if let movie = home.recentlyAddedMovies.first { return Self.focusID(Rail.movies, movie.id) }
+        return home.recentlyAddedShows.first.map { Self.focusID(Rail.shows, $0.id) }
+    }
+
+    /// The header for `initialFocusID`'s tile.
+    private func initialSubject(_ home: HomeStore) -> PreviewSubject? {
+        if let hi = home.continueWatching.first { return Self.subject(for: hi) }
+        let first = home.recentlyAddedMovies.first ?? home.recentlyAddedShows.first
+        return first.map(PreviewSubject.init(item:))
+    }
+
+    /// A Continue Watching entry's header. Its runtime is what the saved position says it is —
+    /// `resumeAt` seconds are `fraction` of the whole — so "Xm left" needs no details call. An
+    /// up-next entry (nothing watched yet) has no "left".
+    private static func subject(for hi: HomeItem) -> PreviewSubject {
+        var runtime: Int?
+        if let at = hi.resumeAt, at > 0, hi.fraction > 0 {
+            runtime = Int((at / hi.fraction / 60).rounded())
+        }
+        return PreviewSubject(home: hi, runtimeMinutes: runtime)
+    }
+
+    /// A download's header: the title it leads to (owned, or the placeholder page).
+    private static func subject(for destination: BrowseDestination) -> PreviewSubject? {
+        if case .detail(let item) = destination { return PreviewSubject(item: item) }
+        return nil
     }
 
     /// The library could not be read (offline, Real-Debrid down, signed out) and there is no cached
@@ -159,7 +349,7 @@ struct HomeScreen: View {
     /// Where a Continue Watching card goes: straight into the film, or — only when the file can no
     /// longer be resolved (the version was removed since it was last watched) — to its page.
     ///
-    /// It used to push `hi.item` unconditionally, so the hero's "▶ Resume" and every card in the
+    /// It used to push `hi.item` unconditionally, so the old hero's "▶ Resume" and every card in the
     /// rail opened a Detail page instead of resuming: the button said Resume and loaded the same
     /// title's page every time. For a SHOW it was worse — `hi.item` is the series, so the episode
     /// you were part-way through was dropped entirely. The mobile app has resumed directly from
@@ -167,60 +357,6 @@ struct HomeScreen: View {
     /// (`LibraryShell` already routes a `PlaybackRequest` to the player).
     private func resumeDestination(_ hi: HomeItem) -> BrowseDestination {
         hi.playbackRequest().map { .play($0) } ?? .detail(hi.item)
-    }
-
-    /// The billboard: artwork you look at, with real buttons you press — the Netflix / HBO shape.
-    ///
-    /// It used to be ONE full-width `.card` link with a painted "Resume" capsule inside it. Focus
-    /// then belonged to the whole 1600pt-wide card, and tvOS measures a move from the CENTRE of the
-    /// focused view, so pressing DOWN from "Resume" landed on whichever Continue Watching card sat
-    /// under the middle of the screen (the second one) instead of the card right below the button.
-    /// There was also no way from Home to a title's page — every surface here resumed.
-    @ViewBuilder private func hero(_ home: HomeStore) -> some View {
-        if let f = home.featured {
-            ZStack(alignment: .bottomLeading) {
-                RemoteImage(url: backdropURL(f.item))
-                    .frame(height: 620).frame(maxWidth: .infinity).clipped()
-                LinearGradient(stops: [
-                    .init(color: .clear, location: 0.0),
-                    .init(color: Theme.Palette.canvas.opacity(0.7), location: 0.6),
-                    .init(color: Theme.Palette.canvas, location: 1.0),
-                ], startPoint: .top, endPoint: .bottom)
-                VStack(alignment: .leading, spacing: 14) {
-                    Text(f.isUpNext ? "Up Next · \(f.subtitle)"
-                         : f.subtitle.isEmpty ? "Continue Watching" : "Continue · \(f.subtitle)")
-                        .eyebrow().foregroundStyle(Theme.Palette.textSecondary)
-                    Text(f.item.title).heroTitle()
-                        .foregroundStyle(Theme.Palette.textPrimary).lineLimit(2)
-                    HStack(spacing: 16) {
-                        // A file that no longer resolves cannot resume — then the page is the
-                        // only honest destination, and it becomes the primary button.
-                        if let request = f.playbackRequest() {
-                            NavigationLink(value: BrowseDestination.play(request)) {
-                                Label(resumeLabel(f), systemImage: "play.fill")
-                            }
-                            .buttonStyle(SeretActionButtonStyle(prominent: true))
-                        }
-                        NavigationLink(value: BrowseDestination.detail(f.item)) {
-                            Label("Details", systemImage: "info.circle")
-                        }
-                        .buttonStyle(SeretActionButtonStyle(prominent: !f.isResumable))
-                    }
-                    .padding(.top, 8)
-                }
-                .padding(60)
-            }
-            .frame(maxWidth: .infinity)
-            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-        }
-    }
-
-    /// "Resume 34:16" when the saved position is known — the same words the title page uses, so the
-    /// two screens never disagree about what the button will do.
-    private func resumeLabel(_ f: HomeItem) -> String {
-        if f.isUpNext { return "Play" }          // the next episode, from its start
-        guard let at = f.resumeAt, at > 0 else { return "Resume" }
-        return "Resume \(Timecode.format(at))"
     }
 
     private var empty: some View {
@@ -236,9 +372,5 @@ struct HomeScreen: View {
     private func rebuild() async {
         guard let library = session.libraryStore, let home = session.home else { return }
         await home.rebuild(movies: library.movies, shows: library.shows)
-    }
-
-    private func backdropURL(_ i: MediaItem) -> URL? {
-        TMDBClient.imageURL(path: i.backdropPath ?? i.posterPath, size: "w1280")
     }
 }

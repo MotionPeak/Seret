@@ -26,6 +26,9 @@ struct ContinueWatchingActions: View {
     /// Plays a request — the menu's "Play from Beginning". Selecting the card resumes; starting a
     /// film or an episode over used to mean scrubbing back to 0:00 inside the player.
     var play: (PlaybackRequest) -> Void = { _ in }
+    /// Called when a mark is chosen — the mark can take this card off the rail while its menu, not
+    /// the card, holds focus, so the screen needs to know which card to hand focus on from.
+    var didMark: () -> Void = {}
 
     /// A show's card stands for one episode, so its marks have to say so — "Mark Watched" on a
     /// series poster reads as the whole run.
@@ -39,11 +42,11 @@ struct ContinueWatchingActions: View {
         Button(entry.item.kind == .show ? "Go to Show" : "Go to Movie", systemImage: "info.circle") {
             openTitle()
         }
-        Button("Mark \(scope)Watched", systemImage: "checkmark.circle") { markEntry(true) }
-        Button("Mark \(scope)Unwatched", systemImage: "circle") { markEntry(false) }
+        Button("Mark \(scope)Watched", systemImage: "checkmark.circle") { didMark(); markEntry(true) }
+        Button("Mark \(scope)Unwatched", systemImage: "circle") { didMark(); markEntry(false) }
         if entry.item.kind == .show {
-            Button("Mark Show Watched", systemImage: "checkmark.circle.fill") { markShow(true) }
-            Button("Mark Show Unwatched", systemImage: "circle.dashed") { markShow(false) }
+            Button("Mark Show Watched", systemImage: "checkmark.circle.fill") { didMark(); markShow(true) }
+            Button("Mark Show Unwatched", systemImage: "circle.dashed") { didMark(); markShow(false) }
         }
     }
 

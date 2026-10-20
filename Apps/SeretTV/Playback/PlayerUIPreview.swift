@@ -78,6 +78,7 @@ struct PlayerUIPreview: View {
         case "manualsync":          ManualSyncPanelPreview(pressed: false)
         case "manualsyncpressed":   ManualSyncPanelPreview(pressed: true)
         case "home":                HomeScreenPreview()
+        case "homefailed":          HomeScreenPreview(failure: "Couldn't reach Real-Debrid. Check the connection and try again.")
         case "watchlist":           WatchlistScreenPreview()
         case "watchlistpartner":    WatchlistScreenPreview(partnerUnreadable: true)
         case "letterboxd":          LetterboxdCardPreview()
@@ -1127,26 +1128,45 @@ private struct ManualSyncPreviewProvider: SubtitleProvider {
 
 // MARK: - Home
 
-/// The real `HomeScreen` over a fabricated `HomeStore`, so the hero, the Continue Watching rail and
-/// the Recently Added grid can be seen together — and the rail's press-and-hold menu opened —
-/// without a signed-in session.
+/// The real `HomeScreen` over a fabricated `HomeStore`, so the preview header and every rail —
+/// Continue Watching (part-way entries plus an up-next episode), Recently Added Movies and Recently
+/// Added Shows — can be seen together, and a tile's press-and-hold menu opened, without a
+/// signed-in session.
 ///
 /// A watch history is the one fixture the simulator cannot cheaply produce: Continue Watching is
-/// written by actually playing something, so an unseeded simulator renders a Home with no hero and
-/// no rail at all, which is exactly the half of this screen worth looking at.
+/// written by actually playing something, so an unseeded simulator renders a Home with no
+/// Continue Watching rail at all, which is exactly the half of this screen worth looking at.
 ///
-/// The titles are real rows out of the library snapshot, so the posters resolve and the grid is
-/// measured against the artwork it will really carry.
+/// The titles are real rows out of the library snapshot, so the posters resolve, and the header
+/// reads the real TMDB art (logos, textless backdrops) through a real `TitleArtStore` — the
+/// preview session, never signed in, has none of its own.
+///
+/// `homefailed` shows the library-failure state instead: Try Again must be on screen and focused,
+/// and pressing it must leave it focused, reading "Trying…".
 private struct HomeScreenPreview: View {
+    var failure: String?
     @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()))
     @State private var home = HomeStore(watch: PreviewWatch())
+    @State private var art = TitleArtStore(details: TMDBDetailsService(
+        client: TMDBClient(apiKey: Secrets.tmdbAPIKey)))
     @State private var ready = false
 
     var body: some View {
         NavigationStack {
             Group {
-                if ready { HomeScreen(previewHome: home) } else { Color.black }
+                if let failure {
+                    HomeScreen(previewHome: HomeStore(watch: PreviewWatch()), previewArt: art,
+                               previewFailure: failure)
+                } else if ready {
+                    HomeScreen(previewHome: home, previewArt: art)
+                } else {
+                    Color.black
+                }
             }
+            // The shell's content inset, so x positions match the real app.
+            .sideMenuContentInset()
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(CanvasBackground())      // the shell's own background
         }
         .environment(session)
         .task {
@@ -1156,14 +1176,19 @@ private struct HomeScreenPreview: View {
         }
     }
 
-    /// Two entries, because the two kinds offer different menus: a movie is marked on its own, an
-    /// episode names itself and adds the whole-series marks underneath.
+    /// Two part-way entries, because the two kinds offer different menus — a movie is marked on its
+    /// own, an episode names itself and adds the whole-series marks — and one finished episode, so
+    /// its show comes back as the episode after it, "Next".
     private struct PreviewWatch: WatchProgressProviding {
         func recentlyWatched(limit: Int, profileID: String) async throws -> [WatchState] {
             [WatchState(contentKey: "movie:tmdb:73", sourceKey: "t#1", positionSeconds: 1_920,
                         durationSeconds: 7_140, finished: false, updatedAt: Date()),
              WatchState(contentKey: "show:tmdb:95557:s3e1", sourceKey: "t#2", positionSeconds: 240,
                         durationSeconds: 2_700, finished: false, updatedAt: Date().addingTimeInterval(-60))]
+        }
+        func recentlyFinished(limit: Int, profileID: String) async throws -> [WatchState] {
+            [WatchState(contentKey: "show:tmdb:95396:s1e1", sourceKey: "t#3", positionSeconds: 3_300,
+                        durationSeconds: 3_300, finished: true, updatedAt: Date().addingTimeInterval(-120))]
         }
         func progress(forContentKey key: String, profileID: String) async throws -> WatchState? { nil }
         func record(contentKey: String, sourceKey: String, positionSeconds: Double,
@@ -1251,19 +1276,48 @@ private struct HomeScreenPreview: View {
     private static var movies: [MediaItem] {
         posters.enumerated().map { i, row in
             let (id, title, year, poster) = row
+            let tmdb = Int(id.split(separator: ":").last ?? "")
             return MediaItem(id: id, kind: .movie, title: title, year: year,
-                             sources: [source("t\(i)")], seasons: [], posterPath: poster,
+                             sources: [source("t\(i)")], seasons: [], tmdbID: tmdb, posterPath: poster,
+                             overview: tmdb.flatMap { overviews[$0] },
                              addedAt: Date().addingTimeInterval(-Double(i) * 3_600))
         }
     }
 
+    /// Enough shows for a Recently Added Shows rail that runs off the screen, the first two also
+    /// behind Continue Watching entries (INVINCIBLE part-way, Severance up next).
     private static var shows: [MediaItem] {
-        [MediaItem(id: "show:tmdb:95557", kind: .show, title: "INVINCIBLE", year: 2021,
-                   sources: [],
-                   seasons: [Season(number: 3, episodes: [Episode(season: 3, number: 1,
-                                                                  source: source("t-inv"))])],
-                   posterPath: "/4tblBrslcKSifMVZ3TmtT2ukMor.jpg", addedAt: Date())]
+        let rows: [(Int, String, Int, String)] = [
+            (95557, "INVINCIBLE", 2021, "/4tblBrslcKSifMVZ3TmtT2ukMor.jpg"),
+            (95396, "Severance", 2022, "/pPHpeI2X1qEd1CS1SeyrdhZ4qnT.jpg"),
+            (247718, "MobLand", 2025, "/5Xc7WpWsgflfgEMoBlf9TmWhfbH.jpg"),
+            (153312, "Tulsa King", 2022, "/rOYLWCdAifpUtPlTf1WHxyaxeMt.jpg"),
+            (203857, "The Diplomat", 2023, "/cUy0ZYme43lop08nOtbQLWL0dX.jpg"),
+            (123542, "LINK CLICK", 2021, "/hCt2bLRGTCjHGqtV5FP3Img6w1h.jpg"),
+            (30984, "Bleach", 2004, "/2EewmxXe72ogD0EaWM8gqa0ccIw.jpg"),
+            (37854, "One Piece", 1999, "/dB4EDhre2dsC2kxYDavyKWqLQwi.jpg"),
+        ]
+        return rows.enumerated().map { i, row in
+            let (tmdb, title, year, poster) = row
+            let episodes = [Episode(season: 1, number: 1, source: source("t-\(tmdb)-1")),
+                            Episode(season: 1, number: 2, source: source("t-\(tmdb)-2"))]
+            let seasons = tmdb == 95557
+                ? [Season(number: 3, episodes: [Episode(season: 3, number: 1, source: source("t-inv"))])]
+                : [Season(number: 1, episodes: episodes)]
+            return MediaItem(id: "show:tmdb:\(tmdb)", kind: .show, title: title, year: year,
+                             sources: [], seasons: seasons, tmdbID: tmdb, posterPath: poster,
+                             overview: overviews[tmdb],
+                             addedAt: Date().addingTimeInterval(-Double(i) * 5_400))
+        }
     }
+
+    /// Library rows carry their synopsis; these are the ones the header shows at launch and on the
+    /// first moves along Continue Watching.
+    private static let overviews: [Int: String] = [
+        73: "A former neo-Nazi skinhead tries to keep his younger brother from following the same path that sent him to prison.",
+        95557: "Mark Grayson is a normal teenager — except his father is the most powerful superhero on the planet.",
+        95396: "Mark leads a team of office workers whose memories have been surgically divided between their work and personal lives.",
+    ]
 }
 
 

@@ -231,13 +231,13 @@ struct LibraryShell: View {
         if menuFocus == nil { pageHasHeldFocus = true }
     }
 
-    /// Home has drawn what it will open on: the hero (Resume takes the first focus), or — with no
-    /// Continue Watching — its grid, but only once that is an answer for the profile. Recently
-    /// Added arrives first (it needs no profile), and revealing on it parked focus on a poster that
-    /// the hero then pushed off the top of the screen.
+    /// Home has drawn the tile it will open on: the first Continue Watching tile, or — with no
+    /// Continue Watching — the first Recently Added one, but only once that is an answer for the
+    /// profile. Recently Added arrives first (it needs no profile), and revealing on it parked
+    /// focus on a poster whose rail Continue Watching then pushed off the top of the screen.
     private var homeSettledForLaunchFocus: Bool {
         guard let home = session.home else { return false }
-        if home.featured != nil { return true }
+        if !home.continueWatching.isEmpty { return true }
         return home.hasBuiltForProfile && !home.recentlyAdded.isEmpty
     }
 

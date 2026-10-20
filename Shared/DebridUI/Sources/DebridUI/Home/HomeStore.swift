@@ -39,6 +39,11 @@ public struct HomeItem: Identifiable, Sendable, Equatable {
 public final class HomeStore {
     public private(set) var continueWatching: [HomeItem] = []
     public private(set) var recentlyAdded: [MediaItem] = []
+    /// Recently Added, one kind at a time, each capped on its own — for a screen that gives films
+    /// and shows a rail each. Cut from `recentlyAdded` instead, a film-heavy library pushed every
+    /// show past the cap and the Shows rail never appeared.
+    public private(set) var recentlyAddedMovies: [MediaItem] = []
+    public private(set) var recentlyAddedShows: [MediaItem] = []
     public var featured: HomeItem? { continueWatching.first }
     /// A rebuild for a real profile has published — Continue Watching is now an answer, not "not
     /// asked yet". Before it, Recently Added can already be on screen with the hero still to come
@@ -82,15 +87,14 @@ public final class HomeStore {
         // Recently Added is the library sorted by date — it has nothing to do with who is watching.
         // Blanking it alongside Continue Watching meant that a profile which never resolved left
         // Home completely empty, including the one rail that could always have been filled.
-        let all = movies + shows
-        let added = Array(all.filter { $0.addedAt != nil }
-            .sorted { ($0.addedAt ?? .distantPast) > ($1.addedAt ?? .distantPast) }
-            .prefix(recentlyAddedLimit))
+        let added = newest(movies + shows)
+        let addedMovies = newest(movies.filter { $0.kind == .movie })
+        let addedShows = newest(shows.filter { $0.kind == .show })
 
         guard let profileID = activeProfileID else {
             guard generation == rebuildGeneration else { return }
             continueWatching = []
-            recentlyAdded = added
+            publishRecentlyAdded(added, movies: addedMovies, shows: addedShows)
             return
         }
         let inProgress = (try? await watch.recentlyWatched(limit: 20, profileID: profileID)) ?? []
@@ -120,8 +124,21 @@ public final class HomeStore {
         }
         guard generation == rebuildGeneration else { return }   // a newer rebuild owns the rails
         continueWatching = resumable
-        recentlyAdded = added
+        publishRecentlyAdded(added, movies: addedMovies, shows: addedShows)
         if !hasBuiltForProfile { hasBuiltForProfile = true }
+    }
+
+    /// The dated titles among `items`, newest first, up to the cap.
+    private func newest(_ items: [MediaItem]) -> [MediaItem] {
+        Array(items.filter { $0.addedAt != nil }
+            .sorted { ($0.addedAt ?? .distantPast) > ($1.addedAt ?? .distantPast) }
+            .prefix(recentlyAddedLimit))
+    }
+
+    private func publishRecentlyAdded(_ all: [MediaItem], movies: [MediaItem], shows: [MediaItem]) {
+        recentlyAdded = all
+        recentlyAddedMovies = movies
+        recentlyAddedShows = shows
     }
 
     /// Stored Hebrew evidence for every Continue Watching film owned in more than one copy — the
