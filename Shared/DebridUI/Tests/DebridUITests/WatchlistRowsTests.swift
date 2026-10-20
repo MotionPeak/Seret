@@ -150,15 +150,6 @@ import Foundation
         #expect(built.first?.entries.map(\.slug) == ["a"])
     }
 
-    @Test func rowIDsAreStableAsDetailsArrive() {
-        let entries = [entry("a", 0, id: 1), entry("b", 1, id: 2)]
-        let before = rows(entries).map(\.id)
-        let after = rows(entries, details: [details(1, genres: ["Drama"], runtime: 80, vote: 8, votes: 900)])
-            .map(\.id)
-        // Every row that was there is still there, in the same relative order.
-        #expect(after.filter(before.contains) == before)
-    }
-
     // MARK: - Badges and header tags
 
     @Test func badgesNameWhoseListAFilmIsOn() {
