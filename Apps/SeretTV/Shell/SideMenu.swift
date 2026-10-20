@@ -59,6 +59,10 @@ struct SideMenu: View {
             // Collapsed, the column hugs its rows and sits centred; open, it fills the panel.
             .frame(maxHeight: expanded ? .infinity : nil)
             .backgroundPreferenceValue(SideMenuRowBoundsKey.self) { bounds in pill(in: bounds) }
+            // The dark text ON the pill: every row drawn again in the focus-text colour, masked to
+            // the pill's own shape at its own (animated) position — so the text inverts exactly
+            // where the pill is, mid-slide included, rather than a row flipping on its own clock.
+            .overlayPreferenceValue(SideMenuRowBoundsKey.self) { bounds in invertedRows(in: bounds) }
             .background { SideMenuPanelBackground(expanded: expanded) }
             .frame(maxHeight: .infinity)
             .animation(morph, value: expanded)
@@ -127,21 +131,51 @@ struct SideMenu: View {
     /// slides rather than fading between rows.
     private func pill(in bounds: [SideMenuItem: Anchor<CGRect>]) -> some View {
         GeometryReader { proxy in
-            if let item = pillItem, let anchor = bounds[item] {
-                let rect = proxy[anchor]
-                // Open, the pill spans the panel, not the row: rows keep a capsule-wide frame.
-                let width = expanded ? Self.panelWidth - 2 * Self.pillInset : Self.pillCircle
-                let height = expanded ? Self.pillHeight : Self.pillCircle
-                Capsule(style: .continuous)
-                    .fill(Theme.Palette.focus)
-                    .frame(width: width, height: height)
-                    .offset(x: expanded ? rect.minX + Self.pillInset
-                                        : rect.minX + (Self.capsuleWidth - Self.pillCircle) / 2,
-                            y: rect.midY - height / 2)
-                    .opacity(focusedItem == nil ? 0 : 1)
-                    .animation(Theme.Anim.focus, value: focusedItem == nil)
+            pillShape(in: bounds, proxy: proxy, fill: Theme.Palette.focus)
+        }
+    }
+
+    /// The pill's capsule at the pill item's row — the pill itself, and the inverted layer's mask.
+    @ViewBuilder
+    private func pillShape(in bounds: [SideMenuItem: Anchor<CGRect>], proxy: GeometryProxy,
+                           fill: Color) -> some View {
+        if let item = pillItem, let anchor = bounds[item] {
+            let rect = proxy[anchor]
+            // Open, the pill spans the panel, not the row: rows keep a capsule-wide frame.
+            let width = expanded ? Self.panelWidth - 2 * Self.pillInset : Self.pillCircle
+            let height = expanded ? Self.pillHeight : Self.pillCircle
+            Capsule(style: .continuous)
+                .fill(fill)
+                .frame(width: width, height: height)
+                .offset(x: expanded ? rect.minX + Self.pillInset
+                                    : rect.minX + (Self.capsuleWidth - Self.pillCircle) / 2,
+                        y: rect.midY - height / 2)
+                .opacity(focusedItem == nil ? 0 : 1)
+                .animation(Theme.Anim.focus, value: focusedItem == nil)
+        }
+    }
+
+    /// Every row's icon and label again, dark, showing only through the pill. Not focusable, not
+    /// hit-testable, hidden from VoiceOver — the real rows below are the menu.
+    private func invertedRows(in bounds: [SideMenuItem: Anchor<CGRect>]) -> some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .topLeading) {
+                // The avatar row has no glyph to invert.
+                ForEach(SideMenuItem.allCases.filter { $0 != .profile && bounds[$0] != nil }) { item in
+                    let rect = proxy[bounds[item]!]
+                    SideMenuRowContent(item: item, expanded: expanded)
+                        .frame(width: rect.width, height: rect.height, alignment: .leading)
+                        .offset(x: rect.minX, y: rect.minY)
+                }
+            }
+            .foregroundStyle(Theme.Palette.onFocus)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .mask(alignment: .topLeading) {
+                pillShape(in: bounds, proxy: proxy, fill: .black)
             }
         }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 
     private var profileRow: some View {

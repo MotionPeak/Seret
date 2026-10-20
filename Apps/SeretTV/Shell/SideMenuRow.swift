@@ -16,24 +16,35 @@ struct SideMenuRow: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 0) {
-                // `.system` on purpose: this is an SF Symbol, not text.
-                Image(systemName: item.icon)
-                    .font(.system(size: 30, weight: .regular))
-                    .frame(width: SideMenu.capsuleWidth)
-                SideMenuLabel(text: item.title, expanded: expanded)
-            }
-            // ⚠️ The row's FRAME — its focus geometry — is the capsule's width in BOTH states; the
-            // label just draws past it when the panel is open. A panel-wide frame (36–596) put
-            // nearly every page item "under" the row rather than to its right, so RIGHT from a
-            // row whose band met nothing beyond 596 went nowhere: a dead remote on the real
-            // Movies page (Movies row between the genre pills and the first rail). Kept narrow,
-            // the page's focus section (x ≥ 150) is always strictly to the right of every row.
-            .frame(width: SideMenu.capsuleWidth,
-                   height: expanded ? SideMenu.rowHeight : SideMenu.collapsedRowHeight,
-                   alignment: .leading)
+            SideMenuRowContent(item: item, expanded: expanded)
         }
         .buttonStyle(SideMenuRowStyle(selected: selected, expanded: expanded))
+    }
+}
+
+/// A row's icon and label in the row's frame — drawn by the row itself, and again, dark, by
+/// `SideMenu`'s inverted layer inside the sliding pill.
+struct SideMenuRowContent: View {
+    let item: SideMenuItem
+    let expanded: Bool
+
+    var body: some View {
+        HStack(spacing: 0) {
+            // `.system` on purpose: this is an SF Symbol, not text.
+            Image(systemName: item.icon)
+                .font(.system(size: 30, weight: .regular))
+                .frame(width: SideMenu.capsuleWidth)
+            SideMenuLabel(text: item.title, expanded: expanded)
+        }
+        // ⚠️ The row's FRAME — its focus geometry — is the capsule's width in BOTH states; the
+        // label just draws past it when the panel is open. A panel-wide frame (36–596) put
+        // nearly every page item "under" the row rather than to its right, so RIGHT from a
+        // row whose band met nothing beyond 596 went nowhere: a dead remote on the real
+        // Movies page (Movies row between the genre pills and the first rail). Kept narrow,
+        // the page's focus section (x ≥ 150) is always strictly to the right of every row.
+        .frame(width: SideMenu.capsuleWidth,
+               height: expanded ? SideMenu.rowHeight : SideMenu.collapsedRowHeight,
+               alignment: .leading)
     }
 }
 
@@ -104,8 +115,12 @@ struct SideMenuWordFade: ViewModifier, Animatable {
     }
 }
 
-/// A menu row's tint. The white fill behind the focused row is `SideMenu`'s sliding pill; this
-/// only turns the focused row's content dark so it reads on it.
+/// A menu row's tint. The white fill behind the focused row is `SideMenu`'s sliding pill, and the
+/// dark text on it is `SideMenu`'s inverted layer, masked to the pill — so the row itself never
+/// turns dark. It used to, the instant focus arrived, while the pill was still sliding over from
+/// the last row: the new row went dark on the navy panel and the old one white on the white pill,
+/// so the slide read as a jump (owner, on the real Apple TV: "it highlights it before even the
+/// white outline goes there").
 ///
 /// Collapsed, the current page's icon is the bright one and the rest are dimmed, so the capsule
 /// says where you are. Open, every label is bright (the panel is near-opaque) and the current page
@@ -146,13 +161,13 @@ struct SideMenuRowStyle: ButtonStyle {
                         .opacity(selected && expanded && !focused ? 1 : 0)
                 }
                 .opacity(configuration.isPressed ? 0.7 : 1)
-                // The pill's curve, so the tint and the sliding pill arrive together.
                 .animation(Theme.Anim.pill, value: focused)
         }
 
         private var tint: Color {
-            if focused { return Theme.Palette.onFocus }
-            if selected || expanded { return Theme.Palette.textPrimary }
+            // A focused row is bright like an open one: under the pill it is white on white, and
+            // the inverted layer draws it dark there.
+            if focused || selected || expanded { return Theme.Palette.textPrimary }
             return Theme.Palette.textSecondary
         }
     }
