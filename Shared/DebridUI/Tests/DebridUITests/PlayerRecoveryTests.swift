@@ -186,4 +186,67 @@ import DebridCore
         #expect(engine.loadCount == 0)
         await m.teardown()
     }
+
+    // MARK: - D8: an outage is not the end, and not a refusal
+
+    @Test func anEndDuringAnRDOutageReopensAtThePlayhead() async {
+        let engine = FakeVideoPlayerEngine(), proxy = FakeStreamProxy()
+        let m = model(engine, proxy: proxy)
+        m.start(); await m.waitForIdleForTesting()
+        await playTo(3000, m, engine)
+        await proxy.outageWith(.transport("The network connection was lost."))
+
+        engine.emit(.state(.ended)); await m.waitForIdleForTesting()
+
+        #expect(!m.phase.isFailed, "an outage was shown as \(m.phase)")
+        #expect(engine.loadCount == 2)
+        #expect(engine.seeks.last == 3000)
+        #expect(m.shouldDismiss == false)
+        await m.teardown()
+    }
+
+    /// In the credits too: an outage taken for the film's end would be recorded as watched.
+    @Test func anOutageInTheCreditsIsStillNotTheEnd() async {
+        let engine = FakeVideoPlayerEngine(), proxy = FakeStreamProxy()
+        let m = model(engine, proxy: proxy)
+        m.start(); await m.waitForIdleForTesting()
+        await playTo(5990, m, engine)
+        await proxy.outageWith(.transport("The network connection was lost."))
+
+        engine.emit(.state(.ended)); await m.waitForIdleForTesting()
+
+        #expect(m.shouldDismiss == false)
+        #expect(engine.loadCount == 2)
+        await m.teardown()
+    }
+
+    /// The reopen fails the same way at the same place: now the viewer is told — in words that
+    /// say what to do, not that the file is gone.
+    @Test func anOutageThatOutlastsTheReopenIsWordedAsOne() async {
+        let engine = FakeVideoPlayerEngine(), proxy = FakeStreamProxy()
+        let m = model(engine, proxy: proxy)
+        m.start(); await m.waitForIdleForTesting()
+        await playTo(3000, m, engine)
+        await proxy.outageWith(.transport("The network connection was lost."))
+        engine.emit(.state(.ended)); await m.waitForIdleForTesting()
+        await playTo(3001, m, engine)
+
+        engine.emit(.state(.ended)); await m.waitForIdleForTesting()
+
+        #expect(m.phase == .failed(PlayerModel.unreachableMessage))
+        await m.teardown()
+    }
+
+    /// A refusal is still final, and still says so.
+    @Test func anEndRDRefusedIsStillARefusal() async {
+        let engine = FakeVideoPlayerEngine(), proxy = FakeStreamProxy()
+        let m = model(engine, proxy: proxy)
+        m.start(); await m.waitForIdleForTesting()
+        await playTo(3000, m, engine)
+        await proxy.failWith(.upstreamStatus(403))
+        engine.emit(.state(.ended)); await m.waitForIdleForTesting()
+        #expect(m.phase == .failed("Real-Debrid stopped sending this file (HTTP 403)."))
+        #expect(engine.loadCount == 1)
+        await m.teardown()
+    }
 }

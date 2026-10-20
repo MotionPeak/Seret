@@ -483,10 +483,33 @@ extension PlayerModel {
         // …and one the stream cache saw RD refuse did not end either. With the file's index on
         // disk the first frames play before RD is asked, so a refusal can come after them — and it
         // reaches libvlc as a closed connection, which it reports as the end of the file.
-        if let refusal = await streamRefusal() {
+        switch await streamFailure() {
+        case .refused(let failure)?:
             guard mediaGeneration == generation else { return }
-            phase = .failed(refusal)
+            phase = .failed(Self.refusalMessage(failure))
             return
+        case .unavailable?:
+            // RD failing FOR NOW — the network down, a link refresh that did not get through — is
+            // no reason to give up on the film, and it used to say "Real-Debrid stopped sending
+            // this file". Reopen at the playhead instead, once per place: the reopen resolves a
+            // fresh link and asks RD again. Even in the credits — an outage is not an end, and
+            // must never be recorded as one.
+            guard !isTornDown, mediaGeneration == generation else { return }
+            if interruptedAt.map({ abs(position - $0) > 30 }) ?? true {
+                let place = position
+                interruptedAt = place
+                silentRecoveryArmed = false            // this reopen IS the automatic recovery
+                engine.note("recover: RD unavailable, reopening at \(Int(place))s")
+                await recordCurrentProgress()
+                guard !isTornDown, mediaGeneration == generation else { return }
+                reopenAt = place
+                reload()
+                return
+            }
+            phase = .failed(Self.unreachableMessage)
+            return
+        case nil:
+            break
         }
         guard !isTornDown, mediaGeneration == generation else { return }
         // libvlc also reports a connection that simply DROPPED as the end of the file — the loopback

@@ -50,14 +50,21 @@ extension PlayerModel {
         Task { await streamProxy.close(handle) }
     }
 
-    /// What to tell the viewer when the cache saw RD refuse this stream; nil when it did not.
+    /// Why the cache says RD is not serving this stream, if it says so: a refusal, or RD failing
+    /// for now. libvlc reports either as a plain end of file.
+    func streamFailure() async -> UpstreamFailure? {
+        guard let handle = streamHandle, let streamProxy else { return nil }
+        return await streamProxy.upstreamFailure(handle)
+    }
+
+    /// What to tell the viewer when the cache saw RD REFUSE this stream; nil when it did not —
+    /// including when RD is only failing for now, which is a reason to reopen, not to give up.
     func streamRefusal() async -> String? {
-        guard let handle = streamHandle, let streamProxy,
-              let state = await streamProxy.upstreamFailure(handle) else { return nil }
-        let failure: StreamError
-        switch state {
-        case .refused(let error), .unavailable(let error): failure = error
-        }
+        guard case .refused(let failure)? = await streamFailure() else { return nil }
+        return Self.refusalMessage(failure)
+    }
+
+    static func refusalMessage(_ failure: StreamError) -> String {
         switch failure {
         case .upstreamStatus(let status) where status == 404 || status == 410:
             return "Real-Debrid no longer has this file."
