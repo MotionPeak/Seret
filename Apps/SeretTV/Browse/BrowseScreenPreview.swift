@@ -6,23 +6,26 @@ import SwiftUI
 /// `-uiPreview browse`: the real Movies page (`BrowseScreen`) on a fixture `DiscoverStore`, with real
 /// TMDB art for the header and backdrop, laid out inside the shell's leading inset.
 ///
-/// The fixture's rails arrive the way the real ones do — progressively, through the store's own
-/// load: For You's first two rails land within a second, the third (`More like Parasite`) 4 s in,
-/// appended below. A film in cinemas carries the CAM chip.
+/// The fixture's rows arrive the way the real ones do — progressively, through the store's own
+/// load, only ever at the bottom: For You's first two rows land within a second; the third
+/// (`More like Parasite`) 4 s in, and every row below it (Trending, New, Top Rated, then a row per
+/// genre) waits behind it. A film in cinemas carries the CAM chip.
 ///
-/// A genre pill opens that genre's grid on fixture titles (`BrowsePreviewFixture.Genres`).
+/// A genre row's "See All" pushes that genre's grid on fixture titles
+/// (`BrowsePreviewFixture.Genres`); Menu pops back to the tile.
 ///
 /// `browseinsert` also lands a watch history 9 s in and asks the store to rebuild For You, as the
-/// page does when the profile resolves: the quiet rebuild (all rails in, then one swap) adds
-/// "Because you watched Oldboy" ABOVE the rails already on screen — the case where the page must
-/// keep the focused rail at the top.
+/// page does when the profile resolves: the quiet rebuild (the new block all in, then one swap)
+/// puts "Because you watched Oldboy" ABOVE the rows already on screen (and drops "More like
+/// Parasite" — the block is three rows at most) — the case where the page must keep the focused
+/// row at the top.
 struct BrowseScreenPreview: View {
     var insertAbove = false
-    /// `browsefailed`: every Discover call fails (after 1.5 s), so For You lands on its failed
+    /// `browsefailed`: every Discover call fails (after 1.5 s), so the page lands on its failed
     /// row — Retry, "Trying…", failed again — to check the button keeps focus throughout.
     var failing = false
-    /// `browsetrendingfails`: only Trending fails (2.5 s in) — the header must not keep describing
-    /// a For You title above Trending's skeletons or its "Couldn't load."
+    /// `browsetrendingfails`: only Trending fails (2.5 s in) — its row is dropped and the rows
+    /// below it close up.
     var trendingFails = false
 
     @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()))
@@ -35,8 +38,7 @@ struct BrowseScreenPreview: View {
         NavigationStack {
             Group {
                 if let store {
-                    BrowseScreen(kind: .movie, previewBrowse: store, previewArt: art,
-                                 previewGenres: BrowsePreviewFixture.Genres())
+                    BrowseScreen(kind: .movie, previewBrowse: store, previewArt: art)
                 } else {
                     Color.black
                 }
@@ -45,6 +47,13 @@ struct BrowseScreenPreview: View {
             .sideMenuContentInset()
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(CanvasBackground())
+            // The shell registers the real destinations; the harness only needs See All's.
+            .navigationDestination(for: BrowseDestination.self) { dest in
+                if case .genre(let kind, let genre) = dest {
+                    GenreGridScreen(kind: kind, genre: genre,
+                                    previewBrowsing: BrowsePreviewFixture.Genres(), previewArt: art)
+                }
+            }
         }
         .environment(session)
         .task {

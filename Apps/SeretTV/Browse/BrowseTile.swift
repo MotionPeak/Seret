@@ -9,6 +9,8 @@ enum BrowseDestination: Hashable {
     case search(MediaKind)
     /// An actor or director — their photo and the work of theirs you can watch.
     case person(TMDBPersonRef)
+    /// One genre's full grid — a genre row's "See All" on Movies/Shows.
+    case genre(MediaKind, DiscoverStore.Genre)
     /// Straight to the full-screen versions list, skipping the page.
     case versions(SearchHit)
     /// The versions list for ONE episode of a show. A separate case rather than optional payload

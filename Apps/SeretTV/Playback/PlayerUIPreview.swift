@@ -73,12 +73,12 @@ import DebridCore
 ///     `plexrailsinsert` starts in the second rail and inserts a rail above it 4 s in
 ///     (`plexrailsinsertearly`: 300ms after focus lands, inside the initial scroll's settle window) (see
 ///     `PlexRailsPreview`)
-///   - `browse` — the Movies page on fixture Discover rails that arrive progressively (one 4 s
-///     late, below); `browseinsert` adds a For You rail ABOVE the others 9 s in (see
-///     `BrowseScreenPreview`). A genre pill opens that genre's grid on fixture titles.
-///     `browsefailed`: every rail fails — the failed row, whose Retry must keep focus.
-///     `browsetrendingfails`: For You loads, Trending fails (2.5 s in) — the header must drop the
-///     For You title for the page's placeholder, both while Trending loads and once it fails
+///   - `browse` — the Movies page (one stack of rows: For You, Trending, New, Top Rated, a row
+///     per genre) on fixture Discover rows that arrive progressively (one 4 s late, the rest
+///     behind it); `browseinsert` adds a For You row ABOVE the others 9 s in (see
+///     `BrowseScreenPreview`). A genre row's See All pushes that genre's grid on fixture titles.
+///     `browsefailed`: every row fails — the failed row, whose Retry must keep focus.
+///     `browsetrendingfails`: Trending fails (2.5 s in) — its row is dropped
 ///   - `library` — My Library on a fixture library (real art) with two downloads in flight, focus
 ///     on the Movies pill, the backdrop following focus into the grid (see `MyLibraryScreenPreview`).
 ///     `librarydownloadends` / `librarydownloadstarts`: the strip goes / appears 14 s in — walk

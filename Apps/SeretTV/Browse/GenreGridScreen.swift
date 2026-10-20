@@ -2,19 +2,25 @@ import DebridCore
 import DebridUI
 import SwiftUI
 
-/// One genre's titles as a dense poster grid, with the old segment pills demoted to a sort control.
-/// Its cells report focus to `preview`, which drives the backdrop its host draws behind the strip
-/// and the grid together (see `BrowseScreen.genreLayer`).
+/// One genre's titles as a dense poster grid — a genre row's "See All" on Movies/Shows, PUSHED on
+/// the shell's stack like a title page: full screen (the side menu hides), and Menu pops back to
+/// the See All tile it was opened from. The genre's name heads it, over a sort control, over the
+/// focused title's ultrablur wash (`GridBackdrop`).
 struct GenreGridScreen: View {
     let kind: MediaKind
     let genre: DiscoverStore.Genre
-    /// The host's backdrop subject. Never read here (only the backdrop reads `shown`), so a move
-    /// across the grid re-renders neither this screen nor its host.
-    let preview: FocusPreviewModel
 #if DEBUG
     /// `-uiPreview browse`: the fixture's genre titles (the preview session builds no grid store).
     var previewBrowsing: GenreBrowsing?
+    /// The harness's art store (the unsigned preview session has none).
+    var previewArt: TitleArtStore?
+    private var art: TitleArtStore? { previewArt ?? session.titleArt }
+#else
+    private var art: TitleArtStore? { session.titleArt }
 #endif
+    /// The backdrop's subject. Never read here (only the backdrop reads `shown`), so a move across
+    /// the grid never re-renders this screen and its cells.
+    @State private var preview = FocusPreviewModel()
 
     @Environment(AppSession.self) private var session
     /// OPTIONAL, deliberately. A non-optional `@Environment` read of an `@Observable` TRAPS when
@@ -31,10 +37,17 @@ struct GenreGridScreen: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            Text(genre.name)
+                .screenTitle()
+                .foregroundStyle(Theme.Palette.textPrimary)
+                .lineLimit(1)
+                .padding(.leading, Theme.Layout.contentMargin)
+                .padding(.bottom, 12)
             sortRow
             content
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background { GridBackdrop(preview: preview, art: art) }
         // Rebuild the store when the genre actually changes — each grid is a fresh drill-down, but
         // merely coming back to this one is not.
         .task(id: genre.tmdbID) {
@@ -61,7 +74,7 @@ struct GenreGridScreen: View {
                 .focused($focusedSort, equals: sort)
             }
         }
-        .padding(.leading, PosterGridLayout.rootInset)
+        .padding(.leading, Theme.Layout.contentMargin)
         .padding(.bottom, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
         .focusSection()
@@ -101,7 +114,7 @@ struct GenreGridScreen: View {
                     }
                 }
             }
-            .padding(.horizontal, PosterGridLayout.rootInset)
+            .padding(.horizontal, Theme.Layout.contentMargin)
             .padding(.vertical, PosterGridLayout.topPadding)
         }
         .gridTopFade()
@@ -132,7 +145,7 @@ private struct GenreGridSkeleton: View {
                 }
             }
         }
-        .padding(.horizontal, PosterGridLayout.rootInset)
+        .padding(.horizontal, Theme.Layout.contentMargin)
         .padding(.vertical, PosterGridLayout.topPadding)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .accessibilityHidden(true)

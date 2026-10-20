@@ -27,13 +27,18 @@ extension View {
     /// Sized to the view, this fade sliced every Movies/Shows rail ~80pt short of the screen edge
     /// and cut the focused poster in half at the right: the "it gets cut off" bug. The mask bleeds
     /// far past the screen on both sides so the vertical fade is the only thing it does.
-    func gridTopFade(_ height: CGFloat = 100) -> some View {
+    ///
+    /// `hiddenAbove`: a band at the very top that is fully transparent before the fade starts — for
+    /// a scroll view that reaches up under its page's header (see `FocusBrowsePage`).
+    func gridTopFade(_ height: CGFloat = 100, hiddenAbove: CGFloat = 0) -> some View {
         mask {
             GeometryReader { geo in
+                let h = max(geo.size.height, 1)
                 LinearGradient(
                     stops: [
                         .init(color: .clear, location: 0),
-                        .init(color: .black, location: min(1, height / max(geo.size.height, 1))),
+                        .init(color: .clear, location: min(1, hiddenAbove / h)),
+                        .init(color: .black, location: min(1, (hiddenAbove + height) / h)),
                         .init(color: .black, location: 1),
                     ],
                     startPoint: .top, endPoint: .bottom)

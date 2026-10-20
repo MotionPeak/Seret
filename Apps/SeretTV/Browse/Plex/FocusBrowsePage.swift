@@ -25,6 +25,13 @@ enum FocusBrowseLayout {
     static let railSpacing: CGFloat = -36
     /// Empty space after the last rail, so it too can scroll up to the top of the rail area.
     static let bottomRunway: CGFloat = 160
+    /// How far the rail area's scroll view reaches up under the header — invisible (masked out),
+    /// but inside its bounds. The focused rail sits flush at the top of the rail area, so the rail
+    /// above it was entirely outside the scroll view: the lazy stack released it once focus was two
+    /// rails further down and never built it again while it stayed out of bounds, so Up from the
+    /// top rail had nothing to land on — focus left the page (measured, `-uiPreview browse`: Down,
+    /// Down, Up, Up). With the bounds reaching one rail pitch up, the rail above always exists.
+    static let hiddenRailBand: CGFloat = headerHeight
     /// How long a subject whose art is not cached may hold its title slot empty, waiting for the
     /// logo, before it shows the title as text. The header's own fade covers most of it.
     static let logoBudget: Duration = .milliseconds(200)
@@ -122,12 +129,16 @@ struct FocusBrowsePage<Rails: View>: View {
                     }
                     .padding(.bottom, FocusBrowseLayout.bottomRunway)
                 }
+                // The content starts at the rail area's top; the band above it is the hidden one
+                // under the header (see `hiddenRailBand`).
+                .contentMargins(.top, FocusBrowseLayout.hiddenRailBand, for: .scrollContent)
                 // Rails scroll edge to edge (a tile scrolled left runs on under the side menu, as in
                 // Plex) — but a rail leaving the top must dissolve, not be sliced against the
                 // header. The fade band is the focused rail's own top padding, so it never touches
-                // the focused rail's title.
+                // the focused rail's title; above it, under the header, nothing shows at all.
                 .scrollClipDisabled()
-                .gridTopFade(FocusBrowseLayout.railVerticalPadding)
+                .gridTopFade(FocusBrowseLayout.railVerticalPadding,
+                             hiddenAbove: FocusBrowseLayout.hiddenRailBand)
                 .onChange(of: focusedRow) { _, row in
                     guard let row else { return }
                     lastRowScroll = .now
@@ -136,10 +147,14 @@ struct FocusBrowsePage<Rails: View>: View {
                 // The focused row moved without a focus change — a row was inserted (or resized)
                 // above it. Put it back at the top, once any scroll of our own has finished.
                 .onPreferenceChange(FocusedRowOffsetKey.self) { offset in
-                    focusedRowOffset = offset
+                    // Measured from the scroll view's top, which is `hiddenRailBand` above the
+                    // rail area's.
+                    focusedRowOffset = offset.map { $0 - FocusBrowseLayout.hiddenRailBand }
                     realignFocusedRow(proxy)
                 }
             }
+            // Up under the header: the hidden band. Drawn after the header, but transparent there.
+            .padding(.top, -FocusBrowseLayout.hiddenRailBand)
             // Rails run to the bottom of the screen, so the next rail's title peeks in.
             .ignoresSafeArea(edges: .bottom)
         }
