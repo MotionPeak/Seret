@@ -72,25 +72,34 @@ extension View {
 
 private struct PlexBrowseRowModifier: ViewModifier {
     let id: String
-    @Environment(\.focusBrowseRowFocused) private var pageReport
-    @Environment(\.focusBrowseFocusedRow) private var focusedRow
+    @Environment(\.focusBrowseRows) private var rows
 
+    /// Reads nothing that changes with focus, so a move never re-runs it — and the report it hands
+    /// its tiles is a value equal to the last one, so no tile re-renders for it either. (A closure
+    /// here was a new value every run, and every page render re-ran every row.)
     func body(content: Content) -> some View {
-        let id = id
-        let pageReport = pageReport
         content
-            .environment(\.plexRowDidFocus, { pageReport(id) })
+            .environment(\.plexRowDidFocus, PlexRowReport(id: id, rows: rows))
             // The focused row tells the page where it is, so a row inserted above it (which moves
             // it without moving focus) can be answered by scrolling it back to the top.
-            .background {
-                if focusedRow == id {
-                    GeometryReader { geo in
-                        Color.clear.preference(key: FocusedRowOffsetKey.self,
-                                               value: geo.frame(in: .scrollView).minY)
-                    }
-                }
-            }
+            .background { FocusedRowOffsetProbe(id: id, rows: rows) }
             .id(id)
+    }
+}
+
+/// Reports the row's position while it is the focused one. Its own view so that only it — not the
+/// row — re-renders when the focused row changes.
+private struct FocusedRowOffsetProbe: View {
+    let id: String
+    let rows: FocusBrowseRows?
+
+    var body: some View {
+        if rows?.focused == id {
+            GeometryReader { geo in
+                Color.clear.preference(key: FocusedRowOffsetKey.self,
+                                       value: geo.frame(in: .scrollView).minY)
+            }
+        }
     }
 }
 
@@ -98,9 +107,10 @@ private struct PlexBrowseRowModifier: ViewModifier {
 /// focus state, so it stacks with any other `.focused` the caller applies.
 private struct PlexFocusIDModifier: ViewModifier {
     let id: String
-    @Environment(\.focusBrowseFocusID) private var binding
+    @Environment(\.focusBrowseFocusID) private var box
 
     func body(content: Content) -> some View {
+        let binding = box?.binding
         if let binding {
             content.focused(binding, equals: id)
         } else {
@@ -111,7 +121,7 @@ private struct PlexFocusIDModifier: ViewModifier {
 
 private struct PlexRailFocusReporter: ViewModifier {
     let onFocus: () -> Void
-    @Environment(\.plexRowDidFocus) private var rowReport
+    @Environment(\.plexRowDidFocus) private var rowReport: PlexRowReport
     @FocusState private var focused: Bool
 
     func body(content: Content) -> some View {
@@ -125,45 +135,65 @@ private struct PlexRailFocusReporter: ViewModifier {
     }
 }
 
-/// A row's "focus entered me" call, set by `plexBrowseRow(id:)`. A no-op default, so a tile
-/// outside any browse page does nothing rather than trapping.
+/// Which row of a `FocusBrowsePage` holds focus. One object for the page's life, handed down the
+/// environment: rows write into it, and only what reads `focused` (the page's scroll, the focused
+/// row's offset probe) re-renders when it changes.
+@MainActor @Observable
+final class FocusBrowseRows {
+    var focused: String?
+
+    func report(_ id: String) {
+        if focused != id { focused = id }
+    }
+}
+
+/// A row's "focus entered me" call, set by `plexBrowseRow(id:)`. A VALUE, not a closure: a closure
+/// is unequal to every other closure, so each time the row re-ran, every tile below it re-rendered
+/// to receive the new one. With no page above (a tile outside any browse page) it does nothing.
+struct PlexRowReport: Equatable {
+    let id: String
+    let rows: FocusBrowseRows?
+
+    @MainActor func callAsFunction() { rows?.report(id) }
+
+    static func == (a: Self, b: Self) -> Bool {
+        a.id == b.id && a.rows.map(ObjectIdentifier.init) == b.rows.map(ObjectIdentifier.init)
+    }
+}
+
 private struct PlexRowDidFocusKey: EnvironmentKey {
-    static let defaultValue: @MainActor () -> Void = {}
+    static let defaultValue = PlexRowReport(id: "", rows: nil)
 }
 
-/// The page's "focus entered row `id`" call, set by `FocusBrowsePage`.
-private struct FocusBrowseRowFocusedKey: EnvironmentKey {
-    static let defaultValue: @MainActor (String) -> Void = { _ in }
+private struct FocusBrowseRowsKey: EnvironmentKey {
+    static let defaultValue: FocusBrowseRows? = nil
 }
 
-/// Which row the page considers focused, so that row (only) reports its position.
-private struct FocusBrowseFocusedRowKey: EnvironmentKey {
-    static let defaultValue: String? = nil
+/// The page's focus state for `plexFocusID(_:)`, in a box that stays the same object for the
+/// page's life. The binding itself is a new value every time the page's focus changes, and handing
+/// it down directly re-ran every tile's modifier on every press. Nil outside a browse page.
+@MainActor
+final class FocusBrowseFocusBox {
+    var binding: FocusState<String?>.Binding?
 }
 
-/// The page's focus state for `plexFocusID(_:)`. Nil outside a browse page.
 private struct FocusBrowseFocusIDKey: EnvironmentKey {
-    static var defaultValue: FocusState<String?>.Binding? { nil }
+    static let defaultValue: FocusBrowseFocusBox? = nil
 }
 
 extension EnvironmentValues {
-    var focusBrowseFocusedRow: String? {
-        get { self[FocusBrowseFocusedRowKey.self] }
-        set { self[FocusBrowseFocusedRowKey.self] = newValue }
+    var focusBrowseRows: FocusBrowseRows? {
+        get { self[FocusBrowseRowsKey.self] }
+        set { self[FocusBrowseRowsKey.self] = newValue }
     }
 
-    var focusBrowseFocusID: FocusState<String?>.Binding? {
+    var focusBrowseFocusID: FocusBrowseFocusBox? {
         get { self[FocusBrowseFocusIDKey.self] }
         set { self[FocusBrowseFocusIDKey.self] = newValue }
     }
 
-    fileprivate var plexRowDidFocus: @MainActor () -> Void {
+    fileprivate var plexRowDidFocus: PlexRowReport {
         get { self[PlexRowDidFocusKey.self] }
         set { self[PlexRowDidFocusKey.self] = newValue }
-    }
-
-    var focusBrowseRowFocused: @MainActor (String) -> Void {
-        get { self[FocusBrowseRowFocusedKey.self] }
-        set { self[FocusBrowseRowFocusedKey.self] = newValue }
     }
 }
