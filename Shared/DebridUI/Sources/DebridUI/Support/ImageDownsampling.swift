@@ -57,6 +57,15 @@ public enum ImageDownsampling {
     /// is fully decoded (`kCGImageSourceShouldCacheImmediately`), so drawing it does no further
     /// work on the main thread. Nil when the bytes are not an image.
     public static func decode(_ data: Data, target: CGSize?, fit: Fit = .fill) -> CGImage? {
+        decodeReporting(data, target: target, fit: fit)?.image
+    }
+
+    /// `decode`, also saying whether the image was actually DOWNSAMPLED. One that was not is the
+    /// file's own size, the same bitmap a plain decode produces, so a cache should store it under
+    /// the plain url — otherwise a 4K screen (where most frames are at least the file's size) keeps
+    /// two identical decodes of one poster under two keys.
+    public static func decodeReporting(_ data: Data, target: CGSize?,
+                                       fit: Fit = .fill) -> (image: CGImage, downsampled: Bool)? {
         let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
         guard let source = CGImageSourceCreateWithData(data as CFData, sourceOptions),
               CGImageSourceGetCount(source) > 0 else { return nil }
@@ -66,13 +75,15 @@ public enum ImageDownsampling {
         let native = max(width, height)
 
         var maxPixels = native
+        var downsampled = false
         if let target, let bound = maxPixelSize(source: CGSize(width: width, height: height),
                                                 target: target, fit: fit) {
             maxPixels = bound
+            downsampled = true
         }
         guard maxPixels > 0 else {
             let options = [kCGImageSourceShouldCacheImmediately: true] as CFDictionary
-            return CGImageSourceCreateImageAtIndex(source, 0, options)
+            return CGImageSourceCreateImageAtIndex(source, 0, options).map { ($0, false) }
         }
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
@@ -81,6 +92,7 @@ public enum ImageDownsampling {
             kCGImageSourceThumbnailMaxPixelSize: maxPixels,
         ]
         return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+            .map { ($0, downsampled) }
     }
 
     /// The decoded-image budget for a device with `physicalMemory` bytes: 1/32 of it, clamped to

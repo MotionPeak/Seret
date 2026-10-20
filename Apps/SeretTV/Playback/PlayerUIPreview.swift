@@ -145,6 +145,9 @@ struct PlayerUIPreview: View {
         case "homedownloadsonly":   HomeScreenPreview(downloading: true, downloadsOnly: true)
         case "downloadstrip":       DownloadStripPreview()
         case "watchlist":           WatchlistScreenPreview()
+        case "homemenu":            MenuWrappedPreview { HomeScreenPreview() }
+        case "browsemenu":          MenuWrappedPreview { BrowseScreenPreview() }
+        case "watchlistmenu":       MenuWrappedPreview { WatchlistScreenPreview() }
         case "watchlistpartner":    WatchlistScreenPreview(partnerUnreadable: true)
         case "watchlistslow":       WatchlistScreenPreview(slowDetails: true)
         case "letterboxd":          LetterboxdCardPreview()
@@ -2122,6 +2125,34 @@ private struct ServerReachabilityPreview: View {
             }
             lines = out
         }
+    }
+}
+
+// MARK: - A page inside the side menu
+
+/// `-uiPreview homemenu` / `browsemenu` / `watchlistmenu`: the real page beside the real side menu,
+/// wired as the shell wires them (focus entering the menu opens it, leaving closes it), so the
+/// remote walk "focus a tile mid-rail, Left into the menu, Right back" can be run without a
+/// signed-in session. Right must land on the tile that was left — the page's focus memory,
+/// through `FocusBrowseHandle`.
+private struct MenuWrappedPreview<Page: View>: View {
+    @ViewBuilder var page: Page
+
+    @FocusState private var focus: SideMenuItem?
+    @State private var expanded = false
+
+    var body: some View {
+        ZStack(alignment: .leading) {
+            page.focusSection()
+            SideMenuScrim(visible: expanded)
+            SideMenu(selected: .home, profileName: "Shahar",
+                     profileAvatar: "", profileColorTag: Theme.Palette.defaultColorTag,
+                     focus: $focus, expanded: expanded,
+                     onSelect: { _ in expanded = false }, onProfile: {})
+        }
+        .onChange(of: focus) { _, new in expanded = new != nil }
+        // Menu opens the side menu from anywhere, as in the shell.
+        .onExitCommand(perform: expanded ? nil : { focus = .home })
     }
 }
 

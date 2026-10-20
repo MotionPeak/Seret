@@ -262,7 +262,7 @@ private struct FocusBrowseHeaderSlot: View {
 /// changes when focus moves: `rows` is one object for the page's life (rows report into it, and
 /// only the focused row's probe reads it). The page's focus state is NOT here — it is
 /// `FocusBrowseFocusScope`, around the whole page, whose box hands tiles a binding that never
-/// changes identity; the handle hears each move through `FocusIDRelay`.
+/// changes identity, and which tells the handle about each move.
 private struct FocusBrowseRailsArea<Rails: View>: View {
     let rails: Rails
 
@@ -336,10 +336,14 @@ private struct FocusBrowseRailsArea<Rails: View>: View {
     }
 }
 
-/// The page's focus state, in a modifier of its own: a focus move re-runs THIS body (it reads the
-/// focused id to make the binding), not the rail area's. The binding reaches the tiles in a box
-/// that is the same object every time, so their `plexFocusID` modifiers are not re-run either — a
-/// FocusState binding is a handle on the page's focus state, not a copy of its value.
+/// The page's focus state, in a modifier of its own, around the whole page (header accessories
+/// take `plexFocusID`s too). A focus move re-runs THIS body — it observes the focused id directly,
+/// with `onChange(of: focusedID)`, to tell the handle — and not the page's or the rail area's.
+///
+/// The binding reaches the tiles in a box that is the same object every time, so their
+/// `plexFocusID` modifiers are not re-run on a move either. The binding is a handle on this
+/// modifier's focus state rather than a copy of its value, so a tile holding the one it was built
+/// with still focuses and reports correctly; the box is refreshed on every run regardless.
 private struct FocusBrowseFocusScope: ViewModifier {
     let initialFocus: String?
     let focusOnEntry: Bool
@@ -354,19 +358,10 @@ private struct FocusBrowseFocusScope: ViewModifier {
         content
             .defaultFocus(binding, initialFocus, priority: focusOnEntry ? .userInitiated : .automatic)
             .environment(\.focusBrowseFocusID, box)
-            .background { FocusIDRelay(focusedID: binding, handle: handle) }
+            // Observed here, from the FocusState itself — the handle's focus memory (Home, Movies,
+            // Shows, Watchlist) must not depend on some other view happening to re-render.
+            .onChange(of: focusedID) { _, id in handle?.focusDidChange(id) }
             .onAppear { handle?.mover = { focusedID = $0 } }
-    }
-}
-
-/// Tells the handle about every focus move. The only view that reads the focused id, so a move
-/// re-renders this and nothing around it.
-private struct FocusIDRelay: View {
-    let focusedID: FocusState<String?>.Binding
-    let handle: FocusBrowseHandle?
-
-    var body: some View {
-        Color.clear.onChange(of: focusedID.wrappedValue) { _, id in handle?.focusDidChange(id) }
     }
 }
 

@@ -66,16 +66,22 @@ public struct ReleaseMatcher: Sendable {
     /// year-filtered search returns exactly that film, but neither normalized title contains the
     /// other, so `titleMatches` rejected it and both owned films stayed posterless.
     ///
-    /// Strict on purpose: at least two words, in order, covering at least 60% of the parsed words.
-    /// "American Wedding" (a word out of place) and "The Mohicans" (two of five) still fail.
+    /// Strict on purpose: the words appear in order, cover at least 60% of the parsed words, and
+    /// at least two of them carry meaning — "The King" is not "The Lion King" (2019) just because
+    /// "the" matched. "American Wedding" (a word out of place) still fails.
     public func wordsAppearInOrder(_ candidate: String, in parsed: String) -> Bool {
         let want = Self.words(candidate), have = Self.words(parsed)
-        guard want.count >= 2, !have.isEmpty,
+        guard want.filter({ !Self.stopWords.contains($0) }).count >= 2, !have.isEmpty,
               Double(want.count) / Double(have.count) >= 0.6 else { return false }
         var remaining = want[...]
         for word in have where word == remaining.first { remaining = remaining.dropFirst() }
         return remaining.isEmpty
     }
+
+    /// Words that say nothing about WHICH title it is, so they cannot count towards a match.
+    static let stopWords: Set<String> = ["the", "a", "an", "of", "and", "in", "on", "at", "to",
+                                         "for", "with", "from", "by", "or", "is", "de", "la", "le",
+                                         "el", "der", "die", "das"]
 
     /// The normalized words of a title, split on anything that is not a letter or digit.
     static func words(_ s: String) -> [String] {

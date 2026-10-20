@@ -70,6 +70,20 @@ import UniformTypeIdentifiers
         #expect(image.height == 169)
     }
 
+    /// Not downsampled = the plain decode, so a cache can file it under the plain url.
+    @Test func decodeSaysWhetherItDownsampled() throws {
+        let data = try png(width: 421, height: 632)
+        let small = try #require(ImageDownsampling.decodeReporting(
+            data, target: CGSize(width: 320, height: 320)))
+        #expect(small.downsampled)
+        let large = try #require(ImageDownsampling.decodeReporting(
+            data, target: CGSize(width: 448, height: 704)))
+        #expect(!large.downsampled)
+        #expect(large.image.width == 421)
+        let plain = try #require(ImageDownsampling.decodeReporting(data, target: nil))
+        #expect(!plain.downsampled)
+    }
+
     @Test func decodeRejectsBytesThatAreNotAnImage() {
         #expect(ImageDownsampling.decode(Data("not an image".utf8), target: nil) == nil)
     }

@@ -75,6 +75,9 @@ extension MockTests {
             ("Star Wars Episode VII The Force Awakens", nil as Int?, "Star Wars: The Force Awakens"),
             ("American Pie Reunion", 2012, "American Wedding"),          // a word out of place
             ("Harry Potter And The Deathly Hallows Part 1", 2010, "Harry Part"),  // too few of the words
+            // Only ONE real word in common — "the" carries nothing.
+            ("The Lion King", 2019, "The King"),
+            ("The Hunger Games", 2012, "The Games"),
         ])
         func wordOrderRuleStaysStrict(_ parsed: String, _ year: Int?, _ tmdbTitle: String) async throws {
             MockURLProtocol.stub(status: 200, json: """

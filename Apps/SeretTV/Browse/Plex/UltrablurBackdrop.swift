@@ -107,11 +107,15 @@ private struct UltrablurPlate: View {
     let path: String
     /// Fixed for the backdrop's life — never a swap under focus.
     let showsArt: Bool
+    /// The wash this plate drew, held for as long as the plate is up. The washes share the
+    /// decoded-image budget, so the cache may evict this one while its title is still on screen;
+    /// a re-render then has to draw what it held, not fall back to bare canvas.
+    @State private var held: UIImage?
 
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .topTrailing) {
-                if let wash = UltrablurPlates.cachedWash(path) {
+                if let wash = UltrablurPlates.cachedWash(path) ?? held {
                     Image(uiImage: wash)
                         .resizable()
                         .aspectRatio(contentMode: .fill)
@@ -122,6 +126,9 @@ private struct UltrablurPlate: View {
             }
             .frame(width: geo.size.width, height: geo.size.height, alignment: .topTrailing)
         }
+        // Hold the cached wash at once (the backdrop warmed it before showing this plate) — or,
+        // if it was evicted in between, render it again.
+        .task(id: path) { held = await UltrablurPlates.wash(for: path) }
     }
 
     /// The sharp backdrop in the trailing 70% × top 76%, dissolving towards the leading and bottom

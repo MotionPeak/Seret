@@ -337,4 +337,20 @@ struct FilenameParserTests {
         #expect(r.isTV == false)
     }
 
+    /// A TLD that is also an ordinary word (`tv`, `to`, `co`…) is a site only after a DOT: a
+    /// broadcaster's or a group's bracket like `[Kan 11 TV]` is not a domain and must stay.
+    @Test(arguments: [
+        "[Kan 11 TV] Fauda S01E01 1080p.mkv",
+        "[ Welcome To ] Some.Film.2010.1080p.mkv",
+        "[Kan 11 TV] Fauda",
+    ])
+    func anOrdinaryWordIsNotASiteTLD(_ raw: String) {
+        #expect(FilenameParser.strippingSiteTag(raw) == raw)
+    }
+
+    @Test func aDottedWordTLDIsStillASite() {
+        #expect(FilenameParser.strippingSiteTag("[ YggTorrent.to ] Lucy.2014.mkv") == "Lucy.2014.mkv")
+        #expect(FilenameParser.strippingSiteTag("[www.Torrent9.tv] Lucy.2014.mkv") == "Lucy.2014.mkv")
+    }
+
 }

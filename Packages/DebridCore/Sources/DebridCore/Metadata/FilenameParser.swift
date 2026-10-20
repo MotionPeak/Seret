@@ -75,9 +75,17 @@ public struct FilenameParser: Sendable {
 
     /// `[ name.tld ]` / `[ name tld ]` / `[www.name.tld]` at the very start, plus the separators
     /// after it. The TLD list is closed on purpose — an open `[a-z]{2,4}` would read the last word
-    /// of a spaced fansub group (`[Golumpa Subs]`) as a domain.
+    /// of a spaced fansub group (`[Golumpa Subs]`) as a domain. And a TLD that is also an ordinary
+    /// word (`tv`, `to`, `co`, `top`…) counts only after a DOT: `[Kan 11 TV]` is a broadcaster,
+    /// `[ Welcome To ]` is words. Only the unambiguous ones may follow a space, which is how the
+    /// tracker prefixes actually arrive once dots are read as spaces (`[ Torrent9 NZ ]`).
+    private static let siteTLDsAnySeparator =
+        "com|net|org|pw|nz|cc|ws|fr|ph|vip|xyz|cx|ag|gg|ru|cm|biz|uk|eu|cz|sk|pl|io"
+    private static let siteTLDsAfterDotOnly = "to|tv|co|se|la|li|top|site|club|info"
     private static let reSiteTag = make(
-        #"(?i)^\s*\[\s*(?:www[.\s]+)?[a-z0-9-]+(?:[.\s]+[a-z0-9-]+)*?[.\s]+(?:com|net|org|pw|nz|to|io|cc|tv|ws|fr|ph|vip|xyz|co|cx|ag|se|la|li|gg|ru|cm|biz|info|club|site|top|uk|eu|cz|sk|pl)\s*\][\s._-]*"#)
+        #"(?i)^\s*\[\s*(?:www[.\s]+)?[a-z0-9-]+(?:[.\s]+[a-z0-9-]+)*?"#
+        + #"(?:[.\s]+(?:"# + siteTLDsAnySeparator + #")|\.(?:"# + siteTLDsAfterDotOnly + #"))"#
+        + #"\s*\][\s._-]*"#)
 
     /// `SxxE00` is a SPECIAL that accompanies season xx, not episode zero of it.
     ///
