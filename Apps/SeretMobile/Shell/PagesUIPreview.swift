@@ -20,6 +20,8 @@ import SwiftUI
 ///   step): 10 push See All · 15 pop · 20 push again · 23 switch to Movies · 26 back to Home (the
 ///   art must be back) · 31 scroll down · 36 Movies · 39 Home (the art must be at the top) — the
 ///   iPad shell's art through every way Home leaves and returns.
+/// - `search` — Search with the field empty (the For You rails, fixture Discover);
+///   `searchresults` — "the" typed in (real TMDB search); `searchempty` — a query with no match.
 /// - `library` — the Library page (films, two downloads in flight); `libraryempty` — nothing yet.
 /// - `watchlist`, `watchlistremove`, `watchlistremoveboth`, `watchlistremoved`, `spin`,
 ///   `watchlistgrid`, `watchlistsetup`, `watchlistempty` — see `WatchlistPreviewFixture`.
@@ -32,6 +34,7 @@ struct PagesUIPreview: View {
     @State private var router = AppRouter()
     @State private var stores: UIPreviewStores?
     @State private var started = Date()
+    @Environment(\.horizontalSizeClass) private var hSize
 
     var body: some View {
         Group {
@@ -43,6 +46,13 @@ struct PagesUIPreview: View {
                                                           seed: PagesFixture.pool.prefix(20).map {
                                                               SearchHit(result: $0, kind: .movie)
                                                           }))
+                    }
+                } else if target.hasPrefix("search") && hSize == .compact {
+                    // The iPhone pushes Search from a page header's circle — so here it is pushed
+                    // too, with its back button.
+                    NavigationStack {
+                        CanvasBackground()
+                            .navigationDestination(isPresented: .constant(true)) { FindScreen() }
                     }
                 } else if target == "watchlistgrid", let model = stores?.watchlist {
                     NavigationStack {
@@ -92,6 +102,7 @@ struct PagesUIPreview: View {
         case "shows": .shows
         case _ where target.hasPrefix("watchlist") || target == "spin": .watchlist
         case "library", "libraryempty": .library
+        case "search", "searchresults", "searchempty": .search
         default: .home
         }
         let home = HomeStore(watch: PagesFixture.Watch())
@@ -114,6 +125,14 @@ struct PagesUIPreview: View {
             genreBrowsing: PagesFixture.Genres(),
             homeScript: target == "homescript" ? HomePreviewScript() : nil)
         if target.hasPrefix("watchlist") || target == "spin" { buildWatchlist() }
+        if target.hasPrefix("search") {
+            stores?.search = SearchStore(search: TMDBSearchService(client: TMDBClient(apiKey: Secrets.tmdbAPIKey)))
+            stores?.searchQuery = switch target {
+            case "searchresults": "the"
+            case "searchempty": "zzqxwv"
+            default: nil
+            }
+        }
         if target.hasPrefix("library") {
             let library = LibraryStore(library: PagesFixture.Library(empty: target == "libraryempty"))
             stores?.library = library

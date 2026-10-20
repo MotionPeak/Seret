@@ -2,11 +2,14 @@ import DebridCore
 import DebridUI
 import SwiftUI
 
-/// The Search page: a Movies/Shows filter + a glass search field over the selected kind's
-/// Discover rails (when idle) or search results (when typing). Pushed from the glass Search circle
-/// on Home / Movies / Shows on iPhone; the Search row of the iPad sidebar.
+/// The Search page, on the glass language: a glass search field on top, Movies / Shows glass pills
+/// under it, then the selected kind's Discover rails (with the For You / Trending / New / Popular /
+/// Top Rated pills) while the field is empty, or a poster grid of results while typing. Pushed from
+/// the glass Search circle on Home / Movies / Shows on iPhone (the system bar keeps its back
+/// button); the iPad sidebar's Search row shows it as a root page with the glass page header.
 ///
-/// Every poster opens the title's page (`HitTile`).
+/// Every poster opens the title's page (`HitTile`). The keyboard goes away on any drag, and never
+/// comes back on its own after a title page closes (audit #5 — fixed on main; kept as it was).
 struct FindScreen: View {
     @State private var kind: MediaKind
 
@@ -38,7 +41,17 @@ struct FindScreen: View {
     @State private var pendingRemoval: MediaItem?
     @State private var removeErrorMessage: String?
 
+#if DEBUG
+    @Environment(\.uiPreviewStores) private var preview
+    private var browse: DiscoverStore? {
+        (kind == .movie ? preview?.moviesBrowse : preview?.showsBrowse)
+            ?? (kind == .movie ? session.moviesBrowse : session.showsBrowse)
+    }
+    private var searchStore: SearchStore? { preview?.search ?? session.searchStore }
+#else
     private var browse: DiscoverStore? { kind == .movie ? session.moviesBrowse : session.showsBrowse }
+    private var searchStore: SearchStore? { session.searchStore }
+#endif
 
     private var columns: [GridItem] { PosterTileMetrics.gridColumns(hSize) }
 
@@ -48,9 +61,9 @@ struct FindScreen: View {
         ZStack {
             CanvasBackground()
             VStack(alignment: .leading, spacing: Theme.Space.md) {
-                kindFilter
                 searchField
-                if let search = session.searchStore {
+                kindFilter
+                if let search = searchStore {
                     content(search)
                         // Keyed on kind TOO, so switching Movies/Shows re-runs the search for the new kind.
                         .task(id: "\(kind.rawValue)/\(query)") {
@@ -59,7 +72,7 @@ struct FindScreen: View {
                             await search.search(query: query, kind: kind)
                         }
                 } else {
-                    loadingView
+                    skeleton
                 }
             }
             .padding(.top, Theme.Space.sm)
@@ -69,6 +82,12 @@ struct FindScreen: View {
         .onAppear {
             guard !didAutoFocus else { return }
             didAutoFocus = true
+#if DEBUG
+            if let seeded = preview?.searchQuery {
+                query = seeded
+                return
+            }
+#endif
             searchFocused = true
         }
         // Dragging the results or the rails puts the keyboard away, as every other search does.
@@ -76,44 +95,54 @@ struct FindScreen: View {
         // Opening a title — from a tile here or from anywhere else — gives up the field, so the
         // keyboard does not come back when the page closes.
         .onChange(of: router.detail == nil) { _, closed in if !closed { searchFocused = false } }
-        // The title sits on the bar's own row — inline beside the back button when pushed (iPhone),
-        // large at the root of the iPad sidebar's Search. A title of our own under the bar left a
-        // ~100pt band of nothing above the field.
-        .navigationTitle("Search")
-        .navigationBarTitleDisplayMode(hSize == .regular ? .large : .inline)
+        .modifier(SearchPageBar(root: hSize == .regular))
         .libraryRemovalConfirmation(pending: $pendingRemoval,
                                     errorMessage: $removeErrorMessage,
                                     store: session.libraryStore)
     }
 
-    /// The light movie/show filter — a single control, not a second top-level destination.
+    /// Movies / Shows — the genre grid's glass sort pills.
     private var kindFilter: some View {
-        Picker("Kind", selection: $kind) {
-            Text("Movies").tag(MediaKind.movie)
-            Text("Shows").tag(MediaKind.show)
+        HStack(spacing: Theme.Space.sm) {
+            ForEach([MediaKind.movie, .show], id: \.self) { k in
+                let selected = kind == k
+                Button(k == .movie ? "Movies" : "Shows") { kind = k }
+                    .buttonStyle(SortPillStyle(selected: selected))
+                    .accessibilityAddTraits(selected ? .isSelected : [])
+            }
         }
-        .pickerStyle(.segmented)
-        .padding(.horizontal, Theme.Space.lg)
+        .padding(.horizontal, PosterTileMetrics.margin(hSize))
     }
 
     private var searchField: some View {
         HStack(spacing: Theme.Space.sm) {
-            Image(systemName: "magnifyingglass").foregroundStyle(Theme.Palette.textSecondary)
-            TextField(kind == .movie ? "Search movies" : "Search shows", text: $query)
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(Theme.Palette.textSecondary)
+            TextField("", text: $query,
+                      prompt: Text(kind == .movie ? "Search movies" : "Search shows")
+                          .foregroundStyle(Theme.Palette.textTertiary))
+                .font(.system(size: 17, weight: .medium))
                 .textInputAutocapitalization(.never).autocorrectionDisabled()
                 .foregroundStyle(Theme.Palette.textPrimary)
                 .focused($searchFocused)
                 .submitLabel(.search)
                 .onSubmit { searchFocused = false }
+                .accessibilityLabel(kind == .movie ? "Search movies" : "Search shows")
             if !query.isEmpty {
                 Button { query = "" } label: {
-                    Image(systemName: "xmark.circle.fill").foregroundStyle(Theme.Palette.textTertiary)
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 17))
+                        .foregroundStyle(Theme.Palette.textSecondary)
                 }
+                .accessibilityLabel("Clear search")
             }
         }
-        .padding(.vertical, Theme.Space.md).padding(.horizontal, Theme.Space.lg)
-        .seretGlass(in: Capsule(), interactive: false)
-        .padding(.horizontal, Theme.Space.lg)
+        .padding(.vertical, 13).padding(.horizontal, Theme.Space.lg)
+        .contentShape(Capsule())
+        .onTapGesture { searchFocused = true }
+        .seretGlass(in: Capsule())
+        .padding(.horizontal, PosterTileMetrics.margin(hSize))
     }
 
     @ViewBuilder private func content(_ search: SearchStore) -> some View {
@@ -122,11 +151,12 @@ struct FindScreen: View {
         } else {
             switch search.state {
             case .idle, .searching:
-                loadingView
+                gridSkeleton
             case .empty:
-                message("No results", systemImage: "magnifyingglass")
+                message("No results", systemImage: "magnifyingglass",
+                        detail: "Nothing on TMDB matches \u{201C}\(query)\u{201D}.")
             case .failed(let msg):
-                message(msg, systemImage: "exclamationmark.triangle")
+                message("Search failed", systemImage: "exclamationmark.triangle", detail: msg)
             case .results:
                 resultsGrid(search.results)
             }
@@ -136,7 +166,7 @@ struct FindScreen: View {
     private var rails: some View {
         Group {
             if let browse {
-                VStack(spacing: Theme.Space.md) {
+                VStack(alignment: .leading, spacing: Theme.Space.md) {
                     segmentPicker(browse)
                     segmentContent(browse)
                 }
@@ -165,19 +195,21 @@ struct FindScreen: View {
     @ViewBuilder private func segmentContent(_ browse: DiscoverStore) -> some View {
         switch browse.segmentState(browse.selectedSegment) {
         case .idle, .loading:
-            loadingView
+            skeleton
         case .failed:
-            message("Couldn't load", systemImage: "exclamationmark.triangle")
+            message("Couldn't load", systemImage: "exclamationmark.triangle",
+                    detail: "Check your connection and try another section.")
         case .loaded:
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: Theme.Space.lg) {
+                LazyVStack(alignment: .leading, spacing: 28) {
                     ForEach(browse.rows) { row in
                         PosterRail(title: row.title) {
                             ForEach(row.hits) { tile($0, width: PosterTileMetrics.width(hSize), titled: false) }
                         }
                     }
                 }
-                .padding(.vertical, Theme.Space.md)
+                .padding(.top, Theme.Space.sm)
+                .padding(.bottom, Theme.Space.xxxl)
             }
             // One batched read across the visible rails; already-known titles cost nothing.
             .task(id: "marks-\(browse.rows.count)") {
@@ -186,14 +218,20 @@ struct FindScreen: View {
         }
     }
 
-    /// Trending / New Releases / Popular selector — switching is instant (all loaded up front).
+    /// For You / Trending / New / Popular / Top Rated — glass pills, switching instantly.
     private func segmentPicker(_ browse: DiscoverStore) -> some View {
-        Picker("Section", selection: Binding(get: { browse.selectedSegment },
-                                             set: { browse.select($0) })) {
-            ForEach(DiscoverStore.Segment.allCases) { Text($0.title).tag($0) }
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: Theme.Space.sm) {
+                ForEach(DiscoverStore.Segment.allCases) { segment in
+                    let selected = browse.selectedSegment == segment
+                    Button(segment.title) { browse.select(segment) }
+                        .buttonStyle(SortPillStyle(selected: selected))
+                        .accessibilityAddTraits(selected ? .isSelected : [])
+                }
+            }
+            .padding(.vertical, 2)
         }
-        .pickerStyle(.segmented)
-        .padding(.horizontal, Theme.Space.lg)
+        .contentMargins(.horizontal, PosterTileMetrics.margin(hSize), for: .scrollContent)
     }
 
     /// CAM-likely (theatrical-window) — tagged in every row it appears in, not just In Theatres.
@@ -201,10 +239,12 @@ struct FindScreen: View {
 
     private func resultsGrid(_ hits: [SearchHit]) -> some View {
         ScrollView {
-            LazyVGrid(columns: columns, spacing: Theme.Space.xl) {
+            LazyVGrid(columns: columns, spacing: PosterTileMetrics.spacing + 6) {
                 ForEach(hits) { tile($0, width: nil, titled: true) }
             }
-            .padding(Theme.Space.lg)
+            .padding(.horizontal, PosterTileMetrics.margin(hSize))
+            .padding(.top, Theme.Space.sm)
+            .padding(.bottom, Theme.Space.xxxl)
         }
         // One batched read for whatever this search turned up, so the posters can say what you
         // have already seen.
@@ -216,25 +256,51 @@ struct FindScreen: View {
                 onOpen: { searchFocused = false }, onRemove: { pendingRemoval = $0 })
     }
 
-    /// Centered loading spinner. Extracted so the result-builder switch cases that use it stay
-    /// single-expression — multi-statement `Spacer(); ProgressView(); Spacer()` cases trip the
-    /// type-checker into bogus inference errors.
-    private var loadingView: some View {
-        VStack {
-            Spacer()
-            ProgressView().tint(Theme.Palette.focus)
-            Spacer()
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    /// Loading rails at the real rail metrics.
+    private var skeleton: some View {
+        ScrollView { RailSkeleton(rows: 3).padding(.top, Theme.Space.sm) }
+            .scrollDisabled(true)
     }
 
-    private func message(_ text: String, systemImage: String) -> some View {
-        VStack(spacing: Theme.Space.md) {
-            Spacer()
-            Image(systemName: systemImage).font(.system(size: 42)).foregroundStyle(Theme.Palette.textSecondary)
-            Text(text).font(Theme.Typo.headline()).foregroundStyle(Theme.Palette.textPrimary)
-            Spacer()
+    /// Loading results at the grid's own metrics.
+    private var gridSkeleton: some View {
+        ScrollView {
+            LazyVGrid(columns: columns, spacing: PosterTileMetrics.spacing + 6) {
+                ForEach(0..<9, id: \.self) { _ in
+                    RoundedRectangle(cornerRadius: PosterTileMetrics.corner, style: .continuous)
+                        .fill(Theme.Palette.surface1)
+                        .aspectRatio(2.0 / 3.0, contentMode: .fit)
+                }
+            }
+            .padding(.horizontal, PosterTileMetrics.margin(hSize))
+            .padding(.top, Theme.Space.sm)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .scrollDisabled(true)
+        .accessibilityHidden(true)
+    }
+
+    private func message(_ title: String, systemImage: String, detail: String) -> some View {
+        ScrollView {
+            GlassMessageCard(systemImage: systemImage, title: title, text: detail, topPadding: 40) {
+                EmptyView()
+            }
+        }
+    }
+}
+
+/// Search's bar. Pushed on iPhone it keeps the system bar (glass on iOS 26) with its back button and
+/// an inline title; as the iPad sidebar's root page it gets the same glass page header as the
+/// other root pages.
+private struct SearchPageBar: ViewModifier {
+    let root: Bool
+
+    func body(content: Content) -> some View {
+        if root {
+            content.glassPageHeader("Search") { EmptyView() }
+        } else {
+            content
+                .navigationTitle("Search")
+                .navigationBarTitleDisplayMode(.inline)
+        }
     }
 }

@@ -13,6 +13,9 @@ struct UIPreviewStores {
     var moviesBrowse: DiscoverStore?
     var showsBrowse: DiscoverStore?
     var genreBrowsing: GenreBrowsing?
+    /// `-uiPreview search…`: the search store (real TMDB search) and a query typed in at once.
+    var search: SearchStore?
+    var searchQuery: String?
     /// `-uiPreview library`: the library page's store, over `PagesFixture`'s titles.
     var library: LibraryStore?
     /// `-uiPreview homescript`: drives Home's stack and scroll on a timer.
