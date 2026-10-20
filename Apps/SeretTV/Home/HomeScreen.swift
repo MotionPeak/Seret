@@ -14,6 +14,10 @@ struct HomeScreen: View {
     @Environment(AppSession.self) private var session
     /// Pushes a page onto the shell's stack. A no-op outside the shell (previews, the harness).
     @Environment(\.openBrowseDestination) private var openDestination
+    /// The side menu holds focus — Home must not move focus by itself then (see `rehomeFocus`).
+    @Environment(\.sideMenuHoldsFocus) var sideMenuHoldsFocus
+    /// False while Home is a kept-alive page behind another one (the shell disables it).
+    @Environment(\.isEnabled) var isVisiblePage
 
     /// A title awaiting removal confirmation, and the failure to surface if RD refuses. Home hosts
     /// these itself because a rail is a place you remove from, not only a place you browse.
@@ -32,30 +36,32 @@ struct HomeScreen: View {
     private var art: TitleArtStore? { previewArt ?? session.titleArt }
     /// The harness's library failure (`-uiPreview homefailed`) — the preview session has no library.
     var previewFailure: String?
+    /// The harness's downloads (`-uiPreview homedownloading`) — the preview session has no store.
+    var previewDownloads: [DownloadTile]?
+    var activeDownloads: [DownloadTile] { previewDownloads ?? session.downloadStore?.activeTiles ?? [] }
 #else
     private var homeStore: HomeStore? { session.home }
     private var art: TitleArtStore? { session.titleArt }
+    var activeDownloads: [DownloadTile] { session.downloadStore?.activeTiles ?? [] }
 #endif
 
     /// Drives the preview header: tiles report focus, it publishes the one focus settles on.
     @State private var preview = FocusPreviewModel()
-    /// A tile has taken focus since Home appeared — from then on focus, not the data, says what the
-    /// header shows.
-    @State private var tileHasFocused = false
-    /// Which tile holds focus, by its focus id — Home's own handle on it, stacked on the page's.
-    @FocusState private var tileFocus: String?
-    /// The tile a long-press action was just taken on. Its menu holds focus while it is open, so
-    /// when the action takes the tile away there is no focused tile to notice it went.
-    @State private var actedOnTile: String?
-    @State private var rehomeTask: Task<Void, Never>?
-    /// The tile focus was last on — where coming back into the page lands.
-    @State private var lastFocusedTile: String?
+    /// Home's line to the page's focus: which tile holds it, and moving it. Not a `FocusState` of
+    /// Home's own — that re-rendered Home, and rebuilt every rail, on each move along a rail.
+    @State var focusHandle = FocusBrowseHandle()
+    /// What every focus move writes. Not observed: nothing in it is drawn, so a move along a rail
+    /// must not re-render Home for it.
+    @State var focusMemory = HomeFocusMemory()
+    /// The tile focus was on when it last left Home's tiles — where coming back into the page
+    /// lands. Written once per departure, not per move, because the page's focus target reads it.
+    @State var entryTile: String?
 
     /// True once there's anything to show — a download under way counts: a first title being fetched
     /// into an empty library is exactly when the viewer wants to see it.
     private var homeReady: Bool {
         guard let h = homeStore else { return false }
-        if !(session.downloadStore?.activeTiles.isEmpty ?? true) { return true }
+        if !activeDownloads.isEmpty { return true }
         return !(h.continueWatching.isEmpty && h.recentlyAdded.isEmpty)
     }
 
@@ -116,7 +122,7 @@ struct HomeScreen: View {
 
     /// Stable ids for the rails — the page scrolls to them, and a tile's focus id is prefixed by
     /// its rail's, so a title in two rails is two distinct focus targets.
-    private enum Rail {
+    enum Rail {
         static let continueWatching = "continue"
         static let downloading = "downloading"
         static let movies = "movies"
@@ -127,14 +133,15 @@ struct HomeScreen: View {
     /// never a swap under a focused tile: an empty rail has nothing in it that could hold focus, and
     /// each rail keeps one id for its whole life.
     private func rails(_ home: HomeStore) -> some View {
-        let downloads = session.downloadStore?.activeTiles ?? []
+        let downloads = activeDownloads
         let movies = home.recentlyAddedMovies
         let shows = home.recentlyAddedShows
         let keys = tileKeys(home)
         // Where focus goes: the tile the viewer was last on while it is still there (so coming back
         // from the side menu returns to it), else the tile Home opens on.
-        let focusTarget = lastFocusedTile.flatMap { keys.contains($0) ? $0 : nil } ?? initialFocusID(home)
-        return FocusBrowsePage(preview: preview, art: art, initialFocus: focusTarget, focusOnEntry: true) {
+        let focusTarget = entryTile.flatMap { keys.contains($0) ? $0 : nil } ?? initialFocusID(home)
+        return FocusBrowsePage(preview: preview, art: art, initialFocus: focusTarget, focusOnEntry: true,
+                               handle: focusHandle) {
             if !home.continueWatching.isEmpty {
                 PlexRail(title: "Continue Watching", id: Rail.continueWatching) {
                     ForEach(home.continueWatching) { hi in continueTile(hi, home: home) }
@@ -146,9 +153,8 @@ struct HomeScreen: View {
                         let destination = downloadDestination(for: tile, library: session.libraryStore)
                         let key = Self.focusID(Rail.downloading, tile.id)
                         DownloadingRailCard(tile: tile, destination: destination, showsCaption: false,
+                                            focusID: key,
                                             onFocus: { focus(Self.subject(for: destination)) })
-                            .plexFocusID(key)
-                            .focused($tileFocus, equals: key)
                     }
                 }
             }
@@ -166,19 +172,19 @@ struct HomeScreen: View {
         // Until a tile has focus, the header shows what the page opens on — and follows it while
         // the rails are still arriving (Recently Added lands before Continue Watching).
         .onChange(of: initialSubject(home), initial: true) { _, subject in
-            guard !tileHasFocused, let subject else { return }
+            guard !focusMemory.tileHasFocused, let subject else { return }
             preview.showImmediately(subject)
         }
         // A tile that held focus — or whose long-press menu did — left the rails: marked watched,
         // removed, its download finished. tvOS then leaves NOTHING focused (measured: no ring
         // anywhere, the header still describing the gone title) until the next press, so focus
         // is handed to its neighbour here.
-        .onChange(of: tileKeys(home)) { old, new in rehomeFocus(old: old, new: new) }
-        .onChange(of: tileFocus) { _, key in
-            guard let key else { return }
-            actedOnTile = nil
-            lastFocusedTile = key
-        }
+        .onChange(of: keys) { old, new in rehomeFocus(old: old, new: new) }
+        .onAppear { focusHandle.onChange = { tileFocusChanged($0) } }
+        // Never move focus by itself while the viewer is in the menu or on another page.
+        .onChange(of: sideMenuHoldsFocus) { _, inMenu in if inMenu { cancelRehome() } }
+        .onChange(of: isVisiblePage) { _, visible in if !visible { cancelRehome() } }
+        .onDisappear { cancelRehome() }
         // A rebuild that changed the entry on screen (new progress after watching → a new "Xm
         // left") re-shows it; the focused tile does not re-report focus for a data change.
         .onChange(of: home.continueWatching) { _, entries in
@@ -199,12 +205,11 @@ struct HomeScreen: View {
                           onFocus: { focus(Self.subject(for: hi)) },
                           value: resumeDestination(hi))
             .plexFocusID(key)
-            .focused($tileFocus, equals: key)
             .contextMenu {
                 ContinueWatchingActions(entry: hi, home: home, session: session,
                                         openTitle: { openDestination(.detail(hi.item)) },
                                         play: { openDestination(.play($0)) },
-                                        didMark: { actedOnTile = key })
+                                        didMark: { focusMemory.actedOn = key })
             }
     }
 
@@ -216,78 +221,19 @@ struct HomeScreen: View {
                           onFocus: { focus(PreviewSubject(item: item)) },
                           value: item)
             .plexFocusID(key)
-            .focused($tileFocus, equals: key)
             .libraryTitleMenu(for: item, session: session, onRemove: {
-                actedOnTile = key
+                focusMemory.actedOn = key
                 pendingRemoval = $0
             })
     }
 
     private func focus(_ subject: PreviewSubject?) {
-        tileHasFocused = true
+        focusMemory.tileHasFocused = true
         guard let subject else { return }
         preview.focus(subject)
     }
 
-    private static func focusID(_ rail: String, _ id: String) -> String { "\(rail)/\(id)" }
-
-    /// Every tile's focus id, rail by rail, in screen order.
-    private func tileKeys(_ home: HomeStore) -> [String] {
-        home.continueWatching.map { Self.focusID(Rail.continueWatching, $0.id) }
-            + (session.downloadStore?.activeTiles ?? []).map { Self.focusID(Rail.downloading, $0.id) }
-            + home.recentlyAddedMovies.map { Self.focusID(Rail.movies, $0.id) }
-            + home.recentlyAddedShows.map { Self.focusID(Rail.shows, $0.id) }
-    }
-
-    /// Hands focus on when the tile that had it — or whose long-press menu had it — is gone.
-    /// Only then: a tile leaving while focus is anywhere else (the side menu, another tile) must
-    /// not pull focus to it.
-    private func rehomeFocus(old: [String], new: [String]) {
-        let gone: String
-        if let focused = tileFocus, !new.contains(focused) {
-            gone = focused
-        } else if tileFocus == nil, let acted = actedOnTile, !new.contains(acted) {
-            gone = acted
-        } else {
-            return
-        }
-        actedOnTile = nil
-        guard let next = Self.neighbour(of: gone, old: old, new: new) else { return }
-        // Retried, not set once: while a long-press menu is still animating away tvOS ignores the
-        // write (measured: ~0.9s of no-ops in the simulator, then it lands). The tile it names may
-        // also be one this same change inserts — a show's card moving on to its next episode.
-        // Stops as soon as a tile other than the gone one holds focus, so it never fights the viewer.
-        rehomeTask?.cancel()
-        rehomeTask = Task { @MainActor in
-            for _ in 0..<20 {
-                tileFocus = next
-                try? await Task.sleep(for: .milliseconds(100))
-                if Task.isCancelled { return }
-                if let now = tileFocus, now != gone { return }
-            }
-        }
-    }
-
-    /// Where focus goes when `gone` leaves: the tile now at its place in the same rail (the one
-    /// after it, or the new last); with the rail emptied, the first tile of the rail that took
-    /// its place below, else of the nearest rail above.
-    private static func neighbour(of gone: String, old: [String], new: [String]) -> String? {
-        func rail(_ key: String) -> Substring { key.prefix { $0 != "/" } }
-        let goneRail = rail(gone)
-        let sameRail = new.filter { rail($0) == goneRail }
-        if !sameRail.isEmpty {
-            let index = old.filter { rail($0) == goneRail }.firstIndex(of: gone) ?? 0
-            return sameRail[min(index, sameRail.count - 1)]
-        }
-        var oldRails: [Substring] = []
-        for key in old where oldRails.last != rail(key) { oldRails.append(rail(key)) }
-        guard let position = oldRails.firstIndex(of: goneRail) else { return new.first }
-        let below = oldRails[(position + 1)...], above = oldRails[..<position].reversed()
-        for candidate in Array(below) + Array(above) {
-            if let first = new.first(where: { rail($0) == candidate }) { return first }
-        }
-        return new.first
-    }
+    static func focusID(_ rail: String, _ id: String) -> String { "\(rail)/\(id)" }
 
     /// The tile Home opens on: the first Continue Watching entry, else the first Recently Added
     /// title — the top-leading tile either way, the one the header starts on.

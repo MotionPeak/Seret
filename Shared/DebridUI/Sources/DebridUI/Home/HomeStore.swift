@@ -46,8 +46,8 @@ public final class HomeStore {
     public private(set) var recentlyAddedShows: [MediaItem] = []
     public var featured: HomeItem? { continueWatching.first }
     /// A rebuild for a real profile has published — Continue Watching is now an answer, not "not
-    /// asked yet". Before it, Recently Added can already be on screen with the hero still to come
-    /// above it.
+    /// asked yet". Before it, Recently Added can already be on screen with Continue Watching still
+    /// to come above it.
     public private(set) var hasBuiltForProfile = false
 
     /// The profile whose Continue Watching this Home shows. Set by `AppSession` on sign-in / switch.

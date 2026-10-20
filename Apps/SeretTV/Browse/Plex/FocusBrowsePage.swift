@@ -52,6 +52,9 @@ enum FocusBrowseLayout {
 ///   (back from the side menu), not just the first time it resolves. Off by default; a page that
 ///   keeps `initialFocus` pointed at its last focused tile returns the viewer to it, as Plex does —
 ///   without it tvOS picks by geometry, and Right out of the open menu landed a tile further on.
+/// - `handle`: follow and move the page's focus (by `plexFocusID`) from its owner, without the
+///   owner keeping a `FocusState` of its own — which would re-render the owner, and rebuild every
+///   rail, on each move along a rail.
 /// - The page reads `TitleArtStore` results only: its `.task(id:)` asks the store to load the
 ///   shown subject's art (the store owns the fetch), and the body looks up the art for the
 ///   subject on screen — so an older title's art can never paint over a newer one.
@@ -60,6 +63,7 @@ struct FocusBrowsePage<Rails: View>: View {
     let art: TitleArtStore?
     var initialFocus: String?
     var focusOnEntry = false
+    var handle: FocusBrowseHandle?
     @ViewBuilder var rails: Rails
 
     static var leadingInset: CGFloat { FocusBrowseLayout.leadingInset }
@@ -86,11 +90,13 @@ struct FocusBrowsePage<Rails: View>: View {
     @FocusState private var focusedID: String?
 
     init(preview: FocusPreviewModel, art: TitleArtStore?, initialFocus: String? = nil,
-         focusOnEntry: Bool = false, @ViewBuilder rails: () -> Rails) {
+         focusOnEntry: Bool = false, handle: FocusBrowseHandle? = nil,
+         @ViewBuilder rails: () -> Rails) {
         self.preview = preview
         self.art = art
         self.initialFocus = initialFocus
         self.focusOnEntry = focusOnEntry
+        self.handle = handle
         self.rails = rails()
     }
 
@@ -137,6 +143,8 @@ struct FocusBrowsePage<Rails: View>: View {
         .environment(\.focusBrowseRowFocused, { focusedRow = $0 })
         .environment(\.focusBrowseFocusedRow, focusedRow)
         .environment(\.focusBrowseFocusID, $focusedID)
+        .onChange(of: focusedID) { _, id in handle?.focusDidChange(id) }
+        .onAppear { handle?.mover = { focusedID = $0 } }
         // Keyed on the whole subject, so a change to it (new progress → "Xm left") re-settles.
         .task(id: subject) { await settle(subject) }
     }
@@ -235,6 +243,27 @@ struct FocusBrowsePage<Rails: View>: View {
         await FocusSettle.wait(for: artLoad, upTo: .seconds(30))
         guard !Task.isCancelled else { return }
         backdropPath = artFor(subject)?.backdropPath ?? subject.backdropPath
+    }
+}
+
+/// The owner's line to a `FocusBrowsePage`'s focus. Not observed: the owner reads `focused` when
+/// it needs it and hears moves through `onChange`, so following focus never re-renders the owner.
+@MainActor
+final class FocusBrowseHandle {
+    /// The `plexFocusID` of the focused view on the page, nil when focus is elsewhere.
+    private(set) var focused: String?
+    /// Called on every focus change on the page.
+    var onChange: ((String?) -> Void)?
+    /// Set by the page while it is on screen.
+    fileprivate var mover: ((String?) -> Void)?
+
+    /// Asks the page to focus the view marked `plexFocusID(id)`. tvOS may ignore it (a context
+    /// menu still animating away) — check `focused` afterwards.
+    func move(to id: String) { mover?(id) }
+
+    fileprivate func focusDidChange(_ id: String?) {
+        focused = id
+        onChange?(id)
     }
 }
 

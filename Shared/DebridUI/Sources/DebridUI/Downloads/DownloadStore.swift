@@ -304,4 +304,8 @@ public struct DownloadTile: Identifiable, Sendable, Equatable {
     public let posterPath: String?
     public let status: DownloadStatus
     public var id: String { status.storeKey }
+
+    public init(tmdbID: Int, title: String, posterPath: String?, status: DownloadStatus) {
+        self.tmdbID = tmdbID; self.title = title; self.posterPath = posterPath; self.status = status
+    }
 }

@@ -76,7 +76,7 @@ struct MyLibraryScreen: View {
 /// The cards are the focusable Home-rail ones, leading to the title's page. They were bare tiles:
 /// nothing in the strip could take focus, so the remote skipped straight over it from the pills to
 /// the grid — a download you could watch but never open, cancel or check on.
-private struct DownloadingStrip: View {
+struct DownloadingStrip: View {
     let tiles: [DownloadTile]
     let library: LibraryStore?
     var body: some View {

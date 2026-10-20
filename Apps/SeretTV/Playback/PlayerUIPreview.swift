@@ -79,6 +79,8 @@ struct PlayerUIPreview: View {
         case "manualsyncpressed":   ManualSyncPanelPreview(pressed: true)
         case "home":                HomeScreenPreview()
         case "homefailed":          HomeScreenPreview(failure: "Couldn't reach Real-Debrid. Check the connection and try again.")
+        case "homedownloading":     HomeScreenPreview(downloading: true)
+        case "downloadstrip":       DownloadStripPreview()
         case "watchlist":           WatchlistScreenPreview()
         case "watchlistpartner":    WatchlistScreenPreview(partnerUnreadable: true)
         case "letterboxd":          LetterboxdCardPreview()
@@ -1142,11 +1144,15 @@ private struct ManualSyncPreviewProvider: SubtitleProvider {
 /// preview session, never signed in, has none of its own.
 ///
 /// `homefailed` shows the library-failure state instead: Try Again must be on screen and focused,
-/// and pressing it must leave it focused, reading "Trying…".
+/// and pressing it must leave it focused, reading "Trying…". `homedownloading` adds a Downloading
+/// rail with one download in flight, between Continue Watching and Recently Added.
 private struct HomeScreenPreview: View {
     var failure: String?
+    var downloading = false
     @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()))
     @State private var home = HomeStore(watch: PreviewWatch())
+    /// The failed state's store: empty, so nothing but the failure is on screen.
+    @State private var emptyHome = HomeStore(watch: PreviewWatch())
     @State private var art = TitleArtStore(details: TMDBDetailsService(
         client: TMDBClient(apiKey: Secrets.tmdbAPIKey)))
     @State private var ready = false
@@ -1155,10 +1161,10 @@ private struct HomeScreenPreview: View {
         NavigationStack {
             Group {
                 if let failure {
-                    HomeScreen(previewHome: HomeStore(watch: PreviewWatch()), previewArt: art,
-                               previewFailure: failure)
+                    HomeScreen(previewHome: emptyHome, previewArt: art, previewFailure: failure)
                 } else if ready {
-                    HomeScreen(previewHome: home, previewArt: art)
+                    HomeScreen(previewHome: home, previewArt: art,
+                               previewDownloads: downloading ? [DownloadPreviewFixture.dune] : nil)
                 } else {
                     Color.black
                 }
@@ -1318,6 +1324,43 @@ private struct HomeScreenPreview: View {
         95557: "Mark Grayson is a normal teenager — except his father is the most powerful superhero on the planet.",
         95396: "Mark leads a team of office workers whose memories have been surgically divided between their work and personal lives.",
     ]
+}
+
+
+/// Downloads in flight, for the Home rail and the My Library strip.
+private enum DownloadPreviewFixture {
+    static let dune = tile(693134, "Dune: Part Two", poster: "/1pdfLvkbY9ohJlCjQH2CZjjYVvJ.jpg",
+                           fraction: 0.42, secondsRemaining: 540)
+    /// No poster: the title on a surface, never a blank card.
+    static let noArt = tile(0, "גבעת חלפון אינה עונה", poster: nil, fraction: 0.08, secondsRemaining: nil)
+
+    static func tile(_ tmdbID: Int, _ title: String, poster: String?, fraction: Double,
+                     secondsRemaining: TimeInterval?) -> DownloadTile {
+        DownloadTile(tmdbID: tmdbID, title: title, posterPath: poster,
+                     status: DownloadStatus(torrentID: "dl-\(tmdbID)", contentKey: "movie:tmdb:\(tmdbID)",
+                                            tmdbID: tmdbID, phase: .downloading, fraction: fraction,
+                                            speedBytesPerSecond: 12_000_000,
+                                            secondsRemaining: secondsRemaining,
+                                            title: title, posterPath: poster))
+    }
+}
+
+/// `-uiPreview downloadstrip`: My Library's Downloading strip with the rail-sized cards, over the
+/// shell's background and inset, so its spacing and focus lift can be checked without a download.
+private struct DownloadStripPreview: View {
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading) {
+                DownloadingStrip(tiles: [DownloadPreviewFixture.dune, DownloadPreviewFixture.noArt],
+                                 library: nil)
+                Spacer()
+            }
+            .padding(.top, 60)
+            .sideMenuContentInset()
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(CanvasBackground())
+        }
+    }
 }
 
 

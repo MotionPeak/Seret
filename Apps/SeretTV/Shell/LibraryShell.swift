@@ -99,6 +99,7 @@ struct LibraryShell: View {
                     // Content clears the collapsed capsule. This sits on the ROOT content only —
                     // pushed destinations are separate views and stay full-bleed.
                     .sideMenuContentInset()
+                    .environment(\.sideMenuHoldsFocus, menuFocus != nil)
                     .navigationDestination(for: BrowseDestination.self) { dest in
                         switch dest {
                         case .detail(let item): detailDestination(item)
@@ -298,9 +299,20 @@ private struct OpenBrowseDestinationKey: EnvironmentKey {
     static let defaultValue: @MainActor (BrowseDestination) -> Void = { _ in }
 }
 
+/// Whether the side menu holds focus. A page that moves focus by itself (Home handing focus on
+/// from a removed tile) must never pull it back out of the menu.
+private struct SideMenuHoldsFocusKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
 extension EnvironmentValues {
     var openBrowseDestination: @MainActor (BrowseDestination) -> Void {
         get { self[OpenBrowseDestinationKey.self] }
         set { self[OpenBrowseDestinationKey.self] = newValue }
+    }
+
+    var sideMenuHoldsFocus: Bool {
+        get { self[SideMenuHoldsFocusKey.self] }
+        set { self[SideMenuHoldsFocusKey.self] = newValue }
     }
 }

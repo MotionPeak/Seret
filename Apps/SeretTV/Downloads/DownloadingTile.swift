@@ -61,17 +61,24 @@ struct DownloadingRailCard: View {
     let destination: BrowseDestination
     /// The title under the card. Off in a Plex rail, where the preview header names the focused tile.
     var showsCaption = true
+    /// The card's `plexFocusID` on a `FocusBrowsePage` — its `initialFocus` hook and the id the
+    /// page's focus handle reports. Applied to the button itself, not the card with its caption,
+    /// so the id names the view that actually takes focus.
+    var focusID: String?
     /// Called when the card takes focus — a Plex rail drives its preview header with it.
     var onFocus: () -> Void = {}
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        // 22, not 12: a focused card grows ~14pt past its frame and the ring adds 4, so the caption
+        // sits clear of the ring instead of under it.
+        VStack(alignment: .leading, spacing: 22) {
             NavigationLink(value: destination) {
                 DownloadingTile(tile: tile)
             }
             .buttonStyle(FocusCardStyle())
             // Tells a `FocusBrowsePage` row that focus entered it; a no-op anywhere else.
             .reportsPlexRailFocus(onFocus)
+            .modifier(CardFocusID(id: focusID))
             .accessibilityLabel(tile.title)
             if showsCaption {
                 Text(tile.title)
@@ -81,6 +88,16 @@ struct DownloadingRailCard: View {
                     .frame(width: PosterTileMetrics.width, alignment: .leading)
             }
         }
+    }
+}
+
+/// `plexFocusID` when a page names the card; nothing otherwise. Which branch a card takes is fixed
+/// when it is built, so it never swaps under focus.
+private struct CardFocusID: ViewModifier {
+    let id: String?
+
+    func body(content: Content) -> some View {
+        if let id { content.plexFocusID(id) } else { content }
     }
 }
 
