@@ -14,8 +14,9 @@ struct HomeScreen: View {
     @Environment(AppSession.self) private var session
     /// Pushes a page onto the shell's stack. A no-op outside the shell (previews, the harness).
     @Environment(\.openBrowseDestination) private var openDestination
-    /// The side menu holds focus — Home must not move focus by itself then (see `rehomeFocus`).
-    @Environment(\.sideMenuHoldsFocus) var sideMenuHoldsFocus
+    /// Whether the side menu holds focus — Home must not move focus by itself then (see
+    /// `rehomeFocus`). Read when acting, never in the body.
+    @Environment(\.sideMenuFocus) var sideMenuFocus
     /// False while Home is a kept-alive page behind another one (the shell disables it).
     @Environment(\.isEnabled) var isVisiblePage
 
@@ -181,8 +182,8 @@ struct HomeScreen: View {
         // is handed to its neighbour here.
         .onChange(of: keys) { old, new in rehomeFocus(old: old, new: new) }
         .onAppear { focusHandle.onChange = { tileFocusChanged($0) } }
-        // Never move focus by itself while the viewer is in the menu or on another page.
-        .onChange(of: sideMenuHoldsFocus) { _, inMenu in if inMenu { cancelRehome() } }
+        // Never move focus by itself while the viewer is in the menu (the rehome checks the menu
+        // before every write) or on another page.
         .onChange(of: isVisiblePage) { _, visible in if !visible { cancelRehome() } }
         .onDisappear { cancelRehome() }
         // A rebuild that changed the entry on screen (new progress after watching → a new "Xm

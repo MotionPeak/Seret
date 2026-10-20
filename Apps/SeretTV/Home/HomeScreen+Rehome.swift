@@ -54,7 +54,7 @@ extension HomeScreen {
     /// describing the gone title) until the next press. Only then, though: a tile leaving while
     /// focus is anywhere else — the side menu, another tile, another page — must not pull focus.
     func rehomeFocus(old: [String], new: [String]) {
-        guard !sideMenuHoldsFocus, isVisiblePage else { return }
+        guard !sideMenuFocus.holdsFocus, isVisiblePage else { return }
         let gone: String
         if let focused = focusHandle.focused, !new.contains(focused) {
             gone = focused
@@ -69,11 +69,13 @@ extension HomeScreen {
         // write (measured: ~0.9s of no-ops in the simulator, then it lands). The tile it names may
         // also be one this same change inserts — a show's card moving on to its next episode.
         // The first write that lands ends it, and so does focus reaching any other tile; the side
-        // menu taking focus or Home leaving the screen cancels it (`cancelRehome`).
+        // menu taking focus ends it (checked before every write) and Home leaving the screen
+        // cancels it (`cancelRehome`).
         cancelRehome()
-        let handle = focusHandle
+        let handle = focusHandle, menu = sideMenuFocus
         focusMemory.rehomeTask = Task { @MainActor in
             for _ in 0..<20 {
+                if menu.holdsFocus { return }
                 handle.move(to: next)
                 try? await Task.sleep(for: .milliseconds(100))
                 if Task.isCancelled { return }

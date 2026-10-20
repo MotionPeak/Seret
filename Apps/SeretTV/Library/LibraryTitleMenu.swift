@@ -125,11 +125,12 @@ struct LibraryRemovalConfirmation: ViewModifier {
 /// way a missing `@Observable` environment object does, so a tile rendered outside the shell (a
 /// preview, the `-uiPreview` harness) silently offers nothing instead of killing the process.
 private struct LibraryRemovalRequestKey: EnvironmentKey {
-    static let defaultValue: @MainActor (MediaItem) -> Void = { _ in }
+    static let defaultValue = ShellAction<MediaItem>()
 }
 
 extension EnvironmentValues {
-    var requestLibraryRemoval: @MainActor (MediaItem) -> Void {
+    /// A `ShellAction`, not a closure — see why there.
+    var requestLibraryRemoval: ShellAction<MediaItem> {
         get { self[LibraryRemovalRequestKey.self] }
         set { self[LibraryRemovalRequestKey.self] = newValue }
     }

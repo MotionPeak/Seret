@@ -12,6 +12,10 @@ struct LibraryShell: View {
     /// Removal requested by a poster anywhere under the shell — see `requestLibraryRemoval`.
     @State private var pendingRemoval: MediaItem?
     @State private var removeErrorMessage: String?
+    /// The shell's actions and the menu-focus flag, handed down as stable objects — see `ShellAction`.
+    @State private var openAction = ShellAction<BrowseDestination>()
+    @State private var removalAction = ShellAction<MediaItem>()
+    @State private var menuFlag = SideMenuFocusFlag()
     @State private var path = NavigationPath()
     @State private var showingProfiles = false
     @FocusState private var menuFocus: SideMenuItem?
@@ -91,6 +95,11 @@ struct LibraryShell: View {
     #endif
 
     var body: some View {
+        // The shell's actions forward to its current state. Plain assignments into objects nothing
+        // observes, so running them re-renders nothing.
+        let pathBinding = $path, removal = $pendingRemoval
+        let _ = openAction.set { pathBinding.wrappedValue.append($0) }
+        let _ = removalAction.set { removal.wrappedValue = $0 }
         ZStack(alignment: .leading) {
             NavigationStack(path: $path) {
                 pages
@@ -98,7 +107,7 @@ struct LibraryShell: View {
                     // Content clears the collapsed capsule. This sits on the ROOT content only —
                     // pushed destinations are separate views and stay full-bleed.
                     .sideMenuContentInset()
-                    .environment(\.sideMenuHoldsFocus, menuFocus != nil)
+                    .environment(\.sideMenuFocus, menuFlag)
                     .navigationDestination(for: BrowseDestination.self) { dest in
                         switch dest {
                         case .detail(let item): detailDestination(item)
@@ -149,8 +158,8 @@ struct LibraryShell: View {
         // default: Remove on a poster there silently did nothing, and a pushed page could not open
         // the player as a push. The confirmation moves with them, so its alert presents over
         // whichever page is on top rather than from a root page that is not on screen.
-        .environment(\.requestLibraryRemoval, { pendingRemoval = $0 })
-        .environment(\.openBrowseDestination, { path.append($0) })
+        .environment(\.requestLibraryRemoval, removalAction)
+        .environment(\.openBrowseDestination, openAction)
         .libraryRemovalConfirmation(pending: $pendingRemoval,
                                     errorMessage: $removeErrorMessage,
                                     store: session.libraryStore)
@@ -173,6 +182,7 @@ struct LibraryShell: View {
         // that would open the menu over the page before the viewer touched anything. A focus entry
         // only counts once the PAGE has held focus, which can only happen after a real navigation.
         .onChange(of: menuFocus) { _, new in
+            menuFlag.holdsFocus = new != nil
             if new == nil {
                 pageHasHeldFocus = true
                 menuExpanded = false
@@ -274,15 +284,31 @@ struct LibraryShell: View {
         }
     }
 
-    /// Pages stay alive across switches (instant, no rebuild → snappy). Movies/Shows are separate
-    /// browse surfaces now, so each keeps its own rows, scroll and focus. The whole area is one
-    /// focus section so travel between the menu and a page is unambiguous.
-    @ViewBuilder private var pages: some View {
+    /// The root pages — see `ShellPages`.
+    private var pages: some View {
+        ShellPages(tab: tab).equatable()
+    }
+}
+
+
+/// The root pages. Pages stay alive across switches (instant, no rebuild → snappy). Movies/Shows
+/// are separate browse surfaces, so each keeps its own rows, scroll and focus. The whole area is
+/// one focus section so travel between the menu and a page is unambiguous.
+///
+/// Its own `Equatable` view, compared on `tab` alone: the shell's body runs on every press in the
+/// side menu (it follows the menu's focus), and every run re-created these pages — which SwiftUI
+/// cannot compare, so Home and the Watchlist re-ran their whole bodies on each press (measured
+/// with `_printChanges`: "@self changed", twice per press). Everything else they need arrives
+/// through the environment, which still reaches them.
+private struct ShellPages: View, Equatable {
+    let tab: SideMenuItem
+
+    var body: some View {
         ZStack {
             keptAlive(tab == .home) { HomeScreen() }
             keptAlive(tab == .movies) { BrowseScreen(kind: .movie) }
             keptAlive(tab == .shows) { BrowseScreen(kind: .show) }
-            keptAlive(tab == .watchlist) { WatchlistScreen(onOpen: { path.append($0) }) }
+            keptAlive(tab == .watchlist) { WatchlistScreen() }
             keptAlive(tab == .library) { MyLibraryScreen() }
             if tab == .settings { SettingsView() }
         }
@@ -301,28 +327,29 @@ struct LibraryShell: View {
     }
 }
 
-
 /// How a view under the shell opens a page without owning its `NavigationPath` — a long-press menu
 /// item cannot be a `NavigationLink`. The shell sets it; the default does nothing, for the reason
 /// `requestLibraryRemoval` has one: a missing closure must be a no-op, never a trap.
 private struct OpenBrowseDestinationKey: EnvironmentKey {
-    static let defaultValue: @MainActor (BrowseDestination) -> Void = { _ in }
+    static let defaultValue = ShellAction<BrowseDestination>()
 }
 
 /// Whether the side menu holds focus. A page that moves focus by itself (Home handing focus on
-/// from a removed tile) must never pull it back out of the menu.
-private struct SideMenuHoldsFocusKey: EnvironmentKey {
-    static let defaultValue = false
+/// from a removed tile) must never pull it back out of the menu. A stable flag, read when acting —
+/// see `SideMenuFocusFlag`.
+private struct SideMenuFocusKey: EnvironmentKey {
+    static let defaultValue = SideMenuFocusFlag()
 }
 
 extension EnvironmentValues {
-    var openBrowseDestination: @MainActor (BrowseDestination) -> Void {
+    /// A `ShellAction`, not a closure — see why there.
+    var openBrowseDestination: ShellAction<BrowseDestination> {
         get { self[OpenBrowseDestinationKey.self] }
         set { self[OpenBrowseDestinationKey.self] = newValue }
     }
 
-    var sideMenuHoldsFocus: Bool {
-        get { self[SideMenuHoldsFocusKey.self] }
-        set { self[SideMenuHoldsFocusKey.self] = newValue }
+    var sideMenuFocus: SideMenuFocusFlag {
+        get { self[SideMenuFocusKey.self] }
+        set { self[SideMenuFocusKey.self] = newValue }
     }
 }

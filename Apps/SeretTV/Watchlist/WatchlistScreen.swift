@@ -21,7 +21,14 @@ struct WatchlistScreen: View {
     /// False while this is a kept-alive page behind another one (the shell disables it).
     @Environment(\.isEnabled) private var isVisiblePage
     /// The side menu holds focus — the page must not move focus by itself then.
-    @Environment(\.sideMenuHoldsFocus) private var sideMenuHoldsFocus
+    /// Read when acting, never in the body — see `SideMenuFocusFlag`.
+    @Environment(\.sideMenuFocus) private var sideMenuFocus
+    /// Pushes the title Watch opens from the spin, through the shell (which owns the path and
+    /// already routes titles — registering a destination here too would collide). A stable
+    /// `ShellAction`, not a closure property: a closure input is unequal on every shell render, so
+    /// the whole page — every row rebuilt from 256 films — re-ran on each press in the side menu
+    /// (measured on the real Apple TV).
+    @Environment(\.openBrowseDestination) private var openDestination
     /// OPTIONAL, deliberately — a non-optional `@Environment` read of an `@Observable` traps when it
     /// is absent. A film added or removed elsewhere reaches this page through its outcomes.
     @Environment(WatchlistMarks.self) private var watchlistMarks: WatchlistMarks?
@@ -37,10 +44,6 @@ struct WatchlistScreen: View {
     /// and Shows wait on. On screen, it loads at once.
     private var mayLoad: Bool { isVisiblePage || homeHasAnswered || preloadDeadlinePassed }
 
-    /// Opens a title page. The shell owns the navigation path, so a spin's result is pushed by
-    /// handing it back up rather than by this screen registering a destination of its own — the
-    /// shell already routes `MediaItem`, and registering it twice on one stack collides.
-    var onOpen: (MediaItem) -> Void = { _ in }
 
 #if DEBUG
     /// The model the `-uiPreview watchlist` harness renders instead of the session's, so the real
@@ -100,7 +103,7 @@ struct WatchlistScreen: View {
                     // dismissal and the push is silently dropped.
                     Task { @MainActor in
                         try? await Task.sleep(for: .milliseconds(350))
-                        onOpen(item)
+                        openDestination(.detail(item))
                     }
                 },
                 onSpinAgain: { spin = model?.spin() },
@@ -230,7 +233,6 @@ struct WatchlistScreen: View {
         }
         // A removed film's tile goes; focus goes on to its neighbour (see `rehomeFocus`).
         .onChange(of: Self.tileOrder(rows)) { old, new in rehomeFocus(old: old, new: new) }
-        .onChange(of: sideMenuHoldsFocus) { _, inMenu in if inMenu { cancelRehome() } }
         .onChange(of: isVisiblePage) { _, visible in if !visible { cancelRehome() } }
         .onAppear { focusHandle.onChange = { focusChanged($0) } }
         .onDisappear { cancelRehome() }
@@ -320,7 +322,7 @@ struct WatchlistScreen: View {
     /// .rehomeFocus`). Only then, though: a tile leaving while focus is anywhere else must not pull
     /// focus. Retried, because tvOS ignores the write while the dialog is still animating away.
     private func rehomeFocus(old: [String], new: [String]) {
-        guard !sideMenuHoldsFocus, isVisiblePage else { return }
+        guard !sideMenuFocus.holdsFocus, isVisiblePage else { return }
         let gone: String
         if let focused = focusHandle.focused, old.contains(focused), !new.contains(focused) {
             gone = focused
@@ -332,9 +334,10 @@ struct WatchlistScreen: View {
         focusMemory.actedOn = nil
         guard let next = RailFocusNeighbour.of(gone, old: old, new: new) else { return }
         cancelRehome()
-        let handle = focusHandle
+        let handle = focusHandle, menu = sideMenuFocus
         focusMemory.rehomeTask = Task { @MainActor in
             for _ in 0..<20 {
+                if menu.holdsFocus { return }
                 handle.move(to: next)
                 try? await Task.sleep(for: .milliseconds(100))
                 if Task.isCancelled { return }
