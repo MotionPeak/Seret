@@ -135,7 +135,9 @@ struct DetailScreen: View {
                     .tint(Theme.Palette.gold)
                 }
             }
-            .toolbarBackground(.hidden, for: .navigationBar)
+            // No `.toolbarBackground(.hidden)`: hiding it also switched off the bar's scrolled
+            // appearance, so the overview and rails scrolled straight through the chevron and the
+            // title. Automatic stays clear over the hero at rest and frosts once content is under it.
             .confirmationDialog("Remove \u{201C}\(store.item.title)\u{201D} from your library?",
                                 isPresented: $confirmingRemove, titleVisibility: .visible) {
                 Button("Remove", role: .destructive) { performRemove() }

@@ -20,15 +20,23 @@ struct LetterboxdSettingsSection: View {
     /// A second public watchlist, shown merged with the owner's. Read only — nothing is ever
     /// written to that account, which the footnote says so nobody has to wonder.
     @ViewBuilder private var partnerFields: some View {
-        TextField("Also show the watchlist of (username)", text: Binding(
-            get: { model.settings.partnerUsername },
-            set: { var s = model.settings; s.partnerUsername = $0; model.update(s) }))
-            .textInputAutocapitalization(.never)
-            .autocorrectionDisabled()
+        LabeledContent("Also show watchlist of") {
+            TextField("Also show watchlist of", text: Binding(
+                get: { model.settings.partnerUsername },
+                set: { var s = model.settings; s.partnerUsername = $0; model.update(s) }),
+                prompt: Text("username"))
+                .multilineTextAlignment(.trailing)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+        }
         if !model.settings.partnerUsername.trimmingCharacters(in: .whitespaces).isEmpty {
-            TextField("Their name, e.g. Noga", text: Binding(
-                get: { model.settings.partnerName },
-                set: { var s = model.settings; s.partnerName = $0; model.update(s) }))
+            LabeledContent("Their name") {
+                TextField("Their name", text: Binding(
+                    get: { model.settings.partnerName },
+                    set: { var s = model.settings; s.partnerName = $0; model.update(s) }),
+                    prompt: Text("e.g. Noga"))
+                    .multilineTextAlignment(.trailing)
+            }
             Text("Their watchlist is shown with yours. Nothing is written to their account.")
                 .font(.footnote)
                 .foregroundStyle(Theme.Palette.textSecondary)
@@ -41,20 +49,30 @@ struct LetterboxdSettingsSection: View {
                 get: { model.settings.isEnabled },
                 set: { var s = model.settings; s.isEnabled = $0; model.update(s) }))
 
-            TextField("Username", text: Binding(
-                get: { model.settings.username },
-                set: { var s = model.settings; s.username = $0; model.update(s) }))
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
+            // A Form row shows no title for a TextField, so once a value was typed nothing said what
+            // it was. Every field here is a LabeledContent, which keeps the name beside the value.
+            LabeledContent("Username") {
+                TextField("Username", text: Binding(
+                    get: { model.settings.username },
+                    set: { var s = model.settings; s.username = $0; model.update(s) }),
+                    prompt: Text("Letterboxd username"))
+                    .multilineTextAlignment(.trailing)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+            }
 
             // Typed here and read on the Apple TV, like the username: removing a film from the
             // watchlist has to be written by a real browser, and only the server has one.
-            TextField("Seret server, e.g. 192.168.1.179:8080", text: Binding(
-                get: { model.settings.serverURL },
-                set: { var s = model.settings; s.serverURL = $0; model.update(s) }))
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .keyboardType(.URL)
+            LabeledContent("Seret server") {
+                TextField("Seret server", text: Binding(
+                    get: { model.settings.serverURL },
+                    set: { var s = model.settings; s.serverURL = $0; model.update(s) }),
+                    prompt: Text("192.168.1.179:8080"))
+                    .multilineTextAlignment(.trailing)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .keyboardType(.URL)
+            }
 
             // The field is free text with no feedback, which is how `:8000` got typed for a
             // server on `:8080` — a refused connection the app could only describe as "couldn't

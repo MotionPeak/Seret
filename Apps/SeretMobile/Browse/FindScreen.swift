@@ -27,6 +27,9 @@ struct FindScreen: View {
     @Environment(WatchlistMarks.self) private var watchlist: WatchlistMarks?
     @Environment(\.horizontalSizeClass) private var hSize
     @State private var query = ""
+    /// Owned so the keyboard can be put away: scrolling never dismissed it, and closing a title
+    /// page handed focus straight back to the field, so the keyboard returned and hid the tab bar.
+    @FocusState private var searchFocused: Bool
     /// A title awaiting removal confirmation, and the failure to surface if RD refuses.
     @State private var pendingRemoval: MediaItem?
     @State private var removeErrorMessage: String?
@@ -65,6 +68,11 @@ struct FindScreen: View {
             // breathing room from the rail. (No-op in the compact tab bar.)
             .padding(.leading, hSize == .regular ? Theme.Space.xl : 0)
         }
+        // Dragging the results or the rails puts the keyboard away, as every other search does.
+        .scrollDismissesKeyboard(.immediately)
+        // Opening a title — from a tile here or from anywhere else — gives up the field, so the
+        // keyboard does not come back when the page closes.
+        .onChange(of: router.detail == nil) { _, closed in if !closed { searchFocused = false } }
         .navigationTitle("")                       // we render our own inset title above
         .libraryRemovalConfirmation(pending: $pendingRemoval,
                                     errorMessage: $removeErrorMessage,
@@ -88,6 +96,9 @@ struct FindScreen: View {
             TextField(kind == .movie ? "Search movies" : "Search shows", text: $query)
                 .textInputAutocapitalization(.never).autocorrectionDisabled()
                 .foregroundStyle(Theme.Palette.textPrimary)
+                .focused($searchFocused)
+                .submitLabel(.search)
+                .onSubmit { searchFocused = false }
             if !query.isEmpty {
                 Button { query = "" } label: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(Theme.Palette.textTertiary)
@@ -202,6 +213,7 @@ struct FindScreen: View {
         let owned = session.libraryStore?.ownedItem(tmdbID: hit.result.id, kind: hit.kind)
         let watched = marks?.isWatched(hit) ?? false
         return Button {
+            searchFocused = false
             router.detail = owned ?? .placeholder(for: hit)
         } label: {
             PosterCard(title: hit.result.displayTitle,

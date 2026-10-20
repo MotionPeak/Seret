@@ -6,6 +6,11 @@ import SwiftUI
 /// public scores (IMDb / Rotten Tomatoes / Metacritic). Hidden entirely when there is no watch store.
 struct UserRatingRow: View {
     let store: DetailStore
+    /// The star size follows Dynamic Type, but only so far: ten stars at an accessibility text size
+    /// were wider than the screen, and because this row sits in the page's VStack it widened the
+    /// WHOLE title page — clipping the text and pushing the episode play buttons off-screen.
+    @ScaledMetric(relativeTo: .title3) private var starSize: CGFloat = 22
+    private static let maxStarSize: CGFloat = 30
 
     var body: some View {
         if store.canRate {
@@ -27,8 +32,12 @@ struct UserRatingRow: View {
                         Button {
                             Task { await store.rate(value) }
                         } label: {
+                            // Resizable with no minimum: the stars shrink to share whatever width
+                            // the row is given rather than dictate it.
                             Image(systemName: (store.userRating ?? 0) >= value ? "star.fill" : "star")
-                                .font(.title3)
+                                .resizable().scaledToFit()
+                                .frame(maxWidth: min(starSize, Self.maxStarSize),
+                                       maxHeight: min(starSize, Self.maxStarSize))
                                 .foregroundStyle((store.userRating ?? 0) >= value
                                                  ? Theme.Palette.gold : Theme.Palette.textSecondary)
                         }
