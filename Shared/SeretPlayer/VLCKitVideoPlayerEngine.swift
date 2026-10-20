@@ -450,6 +450,11 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
             while held.player?.state != .stopped, Date() < deadline {
                 Thread.sleep(forTimeInterval: 0.1)
             }
+            // Logged BEFORE the release too: a `vlc_join` that never returns writes no "released"
+            // line, and this one is then the last word in vlc.log on which player wedged.
+            let stopped = held.player?.state == .stopped
+            DiagnosticsLog.shared.write("[seret] releasing player off main ("
+                                        + (stopped ? "stopped" : "not stopped after the wait") + ")")
             let start = Date()
             held.player = nil                       // dealloc → vlc_player_Delete → vlc_join, HERE
             let ms = Int(Date().timeIntervalSince(start) * 1000)
