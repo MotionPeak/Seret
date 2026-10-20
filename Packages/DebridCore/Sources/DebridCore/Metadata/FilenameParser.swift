@@ -8,7 +8,7 @@ public struct FilenameParser: Sendable {
 
     public func parse(_ raw: String) -> ParsedRelease {
         let name = String(raw.split(separator: "/").last ?? Substring(raw))
-        let stem = Self.stripExtension(name)
+        let stem = Self.strippingSiteTag(Self.stripExtension(name))
 
         let releaseGroup = Self.extractReleaseGroup(stem)
         let resolution = Self.match(stem, Self.reResolution)?.lowercased()
@@ -53,6 +53,31 @@ public struct FilenameParser: Sendable {
             resolution: resolution, source: source, videoCodec: videoCodec,
             audioCodec: audioCodec, releaseGroup: releaseGroup)
     }
+
+    /// The name without a leading tracker-SITE tag — `[ OxTorrent.com ] `, `[ Torrent9.NZ ] `,
+    /// `[www.Cpasbien.cm] `.
+    ///
+    /// French tracker sites prepend their domain in spaced brackets. The bracket and the domain
+    /// split into separate tokens, so neither the one-token leading-tag rule nor the metadata
+    /// stop-patterns saw them and the whole prefix became part of the title: "[ OxTorrent com ]
+    /// Lucy" matched nothing on TMDB, drew no poster, and keyed apart from every other copy.
+    ///
+    /// Only a bracket whose content reads as a DOMAIN (`www.` or a known top-level domain as its
+    /// last part) is dropped: a fansub group (`[SubsPlease]`) is what marks a fansub episode, and a
+    /// film called `[REC]` is a film. When nothing follows the tag the name is left alone.
+    static func strippingSiteTag(_ stem: String) -> String {
+        let range = NSRange(stem.startIndex..., in: stem)
+        guard let m = reSiteTag.firstMatch(in: stem, range: range),
+              let r = Range(m.range, in: stem) else { return stem }
+        let rest = stem[r.upperBound...]
+        return rest.contains(where: { $0.isLetter || $0.isNumber }) ? String(rest) : stem
+    }
+
+    /// `[ name.tld ]` / `[ name tld ]` / `[www.name.tld]` at the very start, plus the separators
+    /// after it. The TLD list is closed on purpose — an open `[a-z]{2,4}` would read the last word
+    /// of a spaced fansub group (`[Golumpa Subs]`) as a domain.
+    private static let reSiteTag = make(
+        #"(?i)^\s*\[\s*(?:www[.\s]+)?[a-z0-9-]+(?:[.\s]+[a-z0-9-]+)*?[.\s]+(?:com|net|org|pw|nz|to|io|cc|tv|ws|fr|ph|vip|xyz|co|cx|ag|se|la|li|gg|ru|cm|biz|info|club|site|top|uk|eu|cz|sk|pl)\s*\][\s._-]*"#)
 
     /// `SxxE00` is a SPECIAL that accompanies season xx, not episode zero of it.
     ///

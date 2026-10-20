@@ -58,6 +58,34 @@ public struct ReleaseMatcher: Sendable {
         return x.contains(y) || y.contains(x)
     }
 
+    /// A looser title check for a search that was already pinned to a release YEAR: every word of
+    /// `candidate` appears in `parsed`, in order, and those words are most of `parsed`.
+    ///
+    /// Release names carry words a TMDB title drops. "Star Wars Episode VII The Force Awakens" is
+    /// TMDB's "Star Wars: The Force Awakens"; "American Pie Reunion" is "American Reunion". The
+    /// year-filtered search returns exactly that film, but neither normalized title contains the
+    /// other, so `titleMatches` rejected it and both owned films stayed posterless.
+    ///
+    /// Strict on purpose: at least two words, in order, covering at least 60% of the parsed words.
+    /// "American Wedding" (a word out of place) and "The Mohicans" (two of five) still fail.
+    public func wordsAppearInOrder(_ candidate: String, in parsed: String) -> Bool {
+        let want = Self.words(candidate), have = Self.words(parsed)
+        guard want.count >= 2, !have.isEmpty,
+              Double(want.count) / Double(have.count) >= 0.6 else { return false }
+        var remaining = want[...]
+        for word in have where word == remaining.first { remaining = remaining.dropFirst() }
+        return remaining.isEmpty
+    }
+
+    /// The normalized words of a title, split on anything that is not a letter or digit.
+    static func words(_ s: String) -> [String] {
+        let folded = s.folding(options: [.diacriticInsensitive, .widthInsensitive],
+                               locale: foldingLocale).lowercased()
+        return folded.unicodeScalars
+            .split { !CharacterSet.alphanumerics.contains($0) }
+            .map { String(String.UnicodeScalarView($0)) }
+    }
+
     /// Fold accents, lowercase, keep only alphanumerics (Unicode-aware, so Hebrew titles survive).
     /// Strips the punctuation/separators that differ between a TMDB title and a dotted release name.
     ///

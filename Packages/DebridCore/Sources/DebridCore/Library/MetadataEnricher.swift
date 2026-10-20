@@ -48,7 +48,14 @@ public struct MetadataEnricher: Sendable {
         // different film. Take the first result whose title actually matches the parsed name;
         // if none do, leave the item unenriched rather than stamp the wrong poster/plot on it.
         let matcher = ReleaseMatcher()
-        return results.first { matcher.titleMatches(item.title, $0.displayTitle) }
+        if let exact = results.first(where: { matcher.titleMatches(item.title, $0.displayTitle) }) {
+            return exact
+        }
+        // Only a year-pinned search may fall back to the word-order rule: the year is what makes a
+        // looser title check safe ("Star Wars Episode VII The Force Awakens" → "Star Wars: The
+        // Force Awakens").
+        guard item.year != nil else { return nil }
+        return results.first { matcher.wordsAppearInOrder($0.displayTitle, in: item.title) }
     }
 
     private static func applying(_ match: TMDBSearchResult, to item: MediaItem) -> MediaItem {
