@@ -36,14 +36,16 @@ struct OpenSubtitlesSection: View {
             Text("Used to fetch Hebrew and English subtitles during playback.")
                 .settingsCaption()
             Button("Disconnect", role: .destructive) { model.remove() }
+                .buttonStyle(SeretActionButtonStyle(destructive: true))
         }
     }
 
     private var pairing: some View {
         HStack(alignment: .top, spacing: 36) {
             VStack(alignment: .leading, spacing: 14) {
+                // Under the card's 34pt heading, never above it in size.
                 Text(headline)
-                    .font(.seret(.headline, .semibold))
+                    .cardTitle()
                     .foregroundStyle(Theme.Palette.textPrimary)
                 Text(caption).settingsCaption()
                 if case .ready(let address) = status {
@@ -59,6 +61,7 @@ struct OpenSubtitlesSection: View {
                     Button(showingManualEntry ? "Hide keyboard entry" : "Type it here instead") {
                         showingManualEntry.toggle()
                     }
+                    .buttonStyle(SeretActionButtonStyle())
                     .padding(.top, 4)
                     if showingManualEntry { manualEntry }
                 }
@@ -96,7 +99,7 @@ struct OpenSubtitlesSection: View {
             RoundedRectangle(cornerRadius: 16)
                 .fill(Theme.Palette.surface2)
                 .frame(width: 268, height: 268)
-                .overlay { ProgressView() }
+                .overlay { ProgressView().tint(Theme.Palette.textPrimary) }
         }
     }
 
@@ -105,6 +108,8 @@ struct OpenSubtitlesSection: View {
             TextField("Username", text: $model.username).textContentType(.username)
             SecureField("Password", text: $model.password).textContentType(.password)
             Button("Save") { model.save() }
+                .buttonStyle(SeretActionButtonStyle(prominent: true))
+                .padding(.top, 6)
         }
         .frame(maxWidth: 520)
         .padding(.top, 6)

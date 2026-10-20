@@ -131,7 +131,7 @@ struct EpisodeRow: View {
                 RemoteImage(url: url)
             } else {
                 Theme.Palette.surface2.overlay {
-                    Image(systemName: "tv").font(.system(size: 36)).foregroundStyle(.white.opacity(0.2))
+                    Image(systemName: "tv").font(.system(size: 36)).foregroundStyle(Theme.Palette.textSecondary.opacity(0.45))
                 }
             }
         }
@@ -141,7 +141,7 @@ struct EpisodeRow: View {
         .overlay {
             if !row.isDownloaded {
                 Image(systemName: isDownloading ? "arrow.down.circle" : "arrow.down.circle.fill")
-                    .font(.system(size: 44)).foregroundStyle(.white.opacity(0.9))
+                    .font(.system(size: 44)).foregroundStyle(Theme.Palette.textPrimary.opacity(0.9))
                     .symbolEffect(.pulse, isActive: isDownloading)
             }
         }

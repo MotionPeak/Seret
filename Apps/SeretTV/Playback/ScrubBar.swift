@@ -103,7 +103,7 @@ struct ScrubBar: View {
             let midY = geo.size.height / 2
 
             ZStack(alignment: .leading) {
-                Capsule().fill(.white.opacity(0.28))
+                Capsule().fill(Theme.Palette.track)
                     .frame(width: width, height: trackHeight)
                 Capsule().fill(Theme.Palette.focus)
                     .frame(width: headX, height: trackHeight)

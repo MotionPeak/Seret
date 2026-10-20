@@ -73,9 +73,9 @@ private struct FranchisePoster: View {
         .overlay(alignment: .topLeading) {
             Text("\(number)")
                 .font(.seret(20, .bold))
-                .foregroundStyle(.white)
+                .foregroundStyle(Theme.Palette.textPrimary)
                 .padding(.horizontal, 10).padding(.vertical, 4)
-                .background(.black.opacity(0.65), in: Capsule())
+                .background(Theme.Palette.badgeBacking, in: Capsule())
                 .padding(8)
         }
         .overlay(alignment: .topTrailing) {

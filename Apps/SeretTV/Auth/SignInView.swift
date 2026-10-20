@@ -6,8 +6,31 @@ import SwiftUI
 /// (real-debrid.com/apitoken), which bypasses the throttled device-code endpoint.
 struct SignInView: View {
     let model: SignInModel
-    @State private var showingTokenEntry = false
+
+    var body: some View {
+        SignInContent(phase: model.phase,
+                      onRetry: { model.retry() },
+                      onSubmitToken: { token in Task { await model.signInWithToken(token) } })
+            .task(id: model.attempt) { await model.run() }
+    }
+}
+
+/// What the sign-in screen draws for a phase — split from `SignInView` so the `-uiPreview signin`
+/// harness can show each state without a model (whose flow is the real, throttled RD endpoint).
+struct SignInContent: View {
+    let phase: SignInModel.Phase
+    let onRetry: () -> Void
+    let onSubmitToken: (String) -> Void
+    @State private var showingTokenEntry: Bool
     @State private var tokenText = ""
+
+    init(phase: SignInModel.Phase, showingTokenEntry: Bool = false,
+         onRetry: @escaping () -> Void, onSubmitToken: @escaping (String) -> Void) {
+        self.phase = phase
+        self.onRetry = onRetry
+        self.onSubmitToken = onSubmitToken
+        _showingTokenEntry = State(initialValue: showingTokenEntry)
+    }
 
     var body: some View {
         ZStack {
@@ -15,70 +38,79 @@ struct SignInView: View {
             if showingTokenEntry {
                 tokenEntry
             } else {
-                switch model.phase {
+                switch phase {
                 case .idle, .requestingCode:
-                    ProgressView("Preparing sign‑in…").font(.seretTitle2)
+                    SeretLoader(label: "Preparing sign‑in…")
                 case .awaitingAuthorization(let code):
                     deviceCode(code)
                 case .validatingToken:
-                    ProgressView("Checking token…").font(.seretTitle2)
+                    SeretLoader(label: "Checking token…")
                 case .signedIn:
-                    ProgressView("Signing in…").font(.seretTitle2)
+                    SeretLoader(label: "Signing in…")
                 case .failed(let message):
                     failure(message)
                 }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .task(id: model.attempt) { await model.run() }
     }
 
     private func deviceCode(_ code: RDDeviceCode) -> some View {
-        VStack(spacing: 48) {
+        VStack(spacing: 56) {
             Wordmark(hebrewSize: 64)
             HStack(alignment: .center, spacing: 80) {
-                VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: 18) {
                     Text("On your phone or computer, go to")
-                        .font(.seretTitle3).foregroundStyle(.secondary)
-                    Text(displayURL(code.verificationURL)).font(.seret(.title1, .bold))
-                    Text("and enter this code:").font(.seretTitle3).foregroundStyle(.secondary)
+                        .calloutText().foregroundStyle(Theme.Palette.textSecondary)
+                    Text(displayURL(code.verificationURL))
+                        .screenTitle().foregroundStyle(Theme.Palette.textPrimary)
+                    Text("and enter this code:")
+                        .calloutText().foregroundStyle(Theme.Palette.textSecondary)
+                        .padding(.top, 6)
                     Text(code.userCode)
                         .font(.system(size: 96, weight: .heavy, design: .monospaced))
+                        .foregroundStyle(Theme.Palette.textPrimary)
                 }
                 if let qr = QRCode.image(from: code.verificationURL) {
                     qr.resizable().interpolation(.none).scaledToFit()
                         .frame(width: 300, height: 300).padding(20)
+                        // White is the QR's own ground, not chrome: a scanner needs the contrast.
                         .background(.white, in: RoundedRectangle(cornerRadius: 16))
                 }
             }
-            Label("Waiting for authorization…", systemImage: "hourglass")
-                .font(.seretTitle3).foregroundStyle(.secondary)
-            Button("Use a Real‑Debrid token instead") { showingTokenEntry = true }
-                .font(.seretTitle3)
+            VStack(spacing: 28) {
+                Label("Waiting for authorization…", systemImage: "hourglass")
+                    .calloutText().foregroundStyle(Theme.Palette.textSecondary)
+                Button("Use a Real‑Debrid token instead") { showingTokenEntry = true }
+                    .buttonStyle(SeretActionButtonStyle())
+            }
         }
         .padding(80)
     }
 
     private var tokenEntry: some View {
         VStack(spacing: 28) {
-            Text("Sign in with a token").font(.largeTitle.bold())
+            Text("Sign in with a token").screenTitle().foregroundStyle(Theme.Palette.textPrimary)
             Text("Get your token at real‑debrid.com/apitoken, then paste it here.")
-                .font(.seretTitle3).foregroundStyle(.secondary)
+                .calloutText().foregroundStyle(Theme.Palette.textSecondary)
                 .multilineTextAlignment(.center).frame(maxWidth: 800)
             SecureField("Real‑Debrid API token", text: $tokenText)
                 .textContentType(.password)
                 .frame(maxWidth: 700)
-            if case .validatingToken = model.phase { ProgressView() }
-            if case .failed(let message) = model.phase {
-                Text(message).font(.seretCallout).foregroundStyle(.orange)
+            if case .validatingToken = phase { ProgressView().tint(Theme.Palette.textPrimary) }
+            if case .failed(let message) = phase {
+                Label(message, systemImage: "exclamationmark.triangle.fill")
+                    .calloutText().foregroundStyle(Theme.Palette.textPrimary)
                     .multilineTextAlignment(.center).frame(maxWidth: 700)
             }
             HStack(spacing: 24) {
-                Button("Sign In") { Task { await model.signInWithToken(tokenText) } }
+                Button("Sign In") { onSubmitToken(tokenText) }
+                    .buttonStyle(SeretActionButtonStyle(prominent: true))
                     .disabled(tokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 Button("Use a code instead") { showingTokenEntry = false }
+                    .buttonStyle(SeretActionButtonStyle())
             }
-            .font(.seretTitle3)
+            .padding(.top, 8)
         }
         .padding(80)
     }
@@ -86,13 +118,15 @@ struct SignInView: View {
     private func failure(_ message: String) -> some View {
         VStack(spacing: 32) {
             Image(systemName: "exclamationmark.triangle")
-                .font(.system(size: 72)).foregroundStyle(Theme.Palette.textPrimary)
-            Text(message).font(.seretTitle2).multilineTextAlignment(.center).frame(maxWidth: 800)
+                .font(.system(size: 72)).foregroundStyle(Theme.Palette.textSecondary)
+            Text(message).sectionTitle().foregroundStyle(Theme.Palette.textPrimary)
+                .multilineTextAlignment(.center).frame(maxWidth: 800)
             HStack(spacing: 24) {
-                Button("Try Again") { model.retry() }
+                Button("Try Again", action: onRetry)
+                    .buttonStyle(SeretActionButtonStyle(prominent: true))
                 Button("Use a Real‑Debrid token instead") { showingTokenEntry = true }
+                    .buttonStyle(SeretActionButtonStyle())
             }
-            .font(.seretTitle3)
         }
         .padding(80)
     }

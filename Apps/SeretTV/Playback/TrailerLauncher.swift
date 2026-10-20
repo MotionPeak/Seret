@@ -29,7 +29,7 @@ struct TrailerButton: View {
                 // Reserve the row's space + match the others — just disabled with a spinner.
                 Button {} label: {
                     HStack(spacing: 10) {
-                        ProgressView().controlSize(.small).tint(.white)
+                        ProgressView().controlSize(.small).tint(Theme.Palette.textPrimary)
                         Text("Trailer")
                     }
                 }

@@ -156,7 +156,7 @@ struct LetterboxdCard: View {
                     connection = test
                     Task { await test.run() }
                 }
-                .buttonStyle(SeretPillStyle(selected: false))
+                .buttonStyle(SeretActionButtonStyle())
 
                 if let connection { connectionStatus(connection) }
             }

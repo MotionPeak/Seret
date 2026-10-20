@@ -64,7 +64,7 @@ private struct CastCard: View {
                 Theme.Palette.surface2.overlay {
                     Image(systemName: "person.fill")
                         .font(.system(size: 60))
-                        .foregroundStyle(.white.opacity(0.2))
+                        .foregroundStyle(Theme.Palette.textSecondary.opacity(0.45))
                 }
             }
             .frame(width: headshot, height: headshot)

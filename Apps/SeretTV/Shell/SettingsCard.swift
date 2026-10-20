@@ -18,9 +18,11 @@ struct SettingsCard<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
+            // The rails' section-title size, so a settings heading reads like every other one.
             Label(title, systemImage: icon)
-                .font(.seret(.title3, .bold))
+                .sectionTitle()
                 .foregroundStyle(Theme.Palette.textPrimary)
+                .padding(.bottom, 4)
             content
         }
         .frame(maxWidth: .infinity, alignment: .leading)

@@ -54,7 +54,7 @@ struct SettingsView: View {
 
     private var header: some View {
         Text("Settings")
-            .font(.largeTitle.bold())
+            .screenTitle()
             .foregroundStyle(Theme.Palette.textPrimary)
             .frame(width: SettingsCard<EmptyView>.width, alignment: .leading)
     }
@@ -94,8 +94,10 @@ struct SettingsView: View {
             HStack(spacing: 24) {
                 if session.activeProfiles?.activeProfile != nil {
                     Button("Edit Profile") { editingActive = true }
+                        .buttonStyle(SeretActionButtonStyle())
                 }
                 Button("Manage Profiles") { showingProfiles = true }
+                    .buttonStyle(SeretActionButtonStyle())
             }
         }
     }
@@ -110,6 +112,7 @@ struct SettingsView: View {
             } label: {
                 Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
             }
+            .buttonStyle(SeretActionButtonStyle(destructive: true))
         }
     }
 

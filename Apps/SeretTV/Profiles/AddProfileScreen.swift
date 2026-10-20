@@ -44,15 +44,15 @@ struct AddProfileScreen: View {
                         AvatarCircle(token: avatar, diameter: 170, colorTag: color)
                         TextField("Name (optional)", text: $name)
                             .frame(maxWidth: 560).font(.seretTitle3)
-                            .padding(.vertical, 10).padding(.horizontal, 24)
-                            .background(Theme.Palette.surface1, in: RoundedRectangle(cornerRadius: 14))
                         colorRow
                         HStack(spacing: 24) {
                             Button("Cancel") { dismiss() }
+                                .buttonStyle(SeretActionButtonStyle())
                             Button(editing == nil ? "Create" : "Save") { save() }
                                 .buttonStyle(SeretActionButtonStyle(prominent: true))
                             if canDelete {
                                 Button("Delete", role: .destructive) { showingDeleteConfirm = true }
+                                    .buttonStyle(SeretActionButtonStyle(destructive: true))
                                     .confirmationDialog(
                                         "Delete \(editing?.name ?? "this profile")?",
                                         isPresented: $showingDeleteConfirm, titleVisibility: .visible) {
@@ -66,7 +66,6 @@ struct AddProfileScreen: View {
                                     }
                             }
                         }
-                        .font(.seretTitle3)
                         .frame(maxWidth: .infinity)
                         // The avatar grid is full-width but this row is centered, so the outer
                         // avatars could not reach Save/Create at all.
@@ -79,7 +78,8 @@ struct AddProfileScreen: View {
                             Button { avatar = e } label: {
                                 AvatarCircle(token: e, diameter: 104, colorTag: color)
                                     .overlay(Circle().strokeBorder(
-                                        avatar == e ? Theme.Palette.focus : .clear, lineWidth: 5))
+                                        avatar == e || focusedAvatar == e ? Theme.Palette.focus : .clear,
+                                        lineWidth: 5))
                             }
                             .buttonStyle(BareButtonStyle())
                             .focusEffectDisabled()

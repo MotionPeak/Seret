@@ -42,6 +42,8 @@ enum Theme {
         static let scrim   = Color(hex: 0x04070E, alpha: 0.66)
         /// Laid over a poster to say "finished": a watched tile's dim.
         static let artDim = Color.black.opacity(0.45)
+        /// The unfilled part of a progress line or the scrub bar, under a `focus` fill.
+        static let track = Color.white.opacity(0.30)
         /// The disc behind a badge drawn on artwork (the watched ✓).
         static let badgeBacking = Color.black.opacity(0.55)
         /// The near-black a browse page's legibility shade fades from, over the backdrop art.

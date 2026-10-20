@@ -107,7 +107,7 @@ struct VersionsScreen: View {
                     Label("Downloading \(Int(status.fraction * 100))% to Real‑Debrid…",
                           systemImage: "icloud.and.arrow.down")
                         .font(.seretTitle3).foregroundStyle(Theme.Palette.textSecondary)
-                    ProgressView(value: status.fraction).tint(Theme.Palette.focus).frame(maxWidth: 700)
+                    ProgressLine(fraction: status.fraction, height: 8).frame(maxWidth: 700)
                     Text("It'll appear in your library when it's ready.")
                         .font(.seretCallout).foregroundStyle(Theme.Palette.textSecondary)
                 }

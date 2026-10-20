@@ -116,10 +116,11 @@ struct WatchlistSpinScreen: View {
                     }
                     HStack(spacing: 24) {
                         Button("Watch It", systemImage: "play.fill") { onWatch(spin.winner) }
-                            .buttonStyle(SeretActionButtonStyle())
+                            .buttonStyle(SeretActionButtonStyle(prominent: true))
                             .focused($focus, equals: .watch)
+                        // The same pill as Watch It — one row of actions, one height.
                         Button("Spin Again", systemImage: "dice.fill", action: onSpinAgain)
-                            .buttonStyle(SeretPillStyle(selected: false))
+                            .buttonStyle(SeretActionButtonStyle())
                             .focused($focus, equals: .again)
                     }
                     .padding(.top, 28)

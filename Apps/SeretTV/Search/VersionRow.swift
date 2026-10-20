@@ -65,7 +65,7 @@ struct VersionRow: View {
             if year, let year = stream.parsed.year {
                 Text(String(year)).font(.seret(.caption1, .semibold))
                     .padding(.horizontal, 10).padding(.vertical, 4)
-                    .background(.white.opacity(0.12), in: Capsule())
+                    .background(Theme.Palette.glassFaint, in: Capsule())
             }
             QualityChips(parsed: stream.parsed)
             if languages > 0 { LanguageBadges(codes: Array(stream.languages.prefix(languages))) }
@@ -105,8 +105,8 @@ struct LanguageBadges: View {
                 Text(code.uppercased())
                     .font(.seret(.caption1, .bold))
                     .padding(.horizontal, 10).padding(.vertical, 5)
-                    .background(.white.opacity(0.10), in: Capsule())
-                    .overlay(Capsule().strokeBorder(.white.opacity(0.18)))
+                    .background(Theme.Palette.glassFaint, in: Capsule())
+                    .overlay(Capsule().strokeBorder(Theme.Palette.hairline))
             }
         }
     }
