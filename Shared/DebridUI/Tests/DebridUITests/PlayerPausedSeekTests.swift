@@ -108,4 +108,49 @@ import DebridCore
         #expect(model.pausedSeekSent == false)
         await model.teardown()
     }
+
+    // MARK: - Resume and spinner bookkeeping (D13)
+
+    /// VLCKit echoes the pre-seek time after `setTime:`. Right after the load's early resume seek
+    /// that echo reads ~0, and it used to fire the deferred seek: the same seek, twice.
+    @Test func theEchoOfTheEarlyResumeSeekDoesNotSeekAgain() async {
+        let engine = FakeVideoPlayerEngine()
+        let model = makeModel(engine, resume: 600)
+        model.start(); await model.waitForIdleForTesting()
+        #expect(engine.seeks == [600])
+
+        engine.emit(.time(.init(position: 0, duration: 0)))       // the echo
+        await model.waitForIdleForTesting()
+        #expect(engine.seeks == [600], "the echo re-seeked: \(engine.seeks)")
+
+        // …but a seek that really was dropped — the film running from the top — still gets its
+        // deferred seek.
+        engine.emit(.time(.init(position: 2, duration: 3600)))
+        await model.waitForIdleForTesting()
+        #expect(engine.seeks == [600, 600])
+        await model.teardown()
+    }
+
+    /// The landing tick sits at the target, so it never counted as "advance" and the stall clock
+    /// kept the stamp from before the seek: a seek slower than the threshold flashed the spinner
+    /// back up the moment it landed.
+    @Test func aLandedSeekRestartsTheStallClock() async throws {
+        let engine = FakeVideoPlayerEngine()
+        let model = makeModel(engine, stallThreshold: 1.0)
+        model.start(); await model.waitForIdleForTesting()
+        engine.emit(.state(.playing))
+        engine.emit(.time(.init(position: 100, duration: 3600)))
+        engine.emit(.time(.init(position: 100.5, duration: 3600)))
+        await model.waitForIdleForTesting()
+
+        model.skip(30)
+        try await Task.sleep(for: .milliseconds(1200))     // a slow seek
+        engine.emit(.time(.init(position: 130.5, duration: 3600)))   // lands
+        await model.waitForIdleForTesting()
+        #expect(model.isBuffering == false)
+
+        try await Task.sleep(for: .milliseconds(600))      // under the threshold since it landed
+        #expect(model.isBuffering == false, "the spinner came back over a seek that had landed")
+        await model.teardown()
+    }
 }

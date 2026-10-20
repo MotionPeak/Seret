@@ -165,7 +165,10 @@ extension PlayerModel {
                 position = t.position
                 positionStamp = .now
                 settlePlayhead()
-            } else if !resumeSeekIssued {
+            } else if !resumeSeekIssued, !(earlyResumeSeekIssued && t.position < 1) {
+                // (A tick under a second, right after the early seek, is VLCKit's echo of the
+                // pre-seek time — see `earlyResumeSeekIssued` — not a seek that was dropped. A
+                // dropped one shows itself a tick later, with the film running from the top.)
                 #if DEBUG
                 resumeProbe("DEFERRED seek — early one was DROPPED")
                 #endif
@@ -201,6 +204,11 @@ extension PlayerModel {
                 pendingSeek = nil                       // landed → resume live tracking
                 pendingSeekTicks = 0
                 isBuffering = false                     // …and the loading hint comes down
+                // The landing tick sits AT the target, so it is not "advance" below and would not
+                // restart the stall clock — which still held the last advance from before the seek.
+                // A seek that took longer than the stall threshold then read as a stall the moment
+                // the hint came down, and the spinner flashed back up until the next tick.
+                lastAdvanceStamp = .now
             } else {
                 // libvlc can DROP a seek (an unseekable stretch, a stalled socket) and then no tick
                 // ever lands nearer the target. Waiting forever froze the bar at a time the film
@@ -279,6 +287,7 @@ extension PlayerModel {
         position = resumeTarget
         playheadSettled = false
         resumeSeekIssued = false
+        earlyResumeSeekIssued = false
         resumeTicksSinceSeek = 0
         pendingSeek = nil
         pendingSeekTicks = 0
@@ -369,6 +378,7 @@ extension PlayerModel {
             // that clips the timeline so you can't rewind before the point.
             if resumeTarget > 0 {
                 engine.seek(to: resumeTarget)
+                earlyResumeSeekIssued = true
                 #if DEBUG
                 resumeProbe("early seek issued")
                 #endif
