@@ -13,7 +13,7 @@ import SwiftUI
 /// Not compiled into release builds.
 struct DetailUIPreview: View {
     @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()))
-    @State private var scrolled = false
+    @State private var scrolled = TitleScroll()
     @State private var store: DetailStore = {
         let source = { (id: String, res: String, src: String, audio: String) in
             MediaSource(torrentID: id, fileID: 1, restrictedLink: "rd://\(id)",

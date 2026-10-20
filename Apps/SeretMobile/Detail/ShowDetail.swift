@@ -11,7 +11,7 @@ struct ShowDetail: View {
     @Environment(\.horizontalSizeClass) private var hSize
     let store: DetailStore
     /// Set as the page scrolls past the hero — the bar takes the title then (see DetailScreen).
-    @Binding var heroScrolled: Bool
+    @Binding var heroScrolled: TitleScroll
     let onPlay: (PlaybackRequest) -> Void
     /// Builds a whole-season download engine for (imdbID, season, originalLanguage); injected so the
     /// view stays buildable without an AppSession. Returns nil when Stage 2 is unavailable.
@@ -113,7 +113,7 @@ struct ShowDetail: View {
         // when the meta count changes), so the list renders with images, not grey tiles.
         .task(id: "stills#\(store.selectedSeason)#\(store.episodeMeta[store.selectedSeason]?.count ?? 0)") {
             let stills = store.episodes(forSeason: store.selectedSeason)
-                .compactMap { TMDBClient.imageURL(path: $0.meta?.stillPath, size: "w300") }
+                .compactMap { TMDBClient.imageURL(path: $0.meta?.stillPath, size: regular ? "w500" : "w300") }
             ImageMemoryCache.prefetch(stills)
         }
     }
@@ -158,7 +158,7 @@ struct ShowDetail: View {
                 }
                 if store.hasOwnedEpisodes(inSeason: store.selectedSeason) {
                     let watched = store.isSeasonWatched(store.selectedSeason)
-                    GlassActionButton(systemImage: "checkmark", title: "Watched", isOn: watched,
+                    GlassActionButton(systemImage: "checkmark", title: "Season Watched", isOn: watched,
                                       accessibility: watched
                                         ? "Mark \(SeasonOrder.label(store.selectedSeason)) Unwatched"
                                         : "Mark \(SeasonOrder.label(store.selectedSeason)) Watched") {
@@ -499,7 +499,9 @@ struct EpisodeRowView: View {
     /// finished episode, a white line along the foot for one part-way through.
     private var still: some View {
         let width: CGFloat = regular ? 200 : 140
-        return RemoteImage(url: TMDBClient.imageURL(path: row.meta?.stillPath, size: "w300")) {
+        // w500 on iPad: a 200pt still is 400–600 px wide there, and w300 upscaled went soft.
+        return RemoteImage(url: TMDBClient.imageURL(path: row.meta?.stillPath,
+                                                    size: regular ? "w500" : "w300")) {
             Theme.Palette.surface1.overlay {
                 Image(systemName: "tv").foregroundStyle(Theme.Palette.textTertiary)
             }

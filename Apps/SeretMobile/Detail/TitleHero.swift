@@ -2,6 +2,12 @@ import DebridCore
 import DebridUI
 import SwiftUI
 
+/// How far a title page has scrolled under its bar — see `titlePageScroll`.
+struct TitleScroll: Equatable {
+    var shaded = false
+    var titled = false
+}
+
 /// What the action row's Trailer circle can do — the hero owns the trailer, the row only asks.
 struct TrailerAction {
     /// A trailer exists: a stream to play in-app, or at least a YouTube key to hand over.
@@ -57,7 +63,9 @@ struct TitleHero<Info: View, Buttons: View>: View {
         }
         .task(id: tmdbID) { await prepare() }
         .onDisappear { showVideo = false }
-        .fullScreenCover(isPresented: $expand) { trailerCover }
+        .fullScreenCover(isPresented: $expand) {
+            if let url = model?.streamURL { FullScreenTrailer(url: url) }
+        }
     }
 
     // MARK: Layouts
@@ -169,22 +177,16 @@ struct TitleHero<Info: View, Buttons: View>: View {
 
     private var trailerAction: TrailerAction {
         TrailerAction(isAvailable: model?.streamURL != nil || model?.youTubeKey != nil,
-                      play: { expand = true })
+                      play: playTrailer)
     }
 
-    @ViewBuilder private var trailerCover: some View {
-        if let url = model?.streamURL {
-            FullScreenTrailer(url: url)
-        } else {
-            // Extraction failed but there is a key: hand over to YouTube, then close again.
-            Color.black.ignoresSafeArea()
-                .onAppear {
-                    if let key = model?.youTubeKey,
-                       let url = URL(string: "https://www.youtube.com/watch?v=\(key)") {
-                        UIApplication.shared.open(url)
-                    }
-                    expand = false
-                }
+    /// In-app when the stream resolved; otherwise straight to YouTube with the key we have.
+    private func playTrailer() {
+        if model?.streamURL != nil {
+            expand = true
+        } else if let key = model?.youTubeKey,
+                  let url = URL(string: "https://www.youtube.com/watch?v=\(key)") {
+            UIApplication.shared.open(url)
         }
     }
 
@@ -328,13 +330,16 @@ extension View {
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// Reports whether the page has scrolled past the top of the hero's info — the moment the glass
-    /// navigation bar takes the title and (on iOS 18) a frosted background.
-    func titlePageScroll(_ scrolled: Binding<Bool>) -> some View {
-        onScrollGeometryChange(for: Bool.self) { geo in
-            geo.contentOffset.y + geo.contentInsets.top > geo.containerSize.height * 0.25
-        } action: { _, past in
-            scrolled.wrappedValue = past
+    /// Reports how far the page has scrolled, in the two steps the bar cares about: `shaded` as
+    /// the hero's text reaches the bar (the shade fades in under it), `titled` once the logo has
+    /// gone under it (the bar takes the title — never both captions at once).
+    func titlePageScroll(_ scroll: Binding<TitleScroll>) -> some View {
+        onScrollGeometryChange(for: TitleScroll.self) { geo in
+            let y = geo.contentOffset.y + geo.contentInsets.top
+            return TitleScroll(shaded: y > geo.containerSize.height * 0.25,
+                               titled: y > geo.containerSize.height * 0.42)
+        } action: { _, value in
+            scroll.wrappedValue = value
         }
     }
 }

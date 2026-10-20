@@ -8,7 +8,7 @@ import SwiftUI
 struct MovieDetail: View {
     let store: DetailStore
     /// Set as the page scrolls past the hero — the bar takes the title then (see DetailScreen).
-    @Binding var heroScrolled: Bool
+    @Binding var heroScrolled: TitleScroll
     let onPlay: (PlaybackRequest) -> Void
     /// Per-version remove (one MediaSource → one RD torrent). Owner-injected; nil hides the
     /// affordance.

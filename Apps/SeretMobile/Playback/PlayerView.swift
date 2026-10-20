@@ -9,8 +9,14 @@ import SwiftUI
 struct PlayerView: View {
     @State private var model: PlayerModel
     @State private var engine: VLCKitVideoPlayerEngine
-    /// The settings panel, and which of its sections it opens on (Subtitles / Audio pills).
+    /// The settings panel, and which of its sections it opens on (Subtitles / Audio / Speed pills).
     @State private var settingsFocus: PlayerSettingsSection?
+    /// What is holding the transport up right now. Counted, not one flag: the episode strip, the
+    /// panel and the route picker each hold and release on their own, and one releasing must not
+    /// let the controls fade under another that is still open.
+    @State private var holds: Set<ControlHold> = []
+    @Environment(\.horizontalSizeClass) private var hSize
+    @Environment(\.verticalSizeClass) private var vSize
     @State private var dragOffset: CGFloat = 0          // interactive pull-down-to-dismiss
     @State private var showsMidPlaySpinner = false      // see `midPlaySpinner`
     @Environment(\.scenePhase) private var scenePhase
@@ -43,12 +49,14 @@ struct PlayerView: View {
             switch model.phase {
             case .preparing:
                 loadingOverlay("Preparing…")
+                cornerClose
             // A cold open, as on tvOS — not "the playhead is at 0". While a resume travels,
             // `position` already holds the place being resumed, so a resumed play (and a Retry,
             // and a swap to a part-watched episode) lost its overlay: controls over a black screen
             // with live skip zones, whose double-tap cancelled the pending resume.
             case .buffering where model.isColdOpen:
                 loadingOverlay("Buffering…")
+                cornerClose
             case .failed(let reason):
                 ErrorOverlay(reason: reason, canTryAnother: model.canTryAnotherVersion, backdropURL: backdropURL,
                              onRetry: { model.retry() }, onTryAnother: { model.tryAnotherVersion() },
@@ -79,7 +87,10 @@ struct PlayerView: View {
         // fullscreen players. Released past the threshold it dismisses (in pullToDismiss).
         .scaleEffect(1 - min(max(dragOffset, 0), 240) / 1600)
         .offset(y: max(0, dragOffset))
-        .overlay(alignment: .bottom) {
+        // Up Next sits above the bottom cluster — except on a landscape phone with the controls
+        // up, where there is no room between the cluster and the centre circles: it moves under
+        // the title instead (measured with -uiPreview upnext in both orientations).
+        .overlay(alignment: upNextOnTop ? .top : .bottom) {
             if model.upNextVisible, let next = model.nextEpisode { upNextBar(next) }
         }
         // A sync runs for minutes while the film keeps playing, so it reports from up here rather
@@ -110,9 +121,14 @@ struct PlayerView: View {
         }
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
-        // Held open while the panel is up: it is anchored to the pills, and controls that faded
-        // away under it took its anchor — and, on iPad, the popover — with them.
-        .onChange(of: settingsFocus) { _, focus in model.holdControls(focus != nil) }
+        // The panel. On iPhone a sheet presented from HERE, the root: hung off the transport, any
+        // reload that took the transport down (a silent reopen, Up Next advancing, a failure) took
+        // the panel with it and left `settingsFocus` set. On iPad a popover on the tapped pill —
+        // see `controlPills` for how that one is kept honest.
+        .sheet(item: compactPanel) { focus in PlayerSettingsSheet(model: model, focus: focus) }
+        // Held open while the panel is up, so the controls behind it never fade mid-choice.
+        .onChange(of: settingsFocus, initial: true) { _, focus in setHold(.panel, focus != nil) }
+        .onChange(of: holds) { _, now in model.holdControls(!now.isEmpty) }
         .animation(.easeInOut(duration: 0.2), value: model.controlsVisible)
         .animation(.easeInOut(duration: 0.25), value: model.upNextVisible)
         .animation(.easeInOut(duration: 0.2), value: model.autoSyncBanner)
@@ -139,12 +155,42 @@ struct PlayerView: View {
         LoadingOverlay(caption: caption, title: model.label, backdropURL: backdropURL)
             .contentShape(Rectangle())
             .gesture(pullToDismiss)
-            // A visible way out. The overlay replaces the transport (and its chevron), so a link
-            // that never opens left only the undiscoverable pull-down for up to 30 seconds.
-            .overlay(alignment: .topLeading) {
-                GlassCircleButton(systemImage: "chevron.down", label: "Close", action: onExit)
-                    .padding(.leading, 16).padding(.top, 8)
+    }
+
+    /// A visible way out while the load overlay is up — it replaces the transport (and its close
+    /// circle), and a link that never opens left only the undiscoverable pull-down for up to 30
+    /// seconds. In the transport's own corner, so the exit never moves between loading and playing.
+    private var cornerClose: some View {
+        VStack {
+            HStack {
+                Spacer()
+                GlassCircleButton(systemImage: "chevron.down", label: "Close Player", action: onExit)
             }
+            Spacer()
+        }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 16)
+    }
+
+    private func setHold(_ hold: ControlHold, _ on: Bool) {
+        if on { holds.insert(hold) } else { holds.remove(hold) }
+    }
+
+    private var regularWidth: Bool { hSize == .regular }
+
+    /// A landscape phone with the controls up — see the Up Next overlay.
+    private var upNextOnTop: Bool { vSize == .compact && model.controlsVisible }
+
+    /// `settingsFocus` as the iPhone sheet sees it — nothing on iPad, where the popover owns it.
+    private var compactPanel: Binding<PlayerSettingsSection?> {
+        Binding(get: { regularWidth ? nil : settingsFocus },
+                set: { settingsFocus = $0 })
+    }
+
+    /// `settingsFocus` as one pill's iPad popover sees it.
+    private func popoverBinding(_ section: PlayerSettingsSection) -> Binding<Bool> {
+        Binding(get: { regularWidth && settingsFocus == section },
+                set: { if !$0, settingsFocus == section { settingsFocus = nil } })
     }
 
     /// A small spinner over a picture that has stopped moving mid-film — libvlc's own buffering
@@ -229,6 +275,9 @@ struct PlayerView: View {
         .seretGlass(in: Capsule(), interactive: false)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: forward ? .trailing : .leading)
         .padding(forward ? .trailing : .leading, 56)
+        // Below the centre circles while the controls are up — the burst reveals them, and the
+        // badge sat right on top of the ⏩ circle.
+        .offset(y: model.controlsVisible ? 92 : 0)
     }
 
     /// Netflix-style "Up Next" bar near content-end: a countdown that auto-advances, Play Now to
@@ -238,7 +287,7 @@ struct PlayerView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Up Next").font(.caption.weight(.semibold)).foregroundStyle(.white.opacity(0.7))
                 Text("S\(next.season)\u{00B7}E\(next.number)  \u{00B7}  Playing in \(model.upNextSecondsRemaining)s")
-                    .font(.subheadline.weight(.semibold)).foregroundStyle(.white).lineLimit(1)
+                    .font(.subheadline.weight(.semibold)).foregroundStyle(.white).lineLimit(2)
             }
             Spacer(minLength: Theme.Space.md)
             Button("Dismiss") { model.dismissUpNext() }
@@ -246,6 +295,7 @@ struct PlayerView: View {
             Button { model.playNextNow() } label: {
                 Label("Play Now", systemImage: "play.fill")
                     .font(.subheadline.weight(.bold))
+                    .lineLimit(1).fixedSize()
                     .padding(.horizontal, 16).padding(.vertical, 9)
                     .background(Theme.Palette.focus, in: Capsule())
                     .foregroundStyle(Theme.Palette.onFocus)
@@ -256,8 +306,10 @@ struct PlayerView: View {
         .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         .seretGlass(in: RoundedRectangle(cornerRadius: 20, style: .continuous), interactive: false)
         .padding(.horizontal, 24)
-        // Above the scrub bar and the pills when the controls are up.
-        .padding(.bottom, model.controlsVisible ? 150 : 28)
+        // Above the scrub bar, the pills and the episode strip's peek when the controls are up;
+        // under the title when it has moved to the top.
+        .padding(.bottom, upNextOnTop ? 0 : (model.controlsVisible ? 190 : 28))
+        .padding(.top, upNextOnTop ? 76 : 0)
     }
 
     /// Three independently-anchored layers so expanding the episode strip only grows the bottom
@@ -274,7 +326,7 @@ struct PlayerView: View {
                 Spacer(minLength: 0)
                 scrubber
                 controlPills
-                EpisodePeekStrip(model: model)
+                EpisodePeekStrip(model: model, onHold: { setHold(.strip, $0) })
             }
         }
         .padding(.horizontal, 24)
@@ -305,6 +357,9 @@ struct PlayerView: View {
     }
 
     private var centerControls: some View {
+        // Dead to touch while a double-tap burst is running: the burst reveals the controls on its
+        // first skip, and the taps after it landed on these 80pt circles — a tap on the right half
+        // that should have added ten seconds paused the film instead.
         GlassGroup(spacing: 10) {
             HStack(spacing: 36) {
                 GlassCircleButton(systemImage: "gobackward.10", label: "Back 10 Seconds", size: 62) {
@@ -319,6 +374,7 @@ struct PlayerView: View {
                 }
             }
         }
+        .allowsHitTesting(model.skipFeedback == nil)
     }
 
     private var scrubber: some View {
@@ -361,57 +417,49 @@ struct PlayerView: View {
         }
     }
 
-    /// Subtitles · Audio · Speed · AirPlay. Subtitles and Audio open the playback panel on their
-    /// own section (a sheet on iPhone, a popover over the pills on iPad); Speed is a menu of its
-    /// own. Icons alone when a portrait iPhone cannot fit the words.
+    /// Subtitles · Audio · Speed · AirPlay. The first three open the playback panel on their own
+    /// section — a sheet on iPhone (from the root), a popover on the tapped pill on iPad. Speed is
+    /// the panel too, not a menu: a menu's open/closed state is invisible to us, so it could not
+    /// hold the controls, and the auto-hide took the transport down under it. Icons alone on a
+    /// portrait iPhone, where the words do not fit.
     private var controlPills: some View {
-        ViewThatFits(in: .horizontal) {
-            pillRow(titles: true)
-            pillRow(titles: false)
-        }
-        // Anchored to the pills themselves (not the row's full width), so the iPad popover's arrow
-        // points at them.
-        .popover(item: $settingsFocus, attachmentAnchor: .rect(.bounds), arrowEdge: .bottom) { focus in
-            PlayerSettingsSheet(model: model, focus: focus)
-                .frame(minWidth: 380, idealWidth: 440, minHeight: 440, idealHeight: 620)
-                .presentationCompactAdaptation(.sheet)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func pillRow(titles: Bool) -> some View {
-        GlassGroup(spacing: 8) {
+        let titles = !(hSize == .compact && vSize == .regular)
+        return GlassGroup(spacing: 8) {
             HStack(spacing: 12) {
-                Button { settingsFocus = .subtitles } label: {
-                    PlayerPillLabel(title: "Subtitles", systemImage: "captions.bubble", showsTitle: titles)
-                }
-                .buttonStyle(GlassPressStyle())
-                .accessibilityLabel("Subtitles")
-                Button { settingsFocus = .audio } label: {
-                    PlayerPillLabel(title: "Audio", systemImage: "speaker.wave.2", showsTitle: titles)
-                }
-                .buttonStyle(GlassPressStyle())
-                .accessibilityLabel("Audio and Volume")
-                Menu {
-                    Picker("Playback Speed", selection: Binding(get: { model.playbackSpeed },
-                                                               set: { model.setPlaybackSpeed($0) })) {
-                        ForEach(PlayerSettingsSheet.speeds, id: \.value) { Text($0.label).tag($0.value) }
-                    }
-                } label: {
-                    PlayerPillLabel(title: Self.speedLabel(model.playbackSpeed), systemImage: nil,
-                                    showsTitle: true)
-                }
-                .buttonStyle(GlassPressStyle())
-                .accessibilityLabel("Playback Speed")
-                .accessibilityValue(Self.speedLabel(model.playbackSpeed))
-                // Audio only: VLCKit draws the picture itself, so AirPlay cannot take the video —
+                panelPill(.subtitles, title: "Subtitles", systemImage: "captions.bubble",
+                          accessibility: "Subtitles", titles: titles)
+                panelPill(.audio, title: "Audio", systemImage: "speaker.wave.2",
+                          accessibility: "Audio and Volume", titles: titles)
+                panelPill(.speed, title: Self.speedLabel(model.playbackSpeed), systemImage: nil,
+                          accessibility: "Playback Speed", titles: true)
+                    .accessibilityValue(Self.speedLabel(model.playbackSpeed))
+                // Sound only: VLCKit draws the picture itself, so AirPlay cannot take the video —
                 // what this does is send the SOUND to AirPods, a HomePod or an AirPlay speaker.
-                AirPlayAudioPicker()
+                // The picker shows the audio-route glyph, and says so to VoiceOver.
+                AirPlayAudioPicker(onPresenting: { setHold(.routePicker, $0) })
                     .frame(width: 46, height: 46)
                     .padding(.horizontal, 4)
                     .seretGlass(in: Capsule())
-                    .accessibilityLabel("Audio Output")
+                    .accessibilityLabel("Sound Output")
+                    .accessibilityHint("Plays the sound on AirPods, a HomePod or an AirPlay speaker. The picture stays here.")
             }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        // An iPad popover lives on its pill: when the transport goes (a reload, a failure) the
+        // popover goes with it, and the state must not outlive it.
+        .onDisappear { if regularWidth { settingsFocus = nil } }
+    }
+
+    private func panelPill(_ section: PlayerSettingsSection, title: String, systemImage: String?,
+                           accessibility: String, titles: Bool) -> some View {
+        Button { settingsFocus = section } label: {
+            PlayerPillLabel(title: title, systemImage: systemImage, showsTitle: titles)
+        }
+        .buttonStyle(GlassPressStyle())
+        .accessibilityLabel(accessibility)
+        .popover(isPresented: popoverBinding(section), arrowEdge: .bottom) {
+            PlayerSettingsSheet(model: model, focus: section)
+                .frame(minWidth: 380, idealWidth: 440, minHeight: 440, idealHeight: 620)
         }
     }
 
@@ -601,15 +649,43 @@ struct PlayerPillLabel: View {
 }
 
 /// The system route picker, white on clear, preferring audio routes — see where it is used.
+/// `onPresenting` reports the route list opening and closing, so the transport holds under it.
 struct AirPlayAudioPicker: UIViewRepresentable {
+    var onPresenting: (Bool) -> Void = { _ in }
+
     func makeUIView(context: Context) -> AVRoutePickerView {
         let view = AVRoutePickerView()
         view.prioritizesVideoDevices = false
         view.tintColor = .white
         view.activeTintColor = .white
         view.backgroundColor = .clear
+        view.delegate = context.coordinator
+        // Its own label says "AirPlay", which promises the picture; this only moves the sound.
+        view.accessibilityLabel = "Sound Output"
+        view.accessibilityHint = "Plays the sound on AirPods, a HomePod or an AirPlay speaker. The picture stays here."
         return view
     }
 
-    func updateUIView(_ uiView: AVRoutePickerView, context: Context) {}
+    func updateUIView(_ uiView: AVRoutePickerView, context: Context) {
+        context.coordinator.onPresenting = onPresenting
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(onPresenting: onPresenting) }
+
+    final class Coordinator: NSObject, AVRoutePickerViewDelegate {
+        var onPresenting: (Bool) -> Void
+        init(onPresenting: @escaping (Bool) -> Void) { self.onPresenting = onPresenting }
+
+        func routePickerViewWillBeginPresentingRoutes(_ routePickerView: AVRoutePickerView) {
+            onPresenting(true)
+        }
+        func routePickerViewDidEndPresentingRoutes(_ routePickerView: AVRoutePickerView) {
+            onPresenting(false)
+        }
+    }
+}
+
+/// Why the transport is being held up — see `PlayerView.holds`.
+enum ControlHold: Hashable {
+    case panel, strip, routePicker
 }

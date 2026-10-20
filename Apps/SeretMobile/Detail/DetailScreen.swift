@@ -29,7 +29,7 @@ struct DetailScreen: View {
     @State private var episodeVersions: EpisodeVersionsTarget?
     /// The page has scrolled past the hero's info: the bar takes the title (and, on iOS 18, its
     /// frosted background). See `titlePageScroll`.
-    @State private var heroScrolled = false
+    @State private var heroScrolled = TitleScroll()
     @Environment(AppSession.self) private var session
     @Environment(\.dismiss) private var dismiss
 
@@ -110,6 +110,18 @@ struct DetailScreen: View {
                 if watchlist == nil { watchlist = session.makeWatchlistMarks() }
                 await watchlist?.load()
             }
+            // Once the page is scrolled, a shade fades in under the status bar and the glass bar,
+            // so the text scrolling up never runs through the chevron or the title (audit #4). Ours
+            // on both iOS versions: the page runs under the bar (`ignoresSafeArea`), which keeps
+            // UIKit's own scroll-edge treatment from knowing there is content beneath it. Applied
+            // BEFORE the watchlist confirmation, so that bar draws above the shade, not under it.
+            .overlay(alignment: .top) {
+                // The shared bar shade (`TopBarShade`), in the canvas colour and held solid: the
+                // title page's text must vanish under its bar, not show through it.
+                TopBarShade(color: Theme.Palette.canvas, hold: 0.96, barHeight: 58)
+                    .opacity(heroScrolled.shaded ? 1 : 0)
+                    .animation(Theme.Motion.fade, value: heroScrolled.shaded)
+            }
             .environment(watchlist)
             .watchlistChangeConfirmation(marks: watchlist, tmdbID: store.item.tmdbID) { outcome in
                 WatchlistChangeBar(outcome: outcome)
@@ -128,26 +140,13 @@ struct DetailScreen: View {
                         .font(.headline)
                         .foregroundStyle(Theme.Palette.textPrimary)
                         .lineLimit(1)
-                        .opacity(heroScrolled ? 1 : 0)
-                        .animation(Theme.Motion.fade, value: heroScrolled)
-                        .accessibilityHidden(!heroScrolled)
+                        .opacity(heroScrolled.titled ? 1 : 0)
+                        .animation(Theme.Motion.fade, value: heroScrolled.titled)
+                        .accessibilityHidden(!heroScrolled.titled)
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
             .titlePageBar()
-            // Once the page is scrolled, a shade fades in under the status bar and the glass bar,
-            // so the text scrolling up never runs through the chevron or the title (audit #4). Ours
-            // on both iOS versions: the page runs under the bar (`ignoresSafeArea`), which keeps
-            // UIKit's own scroll-edge treatment from knowing there is content beneath it.
-            .overlay(alignment: .top) {
-                // The shared bar shade (`TopBarShade`), in the canvas colour and held solid: the
-                // title page's text must vanish under its bar, not show through it.
-                TopBarShade(color: Theme.Palette.canvas, hold: 0.96, barHeight: 50)
-                .opacity(heroScrolled ? 1 : 0)
-                .animation(Theme.Motion.fade, value: heroScrolled)
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
-            }
             .confirmationDialog("Remove \u{201C}\(store.item.title)\u{201D} from your library?",
                                 isPresented: $confirmingRemove, titleVisibility: .visible) {
                 Button("Remove", role: .destructive) { performRemove() }

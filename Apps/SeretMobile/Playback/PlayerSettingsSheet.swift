@@ -4,7 +4,7 @@ import SwiftUI
 
 /// Which pill opened the playback panel — its section leads.
 enum PlayerSettingsSection: String, Identifiable {
-    case audio, subtitles
+    case audio, subtitles, speed
     var id: String { rawValue }
 }
 
@@ -21,23 +21,32 @@ struct PlayerSettingsSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: Theme.Space.xxl) {
-                    if focus == .subtitles {
+                    switch focus {
+                    case .subtitles:
                         subtitlesSection
                         timingSection
                         audioSection
                         volumeSection
-                    } else {
+                        speedSection
+                    case .speed:
+                        speedSection
                         audioSection
                         volumeSection
                         subtitlesSection
                         timingSection
+                    case .audio, nil:
+                        audioSection
+                        volumeSection
+                        subtitlesSection
+                        timingSection
+                        speedSection
                     }
-                    speedSection
                 }
                 .padding(Theme.Space.lg)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .scrollContentBackground(.hidden)
+            .defaultScrollAnchor(Self.openingAnchor)
             .navigationTitle(navigationTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -52,10 +61,20 @@ struct PlayerSettingsSheet: View {
         .tint(Theme.Palette.focus)
     }
 
+    /// Top, always — except a DEBUG harness launched with `-uiPreviewAnchor bottom`, which opens
+    /// at the end so a screenshot can show the last section is reachable.
+    private static var openingAnchor: UnitPoint {
+        #if DEBUG
+        if UserDefaults.standard.string(forKey: "uiPreviewAnchor") == "bottom" { return .bottom }
+        #endif
+        return .top
+    }
+
     private var navigationTitle: String {
         switch focus {
         case .subtitles: "Subtitles"
         case .audio: "Audio"
+        case .speed: "Speed"
         case nil: "Playback"
         }
     }

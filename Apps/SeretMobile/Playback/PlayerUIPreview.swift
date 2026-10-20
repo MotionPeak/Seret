@@ -21,6 +21,10 @@ import SwiftUI
 ///     the swap stays in its `.preparing` stage (the "Preparing…" overlay)
 ///   - `playerchrome` / `playerchromesettings` — the real player's chrome (g6) on a film 58 minutes
 ///     in, paused so it stays up; the second opens the Subtitles panel (a popover on iPad)
+///   - `playerplaying` — the same, left playing: the controls fade on their own, for double-tap
+///     bursts (the stub engine never moves the playhead, so the badge's total is the measure)
+///   - `upnext` — an episode in its credits with the Up Next bar up AND the controls up, paused so
+///     the countdown holds: the bar must clear the scrub bar, the pills and the episode peek
 ///   - `showdetail` — the real show page for a show you own with S1E2 part-watched: Resume + Start,
 ///     the season list, the episode rows (long-press one for its menu)
 ///   - `letterboxdrating` / `letterboxdrerating` — the post-credits rating prompt, unrated and
@@ -45,6 +49,8 @@ struct PlayerUIPreview: View {
             case "episodeswapopening": MobileEpisodeSwapPreview(reportsBuffering: false)
             case "showdetail":      MobileShowDetailPreview()
             case "playerchrome":    MobilePlayerChromePreview()
+            case "playerplaying":   MobilePlayerChromePreview(pauses: false)
+            case "upnext":          MobileUpNextPreview()
             case "playerchromesettings": MobilePlayerChromePreview(settings: .subtitles)
             case "subtitlebrowser":
                 // Tinted here because in the app the browser is pushed INSIDE the settings sheet,
@@ -61,6 +67,13 @@ struct PlayerUIPreview: View {
         // RootView sets this app-wide; the harness bypasses RootView, so without it these
         // screenshots render light and misrepresent how the sheet actually looks.
         .preferredColorScheme(.dark)
+        // The player's own `OrientationGate.setPlayerActive(true)` runs while the scene is still
+        // launching here (no foreground scene yet), so UIKit never re-read the mask and a harness
+        // could not rotate. Re-assert it once the scene is up.
+        .task {
+            try? await Task.sleep(for: .seconds(1))
+            OrientationGate.setPlayerActive(true)
+        }
     }
 }
 
@@ -157,8 +170,9 @@ final class MobilePreviewEngine: VideoPlayerEngine {
 
     func load(url: URL, headers: [String: String], audioLanguage: String?,
               audioTrackID: String?) {}
-    func play() {}
-    func pause() {}
+    /// Answer play / pause as libvlc does, so a harness shows what a tap on the centre circle did.
+    func play() { emit(.state(.playing)) }
+    func pause() { emit(.state(.paused)) }
     func stop() { continuation.finish() }
     func seek(to seconds: Double) {}
     func setRate(_ rate: Double) {}
@@ -206,7 +220,7 @@ private struct MobileShowDetailPreview: View {
     var body: some View {
         // In a navigation stack, as DetailScreen presents it, so the glass bar's ⋯ is there too.
         NavigationStack {
-            ShowDetail(store: store, heroScrolled: .constant(false), onPlay: { request in
+            ShowDetail(store: store, heroScrolled: .constant(TitleScroll()), onPlay: { request in
                 print("[preview] play \(request.label) fromStart=\(request.fromStart) resumeAt=\(String(describing: request.resumeAt))")
             })
             .navigationBarTitleDisplayMode(.inline)
@@ -305,15 +319,32 @@ private struct MobileEpisodeSwapPreview: View {
 /// The real `PlayerView`, paused 58 minutes into a film, controls up.
 private struct MobilePlayerChromePreview: View {
     var settings: PlayerSettingsSection?
+    var pauses = true
     @State private var driver = MobileSubtitlePreviewDriver()
     @State private var surface = VLCKitVideoPlayerEngine()
     @State private var ready = false
+    /// `playerplaying` only: the last burst's total and whether the film is still playing, held on
+    /// screen after the badge has gone — a screenshot is slower than the badge's 0.8s.
+    @State private var lastBurst = "no skips yet"
 
     var body: some View {
         ZStack {
             if ready {
                 PlayerView(model: driver.model, engine: surface, backdropURL: nil,
                            settingsFocus: settings, onExit: {})
+                    .overlay(alignment: .center) {
+                        if !pauses {
+                            Text(lastBurst)
+                                .font(.system(size: 13, weight: .semibold).monospaced())
+                                .foregroundStyle(.yellow)
+                                .padding(.top, 220)
+                                .allowsHitTesting(false)
+                        }
+                    }
+                    .onChange(of: driver.model.skipFeedback) { _, feedback in
+                        guard let feedback else { return }
+                        lastBurst = "burst \(feedback.label) · \(driver.model.phase == .playing ? "playing" : "NOT playing")"
+                    }
             } else {
                 Color.black.ignoresSafeArea()
             }
@@ -325,8 +356,56 @@ private struct MobilePlayerChromePreview: View {
             try? await Task.sleep(for: .milliseconds(100))
             ready = true
             try? await Task.sleep(for: .milliseconds(300))
+            guard pauses else {
+                // Up for the whole run, so a burst can be aimed at the centre circles.
+                driver.model.holdControls(true)
+                return
+            }
             driver.engine.emit(.state(.paused))
             driver.model.showControls()
+        }
+    }
+}
+
+/// An episode in its credits: Up Next up, then paused with the controls showing.
+private struct MobileUpNextPreview: View {
+    @State private var engine = MobilePreviewEngine()
+    @State private var surface = VLCKitVideoPlayerEngine()
+    @State private var model: PlayerModel?
+
+    var body: some View {
+        Group {
+            if let model {
+                PlayerView(model: model, engine: surface, backdropURL: nil, onExit: {})
+            } else {
+                Color.black
+            }
+        }
+        .task {
+            let source = { (id: String) in
+                MediaSource(torrentID: id, fileID: nil, restrictedLink: "rd://\(id)",
+                            parsed: ParsedRelease(title: "The Bear", resolution: "1080p"))
+            }
+            let episodes = (1...4).map { Episode(season: 1, number: $0, source: source("e\($0)")) }
+            let item = MediaItem(id: "show:tmdb:136315", kind: .show, title: "The Bear", year: 2022,
+                                 sources: [], seasons: [Season(number: 1, episodes: episodes)],
+                                 tmdbID: 136315)
+            let request = PlaybackRequest(item: item, source: episodes[0].source, resumeAt: nil,
+                                          label: "The Bear — S1·E1",
+                                          contentKey: WatchKey.content(forShow: item, episode: episodes[0]),
+                                          episode: episodes[0])
+            let m = PlayerModel(request: request, engine: engine,
+                                unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
+                                recordProgress: { _, _, _, _, _ in }, subtitles: nil)
+            model = m
+            m.start()
+            try? await Task.sleep(for: .milliseconds(300))
+            engine.emit(.state(.playing))
+            engine.emit(.time(.init(position: 1300, duration: 1320)))
+            engine.emit(.time(.init(position: 1301, duration: 1320)))
+            try? await Task.sleep(for: .milliseconds(400))
+            engine.emit(.state(.paused))
+            m.showControls()
         }
     }
 }
