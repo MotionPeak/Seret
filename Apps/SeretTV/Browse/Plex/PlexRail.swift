@@ -17,21 +17,31 @@ import SwiftUI
 struct PlexRail<Content: View>: View {
     let title: String
     let id: String
+    /// Quiet words after the title, on its baseline ("ready to play").
+    var subtitle: String?
     @ViewBuilder var content: Content
 
-    init(title: String, id: String, @ViewBuilder content: () -> Content) {
+    init(title: String, subtitle: String? = nil, id: String, @ViewBuilder content: () -> Content) {
         self.title = title
+        self.subtitle = subtitle
         self.id = id
         self.content = content()
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: FocusBrowseLayout.railTitleSpacing) {
-            Text(title)
-                .sectionTitle()
-                .foregroundStyle(Theme.Palette.textPrimary)
-                .lineLimit(1)
-                .padding(.leading, FocusBrowseLayout.leadingInset)
+            HStack(alignment: .firstTextBaseline, spacing: 14) {
+                Text(title)
+                    .sectionTitle()
+                    .foregroundStyle(Theme.Palette.textPrimary)
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.seret(24, .medium))
+                        .foregroundStyle(Theme.Palette.textSecondary)
+                }
+            }
+            .lineLimit(1)
+            .padding(.leading, FocusBrowseLayout.leadingInset)
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: 28) { content }
                     .padding(.horizontal, FocusBrowseLayout.leadingInset)

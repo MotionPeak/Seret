@@ -10,14 +10,19 @@ public struct PreviewSubject: Identifiable, Hashable, Sendable {
     public let tmdbID: Int?
     public let title: String
     public let year: Int?
-    public let overview: String?
-    public let backdropPath: String?
+    public private(set) var overview: String?
+    public private(set) var backdropPath: String?
     public let posterPath: String?
     /// "Season 1 · Episode 3", or "Next · Season 2 · Episode 1" for an up-next entry.
     public let episodeLine: String?
     /// Minutes left to watch. Only set when both the progress and the runtime are known.
     public let remainingMinutes: Int?
     public let fraction: Double?
+    /// Small outlined labels after the metadata row — the Watchlist's "In Library", "Both of you".
+    public private(set) var tags: [String] = []
+    /// Whether the metadata row names the kind ("Movie", "Series"). A page that only ever holds
+    /// films (the Watchlist) leaves it out.
+    public private(set) var showsKind = true
 
     public init(item: MediaItem) {
         id = item.id
@@ -31,6 +36,17 @@ public struct PreviewSubject: Identifiable, Hashable, Sendable {
         episodeLine = nil
         remainingMinutes = nil
         fraction = nil
+    }
+
+    /// A library item (or a watchlist film's stand-in) with facts its tile does not carry: the
+    /// synopsis and backdrop come from a details cache, the tags from the page.
+    public init(item: MediaItem, overview: String?, backdropPath: String?, tags: [String],
+                showsKind: Bool) {
+        self.init(item: item)
+        self.overview = Self.clean(overview) ?? self.overview
+        self.backdropPath = backdropPath ?? self.backdropPath
+        self.tags = tags
+        self.showsKind = showsKind
     }
 
     public init(home: HomeItem, runtimeMinutes: Int? = nil) {

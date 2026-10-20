@@ -230,6 +230,7 @@ public final class AppSession {
         trailers = nil
         detailsProvider = nil
         titleArt = nil
+        watchlistDetails = nil
         ratingsProvider = nil
         letterboxdRatingProvider = nil
         watchStore = nil
@@ -1065,6 +1066,11 @@ public final class AppSession {
                                    },
                                    status: { [weak self] in
                                        await self?.currentCombinedWatchlist().status() ?? .solo
+                                   },
+                                   // Per call too: the mirror as it stands now, for a screen that
+                                   // stayed alive while a film was added or removed elsewhere.
+                                   reload: { [weak self] in
+                                       await self?.currentCombinedWatchlist().cached() ?? []
                                    }) { [weak self] onProgress in
             guard let combined = await self?.currentCombinedWatchlist() else { return [] }
             return try await combined.sync(onProgress: onProgress)
@@ -1104,6 +1110,20 @@ public final class AppSession {
     }
 
     private var watchlistMarks: WatchlistMarks?
+
+    /// TMDB details for the watchlist's films (genres, runtime, rating, art), kept on disk beside
+    /// the mirror. ONE for the app, like `watchlistMarks`: its fetches are store-owned and a second
+    /// instance would fetch the same films again. Nil while signed out.
+    public func makeWatchlistDetailsStore() -> WatchlistDetailsStore? {
+        if let watchlistDetails { return watchlistDetails }
+        guard let detailsProvider else { return nil }
+        let store = WatchlistDetailsStore(fileURL: WatchlistDetailsStore.defaultURL(),
+                                          details: detailsProvider)
+        watchlistDetails = store
+        return store
+    }
+
+    private var watchlistDetails: WatchlistDetailsStore?
 
     /// Watched marks for browse/search posters. One instance is shared by every grid, so switching
     /// tabs does not re-query what is already known.
