@@ -1,3 +1,4 @@
+import DebridUI
 import SwiftUI
 import UIKit
 
@@ -14,11 +15,51 @@ extension View {
 /// decoded `UIImage` makes an already-seen poster reappear INSTANTLY.
 enum ImageMemoryCache {
     // NSCache is documented thread-safe; `nonisolated(unsafe)` just tells Swift 6 we know that.
+    ///
+    /// The ONE decoded-image budget: posters, backdrops, the warm-ups that preload them and the
+    /// Core Image washes behind the browse pages (`UltrablurPlates`) all live here, so their sum is
+    /// bounded rather than each cache bounding only itself. Sized from the device (96 MB on a 3 GB
+    /// Apple TV) and emptied on a memory warning — on-screen tiles keep what they show in their own
+    /// `loaded` state, so a trim costs a re-decode for off-screen art only.
     nonisolated(unsafe) static let shared: NSCache<NSURL, UIImage> = {
         let c = NSCache<NSURL, UIImage>()
-        c.totalCostLimit = 96 * 1024 * 1024      // ~96 MB of decoded bitmaps; auto-evicts on pressure
+        c.totalCostLimit = ImageDownsampling.cacheBudget(physicalMemory: ProcessInfo.processInfo.physicalMemory)
+        _ = NotificationCenter.default.addObserver(
+            forName: UIApplication.didReceiveMemoryWarningNotification, object: nil, queue: nil
+        ) { _ in ImageMemoryCache.shared.removeAllObjects() }
         return c
     }()
+
+    /// The cache key for `url` decoded at `target` pixels (nil = the file's own size).
+    static func key(_ url: URL, target: CGSize? = nil) -> NSURL {
+        ImageDownsampling.cacheKey(url, target: target) as NSURL
+    }
+
+    /// The bitmap for `url` at `target`: a downsampled one filed under that size, or else the
+    /// file-size decode under the plain url — which serves any target (it is at least as large).
+    static func cached(_ url: URL, target: CGSize? = nil) -> UIImage? {
+        if target != nil, let sized = shared.object(forKey: key(url, target: target)) { return sized }
+        return shared.object(forKey: key(url))
+    }
+
+    /// `downsampled: false` files the image under the plain url: it IS the plain decode, and
+    /// filing it under its size as well kept two identical copies of every poster whose frame is
+    /// at least the file's size — most of them, on a 4K Apple TV.
+    static func store(_ image: UIImage, for url: URL, target: CGSize? = nil, downsampled: Bool = true) {
+        let key = downsampled ? key(url, target: target) : key(url)
+        shared.setObject(image, forKey: key, cost: cost(of: image))
+    }
+
+    /// Decodes straight to `target` pixels when the file is larger (ImageIO's thumbnail path), so
+    /// a bitmap never occupies more than the frame it is drawn in. Fully decoded on return.
+    static func decode(_ data: Data, target: CGSize? = nil) -> UIImage? {
+        decodeReporting(data, target: target)?.image
+    }
+
+    static func decodeReporting(_ data: Data, target: CGSize?) -> (image: UIImage, downsampled: Bool)? {
+        ImageDownsampling.decodeReporting(data, target: target)
+            .map { (UIImage(cgImage: $0.image), $0.downsampled) }
+    }
 
     /// What a decoded bitmap actually occupies: width × height × scale² × 4 bytes (RGBA).
     ///
@@ -37,14 +78,15 @@ enum ImageMemoryCache {
     /// season's episode stills) so the cards render with images instead of sitting grey until each one
     /// scrolls into view. No-op for already-cached URLs; failures are silent (the on-appear load still
     /// fetches as a fallback — see `RemoteImage`, which re-claims a URL whose prefetch died).
-    static func prefetch(_ urls: [URL]) {
-        for url in urls where shared.object(forKey: url as NSURL) == nil {
-            guard claimInFlight(url) else { continue }   // already downloading — don't fetch it twice
+    static func prefetch(_ urls: [URL], target: CGSize? = nil) {
+        for url in urls where cached(url, target: target) == nil {
+            let claim = key(url, target: target) as URL
+            guard claimInFlight(claim) else { continue }   // already downloading — don't fetch it twice
             Task.detached(priority: .utility) {
-                defer { releaseInFlight(url) }
+                defer { releaseInFlight(claim) }
                 guard let (data, _) = try? await URLSession.shared.data(from: url),
-                      let img = UIImage(data: data)?.preparingForDisplay() else { return }
-                shared.setObject(img, forKey: url as NSURL, cost: cost(of: img))
+                      let decoded = decodeReporting(data, target: target) else { return }
+                store(decoded.image, for: url, target: target, downsampled: decoded.downsampled)
             }
         }
     }
@@ -74,13 +116,14 @@ enum ImageMemoryCache {
 
     /// Wait for whoever already claimed `url` to finish, and hand back what they cached. Bounded,
     /// so a fetch that dies without publishing degrades to an empty tile rather than a hung task.
-    static func awaitCached(_ url: URL, attempts: Int = 40) async -> UIImage? {
+    static func awaitCached(_ url: URL, target: CGSize? = nil, attempts: Int = 40) async -> UIImage? {
+        let claim = key(url, target: target) as URL
         for _ in 0..<attempts {
-            if let image = shared.object(forKey: url as NSURL) { return image }
-            if !isInFlight(url) { break }              // they finished, or failed
+            if let image = cached(url, target: target) { return image }
+            if !isInFlight(claim) { break }            // they finished, or failed
             try? await Task.sleep(for: .milliseconds(50))
         }
-        return shared.object(forKey: url as NSURL)
+        return cached(url, target: target)
     }
 
     /// One image load, end to end: cache → claim → wait for whoever holds the claim → fetch →
@@ -96,30 +139,35 @@ enum ImageMemoryCache {
     ///
     /// So losing the claim twice no longer ends the load: we fetch anyway. A rare duplicate
     /// download costs far less than a tile that never loads.
+    ///
+    /// `target` (pixels) decodes straight to the drawn size; the claim and the cache entry are per
+    /// url AND size, so a 150-point headshot never hands a hero its downsampled bitmap.
     static func load(
         _ url: URL,
+        target: CGSize? = nil,
         waitAttempts: Int = 40,
         fetch: @Sendable (URL) async throws -> Data = { try await URLSession.shared.data(from: $0).0 }
     ) async -> UIImage? {
-        if let hit = shared.object(forKey: url as NSURL) { return hit }
+        if let hit = cached(url, target: target) { return hit }
 
-        var holdsClaim = claimInFlight(url)
+        let claim = key(url, target: target) as URL
+        var holdsClaim = claimInFlight(claim)
         if !holdsClaim {
-            if let theirs = await awaitCached(url, attempts: waitAttempts) { return theirs }
-            holdsClaim = claimInFlight(url)     // free by now? take it. Still held? fetch regardless.
+            if let theirs = await awaitCached(url, target: target, attempts: waitAttempts) { return theirs }
+            holdsClaim = claimInFlight(claim)   // free by now? take it. Still held? fetch regardless.
         }
         // Only release what we actually took, or we would free someone else's claim.
-        defer { if holdsClaim { releaseInFlight(url) } }
+        defer { if holdsClaim { releaseInFlight(claim) } }
 
         guard let data = try? await fetch(url) else { return nil }
         // Decode off the main actor — decoding a whole screen of posters on main is what made the
         // grid feel like it "loads for a long time".
         let decoded = await Task.detached(priority: .userInitiated) {
-            UIImage(data: data)?.preparingForDisplay()
+            decodeReporting(data, target: target)
         }.value
         guard let decoded else { return nil }
-        shared.setObject(decoded, forKey: url as NSURL, cost: cost(of: decoded))
-        return decoded
+        store(decoded.image, for: url, target: target, downsampled: decoded.downsampled)
+        return decoded.image
     }
 }
 
@@ -130,11 +178,23 @@ enum ImageMemoryCache {
 struct RemoteImage<Placeholder: View>: View {
     let url: URL?
     var contentMode: ContentMode = .fill
+    /// The frame this image is drawn in, in points. Given, the bitmap is decoded at that size
+    /// instead of the file's — a headshot fetched at `h632` for a 150-point circle costs a third of
+    /// the memory. Nil keeps the file's own size.
+    var decodeSize: CGSize? = nil
     /// Receives `true` once the load has genuinely failed, so the placeholder can stop pretending
     /// to be busy. A tile that spins forever reads as "the app is broken"; a settled one reads as
     /// "there is no artwork for this".
     @ViewBuilder var placeholder: (_ failed: Bool) -> Placeholder
+    @Environment(\.displayScale) private var displayScale
+    /// False on a kept-alive page that is not on screen: it then draws its placeholder and lets go
+    /// of its bitmap, so five hidden pages do not pin every image they ever built.
+    @Environment(\.retainsImages) private var retainsImages
     @State private var loaded: UIImage?
+    /// `retainsImages`, mirrored into state for the same reason as `wanted`: a load that finishes
+    /// after its page was hidden must see that it was hidden, and an environment value read after
+    /// an `await` is the one the load STARTED with.
+    @State private var retains = true
     @State private var failed = false
     /// The url this view currently wants, mirrored into state because a task that has ALREADY been
     /// cancelled has no other way to see it: the view value its closure captured still holds the url
@@ -146,9 +206,14 @@ struct RemoteImage<Placeholder: View>: View {
     /// so a retry has to come from a NEW task, and only an id change starts one.
     @State private var attempt = 0
 
+    private var target: CGSize? {
+        decodeSize.flatMap { ImageDownsampling.targetPixels(points: $0, scale: displayScale) }
+    }
+
     var body: some View {
         // Synchronous cache check (current url first) → no placeholder flash when a page reappears.
-        let image = url.flatMap { ImageMemoryCache.shared.object(forKey: $0 as NSURL) } ?? loaded
+        // A hidden page draws nothing: a layer that is merely transparent still holds its bitmap.
+        let image = retainsImages ? (url.flatMap { ImageMemoryCache.cached($0, target: target) } ?? loaded) : nil
         return Group {
             if let image {
                 Image(uiImage: image).resizable().aspectRatio(contentMode: contentMode).transition(.opacity)
@@ -159,25 +224,38 @@ struct RemoteImage<Placeholder: View>: View {
                 placeholder(failed || url == nil)
             }
         }
-        .animation(Theme.Anim.imageFade, value: image != nil)
+        // Keyed on a LOAD landing, not on the image appearing: a hidden page coming back draws its
+        // cached art at once, and fading it in from nothing there would read as a reload.
+        .animation(Theme.Anim.imageFade, value: loaded != nil)
         // Reused cell, new url → drop the old. `initial` so `wanted` is set on the first pass too.
         .onChange(of: url, initial: true) { wanted = url; loaded = nil; failed = false; attempt = 0 }
+        .onChange(of: retainsImages, initial: true) { old, retains in
+            self.retains = retains
+            guard old != retains else { return }       // the initial call: nothing to undo
+            guard retains else { loaded = nil; return }
+            // Back on screen: re-hold the cached bitmap, or load again if pressure evicted it.
+            if let url, let hit = ImageMemoryCache.cached(url, target: target) { loaded = hit }
+            else if url != nil, !failed { attempt += 1 }
+        }
         .task(id: RemoteImageLoad.Key(url: url, attempt: attempt)) { await load() }
     }
 
     private func load() async {
         guard let url else { return }
+        let target = target
         // A cache hit is RECORDED, not merely rendered. `body` reads the cache but keeps no
         // reference to what it finds there, so a tile whose task took this path held NOTHING of its
         // own — and NSCache evicts (96 MB ceiling; one Recently Added grid is about ninety of those
         // megabytes). Once the entry went, that tile had no image, no load running and no way to
         // re-fire `.task`, whose id had not changed. Keeping the hit retains exactly what is on
         // screen, which is what the cache should be holding onto anyway.
-        if let hit = ImageMemoryCache.shared.object(forKey: url as NSURL) { loaded = hit; return }
+        // A hidden page still warms the cache — switching to it stays instant — but holds nothing.
+        if let hit = ImageMemoryCache.cached(url, target: target) { if retains { loaded = hit }; return }
         failed = false
 
-        let image = await ImageMemoryCache.load(url)
-        if let image { loaded = image; return }
+        let image = await ImageMemoryCache.load(url, target: target)
+        // A page hidden while this was loading keeps the cache entry, not the bitmap.
+        if let image { if retains { loaded = image }; return }
 
         switch RemoteImageLoad.resolve(cancelled: Task.isCancelled,
                                        stillWanted: wanted == url, attempt: attempt) {
@@ -224,9 +302,15 @@ enum RemoteImageLoad {
 
 extension RemoteImage where Placeholder == PosterPlaceholder {
     /// Convenience: the standard dark poster/backdrop placeholder.
-    init(url: URL?, contentMode: ContentMode = .fill) {
-        self.init(url: url, contentMode: contentMode) { PosterPlaceholder(failed: $0) }
+    init(url: URL?, contentMode: ContentMode = .fill, decodeSize: CGSize? = nil) {
+        self.init(url: url, contentMode: contentMode, decodeSize: decodeSize) { PosterPlaceholder(failed: $0) }
     }
+}
+
+extension EnvironmentValues {
+    /// Whether `RemoteImage`s below hold on to their bitmaps. The shell sets it false on the
+    /// kept-alive pages that are not on screen.
+    @Entry var retainsImages = true
 }
 
 /// The default tile for posters/backdrops — a palette surface that spins while it is genuinely

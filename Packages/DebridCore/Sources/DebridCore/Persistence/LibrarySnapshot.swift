@@ -25,7 +25,12 @@ public struct LibrarySnapshot: Sendable, Equatable, Codable {
     /// 5: `SxxE00` is a SPECIAL and files under season 0, instead of becoming episode zero of
     /// season xx. That moves a file between seasons, so a cached library would otherwise keep the
     /// unaired pilot sitting in front of the premiere for good.
-    public static let currentSchemaVersion = 5
+    ///
+    /// 6: a leading tracker-site tag (`[ OxTorrent.com ] Lucy…`) is no longer part of the title,
+    /// and a year-pinned TMDB search accepts a title whose words all appear in order ("Star Wars
+    /// Episode VII The Force Awakens" → "Star Wars: The Force Awakens"). Both change the key and
+    /// the match a cached item already carries, and an unchanged library is never re-enriched.
+    public static let currentSchemaVersion = 6
 
     public let schemaVersion: Int
     public let builtAt: Date

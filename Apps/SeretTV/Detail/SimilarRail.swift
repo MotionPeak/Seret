@@ -15,6 +15,7 @@ import SwiftUI
 struct SimilarRail: View {
     let titles: [TMDBSearchResult]
     let parentKind: MediaKind
+    @Environment(\.displayScale) private var displayScale
 
     var body: some View {
         // Lazy: `similar` is a whole TMDB page, so a non-lazy row fetched and decoded ~20 posters
@@ -25,8 +26,10 @@ struct SimilarRail: View {
             }
         }
         .task {
+            // Warmed at the size the tiles decode for, or the warm-up fills a cache entry no tile reads.
             ImageMemoryCache.prefetch(
-                titles.compactMap { TMDBClient.imageURL(path: $0.posterPath, size: "w500") })
+                titles.compactMap { TMDBClient.imageURL(path: $0.posterPath, size: "w500") },
+                target: ImageDownsampling.targetPixels(points: PosterTileMetrics.decodeSize, scale: displayScale))
         }
     }
 }

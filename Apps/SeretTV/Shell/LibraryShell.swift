@@ -291,6 +291,9 @@ struct LibraryShell: View {
 
     @ViewBuilder private func keptAlive<V: View>(_ visible: Bool, @ViewBuilder _ make: () -> V) -> some View {
         make()
+            // A transparent page still holds every bitmap it drew; this lets its images go (the
+            // cache keeps the recent ones, so coming back is still instant).
+            .environment(\.retainsImages, visible)
             .opacity(visible ? 1 : 0)
             .allowsHitTesting(visible)
             .disabled(!visible)

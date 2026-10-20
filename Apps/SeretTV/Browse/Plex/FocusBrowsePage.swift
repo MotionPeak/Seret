@@ -16,6 +16,9 @@ enum FocusBrowseLayout {
     static let headerHeight: CGFloat = 470
     /// Header text starts this far below the safe area — 60 + 50 = the mockup's 110.
     static let headerTopPadding: CGFloat = 50
+    /// Header accessories start this far below the safe area (the Watchlist's Surprise Me, at the
+    /// mockup's 120).
+    static let accessoryTopPadding: CGFloat = 60
     /// Room above and below each rail's tiles for the focus lift, ring and shadow.
     static let railVerticalPadding: CGFloat = 36
     /// Overlaps consecutive rails' paddings, so the rail pitch is the mockup's ~450pt and the next
@@ -71,10 +74,13 @@ enum FocusBrowseLayout {
 /// - `handle`: follow and move the page's focus (by `plexFocusID`) from its owner, without the
 ///   owner keeping a `FocusState` of its own — which would re-render the owner, and rebuild every
 ///   rail, on each move along a rail.
+/// - `accessory`: controls pinned to the trailing side of the header (the Watchlist's Surprise Me).
+///   Their own full-width focus section, so Up from any tile of the first rail reaches them, and
+///   they take `plexFocusID`s like any tile.
 /// - The page reads `TitleArtStore` results only: its `.task(id:)` asks the store to load the
 ///   shown subject's art (the store owns the fetch), and the body looks up the art for the
 ///   subject on screen — so an older title's art can never paint over a newer one.
-struct FocusBrowsePage<Rails: View>: View {
+struct FocusBrowsePage<Rails: View, Accessory: View>: View {
     @Bindable var preview: FocusPreviewModel
     let art: TitleArtStore?
     var initialFocus: String?
@@ -83,34 +89,18 @@ struct FocusBrowsePage<Rails: View>: View {
     /// What the header says while there is no subject — see `FocusPreviewHeader.placeholder`.
     var placeholder: FocusPreviewPlaceholder?
     @ViewBuilder var rails: Rails
+    @ViewBuilder var accessory: Accessory
 
     static var leadingInset: CGFloat { FocusBrowseLayout.leadingInset }
 
-    /// The subject whose title slot is being held for its logo, if any.
-    @State private var holdingTitleFor: String?
-    /// The title the last settle was for — a re-settle of the same title (its progress changed)
-    /// must not blank a title slot that is already showing.
-    @State private var lastSettledID: String?
-    /// What the backdrop shows. Lags the header only while a title's art is on its way.
-    @State private var backdropPath: String?
-    /// The row focus is in, as reported by `plexBrowseRow(id:)`.
-    @State private var focusedRow: String?
-    /// When the page last scrolled a row to the top — re-alignment waits for that to finish.
-    @State private var lastRowScroll = ContinuousClock.now
-    /// The focused row's latest offset from the top of the rail area (see `FocusedRowOffsetKey`).
-    @State private var focusedRowOffset: CGFloat?
-    /// A re-alignment deferred until the page's own scroll has finished.
-    @State private var pendingRealign: Task<Void, Never>?
-    /// Whether any subject has been shown since the page appeared (or since it last had none). Not
-    /// the same as "a backdrop is up": a title with no art shows the canvas, and the next title
-    /// after it is not a first appearance.
-    @State private var hasShownSubject = false
-    @FocusState private var focusedID: String?
+    /// What the backdrop shows — written by the header's settle, read only by the backdrop layer.
+    @State private var backdrop = FocusBrowseBackdropPath()
 
     init(preview: FocusPreviewModel, art: TitleArtStore?, initialFocus: String? = nil,
          focusOnEntry: Bool = false, handle: FocusBrowseHandle? = nil,
          placeholder: FocusPreviewPlaceholder? = nil,
-         @ViewBuilder rails: () -> Rails) {
+         @ViewBuilder rails: () -> Rails,
+         @ViewBuilder accessory: () -> Accessory) {
         self.preview = preview
         self.art = art
         self.initialFocus = initialFocus
@@ -118,92 +108,88 @@ struct FocusBrowsePage<Rails: View>: View {
         self.handle = handle
         self.placeholder = placeholder
         self.rails = rails()
+        self.accessory = accessory()
     }
 
+    /// Reads nothing that changes with focus. The header (`FocusBrowseHeaderSlot`), the backdrop
+    /// (`FocusBrowseBackdropLayer`) and the rails (`FocusBrowseRailsArea`) each read only their own
+    /// state, so a press re-renders the header and the two tiles it moved between — not the page.
+    /// When this body read the focused title, the focus state and the row callbacks, a press re-ran
+    /// it five or six times and every run reached every tile (measured on `-uiPreview plexrails`:
+    /// 84–126 tile-modifier bodies per press).
     var body: some View {
-        let subject = preview.shown
         VStack(alignment: .leading, spacing: 0) {
-            FocusPreviewHeader(subject: subject, art: subject.flatMap(artFor),
-                               holdTitle: subject != nil && holdingTitleFor == subject?.id,
-                               placeholder: placeholder)
+            FocusBrowseHeaderSlot(preview: preview, art: art, placeholder: placeholder,
+                                  backdrop: backdrop)
                 .padding(.top, FocusBrowseLayout.headerTopPadding)
                 .padding(.leading, FocusBrowseLayout.leadingInset)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .frame(height: FocusBrowseLayout.headerHeight, alignment: .top)
-
-            ScrollViewReader { proxy in
-                ScrollView(.vertical, showsIndicators: false) {
-                    LazyVStack(alignment: .leading, spacing: FocusBrowseLayout.railSpacing) {
-                        rails
+                .overlay(alignment: .topTrailing) {
+                    // Pages without one (Home, Movies, Shows) get no section at all.
+                    if Accessory.self != EmptyView.self {
+                        accessory
+                            .padding(.top, FocusBrowseLayout.accessoryTopPadding)
+                            .padding(.trailing, FocusBrowseLayout.leadingInset)
+                            // Full width FIRST, then the section: Up from a tile at the far left
+                            // must find the accessory, and a section only catches a move its
+                            // frame intersects (CLAUDE.md, `.focusSection()`).
+                            .frame(maxWidth: .infinity, alignment: .trailing)
+                            .focusSection()
                     }
-                    .padding(.bottom, FocusBrowseLayout.bottomRunway)
                 }
-                // The content starts at the rail area's top; the band above it is the hidden one
-                // under the header (see `hiddenRailBand`).
-                .contentMargins(.top, FocusBrowseLayout.hiddenRailBand, for: .scrollContent)
-                // Rails scroll edge to edge (a tile scrolled left runs on under the side menu, as in
-                // Plex) — but a rail leaving the top must dissolve, not be sliced against the
-                // header. The fade band is the focused rail's own top padding, so it never touches
-                // the focused rail's title; above it, under the header, nothing shows at all.
-                .scrollClipDisabled()
-                .gridTopFade(FocusBrowseLayout.railVerticalPadding,
-                             hiddenAbove: FocusBrowseLayout.hiddenRailBand)
-                .onChange(of: focusedRow) { _, row in
-                    guard let row else { return }
-                    lastRowScroll = .now
-                    withAnimation(Theme.Anim.railScroll) { proxy.scrollTo(row, anchor: .top) }
-                }
-                // The focused row moved without a focus change — a row was inserted (or resized)
-                // above it. Put it back at the top, once any scroll of our own has finished.
-                .onPreferenceChange(FocusedRowOffsetKey.self) { offset in
-                    // Measured from the scroll view's top, which is `hiddenRailBand` above the
-                    // rail area's.
-                    focusedRowOffset = offset.map { $0 - FocusBrowseLayout.hiddenRailBand }
-                    realignFocusedRow(proxy)
-                }
-            }
-            // Up under the header: the hidden band. Drawn after the header, but transparent there.
-            .padding(.top, -FocusBrowseLayout.hiddenRailBand)
-            // Rails run to the bottom of the screen, so the next rail's title peeks in.
-            .ignoresSafeArea(edges: [.top, .bottom])
+
+            FocusBrowseRailsArea(rails: rails)
         }
-        .background { backdrop }
-        .defaultFocus($focusedID, initialFocus, priority: focusOnEntry ? .userInitiated : .automatic)
-        .environment(\.focusBrowseRowFocused, { focusedRow = $0 })
-        .environment(\.focusBrowseFocusedRow, focusedRow)
-        .environment(\.focusBrowseFocusID, $focusedID)
-        .onChange(of: focusedID) { _, id in handle?.focusDidChange(id) }
-        .onAppear { handle?.mover = { focusedID = $0 } }
-        // Keyed on the whole subject, so a change to it (new progress → "Xm left") re-settles.
-        .task(id: subject) { await settle(subject) }
+        // The backdrop, full-bleed: out past the safe area AND past the shell's leading inset, so
+        // the art runs under the side menu as it does in Plex.
+        .background { FocusBrowseBackdropLayer(backdrop: backdrop) }
+        // Around the header AND the rails: the header's accessories take `plexFocusID`s too (the
+        // Watchlist's Sync / Surprise Me are `initialFocus` and handle targets).
+        .modifier(FocusBrowseFocusScope(initialFocus: initialFocus, focusOnEntry: focusOnEntry,
+                                        handle: handle))
     }
+}
 
-    /// The railScroll animation plus a margin.
-    private static var scrollSettle: Duration { .milliseconds(650) }
+/// The backdrop path of a `FocusBrowsePage`: one object for the page's life, so the header can
+/// move it and only the backdrop layer re-renders.
+@MainActor @Observable
+final class FocusBrowseBackdropPath {
+    var path: String?
+}
 
-    /// The backdrop, full-bleed: out past the safe area AND past the shell's leading inset, so the
-    /// art runs under the side menu as it does in Plex.
-    private var backdrop: some View {
-        FullBleedUltrablur(backdropPath: backdropPath)
+private struct FocusBrowseBackdropLayer: View {
+    let backdrop: FocusBrowseBackdropPath
+
+    var body: some View {
+        FullBleedUltrablur(backdropPath: backdrop.path)
     }
+}
 
-    /// Puts the focused row back at the top when something moved it — or, while the page's own
-    /// scroll is still running, re-checks once that scroll is over. Never drops the request: rails
-    /// streaming in right after the initial-focus scroll are exactly the ones that must be caught.
-    private func realignFocusedRow(_ proxy: ScrollViewProxy) {
-        guard let offset = focusedRowOffset, abs(offset) > 1, let row = focusedRow else { return }
-        let since = ContinuousClock.now - lastRowScroll
-        if since >= Self.scrollSettle {
-            lastRowScroll = .now
-            withAnimation(Theme.Anim.railScroll) { proxy.scrollTo(row, anchor: .top) }
-        } else if pendingRealign == nil {
-            let remaining = Self.scrollSettle - since
-            pendingRealign = Task { @MainActor in
-                try? await Task.sleep(for: remaining)
-                pendingRealign = nil
-                realignFocusedRow(proxy)       // reads the LATEST offset, not the one that queued it
-            }
-        }
+/// The page's preview header and the settle that drives it and the backdrop.
+private struct FocusBrowseHeaderSlot: View {
+    @Bindable var preview: FocusPreviewModel
+    let art: TitleArtStore?
+    let placeholder: FocusPreviewPlaceholder?
+    let backdrop: FocusBrowseBackdropPath
+
+    /// The subject whose title slot is being held for its logo, if any.
+    @State private var holdingTitleFor: String?
+    /// The title the last settle was for — a re-settle of the same title (its progress changed)
+    /// must not blank a title slot that is already showing.
+    @State private var lastSettledID: String?
+    /// Whether any subject has been shown since the page appeared (or since it last had none). Not
+    /// the same as "a backdrop is up": a title with no art shows the canvas, and the next title
+    /// after it is not a first appearance.
+    @State private var hasShownSubject = false
+
+    var body: some View {
+        let subject = preview.shown
+        FocusPreviewHeader(subject: subject, art: subject.flatMap(artFor),
+                           holdTitle: subject != nil && holdingTitleFor == subject?.id,
+                           placeholder: placeholder)
+            // Keyed on the whole subject, so a change to it (new progress → "Xm left") re-settles.
+            .task(id: subject) { await settle(subject) }
     }
 
     private func artFor(_ subject: PreviewSubject) -> TitleArt? {
@@ -217,7 +203,7 @@ struct FocusBrowsePage<Rails: View>: View {
     private func settle(_ subject: PreviewSubject?) async {
         guard let subject else {
             holdingTitleFor = nil
-            backdropPath = nil
+            backdrop.path = nil
             lastSettledID = nil
             hasShownSubject = false
             return
@@ -232,10 +218,10 @@ struct FocusBrowsePage<Rails: View>: View {
         guard let store = art, let tmdbID = subject.tmdbID, artFor(subject) == nil else {
             // Art cached (logo and backdrop known now), or nothing to fetch.
             holdingTitleFor = nil
-            backdropPath = artFor(subject)?.backdropPath ?? subject.backdropPath
+            backdrop.path = artFor(subject)?.backdropPath ?? subject.backdropPath
             return
         }
-        if first { backdropPath = subject.backdropPath }
+        if first { backdrop.path = subject.backdropPath }
 
         // Store-owned loads: these run to completion even if this settle is superseded.
         let kind = subject.kind
@@ -258,14 +244,134 @@ struct FocusBrowsePage<Rails: View>: View {
         let backdropBudget = FocusBrowseLayout.backdropArtBudget - (ContinuousClock.now - start)
         await FocusSettle.wait(for: artLoad, upTo: max(.zero, backdropBudget))
         guard !Task.isCancelled else { return }
-        backdropPath = artFor(subject)?.backdropPath ?? subject.backdropPath
+        backdrop.path = artFor(subject)?.backdropPath ?? subject.backdropPath
         guard artFor(subject) == nil else { return }
 
         // The art is late: once it lands, move to its backdrop if it names a different one.
         // (Cancellable wait, so a superseded settle lets go at once.)
         await FocusSettle.wait(for: artLoad, upTo: .seconds(30))
         guard !Task.isCancelled else { return }
-        backdropPath = artFor(subject)?.backdropPath ?? subject.backdropPath
+        backdrop.path = artFor(subject)?.backdropPath ?? subject.backdropPath
+    }
+}
+
+/// The scrolling rail area of a `FocusBrowsePage`: scrolling the focused row to the top, and
+/// re-aligning it when a row is inserted above.
+///
+/// Its own view so that a focus move re-renders as little as possible. Nothing it hands down
+/// changes when focus moves: `rows` is one object for the page's life (rows report into it, and
+/// only the focused row's probe reads it). The page's focus state is NOT here — it is
+/// `FocusBrowseFocusScope`, around the whole page, whose box hands tiles a binding that never
+/// changes identity, and which tells the handle about each move.
+private struct FocusBrowseRailsArea<Rails: View>: View {
+    let rails: Rails
+
+    @State private var rows = FocusBrowseRows()
+    /// When the page last scrolled a row to the top — re-alignment waits for that to finish.
+    @State private var lastRowScroll = ContinuousClock.now
+    /// The focused row's latest offset from the top of the rail area (see `FocusedRowOffsetKey`).
+    @State private var focusedRowOffset: CGFloat?
+    /// A re-alignment deferred until the page's own scroll has finished.
+    @State private var pendingRealign: Task<Void, Never>?
+
+    /// The railScroll animation plus a margin.
+    private static var scrollSettle: Duration { .milliseconds(650) }
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.vertical, showsIndicators: false) {
+                LazyVStack(alignment: .leading, spacing: FocusBrowseLayout.railSpacing) {
+                    rails
+                }
+                .padding(.bottom, FocusBrowseLayout.bottomRunway)
+            }
+            // The content starts at the rail area's top; the band above it is the hidden one
+            // under the header (see `hiddenRailBand`).
+            .contentMargins(.top, FocusBrowseLayout.hiddenRailBand, for: .scrollContent)
+            // Rails scroll edge to edge (a tile scrolled left runs on under the side menu, as in
+            // Plex) — but a rail leaving the top must dissolve, not be sliced against the
+            // header. The fade band is the focused rail's own top padding, so it never touches
+            // the focused rail's title; above it, under the header, nothing shows at all.
+            .scrollClipDisabled()
+            .gridTopFade(FocusBrowseLayout.railVerticalPadding,
+                         hiddenAbove: FocusBrowseLayout.hiddenRailBand)
+            .onChange(of: rows.focused) { _, row in
+                guard let row else { return }
+                lastRowScroll = .now
+                withAnimation(Theme.Anim.railScroll) { proxy.scrollTo(row, anchor: .top) }
+            }
+            // The focused row moved without a focus change — a row was inserted (or resized)
+            // above it. Put it back at the top, once any scroll of our own has finished.
+            .onPreferenceChange(FocusedRowOffsetKey.self) { offset in
+                // Measured from the scroll view's top, which is `hiddenRailBand` above the
+                // rail area's.
+                focusedRowOffset = offset.map { $0 - FocusBrowseLayout.hiddenRailBand }
+                realignFocusedRow(proxy)
+            }
+        }
+        // Up under the header: the hidden band. Drawn after the header, but transparent there.
+        .padding(.top, -FocusBrowseLayout.hiddenRailBand)
+        // Rails run to the bottom of the screen, so the next rail's title peeks in.
+        .ignoresSafeArea(edges: [.top, .bottom])
+        .environment(\.focusBrowseRows, rows)
+    }
+
+    /// Puts the focused row back at the top when something moved it — or, while the page's own
+    /// scroll is still running, re-checks once that scroll is over. Never drops the request: rails
+    /// streaming in right after the initial-focus scroll are exactly the ones that must be caught.
+    private func realignFocusedRow(_ proxy: ScrollViewProxy) {
+        guard let offset = focusedRowOffset, abs(offset) > 1, let row = rows.focused else { return }
+        let since = ContinuousClock.now - lastRowScroll
+        if since >= Self.scrollSettle {
+            lastRowScroll = .now
+            withAnimation(Theme.Anim.railScroll) { proxy.scrollTo(row, anchor: .top) }
+        } else if pendingRealign == nil {
+            let remaining = Self.scrollSettle - since
+            pendingRealign = Task { @MainActor in
+                try? await Task.sleep(for: remaining)
+                pendingRealign = nil
+                realignFocusedRow(proxy)       // reads the LATEST offset, not the one that queued it
+            }
+        }
+    }
+}
+
+/// The page's focus state, in a modifier of its own, around the whole page (header accessories
+/// take `plexFocusID`s too). A focus move re-runs THIS body — it observes the focused id directly,
+/// with `onChange(of: focusedID)`, to tell the handle — and not the page's or the rail area's.
+///
+/// The binding reaches the tiles in a box that is the same object every time, so their
+/// `plexFocusID` modifiers are not re-run on a move either. The binding is a handle on this
+/// modifier's focus state rather than a copy of its value, so a tile holding the one it was built
+/// with still focuses and reports correctly; the box is refreshed on every run regardless.
+private struct FocusBrowseFocusScope: ViewModifier {
+    let initialFocus: String?
+    let focusOnEntry: Bool
+    let handle: FocusBrowseHandle?
+
+    @FocusState private var focusedID: String?
+    @State private var box = FocusBrowseFocusBox()
+
+    func body(content: Content) -> some View {
+        let binding = $focusedID
+        let _ = box.binding = binding
+        content
+            .defaultFocus(binding, initialFocus, priority: focusOnEntry ? .userInitiated : .automatic)
+            .environment(\.focusBrowseFocusID, box)
+            // Observed here, from the FocusState itself — the handle's focus memory (Home, Movies,
+            // Shows, Watchlist) must not depend on some other view happening to re-render.
+            .onChange(of: focusedID) { _, id in handle?.focusDidChange(id) }
+            .onAppear { handle?.mover = { focusedID = $0 } }
+    }
+}
+
+extension FocusBrowsePage where Accessory == EmptyView {
+    init(preview: FocusPreviewModel, art: TitleArtStore?, initialFocus: String? = nil,
+         focusOnEntry: Bool = false, handle: FocusBrowseHandle? = nil,
+         placeholder: FocusPreviewPlaceholder? = nil,
+         @ViewBuilder rails: () -> Rails) {
+        self.init(preview: preview, art: art, initialFocus: initialFocus, focusOnEntry: focusOnEntry,
+                  handle: handle, placeholder: placeholder, rails: rails, accessory: { EmptyView() })
     }
 }
 

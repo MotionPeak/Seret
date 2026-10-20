@@ -56,6 +56,8 @@ public final class WatchlistModel {
     private let removeSlug: WatchlistRemoving
     private let relay: WatchlistRelaying
     private let status: @Sendable () async -> WatchlistCombinedStatus
+    /// Reads the mirror as it stands now — see `reloadCached()`. Nil: nothing to re-read.
+    private let reload: (@Sendable () async -> [WatchlistEntry])?
 
     public init(cached: [WatchlistEntry],
                 settings: LetterboxdSettings,
@@ -64,6 +66,7 @@ public final class WatchlistModel {
                 remove: @escaping WatchlistRemoving = { _ in [] },
                 relay: @escaping WatchlistRelaying = { .idle },
                 status: @escaping @Sendable () async -> WatchlistCombinedStatus = { .solo },
+                reload: (@Sendable () async -> [WatchlistEntry])? = nil,
                 run: @escaping WatchlistSyncRunning) {
         self.allEntries = cached
         self.settings = settings
@@ -73,6 +76,27 @@ public final class WatchlistModel {
         self.removeSlug = remove
         self.relay = relay
         self.status = status
+        self.reload = reload
+    }
+
+    /// Re-reads the mirror from disk, without a crawl — for a screen that stays alive while films
+    /// are added or removed elsewhere (a title page, a tile's long-press). Skipped while a sync is
+    /// running: the crawl's answer lands at its end, and an older mirror read now would only be
+    /// overwritten by it — or, landing after it, undo it.
+    ///
+    /// An empty read over a list that has films is ignored: removals are marks, never deletions,
+    /// so a mirror that comes back empty is one that could not be read — and stale beats empty.
+    public func reloadCached() async {
+        guard let reload, !isSyncing else { return }
+        let fresh = await reload()
+        guard !isSyncing, !(fresh.isEmpty && !allEntries.isEmpty) else { return }
+        allEntries = fresh
+        await refreshStatus()
+    }
+
+    private var isSyncing: Bool {
+        if case .syncing = phase { return true }
+        return syncTask != nil
     }
 
     /// Re-reads whose list each film is on. Cheap — two small files, no network.

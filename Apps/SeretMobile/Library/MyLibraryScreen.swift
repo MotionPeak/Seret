@@ -35,7 +35,7 @@ struct MyLibraryScreen: View {
                 .padding(.top, Theme.Space.sm)
 
                 if let tiles = session.downloadStore?.activeTiles, !tiles.isEmpty {
-                    DownloadingStrip(tiles: tiles)
+                    DownloadingStrip(tiles: tiles, library: session.libraryStore, router: router)
                 }
 
                 if let store = session.libraryStore {
@@ -88,13 +88,22 @@ struct MyLibraryScreen: View {
 /// is visible (with live progress) before it finishes and becomes a normal library item.
 private struct DownloadingStrip: View {
     let tiles: [DownloadTile]
+    let library: LibraryStore?
+    let router: AppRouter
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.xs) {
             Text("DOWNLOADING").font(Theme.Typo.label()).tracking(1.5)
                 .foregroundStyle(Theme.Palette.gold).padding(.horizontal, Theme.Space.lg)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: Theme.Space.md) {
-                    ForEach(tiles) { DownloadingTile(tile: $0) }
+                    // Tappable, as the same tiles are on Home: they open the title's page.
+                    ForEach(tiles) { tile in
+                        Button {
+                            openDownload(tile, library: library, router: router)
+                        } label: {
+                            DownloadingTile(tile: tile)
+                        }.pressable()
+                    }
                 }
                 .padding(.horizontal, Theme.Space.lg)
             }

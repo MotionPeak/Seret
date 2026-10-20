@@ -313,4 +313,44 @@ struct FilenameParserTests {
         #expect(file.episode == 1)
         #expect(file.isTV == true)           // an episode number alone is enough
     }
+
+    // MARK: - Spaced tracker-site prefixes
+
+    /// French tracker sites prepend their domain in SPACED brackets — `[ OxTorrent.com ] Lucy…`.
+    /// The bracket and the domain arrive as separate tokens, so neither the leading-tag rule (one
+    /// bracketed token) nor the metadata stop-patterns saw them, and the whole prefix became part
+    /// of the title. TMDB matched nothing against "[ OxTorrent com ] Lucy", so five owned films
+    /// showed no poster, no plot, and keyed apart from any other copy of the same film.
+    @Test(arguments: [
+        ("[ OxTorrent.com ] Grown.Ups.2010.FRENCH.1080p.BluRay.x264.mkv", "Grown Ups", 2010),
+        ("[ OxTorrent.com ] Lucy.2014.MULTi.1080p.BluRay.x264.AC3.mkv", "Lucy", 2014),
+        ("[ OxTorrent.com ] Titanic.1997.TRUEFRENCH.1080p.BluRay.x264.mkv", "Titanic", 1997),
+        ("[ Torrent9.NZ ] John.Wick.2014.FRENCH.1080p.BluRay.x264.mkv", "John Wick", 2014),
+        ("[ Torrent911.pw ] Sicario.2015.MULTi.1080p.BluRay.x264.mkv", "Sicario", 2015),
+        ("[ OxTorrent com ] Grown Ups 2010 1080p.mkv", "Grown Ups", 2010),
+        ("[www.Cpasbien.cm] Lucy.2014.1080p.mkv", "Lucy", 2014),
+    ])
+    func dropsASpacedTrackerSitePrefix(_ raw: String, _ title: String, _ year: Int) {
+        let r = parser.parse(raw)
+        #expect(r.title == title)
+        #expect(r.year == year)
+        #expect(r.isTV == false)
+    }
+
+    /// A TLD that is also an ordinary word (`tv`, `to`, `co`…) is a site only after a DOT: a
+    /// broadcaster's or a group's bracket like `[Kan 11 TV]` is not a domain and must stay.
+    @Test(arguments: [
+        "[Kan 11 TV] Fauda S01E01 1080p.mkv",
+        "[ Welcome To ] Some.Film.2010.1080p.mkv",
+        "[Kan 11 TV] Fauda",
+    ])
+    func anOrdinaryWordIsNotASiteTLD(_ raw: String) {
+        #expect(FilenameParser.strippingSiteTag(raw) == raw)
+    }
+
+    @Test func aDottedWordTLDIsStillASite() {
+        #expect(FilenameParser.strippingSiteTag("[ YggTorrent.to ] Lucy.2014.mkv") == "Lucy.2014.mkv")
+        #expect(FilenameParser.strippingSiteTag("[www.Torrent9.tv] Lucy.2014.mkv") == "Lucy.2014.mkv")
+    }
+
 }

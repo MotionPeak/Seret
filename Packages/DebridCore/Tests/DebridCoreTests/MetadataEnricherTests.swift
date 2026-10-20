@@ -51,6 +51,42 @@ extension MockTests {
             #expect(result.tmdbID == nil)
         }
 
+        /// A release name can carry words TMDB's title does not — "Star Wars Episode VII The Force
+        /// Awakens" is "Star Wars: The Force Awakens", "American Pie Reunion" is "American Reunion".
+        /// TMDB's year-filtered search returns exactly the right film for both, and the
+        /// contains-check threw it away, so both owned films stayed posterless.
+        @Test(arguments: [
+            ("Star Wars Episode VII The Force Awakens", 2015, 140607, "Star Wars: The Force Awakens", "2015-12-15"),
+            ("American Pie Reunion", 2012, 71552, "American Reunion", "2012-04-04"),
+        ])
+        func acceptsATitleWhoseWordsAllAppearInOrder(_ parsed: String, _ year: Int, _ id: Int,
+                                                    _ tmdbTitle: String, _ date: String) async throws {
+            MockURLProtocol.stub(status: 200, json: """
+            {"results":[{"id":\(id),"title":"\(tmdbTitle)","release_date":"\(date)","poster_path":"/p.jpg","overview":"o"}]}
+            """)
+            let result = try await enricher().enrich(movie(parsed, year: year))
+            #expect(result.tmdbID == id)
+            #expect(result.title == tmdbTitle)
+        }
+
+        /// The looser word-order rule only applies when the search was pinned to a year, and still
+        /// rejects a title that shares a word or two with an unrelated film.
+        @Test(arguments: [
+            ("Star Wars Episode VII The Force Awakens", nil as Int?, "Star Wars: The Force Awakens"),
+            ("American Pie Reunion", 2012, "American Wedding"),          // a word out of place
+            ("Harry Potter And The Deathly Hallows Part 1", 2010, "Harry Part"),  // too few of the words
+            // Only ONE real word in common — "the" carries nothing.
+            ("The Lion King", 2019, "The King"),
+            ("The Hunger Games", 2012, "The Games"),
+        ])
+        func wordOrderRuleStaysStrict(_ parsed: String, _ year: Int?, _ tmdbTitle: String) async throws {
+            MockURLProtocol.stub(status: 200, json: """
+            {"results":[{"id":5,"title":"\(tmdbTitle)","release_date":"2012-01-01","poster_path":"/p.jpg","overview":"o"}]}
+            """)
+            let result = try await enricher().enrich(movie(parsed, year: year))
+            #expect(result.tmdbID == nil)
+        }
+
         @Test func enrichesAllItemsAndPreservesOrder() async {
             MockURLProtocol.handler = { request in
                 let url = request.url!.absoluteString

@@ -72,6 +72,18 @@ public final class TitleArtStore {
         }
     }
 
+    /// Puts art another screen already holds into the cache, so a header draws it at once instead
+    /// of asking TMDB again. Never replaces art the store already has.
+    public func seed(_ art: TitleArt, for kind: MediaKind, tmdbID: Int) {
+        let key = Key(kind: kind, tmdbID: tmdbID)
+        guard cache[key] == nil else { return }
+        cache[key] = art
+        touch(key)
+        while order.count > capacity {
+            cache[order.removeFirst()] = nil
+        }
+    }
+
     private func touch(_ key: Key) {
         order.removeAll { $0 == key }
         order.append(key)

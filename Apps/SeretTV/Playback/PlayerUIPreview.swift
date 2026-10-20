@@ -54,9 +54,13 @@ import DebridCore
 ///   - `autosync` / `autosyncdone` / `autosyncfailed` — the subtitle-sync bar over the picture
 ///   - `manualsync` / `manualsyncpressed` — sync-to-a-line, before and after the press
 ///   - `home`      — the Home screen whole: hero, Continue Watching rail, Recently Added grid
-///   - `watchlist` — the Letterboxd watchlist grid: matched, owned, and unmatched tiles together
-///   - `watchlistpartner` — the same grid with a partner's list that could not be read: the
-///     secondary line beside the count, never an error over the grid
+///   - `watchlist` — the Letterboxd watchlist page with a partner (Noga): every row — In Your
+///     Library, Recently Added, Highest Rated, You Both, Noga's Picks, genres, Short Ones,
+///     Classics, Not Matched — over real TMDB details and art
+///   - `watchlistpartner` — the same page with the partner's list unreadable AND a removal that
+///     did not reach Letterboxd: both lines stacked under the header pills, never over the rows
+///   - `watchlistslow` — a first visit with a slow TMDB (3 s a film): the header fills in as
+///     batches land, the rows only change once the pass is over — nothing moves under focus
 ///   - `spin` — Surprise Me's Cover Flow reel, mid-turn and landed on Whiplash with its backdrop
 ///   - `spinnoart` — the same landing with no TMDB art: text title, plain background
 ///   - `serverprobe` — can this Apple TV actually reach SeretServer? Names ATS and local-network
@@ -141,7 +145,12 @@ struct PlayerUIPreview: View {
         case "homedownloadsonly":   HomeScreenPreview(downloading: true, downloadsOnly: true)
         case "downloadstrip":       DownloadStripPreview()
         case "watchlist":           WatchlistScreenPreview()
+        case "watchlistremove":     WatchlistScreenPreview(removeFocusedAfter: .seconds(20))
+        case "homemenu":            MenuWrappedPreview { HomeScreenPreview() }
+        case "browsemenu":          MenuWrappedPreview { BrowseScreenPreview() }
+        case "watchlistmenu":       MenuWrappedPreview { WatchlistScreenPreview() }
         case "watchlistpartner":    WatchlistScreenPreview(partnerUnreadable: true)
+        case "watchlistslow":       WatchlistScreenPreview(slowDetails: true)
         case "letterboxd":          LetterboxdCardPreview()
         case "letterboxdtoast":     LetterboxdToastPreview()
         case "letterboxdrating":    LetterboxdRatingPreview(existing: nil)
@@ -1770,48 +1779,75 @@ private struct DownloadStripPreview: View {
 
 // MARK: - Watchlist
 
-/// The real `WatchlistScreen` on a fabricated model, so its layout can be checked against Home's
+/// The real `WatchlistScreen` on a fabricated model, so the page can be checked against Home's
 /// without a Letterboxd account or a signed-in session.
 ///
-/// The fixture carries all three tile states on purpose: ordinary matched films, one already in the
-/// library (the white ✓), and one that resolved to nothing — the grey box whose population this
-/// change is meant to shrink. Real TMDB poster paths, so the grid loads actual artwork and the
-/// column metrics can be compared to My Library's by eye.
+/// The fixture exercises every row: films in the library (the grey ✓), films only Noga holds and
+/// films on both lists (the chips), pre-1980 classics, short films, and one that resolved to
+/// nothing (the Not Matched row). Real TMDB ids and poster paths, and a details store over the real
+/// TMDB API (no file, so it fetches each run), so the genre, rating and runtime rows fill in the
+/// way they do on a first visit.
 private struct WatchlistScreenPreview: View {
     @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()))
     @State private var model: WatchlistModel
 
-    init(partnerUnreadable: Bool = false) {
+    private var removeFocusedAfter: Duration?
+
+    init(partnerUnreadable: Bool = false, slowDetails: Bool = false, removeFocusedAfter: Duration? = nil) {
+        self.removeFocusedAfter = removeFocusedAfter
         _model = State(initialValue: Self.makeModel(partnerUnreadable: partnerUnreadable))
+        if slowDetails {
+            let service = TMDBDetailsService(client: TMDBClient(apiKey: Secrets.tmdbAPIKey))
+            _details = State(initialValue: WatchlistDetailsStore(fileURL: nil, publishEvery: 6) { id in
+                try await Task.sleep(for: .seconds(3))
+                return WatchlistFilmDetails(movie: try await service.movieDetails(tmdbID: id),
+                                            fetchedAt: Date())
+            })
+        }
     }
 
     @State private var art = TitleArtStore(details: TMDBDetailsService(
         client: TMDBClient(apiKey: Secrets.tmdbAPIKey)))
+    @State private var details = WatchlistDetailsStore(
+        fileURL: nil, details: TMDBDetailsService(client: TMDBClient(apiKey: Secrets.tmdbAPIKey)))
 
     var body: some View {
         NavigationStack {
-            WatchlistScreen(previewModel: model, previewArt: art)
+            WatchlistScreen(previewModel: model, previewArt: art, previewDetails: details,
+                            previewRemoveFocusedAfter: removeFocusedAfter)
                 // A root page: the shell's content inset, so x positions match the real app.
                 .sideMenuContentInset()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .navigationDestination(for: BrowseDestination.self) { _ in Color.black }
         }
             .environment(session)
             // The screen's own `.task` does not run in preview mode, so the status is read here.
-            .task { await model.refreshStatus() }
+            .task {
+                await model.refreshStatus()
+                await model.pushPending()
+            }
     }
 
     private static func makeModel(partnerUnreadable: Bool) -> WatchlistModel {
         let partner = WatchlistCombinedStatus(
-            membership: WatchlistMembership(owner: WatchlistPreviewFixture.entries, partner: []),
+            membership: WatchlistMembership(owner: WatchlistPreviewFixture.owners,
+                                            partner: WatchlistPreviewFixture.partners),
             partnerName: "Noga",
-            partnerError: "Couldn't read Noga's watchlist — the profile is private, renamed or gone.")
+            partnerError: partnerUnreadable
+                ? "Couldn't read Noga's watchlist — the profile is private, renamed or gone." : nil)
         let model = WatchlistModel(cached: WatchlistPreviewFixture.entries,
                                    settings: LetterboxdSettings(username: "preview"),
-                                   status: { partnerUnreadable ? partner : .solo }) { _ in
+                                   relay: {
+                                       partnerUnreadable
+                                           ? .init(pushed: 0, failed: 1,
+                                                   firstError: "Couldn't reach SeretServer to remove Speed.")
+                                           : .idle
+                                   },
+                                   status: { partner }) { _ in
             WatchlistPreviewFixture.entries
         }
-        // Two of them are already in the library.
-        model.ownedTMDBIDs = [496243, 949]
+        // Four of them are already in the library: Stalker, Eraserhead, Parasite, Heat.
+        model.ownedTMDBIDs = [1398, 985, 496243, 949]
         return model
     }
 
@@ -1820,21 +1856,28 @@ private struct WatchlistScreenPreview: View {
 /// File scope, not a nested static: the view is `@MainActor`, and the model's sync closure is
 /// `@Sendable` — a fixture read from inside it must not be actor-isolated.
 private enum WatchlistPreviewFixture {
-    static let films: [(String, Int, Int?, String?)] = [
-        ("Honey Don't! (2025)", 2025, 1149504, "/fJm3kmd9NLZWypMas7g34oNFgbk.jpg"),
-        ("Ocean's Eleven (2001)", 2001, 161, "/hQQCdZrsHtZyR6NbKH2YyCqd2fR.jpg"),
-        ("Dungeons & Dragons: Honor Among Thieves (2023)", 2023, 493529, "/v7UF7ypAqjsFZFdjksjQ7IUpXdn.jpg"),
-        ("Parasite (2019)", 2019, 496243, "/7IiTTgloJzvGI1TAYymCfbfl3vT.jpg"),
-        ("The Brutalist (2024)", 2024, 549509, "/vP7Yd6couiAaw9jgMd5cjMRj3hQ.jpg"),
-        ("Anora (2024)", 2024, 1064213, "/cgXk2tNYhJZLXdBDO5DidAVzQ82.jpg"),
-        ("Nosferatu (2024)", 2024, 426063, "/5qGIxdEO841C0tdY8vOdLoRVrr0.jpg"),
-        ("Heat (1995)", 1995, 949, "/umSVjVdbVwtx5ryCA2QXL44Durm.jpg"),
-        ("Speed (1994)", 1994, 1637, "/82PkCE4R95KhHICUDF7G4Ly2z3l.jpg"),
-        ("Whiplash (2014)", 2014, 244786, "/7fn624j5lj3xTme2SgiLCeuedmO.jpg"),
-        ("Arrival (2016)", 2016, 329865, "/pEzNVQfdzYDzVK0XqxERIw2x2se.jpg"),
-        ("Dune (2021)", 2021, 438631, "/v1tRXZ4JtD2Iv6fjkPvT4GiwslV.jpg"),
-        // Resolved and found nothing — the state the grid still has to render honestly.
-        ("A Film TMDB Has Never Heard Of (2019)", 2019, nil, nil),
+    /// Name, year, TMDB id, poster, and whose list: "o" the owner's, "p" Noga's, "b" both.
+    static let films: [(String, Int, Int?, String?, Character)] = [
+        ("Stalker (1979)", 1979, 1398, "/1qhOyf5C4s9ZdvY8d5JDx9DFMeT.jpg", "o"),
+        ("Eraserhead (1977)", 1977, 985, "/mxveW3mGVc0DzLdOmtkZsgd7c3B.jpg", "o"),
+        ("American Beauty (1999)", 1999, 14, "/wby9315QzVKdW9BonAefg8jGTTb.jpg", "b"),
+        ("Honey Don't! (2025)", 2025, 1149504, "/fJm3kmd9NLZWypMas7g34oNFgbk.jpg", "o"),
+        ("Mother (2009)", 2009, 30018, "/8oBnSkZE6GDVugAbLPO6uJd4GcS.jpg", "p"),
+        ("Ocean's Eleven (2001)", 2001, 161, "/hQQCdZrsHtZyR6NbKH2YyCqd2fR.jpg", "o"),
+        ("Grave of the Fireflies (1988)", 1988, 12477, "/k9tv1rXZbOhH7eiCk378x61kNQ1.jpg", "b"),
+        ("Parasite (2019)", 2019, 496243, "/7IiTTgloJzvGI1TAYymCfbfl3vT.jpg", "o"),
+        ("Incendies (2010)", 2010, 46738, "/yH6DAQVgbyj72S66gN4WWVoTjuf.jpg", "p"),
+        ("The Brutalist (2024)", 2024, 549509, "/vP7Yd6couiAaw9jgMd5cjMRj3hQ.jpg", "o"),
+        ("It's a Wonderful Life (1946)", 1946, 1585, "/bSqt9rhDZx1Q7UZ86dBPKdNomp2.jpg", "p"),
+        ("Anora (2024)", 2024, 1064213, "/cgXk2tNYhJZLXdBDO5DidAVzQ82.jpg", "b"),
+        ("Nosferatu (2024)", 2024, 426063, "/5qGIxdEO841C0tdY8vOdLoRVrr0.jpg", "o"),
+        ("Heat (1995)", 1995, 949, "/umSVjVdbVwtx5ryCA2QXL44Durm.jpg", "o"),
+        ("Speed (1994)", 1994, 1637, "/82PkCE4R95KhHICUDF7G4Ly2z3l.jpg", "o"),
+        ("Whiplash (2014)", 2014, 244786, "/7fn624j5lj3xTme2SgiLCeuedmO.jpg", "b"),
+        ("Arrival (2016)", 2016, 329865, "/pEzNVQfdzYDzVK0XqxERIw2x2se.jpg", "o"),
+        ("Dune (2021)", 2021, 438631, "/v1tRXZ4JtD2Iv6fjkPvT4GiwslV.jpg", "p"),
+        // Resolved and found nothing — the Not Matched row.
+        ("A Film TMDB Has Never Heard Of (2019)", 2019, nil, nil, "o"),
     ]
 
     static var entries: [WatchlistEntry] {
@@ -1842,6 +1885,13 @@ private enum WatchlistPreviewFixture {
             WatchlistEntry(slug: "f\(index)", name: film.0, year: film.1, position: index,
                            tmdbID: film.2, posterPath: film.3, resolvedAt: Date())
         }
+    }
+
+    static var owners: [WatchlistEntry] { pick { $0 == "o" || $0 == "b" } }
+    static var partners: [WatchlistEntry] { pick { $0 == "p" || $0 == "b" } }
+
+    private static func pick(_ holder: (Character) -> Bool) -> [WatchlistEntry] {
+        zip(films, entries).filter { holder($0.0.4) }.map(\.1)
     }
 }
 
@@ -2080,6 +2130,34 @@ private struct ServerReachabilityPreview: View {
             }
             lines = out
         }
+    }
+}
+
+// MARK: - A page inside the side menu
+
+/// `-uiPreview homemenu` / `browsemenu` / `watchlistmenu`: the real page beside the real side menu,
+/// wired as the shell wires them (focus entering the menu opens it, leaving closes it), so the
+/// remote walk "focus a tile mid-rail, Left into the menu, Right back" can be run without a
+/// signed-in session. Right must land on the tile that was left — the page's focus memory,
+/// through `FocusBrowseHandle`.
+private struct MenuWrappedPreview<Page: View>: View {
+    @ViewBuilder var page: Page
+
+    @FocusState private var focus: SideMenuItem?
+    @State private var expanded = false
+
+    var body: some View {
+        ZStack(alignment: .leading) {
+            page.focusSection()
+            SideMenuScrim(visible: expanded)
+            SideMenu(selected: .home, profileName: "Shahar",
+                     profileAvatar: "", profileColorTag: Theme.Palette.defaultColorTag,
+                     focus: $focus, expanded: expanded,
+                     onSelect: { _ in expanded = false }, onProfile: {})
+        }
+        .onChange(of: focus) { _, new in expanded = new != nil }
+        // Menu opens the side menu from anywhere, as in the shell.
+        .onExitCommand(perform: expanded ? nil : { focus = .home })
     }
 }
 

@@ -240,12 +240,13 @@ struct BrowseScreen: View {
     }
 }
 
-/// A genre row's last tile: the genre and "See All" on glass, at the rail's poster size, with the
+/// A row's last tile: the row's name and "See All" on glass, at the rail's poster size, with the
 /// same focus ring and lift as the posters beside it (`FocusCardStyle`). A `NavigationLink(value:)`
-/// like them, so the shell's stack pushes the grid and Menu pops back to this tile.
-private struct SeeAllTile: View {
+/// like them, so the stack pushes the grid and Menu pops back to this tile. Movies/Shows' genre
+/// rows push a `BrowseDestination`; the Watchlist's rows push its own grid route.
+struct SeeAllTile<Value: Hashable>: View {
     let title: String
-    let value: BrowseDestination
+    let value: Value
     var onFocus: () -> Void = {}
 
     var body: some View {

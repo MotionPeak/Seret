@@ -131,43 +131,75 @@ struct MovieDetail: View {
         return parts.joined(separator: "  ·  ")
     }
 
-    @ViewBuilder private var actions: some View {
-        HStack(spacing: Theme.Space.md) {
-            if let best = store.bestSource {
-                if let resume = resumeSeconds {
-                    Button { onPlay(store.playRequest(source: best, episode: nil, label: item.title)) } label: {
-                        Label("Resume · \(Timecode.format(resume))", systemImage: "play.fill")
-                    }.buttonStyle(GoldButtonStyle())
-                    Button { onPlay(store.playRequest(source: best, episode: nil, label: item.title, fromStart: true)) } label: {
-                        Label("Start", systemImage: "gobackward")
-                    }.buttonStyle(GhostButtonStyle())
-                } else {
-                    Button { onPlay(store.playRequest(source: best, episode: nil, label: item.title)) } label: {
-                        Label("Play", systemImage: "play.fill")
-                    }.buttonStyle(GoldButtonStyle())
-                }
-            } else {
-                // Not in the library: Play still means play. It finds the best instantly-available
-                // release, adds it, and starts.
-                Button { Task { await acquisition?.playBest(.movie) } } label: {
-                    Label(acquiringLabel, systemImage: acquiring ? "hourglass" : "play.fill")
-                }
-                .buttonStyle(GoldButtonStyle())
-                // …and until the IMDb id has resolved. The engine cannot query an indexer without it, so
-                // tapping earlier failed with "Not signed in to Real-Debrid" — a reason that is not
-                // only unhelpful but untrue.
-                .disabled(acquiring || acquisition == nil || store.imdbID == nil)
+    /// The action row adapts instead of wrapping. Each button keeps its label on one line
+    /// (`fixedSize`); when the full row is wider than the screen — "Resume · 1:06:22" beside Start
+    /// and Watchlist on an iPhone — the secondary buttons drop to their icons, and at accessibility
+    /// text sizes the primary button takes a row of its own. Before, the HStack squeezed every
+    /// label until it broke one character per line.
+    private var actions: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: Theme.Space.md) {
+                primaryActions(compact: false)
+                watchlistButton(compact: false)
+                Spacer(minLength: 0)
+                watchedMenu()
             }
-            // Its own control rather than a line in the "…" menu: it is the one thing you do to a
-            // film you have NOT watched, which is most of what reaches an unowned title.
-            watchlistButton()
-            Spacer(minLength: 0)
-            watchedMenu()
+            HStack(spacing: Theme.Space.md) {
+                primaryActions(compact: true)
+                watchlistButton(compact: true)
+                Spacer(minLength: 0)
+                watchedMenu()
+            }
+            VStack(alignment: .leading, spacing: Theme.Space.md) {
+                primaryActions(compact: true, wraps: true)
+                HStack(spacing: Theme.Space.md) {
+                    watchlistButton(compact: true)
+                    Spacer(minLength: 0)
+                    watchedMenu()
+                }
+            }
+        }
+    }
+
+    /// Play / Resume (+ Start over). `compact` shows Start as its icon alone; `wraps` lets the
+    /// primary label break across lines — the last resort, when even its own row is too narrow.
+    @ViewBuilder private func primaryActions(compact: Bool, wraps: Bool = false) -> some View {
+        if let best = store.bestSource {
+            if let resume = resumeSeconds {
+                Button { onPlay(store.playRequest(source: best, episode: nil, label: item.title)) } label: {
+                    Label("Resume · \(Timecode.format(resume))", systemImage: "play.fill")
+                        .fixedSize(horizontal: !wraps, vertical: false)
+                }.buttonStyle(GoldButtonStyle())
+                Button { onPlay(store.playRequest(source: best, episode: nil, label: item.title, fromStart: true)) } label: {
+                    Label("Start", systemImage: "gobackward")
+                        .labelStyle(AdaptiveLabelStyle(iconOnly: compact))
+                        .fixedSize()
+                }.buttonStyle(GhostButtonStyle())
+            } else {
+                Button { onPlay(store.playRequest(source: best, episode: nil, label: item.title)) } label: {
+                    Label("Play", systemImage: "play.fill")
+                        .fixedSize(horizontal: !wraps, vertical: false)
+                }.buttonStyle(GoldButtonStyle())
+            }
+        } else {
+            // Not in the library: Play still means play. It finds the best instantly-available
+            // release, adds it, and starts.
+            Button { Task { await acquisition?.playBest(.movie) } } label: {
+                Label(acquiringLabel, systemImage: acquiring ? "hourglass" : "play.fill")
+                    .fixedSize(horizontal: !wraps, vertical: false)
+            }
+            .buttonStyle(GoldButtonStyle())
+            // …and until the IMDb id has resolved. The engine cannot query an indexer without it, so
+            // tapping earlier failed with "Not signed in to Real-Debrid" — a reason that is not
+            // only unhelpful but untrue.
+            .disabled(acquiring || acquisition == nil || store.imdbID == nil)
         }
     }
 
     /// Films only — Letterboxd has no watchlist a show can go on.
-    @ViewBuilder private func watchlistButton() -> some View {
+    // Its own control rather than a line in the "…" menu: it is the one thing you do to a film you
+    // have NOT watched, which is most of what reaches an unowned title.
+    @ViewBuilder private func watchlistButton(compact: Bool) -> some View {
         if let film = WatchlistFilm(item: item), let watchlist {
             let on = watchlist.contains(tmdbID: film.tmdbID)
             Button {
@@ -175,6 +207,8 @@ struct MovieDetail: View {
             } label: {
                 Label(on ? "On Watchlist" : "Watchlist",
                       systemImage: on ? "bookmark.fill" : "bookmark")
+                    .labelStyle(AdaptiveLabelStyle(iconOnly: compact))
+                    .fixedSize()
             }
             .buttonStyle(GhostButtonStyle())
             .disabled(watchlist.isInFlight(tmdbID: film.tmdbID))
@@ -304,7 +338,11 @@ struct MovieDetail: View {
         return watch?.resumePosition
     }
 
-    /// The download section shows for a film you don't own, and for one with a download under way.
+    /// The download section shows once there is a reason for it: Play looked and found nothing it
+    /// could start, or a download of this film already exists. It used to sit on every film you
+    /// don't own, announcing "No cached version exists" before anything had been checked — even
+    /// on films with Instant versions, where Play would have started at once. (Ported from the
+    /// tvOS `offersDownload`.)
     ///
     /// Owned is asked of the LIBRARY as well as the page: the library lists a finished download a
     /// moment before the page adopts it, and for that moment the page alone offered "Request
@@ -316,7 +354,11 @@ struct MovieDetail: View {
             if case .ready = status.phase { return !owned }
             return true
         }
-        return !owned
+        guard !owned else { return false }
+        switch acquisition?.phase {
+        case .noneCached, .failed: return true
+        default: return false
+        }
     }
 }
 
