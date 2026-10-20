@@ -24,7 +24,8 @@ struct WatchlistGridScreen: View {
 
     var body: some View {
         let data = WatchlistPageData(model: model, details: details)
-        let entries = data.rows.first { $0.id == route.rowID }?.entries ?? []
+        let row = data.rows.first { $0.id == route.rowID }
+        let entries = row?.entries ?? []
         VStack(alignment: .leading, spacing: 0) {
             Text(route.title)
                 .screenTitle()
@@ -39,7 +40,7 @@ struct WatchlistGridScreen: View {
                     .foregroundStyle(Theme.Palette.textSecondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                grid(entries, data: data)
+                grid(entries, kind: row?.kind ?? .recent, data: data)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -50,7 +51,8 @@ struct WatchlistGridScreen: View {
         .watchlistRemovalDialog(pending: $pendingRemoval, model: model)
     }
 
-    private func grid(_ entries: [WatchlistEntry], data: WatchlistPageData) -> some View {
+    private func grid(_ entries: [WatchlistEntry], kind: WatchlistRow.Kind,
+                      data: WatchlistPageData) -> some View {
         let preview = preview, art = art
         let firstSlug = entries.first?.slug
         let subjects = entries.map { data.subject(for: $0) }
@@ -62,7 +64,7 @@ struct WatchlistGridScreen: View {
                     CaptionedPoster(caption: matched ? WatchlistName.stripYear(from: entry.name)
                                                      : "No TMDB match",
                                     note: !matched) {
-                        WatchlistTile(entry: entry, owned: data.isOwned(entry),
+                        WatchlistTile(entry: entry, owned: data.showsOwnedMark(entry, in: kind),
                                       badge: data.badge(for: entry),
                                       onRemove: { pendingRemoval = $0 },
                                       onFocus: {

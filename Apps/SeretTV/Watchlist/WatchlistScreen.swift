@@ -25,6 +25,15 @@ struct WatchlistScreen: View {
     @Environment(WatchlistMarks.self) private var watchlistMarks: WatchlistMarks?
     @State private var model: WatchlistModel?
     @State private var detailsStore: WatchlistDetailsStore?
+    /// The launch preload's backstop: past this, details load even if Home never answers.
+    @State private var preloadDeadlinePassed = false
+
+    /// Home has answered its first build — or there is no Home to wait for.
+    private var homeHasAnswered: Bool { session.home.map(\.hasBuiltForProfile) ?? true }
+    /// Whether the details fetch may start. The page is built at launch and kept alive behind
+    /// Home, and ~250 TMDB calls must not compete with Home's first paint — the same gate Movies
+    /// and Shows wait on. On screen, it loads at once.
+    private var mayLoad: Bool { isVisiblePage || homeHasAnswered || preloadDeadlinePassed }
 
     /// Opens a title page. The shell owns the navigation path, so a spin's result is pushed by
     /// handing it back up rather than by this screen registering a destination of its own — the
@@ -139,10 +148,12 @@ struct WatchlistScreen: View {
         let rows = data.rows
         let keys = focusKeys(rows, canSpin: model.canSpin)
         // Back where focus was while that is still on the page, else the first film of the row it
-        // was in, else the first film — or, with no films, the Sync pill.
+        // was in (or of the row that followed it, when that row has gone), else the first film —
+        // or, with no films, the Sync pill. By row ID, not index: a row inserted above (details
+        // arriving) must not shift the fallback onto a different row.
         let focusTarget = [focusMemory.lastFocused, entryFocus].compactMap { $0 }.first(where: keys.contains)
-            ?? Self.firstTileID(ofRowAt: focusMemory.lastRowIndex, in: rows)
-            ?? Self.firstTileID(ofRowAt: 0, in: rows)
+            ?? Self.firstTileID(near: focusedFilm.rowTrail, in: rows)
+            ?? Self.firstTileID(near: rows.first.map { [$0.id] } ?? [], in: rows)
             ?? PageID.sync
         let first = rows.first?.entries.first
         // The first film's header, until a tile has had focus — keyed on what it shows, so its
@@ -151,9 +162,11 @@ struct WatchlistScreen: View {
         let placeholder = FocusPreviewPlaceholder(
             title: "Watchlist",
             hint: model.phase.isSyncing ? "Reading your watchlist…" : "Nothing on your watchlist yet.")
-        // Every matched film, so the details store can fetch what it is missing.
+        // Every matched film, so the details store can fetch what it is missing — once the page
+        // may load (see `mayLoad`), and again whenever it is shown (a failed film is retried
+        // after its cool-off).
         let ids = model.entries.compactMap(\.tmdbID)
-        let idsKey = ids.map(String.init).joined(separator: ",")
+        let detailsKey = "\(ids.map(String.init).joined(separator: ","))/\(mayLoad)/\(isVisiblePage)"
 
         return FocusBrowsePage(preview: preview, art: art, initialFocus: focusTarget,
                                focusOnEntry: true, handle: focusHandle, placeholder: placeholder) {
@@ -161,13 +174,15 @@ struct WatchlistScreen: View {
                 emptyRow(model)
             } else {
                 ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                    // This row and the ones after it — where focus falls back to if it goes.
+                    let trail = rows[index...].map(\.id)
                     PlexRail(title: row.title, subtitle: row.subtitle, id: row.id) {
                         ForEach(row.entries.prefix(WatchlistRows.railLimit)) { entry in
-                            tile(entry, row: row.id, index: index, data: data)
+                            tile(entry, row: row, trail: trail, data: data)
                         }
                         // Every row has one, from the moment it exists — never a branch swap
                         // inside the lazy row.
-                        seeAll(row, index: index)
+                        seeAll(row, trail: trail)
                     }
                 }
             }
@@ -186,24 +201,32 @@ struct WatchlistScreen: View {
         }
         // The focused film's details landed after it was focused (a first visit): complete its
         // header in place — same title, so nothing fades.
-        .onChange(of: data.details.count) { _, _ in
+        .onChange(of: detailsStore?.generation) { _, _ in
             guard let entry = focusedFilm.entry, let shown = preview.shown else { return }
             let subject = data.subject(for: entry)
             if subject.id == shown.id, subject != shown { preview.showImmediately(subject) }
         }
-        .task(id: idsKey) { await detailsStore?.ensure(ids) }
+        .task(id: detailsKey) {
+            guard mayLoad else { return }
+            await detailsStore?.ensure(ids)
+        }
+        .task {
+            try? await Task.sleep(for: .seconds(8))
+            preloadDeadlinePassed = true
+        }
         .onAppear { focusHandle.onChange = { focusChanged($0) } }
     }
 
-    private func tile(_ entry: WatchlistEntry, row: String, index: Int,
+    private func tile(_ entry: WatchlistEntry, row: WatchlistRow, trail: [String],
                       data: WatchlistPageData) -> some View {
         let memory = focusMemory, preview = preview, film = focusedFilm, art = art
         let details = entry.tmdbID.flatMap { data.details[$0] }
-        return WatchlistTile(entry: entry, owned: data.isOwned(entry), badge: data.badge(for: entry),
+        return WatchlistTile(entry: entry, owned: data.showsOwnedMark(entry, in: row.kind),
+                             badge: data.badge(for: entry),
                              onRemove: { pendingRemoval = $0 },
                              onFocus: {
                                  memory.tileHasHadFocus = true
-                                 memory.lastRowIndex = index
+                                 film.rowTrail = trail
                                  film.entry = entry
                                  // The header's logo, rating and genres from the cache, at once.
                                  if let details, let id = entry.tmdbID {
@@ -211,13 +234,13 @@ struct WatchlistScreen: View {
                                  }
                                  preview.focus(data.subject(for: entry))
                              })
-            .plexFocusID(Self.tileID(row, entry))
+            .plexFocusID(Self.tileID(row.id, entry))
     }
 
-    private func seeAll(_ row: WatchlistRow, index: Int) -> some View {
-        let memory = focusMemory
+    private func seeAll(_ row: WatchlistRow, trail: [String]) -> some View {
+        let film = focusedFilm
         return SeeAllTile(title: row.title, value: WatchlistGridRoute(rowID: row.id, title: row.title),
-                          onFocus: { memory.lastRowIndex = index })
+                          onFocus: { film.rowTrail = trail })
             .plexFocusID(Self.seeAllID(row.id))
     }
 
@@ -253,10 +276,11 @@ struct WatchlistScreen: View {
 
     // MARK: - Focus bookkeeping
 
-    /// The first film of the row at `index` (clamped to the last row), if there is one.
-    static func firstTileID(ofRowAt index: Int?, in rows: [WatchlistRow]) -> String? {
-        guard let index, !rows.isEmpty else { return nil }
-        let row = rows[min(max(index, 0), rows.count - 1)]
+    /// The first film of the first row in `trail` still on the page — the row focus was in, else
+    /// the next one after it that survived; past the end, the last row.
+    static func firstTileID(near trail: [String], in rows: [WatchlistRow]) -> String? {
+        guard !trail.isEmpty, !rows.isEmpty else { return nil }
+        let row = trail.lazy.compactMap { id in rows.first { $0.id == id } }.first ?? rows[rows.count - 1]
         return row.entries.first.map { tileID(row.id, $0) }
     }
 
@@ -294,6 +318,8 @@ struct WatchlistScreen: View {
 @MainActor
 final class WatchlistFocusedFilm {
     var entry: WatchlistEntry?
+    /// The row focus is (or was last) in, then the rows that followed it at the time.
+    var rowTrail: [String] = []
 }
 
 /// A See All tile's value: which row's grid to push.
@@ -307,6 +333,9 @@ struct WatchlistGridRoute: Hashable {
 @MainActor
 struct WatchlistPageData {
     let rows: [WatchlistRow]
+    /// Progressive — for the header, which should complete as soon as a film's details land.
+    /// The rows are built from the store's `settled` map instead, so they never re-sort under
+    /// focus while a first visit fills in.
     let details: [Int: WatchlistFilmDetails]
     /// Nil with no partner (or none configured): no Both / Picks rows, no badges, no tags.
     let membership: WatchlistMembership?
@@ -321,12 +350,17 @@ struct WatchlistPageData {
         let entries = model.entries
         owned = Set(entries.filter(model.isOwned).map(\.slug))
         let owned = owned
-        rows = WatchlistRows.build(entries: entries, details: details,
+        rows = WatchlistRows.build(entries: entries, details: store?.settled ?? [:],
                                    isOwned: { owned.contains($0.slug) },
                                    membership: membership, partnerName: partnerName)
     }
 
     func isOwned(_ entry: WatchlistEntry) -> Bool { owned.contains(entry.slug) }
+
+    /// The grey ✓, except inside In Your Library — where every film has it, so it says nothing.
+    func showsOwnedMark(_ entry: WatchlistEntry, in row: WatchlistRow.Kind) -> Bool {
+        row != .library && isOwned(entry)
+    }
 
     func badge(for entry: WatchlistEntry) -> String? {
         WatchlistRows.badge(for: entry, membership: membership, partnerName: partnerName)
@@ -447,29 +481,39 @@ private struct WatchlistHeaderControls: View {
         case .idle:
             // A removal that could not reach Letterboxd is still gone from here, so this is the
             // only place the owner would ever learn it is half-done.
-            if let message = model.relayMessage {
-                Label(message, systemImage: "exclamationmark.triangle.fill")
-                    .calloutText()
-                    .lineLimit(1)
-                    .foregroundStyle(Theme.Palette.destructive)
-                    .statusPlate()
-                    .frame(maxWidth: 680, alignment: .trailing)
-            } else if let message = model.partnerMessage {
-                // The other person's list could not be read. Secondary, not red: the owner's own
-                // list is fine and nothing they asked for failed.
-                Text(message)
-                    .calloutText()
-                    .lineLimit(2)
-                    .multilineTextAlignment(.trailing)
-                    .foregroundStyle(Theme.Palette.textSecondary)
-                    .statusPlate()
-                    .frame(maxWidth: 680, alignment: .trailing)
+            if model.relayMessage != nil || model.partnerMessage != nil {
+                VStack(alignment: .trailing, spacing: 10) { problems }
             } else if !model.canSpin, !model.entries.isEmpty {
                 Text(countLine)
                     .calloutText()
                     .foregroundStyle(Theme.Palette.textSecondary)
                     .statusPlate()
             }
+        }
+    }
+
+    /// Both lines when both apply: a removal that did not reach Letterboxd, and a partner's list
+    /// that could not be read are separate problems, and hiding one behind the other loses it.
+    @ViewBuilder
+    private var problems: some View {
+        if let message = model.relayMessage {
+            Label(message, systemImage: "exclamationmark.triangle.fill")
+                .calloutText()
+                .lineLimit(1)
+                .foregroundStyle(Theme.Palette.destructive)
+                .statusPlate()
+                .frame(maxWidth: 680, alignment: .trailing)
+        }
+        if let message = model.partnerMessage {
+            // The other person's list could not be read. Secondary, not red: the owner's own
+            // list is fine and nothing they asked for failed.
+            Text(message)
+                .calloutText()
+                .lineLimit(2)
+                .multilineTextAlignment(.trailing)
+                .foregroundStyle(Theme.Palette.textSecondary)
+                .statusPlate()
+                .frame(maxWidth: 680, alignment: .trailing)
         }
     }
 }

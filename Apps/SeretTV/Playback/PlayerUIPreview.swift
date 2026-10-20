@@ -57,8 +57,10 @@ import DebridCore
 ///   - `watchlist` — the Letterboxd watchlist page with a partner (Noga): every row — In Your
 ///     Library, Recently Added, Highest Rated, You Both, Noga's Picks, genres, Short Ones,
 ///     Classics, Not Matched — over real TMDB details and art
-///   - `watchlistpartner` — the same page with the partner's list unreadable: the secondary line
-///     under the header pills, never an error over the rows
+///   - `watchlistpartner` — the same page with the partner's list unreadable AND a removal that
+///     did not reach Letterboxd: both lines stacked under the header pills, never over the rows
+///   - `watchlistslow` — a first visit with a slow TMDB (3 s a film): the header fills in as
+///     batches land, the rows only change once the pass is over — nothing moves under focus
 ///   - `spin` — Surprise Me's Cover Flow reel, mid-turn and landed on Whiplash with its backdrop
 ///   - `spinnoart` — the same landing with no TMDB art: text title, plain background
 ///   - `serverprobe` — can this Apple TV actually reach SeretServer? Names ATS and local-network
@@ -144,6 +146,7 @@ struct PlayerUIPreview: View {
         case "downloadstrip":       DownloadStripPreview()
         case "watchlist":           WatchlistScreenPreview()
         case "watchlistpartner":    WatchlistScreenPreview(partnerUnreadable: true)
+        case "watchlistslow":       WatchlistScreenPreview(slowDetails: true)
         case "letterboxd":          LetterboxdCardPreview()
         case "letterboxdtoast":     LetterboxdToastPreview()
         case "letterboxdrating":    LetterboxdRatingPreview(existing: nil)
@@ -1784,8 +1787,16 @@ private struct WatchlistScreenPreview: View {
     @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()))
     @State private var model: WatchlistModel
 
-    init(partnerUnreadable: Bool = false) {
+    init(partnerUnreadable: Bool = false, slowDetails: Bool = false) {
         _model = State(initialValue: Self.makeModel(partnerUnreadable: partnerUnreadable))
+        if slowDetails {
+            let service = TMDBDetailsService(client: TMDBClient(apiKey: Secrets.tmdbAPIKey))
+            _details = State(initialValue: WatchlistDetailsStore(fileURL: nil, publishEvery: 6) { id in
+                try await Task.sleep(for: .seconds(3))
+                return WatchlistFilmDetails(movie: try await service.movieDetails(tmdbID: id),
+                                            fetchedAt: Date())
+            })
+        }
     }
 
     @State private var art = TitleArtStore(details: TMDBDetailsService(
@@ -1803,7 +1814,10 @@ private struct WatchlistScreenPreview: View {
         }
             .environment(session)
             // The screen's own `.task` does not run in preview mode, so the status is read here.
-            .task { await model.refreshStatus() }
+            .task {
+                await model.refreshStatus()
+                await model.pushPending()
+            }
     }
 
     private static func makeModel(partnerUnreadable: Bool) -> WatchlistModel {
@@ -1815,6 +1829,12 @@ private struct WatchlistScreenPreview: View {
                 ? "Couldn't read Noga's watchlist — the profile is private, renamed or gone." : nil)
         let model = WatchlistModel(cached: WatchlistPreviewFixture.entries,
                                    settings: LetterboxdSettings(username: "preview"),
+                                   relay: {
+                                       partnerUnreadable
+                                           ? .init(pushed: 0, failed: 1,
+                                                   firstError: "Couldn't reach SeretServer to remove Speed.")
+                                           : .idle
+                                   },
                                    status: { partner }) { _ in
             WatchlistPreviewFixture.entries
         }
