@@ -19,7 +19,18 @@ struct StreamRetryPolicy: Sendable, Equatable {
     /// How long a connection may go without a byte, while nothing paused it, before it is taken
     /// for stalled and replaced. URLSession's own request timeout is 30 s — the whole of libvlc's
     /// buffer, and then some — so a silently stalled RD connection used to cost a visible freeze.
+    ///
+    /// Counted only once RD has sent the connection its first byte: before that, the wait is RD
+    /// finding the file — seconds at a time on a cold link, which is not a stall. Replacing it at
+    /// 8 s only asked again from the back of the same queue.
     var stallTimeout: Duration = .seconds(8)
+    /// How long a connection may wait for RD's FIRST byte before it is taken for stalled.
+    var firstByteTimeout: Duration = .seconds(25)
+
+    /// The silence allowed on a connection that has, or has not yet, had a byte from RD.
+    func silenceAllowed(afterFirstByte: Bool) -> Duration {
+        afterFirstByte ? stallTimeout : firstByteTimeout
+    }
 
     static let standard = StreamRetryPolicy(firstDelay: .milliseconds(500), maxDelay: .seconds(5),
                                             budget: .seconds(60), wholeFileAnswers: 3)

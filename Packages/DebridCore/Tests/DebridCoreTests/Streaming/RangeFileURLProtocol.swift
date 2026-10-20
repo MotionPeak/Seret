@@ -23,6 +23,8 @@ final class RangeFileURLProtocol: URLProtocol, @unchecked Sendable {
         case wholeFile
         /// A 206 and its headers, then silence: RD's connection stalls and never finishes.
         case stall
+        /// A 206, this many bytes, then silence: RD going quiet mid-connection.
+        case stallAfter(Int)
     }
 
     struct Stub: Sendable {
@@ -94,6 +96,12 @@ final class RangeFileURLProtocol: URLProtocol, @unchecked Sendable {
                 "Content-Range": "bytes \(start)-\(stub.fileSize - 1)/\(stub.fileSize)",
                 "Content-Type": "application/force-download"])!
             client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        case .stallAfter(let count)?:
+            let response = HTTPURLResponse(url: url, statusCode: 206, httpVersion: "HTTP/1.1", headerFields: [
+                "Content-Range": "bytes \(start)-\(stub.fileSize - 1)/\(stub.fileSize)",
+                "Content-Type": "application/force-download"])!
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: Self.bytes(start..<(start + Int64(count))))
         case .wholeFile?:
             stream(stub, url: url, status: 200, from: 0, headers: [
                 "Content-Length": "\(stub.fileSize)",

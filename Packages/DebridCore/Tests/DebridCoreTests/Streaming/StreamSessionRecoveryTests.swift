@@ -189,7 +189,7 @@ extension StreamingNetworkTests {
         /// longer than libvlc's buffer — with the reader waiting on it. A connection no one paused
         /// that sends nothing for `stallTimeout` is replaced.
         @Test func aStalledConnectionIsReplaced() async throws {
-            RangeFileURLProtocol.reset(.init(fileSize: 64 << 20, faults: [.stall]))
+            RangeFileURLProtocol.reset(.init(fileSize: 64 << 20, faults: [.stallAfter(1024)]))
             var policy = Self.quick
             policy.stallTimeout = .milliseconds(200)
             let s = makeSession(retry: policy)
@@ -200,6 +200,40 @@ extension StreamingNetworkTests {
             #expect(try await reader.value == Self.bytes())
             timeout.cancel()
             #expect(started.duration(to: clock.now) < .seconds(3))
+            #expect(RangeFileURLProtocol.requests.count == 2)
+            #expect(await s.stallCount == 1)
+            await s.close()
+        }
+
+        /// RD finding the file is not RD going quiet. Before the first byte a cold link can keep a
+        /// connection waiting for seconds; replacing it at the 8 s stall mark only asked again from
+        /// the back of the queue (review of D4). The stall clock starts at the first byte.
+        @Test func aSlowFirstByteIsNotAStall() async throws {
+            RangeFileURLProtocol.reset(.init(fileSize: 64 << 20, delayByStart: [Self.at: 0.6]))
+            var policy = Self.quick
+            policy.stallTimeout = .milliseconds(150)
+            policy.firstByteTimeout = .seconds(5)
+            let s = makeSession(retry: policy)
+            #expect(try await read(s) == Self.bytes())
+            #expect(RangeFileURLProtocol.requests.count == 1)
+            #expect(await s.stallCount == 0)
+            await s.close()
+        }
+
+        /// …but a connection RD never sends a byte on is still replaced, after the longer wait.
+        @Test func aConnectionThatNeverSendsAByteIsReplacedAfterTheFirstByteWait() async throws {
+            RangeFileURLProtocol.reset(.init(fileSize: 64 << 20, faults: [.stall]))
+            var policy = Self.quick
+            policy.stallTimeout = .milliseconds(100)
+            policy.firstByteTimeout = .milliseconds(600)
+            let s = makeSession(retry: policy)
+            let clock = ContinuousClock()
+            let started = clock.now
+            let reader = Task { try await self.read(s) }
+            let timeout = Task { try await Task.sleep(for: .seconds(5)); reader.cancel() }
+            #expect(try await reader.value == Self.bytes())
+            timeout.cancel()
+            #expect(started.duration(to: clock.now) >= .milliseconds(600))
             #expect(RangeFileURLProtocol.requests.count == 2)
             #expect(await s.stallCount == 1)
             await s.close()

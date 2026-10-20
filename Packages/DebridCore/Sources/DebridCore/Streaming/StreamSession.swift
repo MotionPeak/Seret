@@ -498,13 +498,16 @@ actor StreamSession {
     }
 
     /// Replace any connection RD went quiet on: no byte for `retry.stallTimeout` while nothing
-    /// paused it. Counted as a failure, so the replacement is paced like any other retry.
+    /// paused it — or, before RD's first byte, `retry.firstByteTimeout`. Counted as a failure, so
+    /// the replacement is paced like any other retry.
     private func cancelStalledFetches() {
         let now = ContinuousClock.now
-        for (id, fetch) in fetches
-        where !fetch.suspended && fetch.lastProgress.duration(to: now) >= retry.stallTimeout {
+        for (id, fetch) in fetches where !fetch.suspended {
+            let allowed = retry.silenceAllowed(afterFirstByte: fetch.received)
+            guard fetch.lastProgress.duration(to: now) >= allowed else { continue }
             stallCount += 1
-            log("fetch #\(id) stalled: nothing from RD for \(retry.stallTimeout)")
+            log("fetch #\(id) stalled: nothing from RD for \(allowed)"
+                + (fetch.received ? "" : " (no first byte)"))
             noteFailure(.transport("RD stopped sending (stalled)"), fetch: id)
             cancelFetch(id)
         }
@@ -512,8 +515,9 @@ actor StreamSession {
 
     /// When a waiting read must look again for a stalled connection.
     private func nextStallCheck() -> ContinuousClock.Instant {
-        let oldest = fetches.values.filter { !$0.suspended }.map(\.lastProgress).min() ?? .now
-        return max(oldest + retry.stallTimeout, ContinuousClock.now + .milliseconds(50))
+        let due = fetches.values.filter { !$0.suspended }
+            .map { $0.lastProgress + retry.silenceAllowed(afterFirstByte: $0.received) }.min()
+        return max(due ?? .now + retry.stallTimeout, ContinuousClock.now + .milliseconds(50))
     }
 
     // MARK: - Waiting
