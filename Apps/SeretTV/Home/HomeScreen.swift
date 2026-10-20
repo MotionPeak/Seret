@@ -186,10 +186,15 @@ struct HomeScreen: View {
         .onChange(of: isVisiblePage) { _, visible in if !visible { cancelRehome() } }
         .onDisappear { cancelRehome() }
         // A rebuild that changed the entry on screen (new progress after watching → a new "Xm
-        // left") re-shows it; the focused tile does not re-report focus for a data change.
+        // left") re-shows it; the focused tile does not re-report focus for a data change. Only
+        // while that entry's tile is the focused one, or nothing on the page is: a refresh landing
+        // while the viewer glides on would re-show the tile they left — and drop the pending move
+        // to the one they are on, freezing the header on the old title.
         .onChange(of: home.continueWatching) { _, entries in
             guard let shown = preview.shown,
                   let entry = entries.first(where: { $0.id == shown.id }) else { return }
+            let focused = focusHandle.focused
+            guard focused == nil || focused == Self.focusID(Rail.continueWatching, entry.id) else { return }
             let fresh = Self.subject(for: entry)
             if fresh != shown { preview.showImmediately(fresh) }
         }
@@ -235,10 +240,13 @@ struct HomeScreen: View {
 
     static func focusID(_ rail: String, _ id: String) -> String { "\(rail)/\(id)" }
 
-    /// The tile Home opens on: the first Continue Watching entry, else the first Recently Added
-    /// title — the top-leading tile either way, the one the header starts on.
+    /// The tile Home opens on: the first tile of the first rail there is — Continue Watching,
+    /// Downloading, Recently Added Movies, Recently Added Shows — the top-leading tile, the one the
+    /// header starts on. Downloading counts: with only a download under way there is no other
+    /// tile, and with no target launch focus could park on the side menu.
     private func initialFocusID(_ home: HomeStore) -> String? {
         if let hi = home.continueWatching.first { return Self.focusID(Rail.continueWatching, hi.id) }
+        if let tile = activeDownloads.first { return Self.focusID(Rail.downloading, tile.id) }
         if let movie = home.recentlyAddedMovies.first { return Self.focusID(Rail.movies, movie.id) }
         return home.recentlyAddedShows.first.map { Self.focusID(Rail.shows, $0.id) }
     }
@@ -246,6 +254,9 @@ struct HomeScreen: View {
     /// The header for `initialFocusID`'s tile.
     private func initialSubject(_ home: HomeStore) -> PreviewSubject? {
         if let hi = home.continueWatching.first { return Self.subject(for: hi) }
+        if let tile = activeDownloads.first {
+            return Self.subject(for: downloadDestination(for: tile, library: session.libraryStore))
+        }
         let first = home.recentlyAddedMovies.first ?? home.recentlyAddedShows.first
         return first.map(PreviewSubject.init(item:))
     }

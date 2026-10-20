@@ -147,12 +147,11 @@ struct BrowseScreen: View {
             ?? (segmentFailed ? PageRow.retry : nil)
             ?? rows.first?.hits.first.map { Self.tileID(rows[0].id, $0) }
             ?? Self.segmentID(segment)
-        // A failed segment has no title to preview: the header names the page instead of standing
-        // empty above the controls.
-        let placeholder = segmentFailed
-            ? FocusPreviewPlaceholder(title: kind == .movie ? "Movies" : "Shows",
-                                      hint: "Titles appear here once they load.")
-            : nil
+        // While the segment has no title to preview — failed, or still loading — the header names
+        // the page instead of standing empty (or describing another segment) above the controls.
+        let placeholder = FocusPreviewPlaceholder(
+            title: kind == .movie ? "Movies" : "Shows",
+            hint: segmentFailed ? "Check your connection and try again." : "Loading titles…")
         return FocusBrowsePage(preview: preview, art: art, initialFocus: focusTarget,
                                focusOnEntry: true, handle: focusHandle, placeholder: placeholder) {
             // A failed segment's message lives IN the controls row, under the pills: as a row of its
@@ -183,12 +182,18 @@ struct BrowseScreen: View {
         // segment as it is (and a live Retry) rather than a "Trying…" no load will ever clear.
         .onChange(of: segment) { _, _ in retrying = nil }
         // Until a tile of THIS segment has had focus, the header shows the segment's first title —
-        // and follows it while the rails arrive, and when a segment switch brings in new ones.
+        // and follows it while the rails arrive, and when a segment switch brings in new ones. A
+        // segment with no titles yet (loading, or failed) clears it: the last segment's title must
+        // not sit above "Couldn't load." or another segment's skeletons. The placeholder shows
+        // instead, and the backdrop goes back to the canvas.
         .onChange(of: headerKey(segment, rows), initial: true) { _, _ in
-            guard focusMemory.headerSegment != segment,
-                  let first = rows.first?.hits.first else { return }
+            guard focusMemory.headerSegment != segment else { return }
             focusMemory.headerSegment = nil
-            preview.showImmediately(PreviewSubject(hit: first))
+            if let first = rows.first?.hits.first {
+                preview.showImmediately(PreviewSubject(hit: first))
+            } else {
+                preview.clear()
+            }
         }
         .onAppear { focusHandle.onChange = { focusChanged($0) } }
     }
@@ -280,13 +285,25 @@ struct BrowseScreen: View {
     /// so the pills do not jump sideways when the grid swaps in.
     private func genreLayer(_ selected: DiscoverStore.Genre) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            GenreStrip(kind: kind, selection: $genre, leadingInset: PosterGridLayout.rootInset,
-                       claimsFocus: true)
+            GenreStrip(kind: kind, selection: genreLayerSelection,
+                       leadingInset: PosterGridLayout.rootInset, claimsFocus: true)
                 .padding(.bottom, 6)
             genreGrid(selected)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background { GridBackdrop(preview: genrePreview, art: art) }
+    }
+
+    /// The genre grid's strip writes `genre` through this. "All" there returns to the rails — and
+    /// lands focus on the page's "All" pill, the one just pressed. Without this the page went back
+    /// to the genre pill pressed to open the grid (its last focus), so the next Select reopened that
+    /// genre. Menu out of the grid is not a press here and keeps the page's last focus.
+    private var genreLayerSelection: Binding<DiscoverStore.Genre?> {
+        let memory = focusMemory
+        return Binding(get: { genre }, set: { new in
+            if new == nil { memory.lastFocused = GenreStrip.focusID(for: nil) }
+            genre = new
+        })
     }
 
     private func genreGrid(_ selected: DiscoverStore.Genre) -> some View {

@@ -27,6 +27,13 @@ struct GenreStrip: View {
     /// coming back from a title opened in the grid — and re-claiming then pulled focus off the
     /// poster the viewer came back to and onto the genre pill.
     @State private var claimed = false
+    /// The claim is over: focus reached the asked-for pill, or the side menu has it. From then on
+    /// the viewer is driving, and a late write pulled focus back out from under them — Left into
+    /// the menu right after the grid opened was undone by the claim's next retry. (Focus on ANOTHER
+    /// pill does not end it: that is the re-home to "All" the claim is there to correct.)
+    @State private var claimSettled = false
+    /// Set by the shell: the side menu has focus.
+    @Environment(\.sideMenuHoldsFocus) private var sideMenuHoldsFocus
 
     /// The page focus id of the pill for `genre` (nil = All).
     static func focusID(for genre: DiscoverStore.Genre?) -> String { "genre/\(genre?.tmdbID ?? 0)" }
@@ -37,10 +44,16 @@ struct GenreStrip: View {
             strip
                 .defaultFocus($focused, selection?.tmdbID ?? 0, priority: .userInitiated)
                 // The default alone is not enough when this strip arrives under a focus that just
-                // vanished: measured, tvOS re-homed to the top-leading pill ("All") instead — and in
-                // the shell the top-leading view is the side menu. So it is also asked for, until it
-                // takes (the first writes can land before the strip is in the focus tree).
+                // vanished: measured, tvOS re-homed to the top-leading pill ("All") instead. So it
+                // is also asked for, until it takes (the first writes can land before the strip is
+                // in the focus tree) — or until the viewer has moved on (`claimSettled`). Measured
+                // in the signed-in app: the menu never takes focus during the swap, so stopping
+                // when it has focus costs the claim nothing.
                 .task { await claimFocus() }
+                .onChange(of: focused) { _, now in
+                    if now == (selection?.tmdbID ?? 0) { claimSettled = true }
+                }
+                .onChange(of: sideMenuHoldsFocus) { _, inMenu in if inMenu { claimSettled = true } }
         } else {
             strip
         }
@@ -68,7 +81,7 @@ struct GenreStrip: View {
         claimed = true
         let target = selection?.tmdbID ?? 0
         for _ in 0..<10 {
-            if focused == target { return }
+            if claimSettled || sideMenuHoldsFocus || focused == target { return }
             focused = target
             try? await Task.sleep(for: .milliseconds(60))
             if Task.isCancelled { return }

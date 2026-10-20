@@ -76,7 +76,9 @@ import DebridCore
 ///   - `browse` — the Movies page on fixture Discover rails that arrive progressively (one 4 s
 ///     late, below); `browseinsert` adds a For You rail ABOVE the others 9 s in (see
 ///     `BrowseScreenPreview`). A genre pill opens that genre's grid on fixture titles.
-///     `browsefailed`: every rail fails — the failed row, whose Retry must keep focus
+///     `browsefailed`: every rail fails — the failed row, whose Retry must keep focus.
+///     `browsetrendingfails`: For You loads, Trending fails (2.5 s in) — the header must drop the
+///     For You title for the page's placeholder, both while Trending loads and once it fails
 ///   - `library` — My Library on a fixture library (real art) with two downloads in flight, focus
 ///     on the Movies pill, the backdrop following focus into the grid (see `MyLibraryScreenPreview`).
 ///     `librarydownloadends` / `librarydownloadstarts`: the strip goes / appears 14 s in — walk
@@ -136,6 +138,7 @@ struct PlayerUIPreview: View {
         case "home":                HomeScreenPreview()
         case "homefailed":          HomeScreenPreview(failure: "Couldn't reach Real-Debrid. Check the connection and try again.")
         case "homedownloading":     HomeScreenPreview(downloading: true)
+        case "homedownloadsonly":   HomeScreenPreview(downloading: true, downloadsOnly: true)
         case "downloadstrip":       DownloadStripPreview()
         case "watchlist":           WatchlistScreenPreview()
         case "watchlistpartner":    WatchlistScreenPreview(partnerUnreadable: true)
@@ -157,6 +160,7 @@ struct PlayerUIPreview: View {
         case "browse":              BrowseScreenPreview()
         case "browseinsert":        BrowseScreenPreview(insertAbove: true)
         case "browsefailed":        BrowseScreenPreview(failing: true)
+        case "browsetrendingfails": BrowseScreenPreview(trendingFails: true)
         case "library":             MyLibraryScreenPreview()
         case "librarydownloadends":   MyLibraryScreenPreview(downloadChange: .ends)
         case "librarydownloadstarts": MyLibraryScreenPreview(downloadChange: .starts)
@@ -1538,10 +1542,14 @@ private struct ManualSyncPreviewProvider: SubtitleProvider {
 ///
 /// `homefailed` shows the library-failure state instead: Try Again must be on screen and focused,
 /// and pressing it must leave it focused, reading "Trying…". `homedownloading` adds a Downloading
-/// rail with one download in flight, between Continue Watching and Recently Added.
+/// rail with one download in flight, between Continue Watching and Recently Added;
+/// `homedownloadsonly` has that download and nothing else.
 private struct HomeScreenPreview: View {
     var failure: String?
     var downloading = false
+    /// `homedownloadsonly`: a download under way and nothing else — Home must open on its tile,
+    /// with its header, rather than on no tile at all.
+    var downloadsOnly = false
     @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()))
     @State private var home = HomeStore(watch: PreviewWatch())
     /// The failed state's store: empty, so nothing but the failure is on screen.
@@ -1555,6 +1563,9 @@ private struct HomeScreenPreview: View {
             Group {
                 if let failure {
                     HomeScreen(previewHome: emptyHome, previewArt: art, previewFailure: failure)
+                } else if downloadsOnly {
+                    HomeScreen(previewHome: emptyHome, previewArt: art,
+                               previewDownloads: [DownloadPreviewFixture.dune])
                 } else if ready {
                     HomeScreen(previewHome: home, previewArt: art,
                                previewDownloads: downloading ? [DownloadPreviewFixture.dune] : nil)

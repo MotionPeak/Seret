@@ -21,6 +21,9 @@ struct BrowseScreenPreview: View {
     /// `browsefailed`: every Discover call fails (after 1.5 s), so For You lands on its failed
     /// row — Retry, "Trying…", failed again — to check the button keeps focus throughout.
     var failing = false
+    /// `browsetrendingfails`: only Trending fails (2.5 s in) — the header must not keep describing
+    /// a For You title above Trending's skeletons or its "Couldn't load."
+    var trendingFails = false
 
     @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()))
     @State private var seeds = BrowsePreviewFixture.Seeds()
@@ -46,7 +49,7 @@ struct BrowseScreenPreview: View {
         .environment(session)
         .task {
             let discover: DiscoverProviding = failing ? BrowsePreviewFixture.FailingDiscover()
-                                                      : BrowsePreviewFixture.Discover()
+                                                      : BrowsePreviewFixture.Discover(trendingFails: trendingFails)
             let browse = DiscoverStore(kind: .movie, discover: discover, seeds: seeds)
             store = browse
             guard insertAbove else { return }
@@ -166,6 +169,9 @@ enum BrowsePreviewFixture {
     }
 
     struct Discover: DiscoverProviding {
+        /// Trending's calls throw, after long enough to see its loading state.
+        var trendingFails = false
+
         private func after(_ ms: Int, _ titles: [TMDBSearchResult]) async -> [TMDBSearchResult] {
             try? await Task.sleep(for: .milliseconds(ms))
             return titles
@@ -175,7 +181,11 @@ enum BrowsePreviewFixture {
             recent.filter { $0.id == 969681 }       // Spider-Man: Brand New Day → CAM
         }
         func trending(_ kind: MediaKind, window: TMDBTrendingWindow) async throws -> [TMDBSearchResult] {
-            await after(300, window == .day ? slice(30) : Array(recent.reversed()))
+            if trendingFails {
+                try? await Task.sleep(for: .milliseconds(2_500))
+                throw URLError(.notConnectedToInternet)
+            }
+            return await after(300, window == .day ? slice(30) : Array(recent.reversed()))
         }
         func topRatedCurated(_ kind: MediaKind) async throws -> [TMDBSearchResult] {
             await after(300, Array(classics.prefix(12)))
