@@ -252,8 +252,10 @@ struct FindScreen: View {
     /// The tick flips immediately; the write follows. A show fans out over every episode TMDB
     /// lists, which is why it runs detached rather than blocking the gesture.
     private func toggleWatched(_ hit: SearchHit, watched: Bool) {
+        // Not before a profile has resolved (see `LibraryTitleMenu.markShow`) — and before the
+        // tick flips, so it never shows a mark that was not written.
+        guard let profileID = session.activeProfileID else { return }
         marks?.set(!watched, for: hit)
-        let profileID = session.activeProfileID ?? ""
         Task {
             switch hit.kind {
             case .movie:

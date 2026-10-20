@@ -55,7 +55,10 @@ struct LibraryTitleActions: View {
     /// Detached from the gesture: a long-running series is hundreds of episode writes behind a
     /// TMDB enumeration, and the menu should dismiss immediately either way.
     private func markShow(_ watched: Bool) {
-        let profileID = session.activeProfileID ?? ""
+        // Not before a profile has resolved: a row written under "" is one nothing adopts once
+        // the load has run, so the marks would seem to do nothing and could not be undone. The
+        // same guard every other mark path has (Home's menus, `TitleWatchToggle`).
+        guard let profileID = session.activeProfileID else { return }
         let marker = session.makeShowWatchMarker()
         let store = session.libraryStore
         Task {
