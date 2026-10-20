@@ -20,6 +20,10 @@ actor IndexStore {
     private let perFileLimit: Int
     private let totalLimit: Int
     private let files = FileManager.default
+    /// The save in flight per file. Saves of one file run one after another (a head and a resume
+    /// region must not interleave their bookkeeping); saves of different files, and every `open`,
+    /// interleave with them — see `save`.
+    private var saving: [String: Task<Void, Never>] = [:]
 
     private struct Meta: Codable {
         var fileKey: String
@@ -49,12 +53,28 @@ actor IndexStore {
         try? Data(contentsOf: chunkURL(fileKey, index))
     }
 
-    func saveHead(fileKey: String, totalSize: Int64, chunks: [(Int, Data)]) {
-        save(fileKey: fileKey, totalSize: totalSize, chunks: chunks, isHead: true)
+    func saveHead(fileKey: String, totalSize: Int64, chunks: [(Int, Data)]) async {
+        await serialized(fileKey) {
+            await self.save(fileKey: fileKey, totalSize: totalSize, chunks: chunks, isHead: true)
+        }
     }
 
-    func saveResume(fileKey: String, totalSize: Int64, chunks: [(Int, Data)]) {
-        save(fileKey: fileKey, totalSize: totalSize, chunks: chunks, isHead: false)
+    func saveResume(fileKey: String, totalSize: Int64, chunks: [(Int, Data)]) async {
+        await serialized(fileKey) {
+            await self.save(fileKey: fileKey, totalSize: totalSize, chunks: chunks, isHead: false)
+        }
+    }
+
+    /// Run `body` after any save of the same file still in flight.
+    private func serialized(_ fileKey: String, _ body: @escaping @Sendable () async -> Void) async {
+        let previous = saving[fileKey]
+        let task = Task {
+            await previous?.value
+            await body()
+        }
+        saving[fileKey] = task
+        await task.value
+        if saving[fileKey] == task { saving[fileKey] = nil }
     }
 
     func discard(fileKey: String) {
@@ -63,7 +83,14 @@ actor IndexStore {
 
     // MARK: - Private
 
-    private func save(fileKey: String, totalSize: Int64, chunks: [(Int, Data)], isHead: Bool) {
+    /// Writes the chunks, yielding the actor between them.
+    ///
+    /// A close writes the resume region — up to 56 MiB — and this actor used to be held for the
+    /// whole of it, plus the scan of every stored file in `enforceTotal`. The NEXT open's first
+    /// call here (`open`, to learn what is on disk) queued behind all of it: opening a film right
+    /// after closing one waited for the previous film's flash write. Now an `open` or a
+    /// `loadChunk` waits one chunk at most.
+    private func save(fileKey: String, totalSize: Int64, chunks: [(Int, Data)], isHead: Bool) async {
         var meta = readMeta(fileKey) ?? Meta(fileKey: fileKey, totalSize: totalSize,
                                             lastOpened: Date(), head: [], resume: [])
         if meta.totalSize != totalSize {                // another file under this key: start over
@@ -75,7 +102,10 @@ actor IndexStore {
         let room = max(0, maxChunks - kept.count)
         let incoming = Array(chunks.filter { !kept.contains($0.0) }.prefix(room))
         try? files.createDirectory(at: folder(fileKey), withIntermediateDirectories: true)
-        for (index, data) in incoming { try? data.write(to: chunkURL(fileKey, index), options: .atomic) }
+        for (index, data) in incoming {
+            try? data.write(to: chunkURL(fileKey, index), options: .atomic)
+            await Task.yield()
+        }
         if isHead {
             let head = incoming.map(\.0)
             meta.head = head

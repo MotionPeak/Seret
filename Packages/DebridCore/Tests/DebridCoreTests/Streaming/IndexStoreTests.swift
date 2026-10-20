@@ -10,6 +10,30 @@ import Testing
     }
     private func chunk(_ n: UInt8) -> Data { Data(repeating: n, count: 4) }
 
+    /// A close writes up to 56 MiB of resume region, and the store used to be held for all of
+    /// it: the NEXT film's open asked the store what it had on disk and waited behind the whole
+    /// write. Now an open waits one chunk at most.
+    @Test func anOpenDoesNotWaitBehindAnotherFilesWrite() async throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("IndexStoreTests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let chunkSize = 1 << 20
+        let index = IndexStore(directory: dir, chunkSize: chunkSize, perFileLimit: 256 << 20,
+                               totalLimit: 1 << 30)
+        let chunks = (0..<120).map { ($0, Data(repeating: UInt8($0 & 0xFF), count: chunkSize)) }
+        let folder = dir.appendingPathComponent(IndexStore.folderName("a#1"))
+        let save = Task { await index.saveResume(fileKey: "a#1", totalSize: 1 << 30, chunks: chunks) }
+        for _ in 0..<2000 where !FileManager.default.fileExists(
+            atPath: folder.appendingPathComponent("0.chunk").path) {
+            try await Task.sleep(for: .milliseconds(1))
+        }
+        _ = await index.open(fileKey: "b#1")
+        let lastWritten = FileManager.default.fileExists(atPath: folder.appendingPathComponent("119.chunk").path)
+        #expect(!lastWritten, "the open waited for the whole of another file's write")
+        await save.value
+        #expect(await index.open(fileKey: "a#1")?.chunks.count == 120)
+    }
+
     @Test func anUnknownFileHasNoEntry() async {
         let (index, _) = store()
         #expect(await index.open(fileKey: "t#1") == nil)
