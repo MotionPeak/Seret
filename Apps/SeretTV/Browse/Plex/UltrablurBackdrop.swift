@@ -188,16 +188,20 @@ private struct LegibilityShade: View {
 /// title at the same moment, and must not render it twice.
 @MainActor
 enum UltrablurPlates {
-    private static let washes: NSCache<NSString, UIImage> = {
-        let cache = NSCache<NSString, UIImage>()
-        // Costed in decoded bytes like `ImageMemoryCache`, so pressure evicts by real size.
-        cache.totalCostLimit = 16 * 1024 * 1024     // a 300×169 wash is ~200 KB: ~80 titles
-        return cache
-    }()
+    // The washes live in `ImageMemoryCache` under their own scheme rather than in a cache of their
+    // own: a separate 16 MB cache sat OUTSIDE the decoded-image budget, so the two ceilings added
+    // up instead of sharing one. A 300×169 wash is ~200 KB.
     private static var inFlight: [String: Task<UIImage?, Never>] = [:]
 
+    private static func washKey(_ path: String) -> NSURL? {
+        var parts = URLComponents()
+        parts.scheme = "seret-wash"
+        parts.path = path.hasPrefix("/") ? path : "/" + path
+        return parts.url as NSURL?
+    }
+
     static func cachedWash(_ path: String) -> UIImage? {
-        washes.object(forKey: path as NSString)
+        washKey(path).flatMap { ImageMemoryCache.shared.object(forKey: $0) }
     }
 
     /// Brings both layers of `path` into memory: the rendered wash and (`sharp`) the decoded sharp
@@ -227,7 +231,9 @@ enum UltrablurPlates {
         inFlight[path] = task
         let wash = await task.value
         inFlight[path] = nil
-        if let wash { washes.setObject(wash, forKey: path as NSString, cost: ImageMemoryCache.cost(of: wash)) }
+        if let wash, let key = washKey(path) {
+            ImageMemoryCache.shared.setObject(wash, forKey: key, cost: ImageMemoryCache.cost(of: wash))
+        }
         return wash
     }
 }

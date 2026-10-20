@@ -1,3 +1,4 @@
+import DebridUI
 import SwiftUI
 import UIKit
 
@@ -8,7 +9,12 @@ enum ImageMemoryCache {
     // NSCache is documented thread-safe; `nonisolated(unsafe)` just tells Swift 6 we know that.
     nonisolated(unsafe) static let shared: NSCache<NSURL, UIImage> = {
         let c = NSCache<NSURL, UIImage>()
-        c.totalCostLimit = 96 * 1024 * 1024      // ~96 MB of decoded bitmaps; auto-evicts on pressure
+        // Sized from the device and emptied on a memory warning, as on tvOS. On-screen tiles keep
+        // what they show in their own `loaded` state, so a trim only costs off-screen art.
+        c.totalCostLimit = ImageDownsampling.cacheBudget(physicalMemory: ProcessInfo.processInfo.physicalMemory)
+        _ = NotificationCenter.default.addObserver(
+            forName: UIApplication.didReceiveMemoryWarningNotification, object: nil, queue: nil
+        ) { _ in ImageMemoryCache.shared.removeAllObjects() }
         return c
     }()
 
@@ -32,7 +38,7 @@ enum ImageMemoryCache {
             Task.detached(priority: .utility) {
                 defer { releaseInFlight(url) }
                 guard let (data, _) = try? await URLSession.shared.data(from: url),
-                      let img = UIImage(data: data)?.preparingForDisplay() else { return }
+                      let img = ImageDownsampling.decode(data, target: nil).map({ UIImage(cgImage: $0) }) else { return }
                 shared.setObject(img, forKey: url as NSURL, cost: cost(of: img))
             }
         }
@@ -88,7 +94,7 @@ enum ImageMemoryCache {
         // Decode off the main actor — decoding a whole screen of posters on main is what makes a
         // grid feel like it "loads for a long time".
         let decoded = await Task.detached(priority: .userInitiated) {
-            UIImage(data: data)?.preparingForDisplay()
+            ImageDownsampling.decode(data, target: nil).map { UIImage(cgImage: $0) }
         }.value
         guard let decoded else { return nil }
         shared.setObject(decoded, forKey: url as NSURL, cost: cost(of: decoded))

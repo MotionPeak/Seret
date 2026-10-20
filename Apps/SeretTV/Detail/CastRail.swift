@@ -1,4 +1,5 @@
 import DebridCore
+import DebridUI
 import SwiftUI
 
 /// A horizontal rail of circular cast headshots with name + character, shown at the bottom of the
@@ -17,6 +18,7 @@ import SwiftUI
 /// by a placeholder while its image loads, so the row's height is fixed from first layout.
 struct CastRail: View {
     let cast: [TMDBCastMember]
+    @Environment(\.displayScale) private var displayScale
 
     private let headshot: CGFloat = 180
     private let itemWidth: CGFloat = 220
@@ -34,8 +36,10 @@ struct CastRail: View {
             }
         }
         .task {
+            // At the size the cards decode for — see `CastCard`.
             ImageMemoryCache.prefetch(
-                cast.compactMap { TMDBClient.imageURL(path: $0.profilePath, size: "h632") })
+                cast.compactMap { TMDBClient.imageURL(path: $0.profilePath, size: "h632") },
+                target: ImageDownsampling.targetPixels(points: CastCard.decodeSize(headshot), scale: displayScale))
         }
     }
 }
@@ -54,13 +58,19 @@ private struct CastCard: View {
 
     @Environment(\.isFocused) private var focused
 
+    /// The headshot's decoded size: the focused (lifted) circle.
+    static func decodeSize(_ headshot: CGFloat) -> CGSize {
+        CGSize(width: headshot * Theme.Anim.focusScale, height: headshot * Theme.Anim.focusScale)
+    }
+
     /// Ring width, drawn entirely outside the circle — as `FocusCardStyle` draws it.
     private let ring: CGFloat = 4
 
     var body: some View {
         VStack(spacing: 14) {
             // The glyph is right whether the headshot is still loading or never arrives.
-            RemoteImage(url: TMDBClient.imageURL(path: member.profilePath, size: "h632")) { _ in
+            RemoteImage(url: TMDBClient.imageURL(path: member.profilePath, size: "h632"),
+                        decodeSize: Self.decodeSize(headshot)) { _ in
                 Theme.Palette.surface2.overlay {
                     Image(systemName: "person.fill")
                         .font(.system(size: 60))

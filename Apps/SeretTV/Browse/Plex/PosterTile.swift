@@ -77,6 +77,9 @@ extension PosterTile where Destination == Never {
 enum PosterTileMetrics {
     static let width: CGFloat = 236
     static let height: CGFloat = 354
+    /// The size the art is DECODED for: the focused, lifted tile, so focus never upscales it.
+    static let decodeSize = CGSize(width: width * Theme.Anim.focusScale,
+                                   height: height * Theme.Anim.focusScale)
 }
 
 /// What a `PosterTile` draws inside its focus ring.
@@ -95,7 +98,7 @@ private struct PosterTileArt: View {
     var body: some View {
         ZStack {
             if let url = TMDBClient.imageURL(path: tile.posterPath, size: "w500") {
-                RemoteImage(url: url)
+                RemoteImage(url: url, decodeSize: PosterTileMetrics.decodeSize)
             } else {
                 noArt
             }
