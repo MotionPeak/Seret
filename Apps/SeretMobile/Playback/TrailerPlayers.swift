@@ -51,7 +51,7 @@ struct FullScreenTrailer: View {
         }
         .overlay(alignment: .topLeading) {
             Button("Done") { dismiss() }
-                .padding().tint(Theme.Palette.gold)
+                .padding().tint(Theme.Palette.focus)
         }
         .onAppear {
             let p = AVPlayer(url: url)

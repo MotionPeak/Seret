@@ -143,7 +143,7 @@ struct ShowDetail: View {
                                         : "Play S\(next.season)·E\(next.number)",
                           systemImage: "play.fill")
                 }
-                .buttonStyle(GoldButtonStyle())
+                .buttonStyle(PrimaryPillButtonStyle())
                 // The film page has offered this all along; an episode part-way through could only
                 // be started over by dragging the player's bar back to 0:00.
                 if resume != nil {
@@ -154,7 +154,7 @@ struct ShowDetail: View {
                     } label: {
                         Label("Start", systemImage: "gobackward")
                     }
-                    .buttonStyle(GhostButtonStyle())
+                    .buttonStyle(GlassPillButtonStyle())
                 }
             } else if let target = store.nextEpisodeTarget() {
                 // Nothing downloaded yet — Play still starts the show.
@@ -165,7 +165,7 @@ struct ShowDetail: View {
                     Label(acquiring ? "Finding…" : "Play S\(target.season)·E\(target.number)",
                           systemImage: acquiring ? "hourglass" : "play.fill")
                 }
-                .buttonStyle(GoldButtonStyle())
+                .buttonStyle(PrimaryPillButtonStyle())
                 // …and until the IMDb id has resolved. The engine cannot query an indexer without it, so
                 // tapping earlier failed with "Not signed in to Real-Debrid" — a reason that is not
                 // only unhelpful but untrue.
@@ -190,9 +190,9 @@ struct ShowDetail: View {
                         let selected = n == store.selectedSeason
                         Button(SeasonOrder.label(n)) { Task { await store.selectSeason(n) } }
                             .font(Theme.Typo.headline())
-                            .foregroundStyle(selected ? Theme.Palette.onGold : Theme.Palette.textSecondary)
+                            .foregroundStyle(selected ? Theme.Palette.onFocus : Theme.Palette.textSecondary)
                             .padding(.vertical, 7).padding(.horizontal, Theme.Space.lg)
-                            .background(selected ? AnyShapeStyle(Theme.Palette.goldGradient)
+                            .background(selected ? AnyShapeStyle(Theme.Palette.focus)
                                                  : AnyShapeStyle(Theme.Palette.surface2), in: Capsule())
                     }
                 }
@@ -211,7 +211,7 @@ struct ShowDetail: View {
                 Label("Add by Magnet", systemImage: "link.badge.plus")
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(GhostButtonStyle())
+            .buttonStyle(GlassPillButtonStyle())
             .sheet(isPresented: $showingMagnet) {
                 MagnetAddSheet(target: .init(
                     contentKey: DownloadKey.season(showTmdbID: tmdb, season: store.selectedSeason),
@@ -232,7 +232,7 @@ struct ShowDetail: View {
                 Label(watched ? "Mark Season Unwatched" : "Mark Season Watched",
                       systemImage: watched ? "checkmark.circle.fill" : "checkmark.circle")
             }
-            .buttonStyle(GhostButtonStyle())
+            .buttonStyle(GlassPillButtonStyle())
         }
     }
 
@@ -334,7 +334,7 @@ struct EpisodeRowView: View {
                             .font(Theme.Typo.headline()).foregroundStyle(Theme.Palette.textPrimary).lineLimit(1)
                         if watch?.finished == true {
                             Image(systemName: "checkmark.circle.fill")
-                                .foregroundStyle(Theme.Palette.gold).font(.caption)
+                                .foregroundStyle(Theme.Palette.textPrimary).font(.caption)
                         }
                     }
                     if let o = row.meta?.overview, !o.isEmpty {
@@ -389,9 +389,9 @@ struct EpisodeRowView: View {
 
     @ViewBuilder private var trailingIcon: some View {
         if isDownloading {
-            ProgressView().tint(Theme.Palette.gold)
+            ProgressView().tint(Theme.Palette.focus)
         } else if row.isDownloaded {
-            Image(systemName: "play.circle.fill").foregroundStyle(Theme.Palette.gold)
+            Image(systemName: "play.circle.fill").foregroundStyle(Theme.Palette.textPrimary)
         } else {
             Image(systemName: "arrow.down.circle").foregroundStyle(Theme.Palette.textSecondary)
         }
@@ -413,7 +413,7 @@ struct EpisodeRowView: View {
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     Rectangle().fill(.white.opacity(0.28))
-                    Rectangle().fill(Theme.Palette.gold)
+                    Rectangle().fill(Theme.Palette.focus)
                         .frame(width: geo.size.width * min(1, w.positionSeconds / w.durationSeconds))
                 }
             }

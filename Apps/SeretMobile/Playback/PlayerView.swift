@@ -158,7 +158,7 @@ struct PlayerView: View {
     /// `.preparing`, which shows the "Preparing…" overlay with a spinner of its own.
     @ViewBuilder private var midPlaySpinner: some View {
         if !model.isColdOpen && model.isBuffering && showsMidPlaySpinner && model.phase != .preparing {
-            ProgressView().controlSize(.large).tint(Theme.Palette.gold)
+            ProgressView().controlSize(.large).tint(Theme.Palette.focus)
                 .padding(18).background(.black.opacity(0.35), in: Circle())
                 .allowsHitTesting(false)
                 .transition(.opacity)
@@ -246,8 +246,8 @@ struct PlayerView: View {
                 Label("Play Now", systemImage: "play.fill")
                     .font(.subheadline.weight(.bold))
                     .padding(.horizontal, 16).padding(.vertical, 9)
-                    .background(Theme.Palette.gold, in: Capsule())
-                    .foregroundStyle(.black)
+                    .background(Theme.Palette.focus, in: Capsule())
+                    .foregroundStyle(Theme.Palette.onFocus)
                     .contentShape(Capsule())
             }
         }
@@ -312,8 +312,7 @@ struct PlayerView: View {
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     Capsule().fill(.white.opacity(0.25)).frame(height: 4)
-                    Capsule().fill(Theme.Palette.gold).frame(width: geo.size.width * frac, height: 4)
-                        .goldGlow(6, opacity: 0.7)
+                    Capsule().fill(Theme.Palette.focus).frame(width: geo.size.width * frac, height: 4)
                     Circle().fill(.white)
                         .frame(width: model.isScrubbing ? 20 : 14, height: model.isScrubbing ? 20 : 14)
                         .offset(x: min(geo.size.width - 14, max(-2, geo.size.width * frac - 7)))
@@ -376,7 +375,7 @@ struct LetterboxdRatingBar: View {
             HStack(spacing: 10) {
                 Text(shown > 0 ? "RATE IT · \(shown)/10" : "RATE IT?")
                     .font(.system(size: 11, weight: .bold)).kerning(1.2)
-                    .foregroundStyle(SeretPalette.gold)
+                    .foregroundStyle(Theme.Palette.focus)
                 Button(action: onDismiss) {
                     Image(systemName: "xmark")
                         .font(.system(size: 11, weight: .bold))
@@ -396,7 +395,7 @@ struct LetterboxdRatingBar: View {
                     } label: {
                         Image(systemName: shown >= value ? "star.fill" : "star")
                             .font(.system(size: 15))
-                            .foregroundStyle(shown >= value ? SeretPalette.gold
+                            .foregroundStyle(shown >= value ? Theme.Palette.focus
                                                             : .white.opacity(0.45))
                             // A 15pt glyph is not a tap target; ten of them side by side is a
                             // row of near-misses without this.
@@ -420,7 +419,7 @@ struct LetterboxdLoggedBar: View {
         HStack(spacing: 8) {
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(SeretPalette.gold)
+                .foregroundStyle(Theme.Palette.focus)
             Text("Logged to Letterboxd")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(.white)
@@ -454,7 +453,7 @@ struct AutoSyncBar: View {
                             Capsule().fill(.white.opacity(0.22))
                             // A floor, so the bar reads as started rather than as broken while the
                             // first seconds of audio are still arriving.
-                            Capsule().fill(Theme.Palette.goldGradient)
+                            Capsule().fill(Theme.Palette.focus)
                                 .frame(width: max(5, geo.size.width * fraction))
                         }
                     }
@@ -465,7 +464,7 @@ struct AutoSyncBar: View {
         }
         .padding(.horizontal, 14).padding(.vertical, 10)
         .background(.black.opacity(0.74), in: Capsule())
-        .overlay(Capsule().strokeBorder(Theme.Palette.gold.opacity(0.22)))
+        .overlay(Capsule().strokeBorder(Theme.Palette.hairline))
         .padding(.horizontal, 20)
         .allowsHitTesting(false)
     }
@@ -480,7 +479,7 @@ struct AutoSyncBar: View {
 
     private var tint: Color {
         switch banner.mood {
-        case .measuring: Theme.Palette.gold
+        case .measuring: Theme.Palette.textPrimary
         case .synced:    .green
         case .failed:    .orange
         }

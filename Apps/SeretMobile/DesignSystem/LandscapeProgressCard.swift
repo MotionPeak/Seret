@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 16:9 thumbnail + gold progress + title/subtitle. For Continue Watching.
+/// 16:9 thumbnail + white progress + title/subtitle. For Continue Watching.
 struct LandscapeProgressCard: View {
     let title: String
     let subtitle: String
@@ -14,7 +14,7 @@ struct LandscapeProgressCard: View {
             .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
                 .stroke(Theme.Palette.hairline, lineWidth: 1))
-            GoldProgressBar(fraction: fraction).frame(width: width)
+            ProgressLine(fraction: fraction).frame(width: width)
             Text(title).font(Theme.Typo.caption())
                 .foregroundStyle(Theme.Palette.textPrimary).lineLimit(1).frame(width: width, alignment: .leading)
             if !subtitle.isEmpty {

@@ -44,10 +44,10 @@ struct PlayerUIPreview: View {
             case "showdetail":      MobileShowDetailPreview()
             case "subtitlebrowser":
                 // Tinted here because in the app the browser is pushed INSIDE the settings sheet,
-                // which sets the gold tint — an untinted harness screenshot would show system blue
+                // which sets the white tint — an untinted harness screenshot would show system blue
                 // and misrepresent it.
                 NavigationStack { MobileSubtitleBrowser(model: driver.model) }
-                    .tint(Theme.Palette.gold)
+                    .tint(Theme.Palette.focus)
                     .task { await driver.primeAndSearch() }
             default:
                 PlayerSettingsSheet(model: driver.model)
@@ -338,7 +338,7 @@ private struct MobileRatingBarPreview: View {
                     .font(.system(size: 15)).foregroundStyle(.white.opacity(0.28))
                 Text(picked)
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(SeretPalette.gold)
+                    .foregroundStyle(Theme.Palette.focus)
             }
         }
         .letterboxdDiaryBar(signal: signal, contentKey: "movie:tmdb:73") { state in

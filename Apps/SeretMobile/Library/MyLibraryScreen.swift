@@ -76,7 +76,7 @@ struct MyLibraryScreen: View {
                             Text(removeErrorMessage ?? "")
                         }
                 } else {
-                    Spacer(); ProgressView().tint(Theme.Palette.gold); Spacer()
+                    Spacer(); ProgressView().tint(Theme.Palette.focus); Spacer()
                 }
             }
         }
@@ -93,7 +93,7 @@ private struct DownloadingStrip: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.xs) {
             Text("DOWNLOADING").font(Theme.Typo.label()).tracking(1.5)
-                .foregroundStyle(Theme.Palette.gold).padding(.horizontal, Theme.Space.lg)
+                .foregroundStyle(Theme.Palette.textSecondary).padding(.horizontal, Theme.Space.lg)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: Theme.Space.md) {
                     // Tappable, as the same tiles are on Home: they open the title's page.

@@ -1,30 +1,49 @@
 import DebridCore
 import DebridUI
 import SwiftUI
+import UIKit
 
-/// The signed-in shell. Adapts to the horizontal size class: a tab bar on iPhone
-/// (compact) and a custom Gold Glass sidebar (`NavigationSplitView`) on iPad (regular).
-/// Movies / TV are **browse** surfaces; My Library holds the user's Real-Debrid content.
+/// The signed-in shell. Adapts to the horizontal size class:
+///
+/// - **iPhone (compact)** — the system `TabView`: Home · Movies · Shows · Watchlist · Library. On
+///   iOS 26 that IS the floating Liquid Glass tab bar; iOS 18 gets the standard bar restyled to
+///   the neutral palette (`styleLegacyTabBar`). Search and Settings are glass circles on Home's own
+///   header, and Search is on the Movies / Shows headers too.
+/// - **iPad (regular)** — the Plex-style floating sidebar (`ShellSidebar`) over the page, which
+///   runs full-bleed underneath it so backdrop art shows past the panel.
+///
+/// The selected section lives on `AppRouter`, above this view, so it survives a size-class flip.
 struct MainShell: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(AppSession.self) private var session
     @Environment(AppRouter.self) private var router
     @State private var showingProfiles = false
     @State private var showingSettings = false
-    /// Persisted across launches. Collapsed shows an icon-only rail; expanded shows labels.
+    /// Persisted across launches. Collapsed shows an icon-only capsule; expanded shows labels.
     @AppStorage("seret.ipad.sidebarExpanded") private var sidebarExpanded = true
-
-    private let railExpandedWidth: CGFloat = 248
-    private let railCollapsedWidth: CGFloat = 76
+    /// The section, restored when the system relaunches the scene.
+    @SceneStorage("seret.mobile.section") private var storedSection = Section.home.rawValue
+    @State private var restoredSection = false
 
     var body: some View {
         Group {
             if sizeClass == .compact {
                 tabBar
             } else {
-                splitView
+                sidebarLayout
             }
         }
+        .tint(Theme.Palette.focus)
+        .onAppear {
+            // Once per shell, and only over the default: a later re-appearance must not drag the
+            // viewer back to a stale tab, and a section someone already chose wins.
+            guard !restoredSection else { return }
+            restoredSection = true
+            if router.selectedSection == .home, let restored = Section(rawValue: storedSection) {
+                router.selectedSection = restored
+            }
+        }
+        .onChange(of: router.selectedSection) { _, section in storedSection = section.rawValue }
         .fullScreenCover(isPresented: $showingProfiles) {
             WhoIsWatchingScreen(onPicked: { showingProfiles = false }).environment(session)
         }
@@ -34,7 +53,7 @@ struct MainShell: View {
                     .environment(session)
                     .toolbar {
                         ToolbarItem(placement: .topBarTrailing) {
-                            Button("Done") { showingSettings = false }.tint(Theme.Palette.gold)
+                            Button("Done") { showingSettings = false }.tint(Theme.Palette.focus)
                         }
                     }
             }
@@ -43,189 +62,118 @@ struct MainShell: View {
 
     // MARK: iPhone — tab bar
 
-    private var tabBar: some View {
-        TabView(selection: Binding(get: { router.selectedSection }, set: { router.selectedSection = $0 })) {
-            ForEach(Section.allCases) { section in
-                screen(for: section)
-                    .tabItem { Label(section.title, systemImage: section.icon) }
-                    .tag(section)
-            }
-        }
-        .tint(Theme.Palette.gold)
+    /// Search is a sidebar row, not a tab: crossing from iPad to iPhone with it selected lands on
+    /// Home, where the search circle is.
+    private var tabSelection: Binding<Section> {
+        Binding(get: { router.selectedSection.isTab ? router.selectedSection : .home },
+                set: { router.selectedSection = $0 })
     }
 
-    // MARK: iPad — custom collapsible rail
+    private var tabBar: some View {
+        TabView(selection: tabSelection) {
+            ForEach(Section.tabs) { section in
+                Tab(section.title, systemImage: section.icon, value: section) {
+                    screen(for: section)
+                }
+            }
+        }
+        .onAppear(perform: Self.styleLegacyTabBar)
+    }
 
-    /// A bespoke split: a collapsible Gold Glass rail beside the detail screen.
-    /// Collapsing animates the rail down to an icon-only strip — the icons stay
-    /// pressable — instead of hiding the sidebar entirely.
-    private var splitView: some View {
-        HStack(spacing: 0) {
-            sidebar
-                .frame(width: sidebarExpanded ? railExpandedWidth : railCollapsedWidth)
-            Rectangle()
-                .fill(Theme.Palette.hairline)
-                .frame(width: 1)
-                .ignoresSafeArea()
+    /// iOS 18 only: the standard bar, translucent over the canvas, white when selected. iOS 26's
+    /// Liquid Glass bar is left exactly as the system draws it — an appearance object would flatten
+    /// it back into a plain bar.
+    static func styleLegacyTabBar() {
+        if #available(iOS 26, *) { return }
+        let appearance = UITabBarAppearance()
+        appearance.configureWithTransparentBackground()
+        appearance.backgroundEffect = UIBlurEffect(style: .systemUltraThinMaterialDark)
+        appearance.backgroundColor = UIColor(Theme.Palette.canvas.opacity(0.45))
+        appearance.shadowColor = UIColor.white.withAlphaComponent(0.12)
+        let item = UITabBarItemAppearance()
+        let rest = UIColor(Theme.Palette.textSecondary)
+        item.normal.iconColor = rest
+        item.normal.titleTextAttributes = [.foregroundColor: rest]
+        item.selected.iconColor = .white
+        item.selected.titleTextAttributes = [.foregroundColor: UIColor.white]
+        appearance.stackedLayoutAppearance = item
+        appearance.inlineLayoutAppearance = item
+        appearance.compactInlineLayoutAppearance = item
+        UITabBar.appearance().standardAppearance = appearance
+        UITabBar.appearance().scrollEdgeAppearance = appearance
+    }
+
+    // MARK: iPad — floating sidebar
+
+    private var sidebarLayout: some View {
+        let width = sidebarExpanded ? ShellSidebar.expandedWidth : ShellSidebar.collapsedWidth
+        let inset = width + ShellSidebar.margin
+        return ZStack(alignment: .topLeading) {
+            CanvasBackground()
             screen(for: router.selectedSection)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // The page lays out beside the panel. Padding, not a leading safe-area inset: a
+                // NavigationStack does not hand a leading inset on to its pages (measured — titles
+                // and spinners sat under the panel). A page that wants its art to run on under the
+                // panel, as the mockup's Home does, reads `shellLeadingInset` and bleeds by it.
+                .padding(.leading, inset)
+                .environment(\.shellLeadingInset, inset)
+            ShellSidebar(selection: Binding(get: { router.selectedSection },
+                                            set: { router.selectedSection = $0 }),
+                         expanded: $sidebarExpanded,
+                         profile: ProfilesFeature.isEnabled ? session.activeProfiles?.activeProfile : nil,
+                         onSettings: { showingSettings = true },
+                         onProfile: { showingProfiles = true })
+                .frame(width: width)
+                .padding(ShellSidebar.margin)
         }
-        .tint(Theme.Palette.gold)
+        .animation(Theme.Motion.standard, value: sidebarExpanded)
     }
 
     @ViewBuilder private func screen(for section: Section) -> some View {
         switch section {
-        case .home:    HomeScreen()
-        case .find:    NavigationStack { FindScreen() }
+        case .home:      HomeScreen()
+        case .movies:    NavigationStack { FindScreen(mode: .browse, kind: .movie) }
+        case .shows:     NavigationStack { FindScreen(mode: .browse, kind: .show) }
         case .watchlist: NavigationStack { WatchlistScreen() }
-        case .library: NavigationStack { MyLibraryScreen() }
+        case .library:   NavigationStack { MyLibraryScreen() }
+        case .search:    NavigationStack { FindScreen(mode: .search) }
         }
     }
 
-    private var sidebar: some View {
-        VStack(alignment: .leading, spacing: Theme.Space.xs) {
-            header
-                .padding(.horizontal, Theme.Space.sm)
-                .padding(.top, Theme.Space.sm).padding(.bottom, Theme.Space.lg)
-
-            ForEach(Section.allCases) { section in
-                sidebarRow(section)
-            }
-            Spacer()
-            settingsRow
-            // Profiles are switched off — no chip to switch with. See `ProfilesFeature`.
-            if ProfilesFeature.isEnabled { profileRow }
-        }
-        .padding(Theme.Space.sm)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(Theme.Palette.surface1.opacity(0.6))
-        .background(Theme.Palette.canvas)
-    }
-
-    /// Header IS the toggle: tapping the Seret play-mark expands/collapses the rail; the
-    /// "Seret" wordmark slides + fades in/out as part of the animation. No separate chevron.
-    private var header: some View {
-        Button {
-            withAnimation(.spring(response: 0.45, dampingFraction: 0.78)) { sidebarExpanded.toggle() }
-        } label: {
-            HStack(spacing: Theme.Space.sm) {
-                SeretMark().frame(width: 30, height: 30)
-                if sidebarExpanded {
-                    Text("Seret").font(.system(size: 22, weight: .heavy))
-                        .foregroundStyle(Theme.Palette.textPrimary)
-                        .fixedSize()                     // never compress while the rail collapses
-                        .transition(.asymmetric(
-                            insertion: .move(edge: .leading).combined(with: .opacity),
-                            removal:   .move(edge: .leading).combined(with: .opacity)))
-                    Spacer(minLength: 0)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: sidebarExpanded ? .leading : .center)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(sidebarExpanded ? "Collapse sidebar" : "Expand sidebar")
-    }
-
-    /// Settings sits just above the profile chip at the bottom of the rail — tucked to the side,
-    /// never a primary nav row.
-    private var settingsRow: some View {
-        Button { showingSettings = true } label: {
-            HStack(spacing: Theme.Space.md) {
-                Image(systemName: "gearshape")
-                    .font(.system(size: 17, weight: .semibold))
-                    .frame(width: 26)
-                if sidebarExpanded {
-                    Text("Settings").font(.system(size: 17, weight: .semibold)).lineLimit(1)
-                    Spacer(minLength: 0)
-                }
-            }
-            .foregroundStyle(Theme.Palette.textSecondary)
-            .padding(.vertical, Theme.Space.md)
-            .padding(.horizontal, sidebarExpanded ? Theme.Space.md : 0)
-            .frame(maxWidth: .infinity, alignment: sidebarExpanded ? .leading : .center)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Settings")
-    }
-
-    private var activeProfile: ProfileDTO? { session.activeProfiles?.activeProfile }
-
-    /// Bottom-of-sidebar profile chip — the active avatar; tap to switch profiles.
-    private var profileRow: some View {
-        Button { showingProfiles = true } label: {
-            HStack(spacing: Theme.Space.md) {
-                ProfileAvatarImage(token: activeProfile?.avatar ?? "", diameter: 30,
-                                   colorTag: activeProfile?.colorTag ?? "gold")
-                if sidebarExpanded {
-                    Text(activeProfile?.name ?? "Profile")
-                        .font(.system(size: 17, weight: .semibold)).lineLimit(1)
-                    Spacer(minLength: 0)
-                }
-            }
-            .foregroundStyle(Theme.Palette.textSecondary)
-            .padding(.vertical, Theme.Space.md)
-            .padding(.horizontal, sidebarExpanded ? Theme.Space.md : 0)
-            .frame(maxWidth: .infinity, alignment: sidebarExpanded ? .leading : .center)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Switch profile")
-    }
-
-    private func sidebarRow(_ section: Section) -> some View {
-        let selected = section == router.selectedSection
-        return Button { router.selectedSection = section } label: {
-            HStack(spacing: Theme.Space.md) {
-                Image(systemName: selected ? section.filledIcon : section.icon)
-                    .font(.system(size: 17, weight: .semibold))
-                    .frame(width: 26)
-                if sidebarExpanded {
-                    Text(section.title).font(.system(size: 17, weight: .semibold))
-                        .lineLimit(1)
-                    Spacer(minLength: 0)
-                }
-            }
-            .foregroundStyle(selected ? Theme.Palette.gold : Theme.Palette.textSecondary)
-            .padding(.vertical, Theme.Space.md)
-            .padding(.horizontal, sidebarExpanded ? Theme.Space.md : 0)
-            .frame(maxWidth: .infinity, alignment: sidebarExpanded ? .leading : .center)
-            .background(selected ? Theme.Palette.gold.opacity(0.14) : .clear,
-                        in: RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(section.title)
-        .help(section.title)
-    }
-
-    enum Section: Hashable, CaseIterable, Identifiable {
-        case home, find, watchlist, library
+    enum Section: String, Hashable, CaseIterable, Identifiable {
+        case home, movies, shows, watchlist, library, search
         var id: Self { self }
+
+        /// The iPhone tab bar, in order. Search is reached from the page headers instead.
+        static let tabs: [Section] = [.home, .movies, .shows, .watchlist, .library]
+        var isTab: Bool { Self.tabs.contains(self) }
+
         var title: String {
             switch self {
             case .home: "Home"
-            case .find: "Find"
+            case .movies: "Movies"
+            case .shows: "Shows"
             case .watchlist: "Watchlist"
-            case .library: "My Library"
+            case .library: "Library"
+            case .search: "Search"
             }
         }
         var icon: String {
             switch self {
             case .home: "house"
-            case .find: "magnifyingglass"
+            case .movies: "film"
+            case .shows: "tv"
             case .watchlist: "bookmark"
-            case .library: "rectangle.stack"
-            }
-        }
-        var filledIcon: String {
-            switch self {
-            case .home: "house.fill"
-            case .find: "magnifyingglass"
-            case .watchlist: "bookmark.fill"
-            case .library: "rectangle.stack.fill"
+            case .library: "books.vertical"
+            case .search: "magnifyingglass"
             }
         }
     }
+}
+
+extension EnvironmentValues {
+    /// How far the iPad sidebar covers the page's leading edge (0 on iPhone). A page draws its
+    /// backdrop out by this much to run it on under the floating panel.
+    @Entry var shellLeadingInset: CGFloat = 0
 }

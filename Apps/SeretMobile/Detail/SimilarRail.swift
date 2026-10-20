@@ -26,7 +26,7 @@ struct SimilarRail: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.sm) {
             Text("MORE LIKE THIS")
-                .font(Theme.Typo.label()).tracking(1.5).foregroundStyle(Theme.Palette.gold)
+                .font(Theme.Typo.label()).tracking(1.5).foregroundStyle(Theme.Palette.textSecondary)
             ScrollView(.horizontal, showsIndicators: false) {
                 // Lazy: `similar` is a whole TMDB page, and a non-lazy row built and image-loaded
                 // every one of them the moment the page appeared, however few were on screen.
@@ -59,7 +59,7 @@ struct SimilarRail: View {
     private var inLibraryBadge: some View {
         Image(systemName: "checkmark.circle.fill")
             .font(.system(size: 18, weight: .bold))
-            .foregroundStyle(Theme.Palette.onGold, Theme.Palette.gold)
+            .foregroundStyle(Theme.Palette.onFocus, Theme.Palette.focus)
             .background(Circle().fill(.black.opacity(0.35)))
             .accessibilityLabel("In Library")
     }

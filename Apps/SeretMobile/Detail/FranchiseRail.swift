@@ -21,7 +21,7 @@ struct FranchiseRail: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.sm) {
             Text(franchise.name.uppercased())
-                .font(Theme.Typo.label()).tracking(1.5).foregroundStyle(Theme.Palette.gold)
+                .font(Theme.Typo.label()).tracking(1.5).foregroundStyle(Theme.Palette.textSecondary)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(alignment: .top, spacing: Theme.Space.md) {
                     ForEach(Array(franchise.parts.enumerated()), id: \.element.id) { index, part in
@@ -48,7 +48,7 @@ struct FranchiseRail: View {
                 .overlay {
                     if isCurrent {
                         RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
-                            .strokeBorder(Theme.Palette.gold, lineWidth: 3)
+                            .strokeBorder(Theme.Palette.focus, lineWidth: 3)
                     }
                 }
                 .overlay(alignment: .topLeading) { numberBadge(number).padding(5) }
@@ -69,7 +69,7 @@ struct FranchiseRail: View {
     private var inLibraryBadge: some View {
         Image(systemName: "checkmark.circle.fill")
             .font(.system(size: 18, weight: .bold))
-            .foregroundStyle(Theme.Palette.onGold, Theme.Palette.gold)
+            .foregroundStyle(Theme.Palette.onFocus, Theme.Palette.focus)
             .background(Circle().fill(.black.opacity(0.35)))
             .accessibilityLabel("In Library")
     }

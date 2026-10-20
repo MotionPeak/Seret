@@ -43,7 +43,7 @@ struct VersionsScreen: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button { dismiss() } label: { Image(systemName: "chevron.down").font(.headline) }
-                        .tint(Theme.Palette.gold)
+                        .tint(Theme.Palette.focus)
                 }
             }
         }
@@ -64,7 +64,7 @@ struct VersionsScreen: View {
         switch model?.phase ?? .loading {
         case .loading:
             HStack(spacing: Theme.Space.sm) {
-                ProgressView().tint(Theme.Palette.gold)
+                ProgressView().tint(Theme.Palette.focus)
                 Text("Finding versions…").font(Theme.Typo.body())
                     .foregroundStyle(Theme.Palette.textSecondary)
             }
@@ -87,13 +87,13 @@ struct VersionsScreen: View {
         if let status = model?.downloadStatus {
             switch status.phase {
             case .queued:
-                ProgressView("Starting download…").tint(Theme.Palette.gold)
+                ProgressView("Starting download…").tint(Theme.Palette.focus)
             case .downloading:
                 VStack(alignment: .leading, spacing: 6) {
                     Label("Downloading \(Int(status.fraction * 100))% to Real\u{2011}Debrid…",
                           systemImage: "arrow.down.circle.fill")
-                        .font(Theme.Typo.body()).foregroundStyle(Theme.Palette.gold)
-                    ProgressView(value: status.fraction).tint(Theme.Palette.gold)
+                        .font(Theme.Typo.body()).foregroundStyle(Theme.Palette.textPrimary)
+                    ProgressView(value: status.fraction).tint(Theme.Palette.focus)
                     Text("It'll appear in your library when it's ready.")
                         .font(Theme.Typo.caption()).foregroundStyle(Theme.Palette.textTertiary)
                 }
@@ -128,8 +128,8 @@ struct CacheBadge: View {
               systemImage: isCached ? "bolt.fill" : "arrow.down.circle")
             .font(.system(size: 10, weight: .bold))
             .labelStyle(.titleAndIcon)
-            .foregroundStyle(isCached ? Color.green : Theme.Palette.gold)
+            .foregroundStyle(isCached ? Color.green : Theme.Palette.textPrimary)
             .padding(.vertical, 3).padding(.horizontal, 7)
-            .background((isCached ? Color.green : Theme.Palette.gold).opacity(0.15), in: Capsule())
+            .background((isCached ? Color.green : Theme.Palette.textPrimary).opacity(0.15), in: Capsule())
     }
 }

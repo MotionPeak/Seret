@@ -21,7 +21,7 @@ struct OpenSubtitlesSignInView: View {
                     .textInputAutocapitalization(.never)
                 SecureField("Password", text: $model.password).textContentType(.password)
             } header: {
-                Text("OpenSubtitles Account").foregroundStyle(Theme.Palette.gold)
+                Text("OpenSubtitles Account").foregroundStyle(Theme.Palette.textSecondary)
             } footer: {
                 Text("Your free OpenSubtitles account is used to download Hebrew/English subtitles during playback.")
                     .font(.footnote).foregroundStyle(Theme.Palette.textSecondary)
@@ -45,7 +45,7 @@ struct OpenSubtitlesSignInView: View {
         }
         .scrollContentBackground(.hidden)
         .background(CanvasBackground())
-        .tint(Theme.Palette.gold)
+        .tint(Theme.Palette.focus)
         .navigationTitle("OpenSubtitles")
         .navigationBarTitleDisplayMode(.inline)
     }

@@ -3,7 +3,7 @@ import DebridUI
 import SwiftUI
 
 /// The player's playback sheet: audio, subtitles (existing + on-demand he/en), and speed —
-/// each laid out as wrapping Gold Glass chips (selected = gold), not a vertical list.
+/// each laid out as wrapping glass chips (selected = white), not a vertical list.
 struct PlayerSettingsSheet: View {
     let model: PlayerModel
     @Environment(\.dismiss) private var dismiss
@@ -135,14 +135,14 @@ struct PlayerSettingsSheet: View {
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
         .presentationBackground(Theme.Palette.canvas)
-        .tint(Theme.Palette.gold)
+        .tint(Theme.Palette.focus)
     }
 
     @ViewBuilder private func section<C: View>(_ title: String, _ icon: String,
                                               @ViewBuilder content: () -> C) -> some View {
         VStack(alignment: .leading, spacing: Theme.Space.md) {
             Label(title, systemImage: icon)
-                .font(Theme.Typo.label()).tracking(1).foregroundStyle(Theme.Palette.gold)
+                .font(Theme.Typo.label()).tracking(1).foregroundStyle(Theme.Palette.textSecondary)
             content()
         }
     }
@@ -161,9 +161,9 @@ struct PlayerSettingsSheet: View {
                 if selected { Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)) }
                 Text(title).font(.system(size: 14, weight: .semibold))
             }
-            .foregroundStyle(selected ? Theme.Palette.onGold : Theme.Palette.textPrimary)
+            .foregroundStyle(selected ? Theme.Palette.onFocus : Theme.Palette.textPrimary)
             .padding(.vertical, 9).padding(.horizontal, 15)
-            .background(selected ? AnyShapeStyle(Theme.Palette.goldGradient)
+            .background(selected ? AnyShapeStyle(Theme.Palette.focus)
                                  : AnyShapeStyle(Theme.Palette.surface2), in: Capsule())
             .overlay(Capsule().stroke(Theme.Palette.hairline, lineWidth: selected ? 0 : 1))
         }
@@ -194,7 +194,7 @@ struct PlayerSettingsSheet: View {
             .foregroundStyle(Theme.Palette.textPrimary)
             .padding(.vertical, 9).padding(.horizontal, 15)
             .background(Theme.Palette.surface2, in: Capsule())
-            .overlay(Capsule().stroke(Theme.Palette.gold.opacity(0.45),
+            .overlay(Capsule().stroke(Theme.Palette.focus.opacity(0.45),
                                       style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
         }
         .buttonStyle(.plain)
@@ -203,12 +203,12 @@ struct PlayerSettingsSheet: View {
 
     @ViewBuilder private func downloadGlyph(_ state: PlayerModel.SubtitleRowState) -> some View {
         switch state {
-        case .idle:        Image(systemName: "arrow.down.circle").foregroundStyle(Theme.Palette.gold)
+        case .idle:        Image(systemName: "arrow.down.circle").foregroundStyle(Theme.Palette.textPrimary)
         case .downloading: ProgressView().controlSize(.mini)
-        case .attached:    Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.Palette.gold)
+        case .attached:    Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.Palette.textPrimary)
         case .capReached:  Image(systemName: "clock").foregroundStyle(Theme.Palette.textSecondary)
         case .noAccount:   Image(systemName: "person.crop.circle.badge.xmark").foregroundStyle(Theme.Palette.textSecondary)
-        case .error:       Image(systemName: "exclamationmark.triangle").foregroundStyle(Theme.Palette.gold)
+        case .error:       Image(systemName: "exclamationmark.triangle").foregroundStyle(Theme.Palette.textPrimary)
         }
     }
 
@@ -299,7 +299,7 @@ struct MobileSubtitleBrowser: View {
                         .font(.footnote)
                         .foregroundStyle(Theme.Palette.textPrimary)
                 }
-                .listRowBackground(Theme.Palette.gold.opacity(0.16))
+                .listRowBackground(Theme.Palette.focus.opacity(0.16))
             }
             Section {
                 Picker("Language", selection: languageBinding) {

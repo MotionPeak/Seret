@@ -16,13 +16,13 @@ struct AddProfileScreen: View {
     init(editing: ProfileDTO? = nil) {
         self.editing = editing
         _name = State(initialValue: editing?.name ?? "")
-        _color = State(initialValue: editing?.colorTag ?? "gold")
+        _color = State(initialValue: editing?.colorTag ?? Theme.Palette.defaultColorTag)
         _avatar = State(initialValue: editing.map { ProfileAvatars.token($0.avatar) }
                         ?? (ProfileAvatars.all.first ?? ProfileAvatars.fallback))
     }
 
     private let columns = [GridItem(.adaptive(minimum: 64), spacing: 14)]
-    private let palette = ["gold", "blue", "green", "red", "purple"]
+    private let palette = [Theme.Palette.defaultColorTag, "blue", "green", "red", "purple"]
     private var count: Int { session.activeProfiles?.roster.count ?? 0 }
     private var canDelete: Bool { editing != nil && count > 1 }
     private var finalName: String {
@@ -61,7 +61,7 @@ struct AddProfileScreen: View {
                                 Button { avatar = e } label: {
                                     ProfileAvatarImage(token: e, diameter: 60, colorTag: color)
                                         .overlay(Circle().strokeBorder(
-                                            avatar == e ? Theme.Palette.gold : .clear, lineWidth: 3))
+                                            avatar == e ? Theme.Palette.focus : .clear, lineWidth: 3))
                                 }
                                 .buttonStyle(.plain)
                             }
@@ -85,7 +85,7 @@ struct AddProfileScreen: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("Cancel") { dismiss() }.tint(Theme.Palette.gold)
+                    Button("Cancel") { dismiss() }.tint(Theme.Palette.focus)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(editing == nil ? "Create" : "Save") {
@@ -99,7 +99,7 @@ struct AddProfileScreen: View {
                             dismiss()
                         }
                     }
-                    .tint(Theme.Palette.gold)
+                    .tint(Theme.Palette.focus)
                 }
             }
         }

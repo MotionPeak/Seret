@@ -122,7 +122,7 @@ private struct WatchlistCard: View {
                     .clipShape(RoundedRectangle(cornerRadius: 8))
                 if owned {
                     Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(Theme.Palette.gold)
+                        .foregroundStyle(Theme.Palette.focus)
                         .padding(6)
                         .accessibilityLabel("In your library")
                 }

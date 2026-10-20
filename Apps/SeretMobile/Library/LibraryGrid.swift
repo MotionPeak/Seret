@@ -4,7 +4,7 @@ import SwiftUI
 
 /// Renders one library tab (Movies or Shows): an adaptive poster grid when loaded
 /// (~3 columns on iPhone, larger posters/more columns on iPad), otherwise the
-/// loading / empty / failed state — all on the Gold Glass canvas.
+/// loading / empty / failed state — all on the navy canvas.
 struct LibraryGrid: View {
     let title: String
     let items: [MediaItem]
@@ -83,14 +83,14 @@ struct LibraryGrid: View {
 
     private func message(_ title: String, systemImage: String, detail: String?, retry: Bool) -> some View {
         VStack(spacing: Theme.Space.md) {
-            Image(systemName: systemImage).font(.system(size: 42)).foregroundStyle(Theme.Palette.gold)
+            Image(systemName: systemImage).font(.system(size: 42)).foregroundStyle(Theme.Palette.textSecondary)
             Text(title).font(Theme.Typo.headline()).foregroundStyle(Theme.Palette.textPrimary)
             if let detail {
                 Text(detail).font(Theme.Typo.body()).foregroundStyle(Theme.Palette.textSecondary)
                     .multilineTextAlignment(.center)
             }
             if retry {
-                Button("Try Again", action: onRetry).buttonStyle(GhostButtonStyle()).padding(.top, Theme.Space.sm)
+                Button("Try Again", action: onRetry).buttonStyle(GlassPillButtonStyle()).padding(.top, Theme.Space.sm)
             }
         }
         .padding(Theme.Space.xxl)

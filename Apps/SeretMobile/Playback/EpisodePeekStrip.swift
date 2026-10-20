@@ -113,7 +113,7 @@ struct EpisodePeekStrip: View {
         .clipped()
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay {
-            if isCurrent { RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.Palette.gold, lineWidth: 2) }
+            if isCurrent { RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.Palette.focus, lineWidth: 2) }
         }
         .overlay(alignment: .center) {
             if !ep.isPlayable {

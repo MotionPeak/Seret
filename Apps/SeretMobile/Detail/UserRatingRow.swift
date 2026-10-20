@@ -18,7 +18,7 @@ struct UserRatingRow: View {
                 HStack(spacing: Theme.Space.sm) {
                     Text("YOUR RATING")
                         .font(.caption.weight(.semibold)).kerning(1)
-                        .foregroundStyle(Theme.Palette.gold)
+                        .foregroundStyle(Theme.Palette.textSecondary)
                     if let rating = store.userRating {
                         Text("\(rating)/10")
                             .font(.caption.weight(.semibold))
@@ -39,7 +39,7 @@ struct UserRatingRow: View {
                                 .frame(maxWidth: min(starSize, Self.maxStarSize),
                                        maxHeight: min(starSize, Self.maxStarSize))
                                 .foregroundStyle((store.userRating ?? 0) >= value
-                                                 ? Theme.Palette.gold : Theme.Palette.textSecondary)
+                                                 ? Theme.Palette.focus : Theme.Palette.textSecondary)
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel("Rate \(value) out of 10")

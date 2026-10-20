@@ -32,13 +32,13 @@ struct SeasonDownloadButton: View {
             case .noStreams:
                 if let status = activeStatus {
                     row(DownloadProgressText.line(for: status),
-                        system: "arrow.down.circle.fill", tint: Theme.Palette.gold)
+                        system: "arrow.down.circle.fill", tint: Theme.Palette.textPrimary)
                 } else if contentKey != nil {
                     // Nothing cached, but RD can still fetch it — offer the tracked download
                     // rather than dead-ending here.
                     Button { Task { await startSeasonDownload() } } label: {
                         row("Download Whole Season", system: "arrow.down.circle",
-                            tint: Theme.Palette.gold)
+                            tint: Theme.Palette.textPrimary)
                     }
                     .buttonStyle(.plain)
                 } else {
@@ -47,7 +47,7 @@ struct SeasonDownloadButton: View {
                 }
             case .adding:
                 HStack(spacing: Theme.Space.sm) {
-                    ProgressView().tint(Theme.Palette.gold)
+                    ProgressView().tint(Theme.Palette.focus)
                     Text("Downloading the whole season\u{2026}")
                         .font(Theme.Typo.body()).foregroundStyle(Theme.Palette.textSecondary)
                 }
@@ -60,7 +60,7 @@ struct SeasonDownloadButton: View {
                     Label("Check Again for a Full Season", systemImage: "arrow.clockwise")
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(GhostButtonStyle())
+                .buttonStyle(GlassPillButtonStyle())
             case .streams:
                 Button {
                     Task { await store.addBest(); if case .added = store.state { onAdded() } }
@@ -68,7 +68,7 @@ struct SeasonDownloadButton: View {
                     Label("Download Whole Season", systemImage: "square.stack.3d.up.fill")
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(GhostButtonStyle())
+                .buttonStyle(GlassPillButtonStyle())
             }
         }
     }

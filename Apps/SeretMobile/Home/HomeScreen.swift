@@ -4,6 +4,9 @@ import SwiftUI
 
 /// Home tab: a featured hero (most recent Continue item) + Continue Watching and
 /// Recently Added rails, composed on `session.home`. Taps open Detail full-screen.
+///
+/// On iPhone the page carries its own glass header — "Seret", then Search (pushes the search page)
+/// and Settings as glass circles. On iPad the sidebar owns both, so the page has no bar at all.
 struct HomeScreen: View {
     @Environment(AppSession.self) private var session
     @Environment(\.horizontalSizeClass) private var hSize
@@ -25,30 +28,11 @@ struct HomeScreen: View {
                 CanvasBackground()
                 content
             }
-            .navigationTitle("Home")
             .libraryRemovalConfirmation(pending: $pendingRemoval,
                                         errorMessage: $removeErrorMessage,
                                         store: session.libraryStore)
-            .toolbar {
-                // iPhone: profile avatar + Settings gear in the nav bar (iPad uses the sidebar).
-                if !isRegular {
-                    ToolbarItem(placement: .topBarLeading) {
-                        Button { showingSettings = true } label: {
-                            Image(systemName: "gearshape").tint(Theme.Palette.textPrimary)
-                        }
-                    }
-                    // The avatar is gone while profiles are off. See `ProfilesFeature`.
-                    if ProfilesFeature.isEnabled {
-                        ToolbarItem(placement: .topBarTrailing) {
-                            Button { showingProfiles = true } label: {
-                                ProfileAvatarImage(token: session.activeProfiles?.activeProfile?.avatar ?? "",
-                                                   diameter: 32,
-                                                   colorTag: session.activeProfiles?.activeProfile?.colorTag ?? "gold")
-                            }
-                        }
-                    }
-                }
-            }
+            .modifier(HomeHeader(isRegular: isRegular, showingSettings: $showingSettings,
+                                 showingProfiles: $showingProfiles))
         }
         .fullScreenCover(isPresented: $showingProfiles) {
             WhoIsWatchingScreen(onPicked: { showingProfiles = false }).environment(session)
@@ -59,7 +43,7 @@ struct HomeScreen: View {
                     .environment(session)
                     .toolbar {
                         ToolbarItem(placement: .topBarTrailing) {
-                            Button("Done") { showingSettings = false }.tint(Theme.Palette.gold)
+                            Button("Done") { showingSettings = false }.tint(Theme.Palette.focus)
                         }
                     }
             }
@@ -162,7 +146,7 @@ struct HomeScreen: View {
                 }
             }
         } else {
-            ProgressView().tint(Theme.Palette.gold)
+            ProgressView().tint(Theme.Palette.focus)
         }
     }
 
@@ -172,18 +156,15 @@ struct HomeScreen: View {
                 VStack(alignment: .leading, spacing: Theme.Space.sm) {
                     Text(f.isUpNext ? "Up Next · \(f.subtitle)"
                          : f.subtitle.isEmpty ? "Continue Watching" : "Continue · \(f.subtitle)")
-                        .font(Theme.Typo.label()).tracking(1.5).foregroundStyle(Theme.Palette.gold)
+                        .font(Theme.Typo.label()).tracking(1.5).foregroundStyle(Theme.Palette.textSecondary)
                     Text(f.item.title).font(Theme.Typo.titleXL())
                         .foregroundStyle(Theme.Palette.textPrimary).lineLimit(2)
                     // The pill resumes playback directly; tapping the hero art (below) opens Detail.
                     Button { resume(f) } label: {
-                        HStack(spacing: 6) { Image(systemName: "play.fill"); Text(f.isUpNext ? "Play" : "Resume") }
-                            .font(Theme.Typo.headline()).foregroundStyle(Theme.Palette.onGold)
-                            .padding(.vertical, 9).padding(.horizontal, Theme.Space.xl)
-                            .background(Theme.Palette.goldGradient, in: Capsule())
-                            .goldGlow(12, opacity: 0.4).padding(.top, 2)
+                        Label(f.isUpNext ? "Play" : "Resume", systemImage: "play.fill")
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(PrimaryPillButtonStyle())
+                    .padding(.top, 2)
                 }
             }
             .contentShape(Rectangle())
@@ -218,7 +199,7 @@ struct HomeScreen: View {
             Button { session.libraryStore?.reload() } label: {
                 Label("Try Again", systemImage: "arrow.clockwise")
             }
-            .buttonStyle(.borderedProminent).tint(Theme.Palette.gold)
+            .buttonStyle(PrimaryPillButtonStyle())
         }.frame(maxWidth: .infinity).padding(.top, 100)
     }
 
@@ -249,5 +230,46 @@ struct HomeScreen: View {
     private func posterURL(_ i: MediaItem) -> URL? { TMDBClient.imageURL(path: i.posterPath, size: "w500") }
     private func backdropURL(_ i: MediaItem) -> URL? {
         TMDBClient.imageURL(path: i.backdropPath ?? i.posterPath, size: "w780")
+    }
+}
+
+/// Home's top bar. A modifier rather than inline so the search push stays inside Home's own
+/// `NavigationStack` (the tab keeps its place when you come back).
+private struct HomeHeader: ViewModifier {
+    let isRegular: Bool
+    @Binding var showingSettings: Bool
+    @Binding var showingProfiles: Bool
+    @Environment(AppSession.self) private var session
+
+    func body(content: Content) -> some View {
+        if isRegular {
+            content.toolbar(.hidden, for: .navigationBar)
+        } else {
+            content.glassPageHeader("Seret") {
+                NavigationLink {
+                    FindScreen(mode: .search)
+                } label: {
+                    GlassCircleLabel(systemImage: "magnifyingglass")
+                }
+                .buttonStyle(GlassPressStyle())
+                .accessibilityLabel("Search")
+
+                GlassCircleButton(systemImage: "gearshape", label: "Settings") { showingSettings = true }
+
+                // The avatar is gone while profiles are off. See `ProfilesFeature`.
+                if ProfilesFeature.isEnabled {
+                    Button { showingProfiles = true } label: {
+                        ProfileAvatarImage(token: session.activeProfiles?.activeProfile?.avatar ?? "",
+                                           diameter: 40,
+                                           colorTag: session.activeProfiles?.activeProfile?.colorTag
+                                               ?? Theme.Palette.defaultColorTag)
+                            .padding(2)
+                            .seretGlass(in: Circle())
+                    }
+                    .buttonStyle(GlassPressStyle())
+                    .accessibilityLabel("Switch profile")
+                }
+            }
+        }
     }
 }

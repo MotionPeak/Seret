@@ -19,7 +19,7 @@ struct TrailerButton: View {
                 Button { showing = true } label: {
                     Label("Trailer", systemImage: "play.rectangle.fill")
                 }
-                .buttonStyle(GhostButtonStyle())
+                .buttonStyle(GlassPillButtonStyle())
                 .fullScreenCover(isPresented: $showing) { cover(model) }
             } else {
                 // A real zero-size host so `.task` actually runs (an empty Group has no child to

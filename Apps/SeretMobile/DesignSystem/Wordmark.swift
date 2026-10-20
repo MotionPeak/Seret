@@ -7,9 +7,8 @@ struct Wordmark: View {
         VStack(spacing: Theme.Space.sm) {
             Text("סֶרֶט")
                 .font(.system(size: hebrewSize, weight: .bold))
-                .foregroundStyle(Theme.Palette.gold)
+                .foregroundStyle(Theme.Palette.textPrimary)
                 .environment(\.layoutDirection, .rightToLeft)
-                .goldGlow(hebrewSize * 0.5, opacity: 0.5)
             Text("SERET")
                 .font(.system(size: hebrewSize * 0.32, weight: .semibold))
                 .tracking(hebrewSize * 0.14)

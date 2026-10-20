@@ -2,7 +2,7 @@ import DebridCore
 import DebridUI
 import SwiftUI
 
-/// Touch sign-in, Gold Glass. Default: device-code — show the code and open Real‑Debrid in an
+/// Touch sign-in, on the glass canvas. Default: device-code — show the code and open Real‑Debrid in an
 /// in-app browser. Fallback: paste a personal API token (the durable path past the throttle).
 struct SignInView: View {
     let model: SignInModel
@@ -43,7 +43,7 @@ struct SignInView: View {
 
     private func preparing(_ label: String) -> some View {
         VStack(spacing: Theme.Space.md) {
-            ProgressView().tint(Theme.Palette.gold)
+            ProgressView().tint(Theme.Palette.focus)
             Text(label).font(Theme.Typo.body()).foregroundStyle(Theme.Palette.textSecondary)
         }
     }
@@ -54,18 +54,17 @@ struct SignInView: View {
                 .font(Theme.Typo.headline()).foregroundStyle(Theme.Palette.textSecondary)
             Text(code.userCode)
                 .font(.system(size: 44, weight: .heavy, design: .monospaced))
-                .foregroundStyle(Theme.Palette.gold).textSelection(.enabled)
-                .goldGlow(12, opacity: 0.35)
+                .foregroundStyle(Theme.Palette.textPrimary).textSelection(.enabled)
             Button {
                 if let url = URL(string: code.verificationURL) { presentedURL = PresentedURL(url: url) }
             } label: {
                 Label("Open Real‑Debrid", systemImage: "safari").frame(maxWidth: .infinity)
             }
-            .buttonStyle(GoldButtonStyle())
+            .buttonStyle(PrimaryPillButtonStyle())
             Label("Waiting for authorization…", systemImage: "hourglass")
                 .font(Theme.Typo.body()).foregroundStyle(Theme.Palette.textTertiary)
             Button("Use a Real‑Debrid token instead") { showingTokenEntry = true }
-                .font(Theme.Typo.body()).foregroundStyle(Theme.Palette.gold)
+                .font(Theme.Typo.body()).foregroundStyle(Theme.Palette.textPrimary)
         }
     }
 
@@ -80,14 +79,14 @@ struct SignInView: View {
                 .padding(Theme.Space.md)
                 .background(Theme.Palette.surface2, in: RoundedRectangle(cornerRadius: Theme.Radius.chip))
                 .foregroundStyle(Theme.Palette.textPrimary)
-            if case .validatingToken = model.phase { ProgressView().tint(Theme.Palette.gold) }
+            if case .validatingToken = model.phase { ProgressView().tint(Theme.Palette.focus) }
             if case .failed(let message) = model.phase {
                 Text(message).font(Theme.Typo.body()).foregroundStyle(.red).multilineTextAlignment(.center)
             }
             Button { Task { await model.signInWithToken(tokenText) } } label: {
                 Text("Sign In").frame(maxWidth: .infinity)
             }
-            .buttonStyle(GoldButtonStyle()).disabled(tokenText.isEmpty)
+            .buttonStyle(PrimaryPillButtonStyle()).disabled(tokenText.isEmpty)
             Button("Back") { showingTokenEntry = false }
                 .font(Theme.Typo.body()).foregroundStyle(Theme.Palette.textSecondary)
         }
@@ -96,13 +95,13 @@ struct SignInView: View {
     private func failure(_ message: String) -> some View {
         VStack(spacing: Theme.Space.lg) {
             Image(systemName: "exclamationmark.triangle")
-                .font(.system(size: 44)).foregroundStyle(Theme.Palette.gold)
+                .font(.system(size: 44)).foregroundStyle(Theme.Palette.textSecondary)
             Text(message).multilineTextAlignment(.center)
                 .font(Theme.Typo.body()).foregroundStyle(Theme.Palette.textSecondary)
             VStack(spacing: Theme.Space.md) {
                 Button { model.retry() } label: { Text("Try Again").frame(maxWidth: .infinity) }
-                    .buttonStyle(GoldButtonStyle())
-                Button("Use a token") { showingTokenEntry = true }.buttonStyle(GhostButtonStyle())
+                    .buttonStyle(PrimaryPillButtonStyle())
+                Button("Use a token") { showingTokenEntry = true }.buttonStyle(GlassPillButtonStyle())
             }
         }
     }

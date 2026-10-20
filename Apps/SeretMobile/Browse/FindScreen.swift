@@ -2,12 +2,25 @@ import DebridCore
 import DebridUI
 import SwiftUI
 
-/// The single "get new content" surface: a Movies/Shows filter + a gold-glass search field over the
-/// selected kind's `DiscoverStore` rails (when idle) or search results (when typing). Folds the old
-/// Movies + TV browse tabs into one. Posters already in the library get an "In Library" badge and
-/// open their library Detail; new titles open the Add flow.
+/// The "get new content" surface, in two modes:
+///
+/// - `.browse` — the Movies or the Shows tab: that kind's `DiscoverStore` rails under a glass page
+///   header whose search circle pushes this screen again in `.search` mode.
+/// - `.search` — a Movies/Shows filter + a glass search field over the selected kind's rails (when
+///   idle) or search results (when typing). Pushed from Home / Movies / Shows on iPhone; the Search
+///   row of the iPad sidebar.
+///
+/// Posters already in the library get an "In Library" badge; every poster opens the title's page.
 struct FindScreen: View {
-    @State private var kind: MediaKind = .movie
+    enum Mode: Hashable { case browse, search }
+
+    let mode: Mode
+    @State private var kind: MediaKind
+
+    init(mode: Mode, kind: MediaKind = .movie) {
+        self.mode = mode
+        _kind = State(initialValue: kind)
+    }
 
     @Environment(AppSession.self) private var session
     /// Changes with what For You is seeded from — the library loading or changing, the profile
@@ -30,6 +43,8 @@ struct FindScreen: View {
     /// Owned so the keyboard can be put away: scrolling never dismissed it, and closing a title
     /// page handed focus straight back to the field, so the keyboard returned and hid the tab bar.
     @FocusState private var searchFocused: Bool
+    /// Set the first time the search page puts the keyboard up.
+    @State private var didAutoFocus = false
     /// A title awaiting removal confirmation, and the failure to surface if RD refuses.
     @State private var pendingRemoval: MediaItem?
     @State private var removeErrorMessage: String?
@@ -43,10 +58,39 @@ struct FindScreen: View {
     }
 
     var body: some View {
+        switch mode {
+        case .browse:
+            browsePage
+        case .search:
+            searchPage
+        }
+    }
+
+    /// The Movies / Shows tab: the kind's rails under the glass header.
+    private var browsePage: some View {
+        ZStack {
+            CanvasBackground()
+            if session.searchStore != nil { rails } else { loadingView }
+        }
+        .glassPageHeader(kind == .movie ? "Movies" : "Shows") {
+            NavigationLink {
+                FindScreen(mode: .search, kind: kind)
+            } label: {
+                GlassCircleLabel(systemImage: "magnifyingglass")
+            }
+            .buttonStyle(GlassPressStyle())
+            .accessibilityLabel("Search")
+        }
+        .libraryRemovalConfirmation(pending: $pendingRemoval,
+                                    errorMessage: $removeErrorMessage,
+                                    store: session.libraryStore)
+    }
+
+    private var searchPage: some View {
         ZStack {
             CanvasBackground()
             VStack(alignment: .leading, spacing: Theme.Space.md) {
-                Text("Find").font(.system(size: 34, weight: .bold))
+                Text("Search").font(Theme.Typo.pageTitle())
                     .foregroundStyle(Theme.Palette.textPrimary)
                     .padding(.horizontal, Theme.Space.lg)
                 kindFilter
@@ -64,9 +108,13 @@ struct FindScreen: View {
                 }
             }
             .padding(.top, Theme.Space.sm)
-            // On iPad the detail column butts right up against the sidebar — give the content
-            // breathing room from the rail. (No-op in the compact tab bar.)
-            .padding(.leading, hSize == .regular ? Theme.Space.xl : 0)
+        }
+        // Arriving on Search means wanting to type. Once only: a page closing over this one must
+        // not hand the field the keyboard again (see `searchFocused`).
+        .onAppear {
+            guard !didAutoFocus else { return }
+            didAutoFocus = true
+            searchFocused = true
         }
         // Dragging the results or the rails puts the keyboard away, as every other search does.
         .scrollDismissesKeyboard(.immediately)
@@ -106,8 +154,7 @@ struct FindScreen: View {
             }
         }
         .padding(.vertical, Theme.Space.md).padding(.horizontal, Theme.Space.lg)
-        .background(.ultraThinMaterial, in: Capsule())
-        .overlay(Capsule().stroke(Theme.Palette.hairline, lineWidth: 1))
+        .seretGlass(in: Capsule(), interactive: false)
         .padding(.horizontal, Theme.Space.lg)
     }
 
@@ -283,7 +330,7 @@ struct FindScreen: View {
     private var watchedBadge: some View {
         Image(systemName: "checkmark.circle.fill")
             .font(.system(size: 18, weight: .bold))
-            .foregroundStyle(Theme.Palette.onGold, Theme.Palette.gold)
+            .foregroundStyle(Theme.Palette.onFocus, Theme.Palette.focus)
             .background(Circle().fill(.black.opacity(0.35)))
             .accessibilityLabel("Watched")
     }
@@ -291,7 +338,7 @@ struct FindScreen: View {
     private var inLibraryBadge: some View {
         Image(systemName: "checkmark.circle.fill")
             .font(.system(size: 18, weight: .bold))
-            .foregroundStyle(Theme.Palette.onGold, Theme.Palette.gold)
+            .foregroundStyle(Theme.Palette.onFocus, Theme.Palette.focus)
             .background(Circle().fill(.black.opacity(0.35)))
     }
 
@@ -310,7 +357,7 @@ struct FindScreen: View {
     private var loadingView: some View {
         VStack {
             Spacer()
-            ProgressView().tint(Theme.Palette.gold)
+            ProgressView().tint(Theme.Palette.focus)
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -319,7 +366,7 @@ struct FindScreen: View {
     private func message(_ text: String, systemImage: String) -> some View {
         VStack(spacing: Theme.Space.md) {
             Spacer()
-            Image(systemName: systemImage).font(.system(size: 42)).foregroundStyle(Theme.Palette.gold)
+            Image(systemName: systemImage).font(.system(size: 42)).foregroundStyle(Theme.Palette.textSecondary)
             Text(text).font(Theme.Typo.headline()).foregroundStyle(Theme.Palette.textPrimary)
             Spacer()
         }

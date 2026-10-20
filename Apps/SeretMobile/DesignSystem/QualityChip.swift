@@ -7,7 +7,7 @@ struct QualityChip: View {
         Text(text).font(.system(size: 11, weight: .bold))
             .foregroundStyle(Theme.Palette.textPrimary)
             .padding(.vertical, 4).padding(.horizontal, 8)
-            .background(Theme.Palette.chipFill,
+            .background(Theme.Palette.glass,
                         in: RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous))
     }
 }

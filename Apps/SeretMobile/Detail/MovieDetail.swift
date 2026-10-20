@@ -39,7 +39,7 @@ struct MovieDetail: View {
                 }
                 if let franchise = store.franchise {
                     Text("Film \(franchise.position) of \(franchise.count)  ·  \(franchise.name)")
-                        .font(Theme.Typo.body()).foregroundStyle(Theme.Palette.gold)
+                        .font(Theme.Typo.body()).foregroundStyle(Theme.Palette.textPrimary)
                 }
                 if let best = store.bestSource { QualityChipRow(parsed: best.parsed) }
                 // Its own line: four quality chips already fill an iPhone's width, and anything
@@ -169,17 +169,17 @@ struct MovieDetail: View {
                 Button { onPlay(store.playRequest(source: best, episode: nil, label: item.title)) } label: {
                     Label("Resume · \(Timecode.format(resume))", systemImage: "play.fill")
                         .fixedSize(horizontal: !wraps, vertical: false)
-                }.buttonStyle(GoldButtonStyle())
+                }.buttonStyle(PrimaryPillButtonStyle())
                 Button { onPlay(store.playRequest(source: best, episode: nil, label: item.title, fromStart: true)) } label: {
                     Label("Start", systemImage: "gobackward")
                         .labelStyle(AdaptiveLabelStyle(iconOnly: compact))
                         .fixedSize()
-                }.buttonStyle(GhostButtonStyle())
+                }.buttonStyle(GlassPillButtonStyle())
             } else {
                 Button { onPlay(store.playRequest(source: best, episode: nil, label: item.title)) } label: {
                     Label("Play", systemImage: "play.fill")
                         .fixedSize(horizontal: !wraps, vertical: false)
-                }.buttonStyle(GoldButtonStyle())
+                }.buttonStyle(PrimaryPillButtonStyle())
             }
         } else {
             // Not in the library: Play still means play. It finds the best instantly-available
@@ -188,7 +188,7 @@ struct MovieDetail: View {
                 Label(acquiringLabel, systemImage: acquiring ? "hourglass" : "play.fill")
                     .fixedSize(horizontal: !wraps, vertical: false)
             }
-            .buttonStyle(GoldButtonStyle())
+            .buttonStyle(PrimaryPillButtonStyle())
             // …and until the IMDb id has resolved. The engine cannot query an indexer without it, so
             // tapping earlier failed with "Not signed in to Real-Debrid" — a reason that is not
             // only unhelpful but untrue.
@@ -210,7 +210,7 @@ struct MovieDetail: View {
                     .labelStyle(AdaptiveLabelStyle(iconOnly: compact))
                     .fixedSize()
             }
-            .buttonStyle(GhostButtonStyle())
+            .buttonStyle(GlassPillButtonStyle())
             .disabled(watchlist.isInFlight(tmdbID: film.tmdbID))
         }
     }
@@ -245,7 +245,7 @@ struct MovieDetail: View {
             }
         } label: {
             Image(systemName: "ellipsis.circle")
-                .font(.title2).foregroundStyle(Theme.Palette.gold)
+                .font(.title2).foregroundStyle(Theme.Palette.textPrimary)
                 .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
         }
         .accessibilityLabel("More options")
@@ -267,7 +267,7 @@ struct MovieDetail: View {
                 // way to GET one, so it stays on the page either way.
                 Text(store.versions.isEmpty ? "GET THIS TITLE" : "VERSIONS")
                     .font(Theme.Typo.label()).tracking(1.5)
-                    .foregroundStyle(Theme.Palette.gold)
+                    .foregroundStyle(Theme.Palette.textSecondary)
                 Spacer()
                 if let hit = otherVersionsHit {
                     Button { onAddTitle(hit) } label: {
@@ -276,7 +276,7 @@ struct MovieDetail: View {
                             .font(Theme.Typo.caption())
                     }
                     .buttonStyle(.plain)
-                    .foregroundStyle(Theme.Palette.gold)
+                    .foregroundStyle(Theme.Palette.textPrimary)
                 }
             }
             ForEach(store.versions, id: \.self) { src in versionRow(src) }
@@ -289,7 +289,7 @@ struct MovieDetail: View {
                 HStack {
                     Image(systemName: store.isActive(src) ? "checkmark.circle.fill" : "circle")
                         .foregroundStyle(store.isActive(src)
-                                         ? Theme.Palette.gold : Theme.Palette.textSecondary)
+                                         ? Theme.Palette.focus : Theme.Palette.textSecondary)
                     // The marks on lines of their own: an iPhone row has no room beside four
                     // chips, and this is the one fact about a version that must never be truncated
                     // away. Hebrew inside the file is always in sync, so it goes on top, as in the
@@ -301,7 +301,7 @@ struct MovieDetail: View {
                         if hebrew == .matched { HebrewBadge(.matched) }
                     }
                     Spacer()
-                    Image(systemName: "play.circle.fill").foregroundStyle(Theme.Palette.gold)
+                    Image(systemName: "play.circle.fill").foregroundStyle(Theme.Palette.textPrimary)
                 }
                 .contentShape(Rectangle())
             }
@@ -380,14 +380,14 @@ private struct MovieDownloadSection: View {
         let status = session.downloadStore?.status(forContentKey: DownloadKey.movie(tmdbID: tmdbID))
         VStack(alignment: .leading, spacing: Theme.Space.md) {
             if requesting && status == nil {
-                ProgressView("Starting download…").tint(Theme.Palette.gold)
+                ProgressView("Starting download…").tint(Theme.Palette.focus)
             } else if case .queued = status?.phase {
-                ProgressView("Starting download…").tint(Theme.Palette.gold)
+                ProgressView("Starting download…").tint(Theme.Palette.focus)
             } else if case .downloading = status?.phase {
                 let pct = Int((status?.fraction ?? 0) * 100)
                 Label("Downloading \(pct)% to Real‑Debrid…", systemImage: "arrow.down.circle.fill")
-                    .font(Theme.Typo.body()).foregroundStyle(Theme.Palette.gold)
-                ProgressView(value: status?.fraction ?? 0).tint(Theme.Palette.gold)
+                    .font(Theme.Typo.body()).foregroundStyle(Theme.Palette.textPrimary)
+                ProgressView(value: status?.fraction ?? 0).tint(Theme.Palette.focus)
                 Text("It'll appear here when it's ready.")
                     .font(Theme.Typo.caption()).foregroundStyle(Theme.Palette.textTertiary)
             } else if case .failed(let reason) = status?.phase {
@@ -399,7 +399,7 @@ private struct MovieDownloadSection: View {
                 // Finished. Not "Request Download": that was what this said in the seconds before
                 // the library caught up, and pressing it started a second torrent.
                 Label("Downloaded \u{2014} it\u{2019}s in your library.", systemImage: "checkmark.circle.fill")
-                    .font(Theme.Typo.body()).foregroundStyle(Theme.Palette.gold)
+                    .font(Theme.Typo.body()).foregroundStyle(Theme.Palette.textPrimary)
             } else {
                 Label("Not in your library yet", systemImage: "arrow.down.circle")
                     .font(Theme.Typo.body()).foregroundStyle(Theme.Palette.textSecondary)
@@ -424,7 +424,7 @@ private struct MovieDownloadSection: View {
         Button { showingMagnet = true } label: {
             Label("Add by Magnet", systemImage: "link.badge.plus")
         }
-        .buttonStyle(GhostButtonStyle())
+        .buttonStyle(GlassPillButtonStyle())
     }
 
     private func requestButton(_ label: String) -> some View {
@@ -444,7 +444,7 @@ private struct MovieDownloadSection: View {
                 requesting = false
             }
         } label: { Label(label, systemImage: "arrow.down.circle") }
-            .buttonStyle(GoldButtonStyle())
+            .buttonStyle(PrimaryPillButtonStyle())
             .disabled(requesting || imdbID == nil)
     }
 }

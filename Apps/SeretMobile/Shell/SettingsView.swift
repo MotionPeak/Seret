@@ -44,9 +44,9 @@ struct SettingsView: View {
                     }
                     Label(session.profilesSyncedViaICloud ? "Syncing via iCloud" : "On this device only",
                           systemImage: session.profilesSyncedViaICloud ? "checkmark.icloud.fill" : "icloud.slash")
-                        .foregroundStyle(session.profilesSyncedViaICloud ? Theme.Palette.gold : Theme.Palette.textSecondary)
+                        .foregroundStyle(session.profilesSyncedViaICloud ? Theme.Palette.textPrimary : Theme.Palette.textSecondary)
                 } header: {
-                    Text("Profile").foregroundStyle(Theme.Palette.gold)
+                    Text("Profile").foregroundStyle(Theme.Palette.textSecondary)
                 } footer: {
                     if let name = session.activeProfiles?.activeProfile?.name {
                         Text("Watching as \(name). Add a profile so each viewer gets their own Continue Watching and My List.")
@@ -75,7 +75,7 @@ struct SettingsView: View {
                     }
                 }
             } header: {
-                Text("OpenSubtitles").foregroundStyle(Theme.Palette.gold)
+                Text("OpenSubtitles").foregroundStyle(Theme.Palette.textSecondary)
             } footer: {
                 if model.isConnected {
                     Text("Connected as \(model.username). Used to download Hebrew/English subtitles.")
@@ -103,7 +103,7 @@ struct SettingsView: View {
                     }
                 }
             } header: {
-                Text("Subtitles").foregroundStyle(Theme.Palette.gold)
+                Text("Subtitles").foregroundStyle(Theme.Palette.textSecondary)
             } footer: {
                 Text("Applies to every movie and show. Takes effect the next time you start playback.")
                     .font(.footnote).foregroundStyle(Theme.Palette.textSecondary)
@@ -114,8 +114,9 @@ struct SettingsView: View {
                 Toggle("Autoplay trailers", isOn: Binding(
                     get: { session.trailerSettings.autoplayTrailers },
                     set: { session.trailerSettings.autoplayTrailers = $0 }))
+                    .tint(.green)    // a white track under the white knob would read as off
             } header: {
-                Text("Trailers").foregroundStyle(Theme.Palette.gold)
+                Text("Trailers").foregroundStyle(Theme.Palette.textSecondary)
             } footer: {
                 Text("Play a muted trailer on a title's page automatically.")
                     .font(.footnote).foregroundStyle(Theme.Palette.textSecondary)
@@ -141,7 +142,7 @@ struct SettingsView: View {
         }
         .scrollContentBackground(.hidden)
         .background(CanvasBackground())
-        .tint(Theme.Palette.gold)
+        .tint(Theme.Palette.focus)
         .navigationTitle("Settings")
         .task {
             guard letterboxdModel == nil, let library = session.libraryStore else { return }
@@ -153,7 +154,7 @@ struct SettingsView: View {
                     .environment(session)
                     .toolbar {
                         ToolbarItem(placement: .topBarTrailing) {
-                            Button("Done") { showingProfiles = false }.tint(Theme.Palette.gold)
+                            Button("Done") { showingProfiles = false }.tint(Theme.Palette.focus)
                         }
                     }
             }

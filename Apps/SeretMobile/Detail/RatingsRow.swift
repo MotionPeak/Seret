@@ -2,7 +2,7 @@ import DebridCore
 import DebridUI
 import SwiftUI
 
-/// Aggregate scores as Gold-Glass chips: a gold IMDb wordmark, the 🍅 tomato, Metacritic's
+/// Aggregate scores as glass chips: the IMDb-yellow wordmark, the 🍅 tomato, Metacritic's
 /// color-coded square (green/yellow/red), and Letterboxd's three dots.
 ///
 /// Each service keeps its own units — IMDb out of ten, two percentages, Letterboxd out of five —
@@ -23,7 +23,7 @@ struct RatingsRow: View {
                                 .font(.system(size: 10, weight: .heavy))
                                 .foregroundStyle(.black)
                                 .padding(.horizontal, 5).padding(.vertical, 2)
-                                .background(Theme.Palette.goldGradient,
+                                .background(Theme.Palette.imdbYellow,
                                             in: RoundedRectangle(cornerRadius: 4, style: .continuous))
                             value(String(format: "%.1f", imdb))
                         }

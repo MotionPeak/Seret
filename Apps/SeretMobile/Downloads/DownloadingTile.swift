@@ -35,7 +35,7 @@ struct DownloadingTile: View {
                 Spacer()
             }
             .font(.caption2.weight(.semibold)).foregroundStyle(.white)
-            ProgressView(value: tile.status.fraction).tint(Theme.Palette.gold)
+            ProgressView(value: tile.status.fraction).tint(Theme.Palette.focus)
         }
         .padding(6)
         .background(.black.opacity(0.55))

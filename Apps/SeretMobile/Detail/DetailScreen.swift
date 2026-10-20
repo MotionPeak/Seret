@@ -112,7 +112,7 @@ struct DetailScreen: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button { dismiss() } label: { Image(systemName: "chevron.down").font(.headline) }
-                        .tint(Theme.Palette.gold)
+                        .tint(Theme.Palette.focus)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
@@ -132,7 +132,7 @@ struct DetailScreen: View {
                     } label: {
                         Image(systemName: "ellipsis.circle").font(.headline)
                     }
-                    .tint(Theme.Palette.gold)
+                    .tint(Theme.Palette.focus)
                 }
             }
             // No `.toolbarBackground(.hidden)`: hiding it also switched off the bar's scrolled

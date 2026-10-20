@@ -48,6 +48,7 @@ struct LetterboxdSettingsSection: View {
             Toggle("Import my ratings", isOn: Binding(
                 get: { model.settings.isEnabled },
                 set: { var s = model.settings; s.isEnabled = $0; model.update(s) }))
+                .tint(.green)
 
             // A Form row shows no title for a TextField, so once a value was typed nothing said what
             // it was. Every field here is a LabeledContent, which keeps the name beside the value.
@@ -90,6 +91,7 @@ struct LetterboxdSettingsSection: View {
             Toggle("Log films I mark watched", isOn: Binding(
                 get: { model.settings.logsMarkedFilms },
                 set: { var s = model.settings; s.logsMarkedFilms = $0; model.update(s) }))
+                .tint(.green)
 
             partnerFields
 

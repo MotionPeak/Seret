@@ -17,7 +17,7 @@ struct CastRail: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.sm) {
-            Text("CAST").font(Theme.Typo.label()).tracking(1.5).foregroundStyle(Theme.Palette.gold)
+            Text("CAST").font(Theme.Typo.label()).tracking(1.5).foregroundStyle(Theme.Palette.textSecondary)
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(alignment: .top, spacing: Theme.Space.lg) {
                     ForEach(cast) { member in
