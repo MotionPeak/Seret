@@ -39,6 +39,8 @@ struct LibraryScreen: View {
     var onFocus: (MediaItem) -> Void = { _ in }
     /// Downloads in flight, shown above the grid.
     var downloads: [DownloadTile] = []
+    /// The live phase of a download (for a held card that has left the in-flight list).
+    var downloadPhase: (DownloadTile) -> DownloadStatus.Phase? = { _ in nil }
     /// A Downloading card took focus.
     var onFocusDownload: (DownloadTile) -> Void = { _ in }
 
@@ -54,12 +56,16 @@ struct LibraryScreen: View {
 
     var body: some View {
         let _ = releaseHold      // read, so a release re-renders
-        let stripTiles = scrollFocus.tiles(for: downloads)
+        let items = items
+        let stripTiles = scrollFocus.tiles(for: downloads, gridContains: { id in items.contains { $0.id == id } })
+        let live = Set(downloads.map(\.id))
+        let phase = downloadPhase
         return ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 if !stripTiles.isEmpty {
                     DownloadingStrip(tiles: stripTiles, library: session.libraryStore,
-                                     onFocus: onFocusDownload, onFocusChange: scrollFocusChanged)
+                                     onFocus: onFocusDownload, onFocusChange: scrollFocusChanged,
+                                     settled: { live.contains($0.id) ? nil : DownloadSettled(phase: phase($0)) })
                         .focusSection()
                 }
                 content
@@ -125,30 +131,5 @@ struct LibraryScreen: View {
         }
         .frame(maxWidth: .infinity)
         .containerRelativeFrame(.vertical)   // centred in the visible page, inside the scroll
-    }
-}
-
-/// Which view in a scroll has focus — see `LibraryScreen.scrollFocusChanged`.
-@MainActor
-final class ScrollFocusTracker {
-    /// The focused view's id; nil while focus is anywhere else.
-    var focusedID: String?
-    /// The settle before "focus has left" counts.
-    var leaving: Task<Void, Never>?
-    /// The strip's cards as last shown.
-    private(set) var shown: [DownloadTile] = []
-    /// The strip is showing a shape other than the live one.
-    private(set) var holding = false
-
-    /// The cards the strip shows for the live `downloads`: those, unless focus is inside the scroll
-    /// and they would make the strip appear or disappear — then the strip keeps its last cards.
-    func tiles(for downloads: [DownloadTile]) -> [DownloadTile] {
-        if focusedID == nil || shown.isEmpty == downloads.isEmpty {
-            shown = downloads
-            holding = false
-        } else {
-            holding = true
-        }
-        return shown
     }
 }

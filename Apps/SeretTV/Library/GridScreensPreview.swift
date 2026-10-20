@@ -8,14 +8,18 @@ import SwiftUI
 /// the shell's leading inset. Focus starts on the Movies pill (the screen's own focus rules), and
 /// the backdrop follows focus into the grid.
 ///
-/// `downloadChange` makes the strip above the grid come or go `changeAfter` in, while the viewer sits
-/// on a lower row — the case where the focused cell must not move:
-///   - `.ends` (`-uiPreview librarydownloadends`): the last download finishes, the strip goes;
-///   - `.starts` (`-uiPreview librarydownloadstarts`): a first download starts, the strip appears.
+/// `downloadChange` changes the downloads on a schedule (seconds from launch), for the strip's
+/// hold rules (`LibraryScreen`):
+///   - `.ends` (`-uiPreview librarydownloadends`): both downloads finish 14 s in. Walk to a lower
+///     row first: the focused cell must not move. On grid row 1 the held cards show, settled
+///     ("Ready", dimmed, no progress) — never frozen at their last percent.
+///   - `.starts` (`-uiPreview librarydownloadstarts`): both downloads start 14 s in, from none.
+///   - `.focusedEnds` (`-uiPreview librarydownloadfocusedends`): Dune finishes 12 s in while its card
+///     is focused and the other carries on; the other finishes 22 s in. Move to the pills between
+///     the two: the strip must go at 22 s (a removed card's focus must not hold it forever).
 struct MyLibraryScreenPreview: View {
-    enum DownloadChange { case ends, starts }
+    enum DownloadChange { case ends, starts, focusedEnds }
     var downloadChange: DownloadChange?
-    static let changeAfter: Duration = .seconds(14)
 
     @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()))
     @State private var downloads: [DownloadTile] = []
@@ -27,7 +31,8 @@ struct MyLibraryScreenPreview: View {
         NavigationStack {
             Group {
                 if let library {
-                    MyLibraryScreen(previewLibrary: library, previewArt: art, previewDownloads: downloads)
+                    MyLibraryScreen(previewLibrary: library, previewArt: art, previewDownloads: downloads,
+                                    previewSettledPhase: .ready)
                 } else {
                     Color.clear
                 }
@@ -39,13 +44,21 @@ struct MyLibraryScreenPreview: View {
         .environment(session.makeTileWatchMarks())
         .task {
             let both = [DownloadPreviewFixture.dune, DownloadPreviewFixture.noArt]
+            let steps: [(seconds: Int, tiles: [DownloadTile])] = switch downloadChange {
+            case nil: []
+            case .ends: [(14, [])]
+            case .starts: [(14, both)]
+            case .focusedEnds: [(12, [DownloadPreviewFixture.noArt]), (22, [])]
+            }
             downloads = downloadChange == .starts ? [] : both
+            let start = ContinuousClock.now
             let store = LibraryStore(library: GridPreviewFixture.Listing())
             await store.load()
             library = store
-            guard let downloadChange else { return }
-            try? await Task.sleep(for: Self.changeAfter)
-            downloads = downloadChange == .ends ? [] : both
+            for step in steps {
+                try? await Task.sleep(until: start + .seconds(step.seconds))
+                downloads = step.tiles
+            }
         }
     }
 }

@@ -122,7 +122,6 @@ struct BrowseScreen: View {
     enum PageRow {
         static let controls = "browse-controls"
         static let skeleton = "browse-skeleton"
-        static let failed = "browse-failed"
         /// The failed row's Retry — its `plexFocusID`.
         static let retry = "browse-retry"
     }
@@ -150,9 +149,12 @@ struct BrowseScreen: View {
             ?? Self.segmentID(segment)
         return FocusBrowsePage(preview: preview, art: art, initialFocus: focusTarget,
                                focusOnEntry: true, handle: focusHandle) {
-            controls(browse)
+            // A failed segment's message lives IN the controls row, under the pills: as a row of its
+            // own, focusing Retry scrolled it to the top of the rail area and the pills up under
+            // the top fade (measured in `-uiPreview browsefailed`).
+            controls(browse, failed: segmentFailed ? segment : nil)
             if segmentFailed {
-                failed(browse, segment: segment)
+                // Nothing below the controls: the message is in them.
             } else if state == .loaded {
                 ForEach(rows) { row in
                     PlexRail(title: row.title, id: row.id) {
@@ -171,6 +173,9 @@ struct BrowseScreen: View {
         .onChange(of: browse.segmentState(segment)) { _, state in
             if retrying == segment, state.hasAnswered { retrying = nil }
         }
+        // A retry belongs to its segment: switching away drops it, so coming back finds the
+        // segment as it is (and a live Retry) rather than a "Trying…" no load will ever clear.
+        .onChange(of: segment) { _, _ in retrying = nil }
         // Until a tile of THIS segment has had focus, the header shows the segment's first title —
         // and follows it while the rails arrive, and when a segment switch brings in new ones.
         .onChange(of: headerKey(segment, rows), initial: true) { _, _ in
@@ -185,10 +190,11 @@ struct BrowseScreen: View {
     /// The first row of the page's scroll: the genre strip over the segment pills. A
     /// `plexBrowseRow`, so moving up into it (or back down out of it into the first rail) moves the
     /// page like any rail does.
-    private func controls(_ browse: DiscoverStore) -> some View {
+    private func controls(_ browse: DiscoverStore, failed failedSegment: DiscoverStore.Segment?) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             GenreStrip(kind: kind, selection: $genre)
             segmentPicker(browse)
+            if let failedSegment { failed(browse, segment: failedSegment) }
         }
         .padding(.top, 12)
         // A rail's own room below, so with the first rail at the top nothing of the pills shows
@@ -255,10 +261,9 @@ struct BrowseScreen: View {
             .plexFocusID(PageRow.retry)
             .reportsPlexRailFocus()
         }
-        .padding(.vertical, 60)
+        .padding(.top, 40)
         .frame(maxWidth: .infinity)
         .focusSection()
-        .plexBrowseRow(id: PageRow.failed)
     }
 
     // MARK: - Genre grid

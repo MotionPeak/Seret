@@ -56,7 +56,9 @@ import DebridCore
 ///   - `library` — My Library on a fixture library (real art) with two downloads in flight, focus
 ///     on the Movies pill, the backdrop following focus into the grid (see `MyLibraryScreenPreview`).
 ///     `librarydownloadends` / `librarydownloadstarts`: the strip goes / appears 14 s in — walk
-///     down to a lower row first; the focused cell must stay where it is
+///     down to a lower row first; the focused cell must stay where it is.
+///     `librarydownloadfocusedends`: the focused card's download finishes while another carries on
+///     (12 s), then the last one (22 s) — see `MyLibraryScreenPreview`
 ///   - `search` — Search with "dune" already typed, fixture results, real art (see
 ///     `SearchScreenPreview`)
 ///
@@ -116,6 +118,7 @@ struct PlayerUIPreview: View {
         case "library":             MyLibraryScreenPreview()
         case "librarydownloadends":   MyLibraryScreenPreview(downloadChange: .ends)
         case "librarydownloadstarts": MyLibraryScreenPreview(downloadChange: .starts)
+        case "librarydownloadfocusedends": MyLibraryScreenPreview(downloadChange: .focusedEnds)
         case "search":              SearchScreenPreview()
         default:           ScrubBarPreview()
         }

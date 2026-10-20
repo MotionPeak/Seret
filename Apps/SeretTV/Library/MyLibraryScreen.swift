@@ -22,13 +22,21 @@ struct MyLibraryScreen: View {
     var previewLibrary: LibraryStore?
     var previewArt: TitleArtStore?
     var previewDownloads: [DownloadTile]?
+    /// What a download that left the list became (the preview session has no download store).
+    var previewSettledPhase: DownloadStatus.Phase?
     private var library: LibraryStore? { previewLibrary ?? session.libraryStore }
     private var art: TitleArtStore? { previewArt ?? session.titleArt }
     private var downloads: [DownloadTile] { previewDownloads ?? session.downloadStore?.activeTiles ?? [] }
+    private func downloadPhase(_ tile: DownloadTile) -> DownloadStatus.Phase? {
+        previewSettledPhase ?? session.downloadStore?.statuses[tile.status.storeKey]?.phase
+    }
 #else
     private var library: LibraryStore? { session.libraryStore }
     private var art: TitleArtStore? { session.titleArt }
     private var downloads: [DownloadTile] { session.downloadStore?.activeTiles ?? [] }
+    private func downloadPhase(_ tile: DownloadTile) -> DownloadStatus.Phase? {
+        session.downloadStore?.statuses[tile.status.storeKey]?.phase
+    }
 #endif
 
     /// My Library shows the whole Real-Debrid library (every title you've added) — the Movies/TV
@@ -73,6 +81,7 @@ struct MyLibraryScreen: View {
                     onRemove: { pendingRemoval = $0 },
                     onFocus: { preview.focus(PreviewSubject(item: $0)) },
                     downloads: downloads,
+                    downloadPhase: downloadPhase,
                     onFocusDownload: { tile in
                         if case .detail(let item) = downloadDestination(for: tile, library: store) {
                             preview.focus(PreviewSubject(item: item))
@@ -110,6 +119,8 @@ struct DownloadingStrip: View {
     var onFocus: (DownloadTile) -> Void = { _ in }
     /// Focus arrived at (true) or left (false) the card with this id.
     var onFocusChange: (String, Bool) -> Void = { _, _ in }
+    /// A card that is no longer in flight, and what became of it (nil = in flight).
+    var settled: (DownloadTile) -> DownloadSettled? = { _ in nil }
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Downloading").font(.seret(.title3, .bold))
@@ -119,9 +130,9 @@ struct DownloadingStrip: View {
                     ForEach(tiles) { tile in
                         DownloadingRailCard(tile: tile,
                                             destination: downloadDestination(for: tile, library: library),
-                                            onFocus: { onFocus(tile) })
-                        // Prefixed: a card and the library title it becomes can share an id.
-                        .reportsFocusChange { onFocusChange("strip/\(tile.id)", $0) }
+                                            onFocus: { onFocus(tile) },
+                                            settled: settled(tile))
+                        .reportsFocusChange { onFocusChange(ScrollFocusTracker.stripID(tile), $0) }
                     }
                 }
                 .padding(.horizontal, PosterGridLayout.rootInset)

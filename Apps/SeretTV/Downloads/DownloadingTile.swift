@@ -8,21 +8,35 @@ import SwiftUI
 /// like a `PosterTile` and a Downloading rail lines up with the rails around it.
 struct DownloadingTile: View {
     let tile: DownloadTile
+    /// The download is no longer in flight, but the card is still on screen (My Library holds its
+    /// strip's shape while focus is in it). Drawn settled — dimmed, no progress line, and what
+    /// became of it when that is known — never frozen at its last percent.
+    var settled: DownloadSettled?
 
     var body: some View {
         ZStack(alignment: .bottom) {
             poster
             LinearGradient(colors: [.clear, .black.opacity(0.82)], startPoint: .center, endPoint: .bottom)
+            if settled != nil { Theme.Palette.artDim }
             VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 8) {
-                    Image(systemName: "arrow.down.circle.fill")
-                    Text(DownloadProgressText.line(for: tile.status))
+                if let settled {
+                    if let label = settled.label {
+                        Label(label.text, systemImage: label.symbol)
+                            .font(.seret(19, .semibold))
+                            .foregroundStyle(Theme.Palette.textPrimary)
+                            .lineLimit(1)
+                    }
+                } else {
+                    HStack(spacing: 8) {
+                        Image(systemName: "arrow.down.circle.fill")
+                        Text(DownloadProgressText.line(for: tile.status))
+                    }
+                    .font(.seret(19, .semibold))
+                    .foregroundStyle(Theme.Palette.textPrimary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                    ProgressLine(fraction: tile.status.fraction, height: 6)
                 }
-                .font(.seret(19, .semibold))
-                .foregroundStyle(Theme.Palette.textPrimary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-                ProgressLine(fraction: tile.status.fraction, height: 6)
             }
             .padding([.horizontal, .bottom], 12)
         }
@@ -67,13 +81,15 @@ struct DownloadingRailCard: View {
     var focusID: String?
     /// Called when the card takes focus — a Plex rail drives its preview header with it.
     var onFocus: () -> Void = {}
+    /// See `DownloadingTile.settled`.
+    var settled: DownloadSettled?
 
     var body: some View {
         // 22, not 12: a focused card grows ~14pt past its frame and the ring adds 4, so the caption
         // sits clear of the ring instead of under it.
         VStack(alignment: .leading, spacing: 22) {
             NavigationLink(value: destination) {
-                DownloadingTile(tile: tile)
+                DownloadingTile(tile: tile, settled: settled)
             }
             .buttonStyle(FocusCardStyle())
             // Tells a `FocusBrowsePage` row that focus entered it; a no-op anywhere else.
@@ -86,6 +102,8 @@ struct DownloadingRailCard: View {
                     .lineLimit(1)
                     .foregroundStyle(Theme.Palette.textSecondary)
                     .frame(width: PosterTileMetrics.width, alignment: .leading)
+                    // The button already speaks the title.
+                    .accessibilityHidden(true)
             }
         }
     }
@@ -114,4 +132,27 @@ func downloadDestination(for tile: DownloadTile, library: LibraryStore?) -> Brow
         id: tile.tmdbID, title: isShow ? nil : tile.title, name: isShow ? tile.title : nil,
         releaseDate: nil, firstAirDate: nil, posterPath: tile.posterPath,
         overview: nil, voteAverage: nil), kind: isShow ? .show : .movie)))
+}
+
+/// What became of a download whose card is still on screen after it left the in-flight list.
+enum DownloadSettled: Equatable {
+    case ready, failed
+    /// Gone from the list with nothing known — cancelled, or forgotten once the library carried it.
+    case ended
+
+    init(phase: DownloadStatus.Phase?) {
+        switch phase {
+        case .ready: self = .ready
+        case .failed: self = .failed
+        default: self = .ended
+        }
+    }
+
+    var label: (text: String, symbol: String)? {
+        switch self {
+        case .ready: ("Ready", "checkmark.circle.fill")
+        case .failed: ("Failed", "exclamationmark.triangle.fill")
+        case .ended: nil
+        }
+    }
 }
