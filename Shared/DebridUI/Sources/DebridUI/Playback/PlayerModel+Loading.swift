@@ -588,9 +588,14 @@ extension PlayerModel {
     // MARK: - Recovery
 
     /// The viewer asking again: a fresh attempt, with its own silent reopen should the open fail.
+    ///
+    /// The place an automatic reopen last recovered from is forgotten too: otherwise the open the
+    /// viewer asked for, aimed at that same place, could not get its own silent reopen. The cap
+    /// (`claimAutomaticReopen`) still bounds any loop.
     public func retry() {
         silentRecoveryArmed = true
         automaticReopens = []
+        interruptedAt = nil
         reload()
     }
 
@@ -599,6 +604,7 @@ extension PlayerModel {
         sourceIndex += 1
         silentRecoveryArmed = true
         automaticReopens = []
+        interruptedAt = nil
         reload()
     }
 

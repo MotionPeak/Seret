@@ -132,6 +132,50 @@ import DebridCore
         await m.teardown()
     }
 
+    /// The viewer's Retry is a fresh attempt: its open gets its own silent reopen, even aimed at
+    /// the place the last automatic one recovered from.
+    @Test func aRetryAtTheSamePlaceGetsItsOwnSilentReopen() async {
+        let engine = FakeVideoPlayerEngine()
+        let m = model(engine)
+        m.start(); await m.waitForIdleForTesting()
+        await playTo(1200, m, engine)
+        engine.emit(.state(.failed("Playback failed."))); await m.waitForIdleForTesting()
+        await playTo(1210, m, engine)
+        engine.emit(.state(.failed("Playback failed."))); await m.waitForIdleForTesting()
+        #expect(m.phase.isFailed)
+        #expect(engine.loadCount == 2)
+
+        m.retry(); await m.waitForIdleForTesting()
+        #expect(engine.loadCount == 3)
+        engine.emit(.state(.failed("Playback failed."))); await m.waitForIdleForTesting()
+
+        #expect(!m.phase.isFailed, "the retry's open got no silent reopen")
+        #expect(engine.loadCount == 4)
+        await m.teardown()
+    }
+
+    /// …and so does Try another version.
+    @Test func anotherVersionAtTheSamePlaceGetsItsOwnSilentReopen() async {
+        let engine = FakeVideoPlayerEngine()
+        let m = PlayerModel(request: Fixture.request(sources: [Fixture.movieSource("rd://one"), Fixture.movieSource("rd://two")]), engine: engine,
+                            unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
+                            recordProgress: { _, _, _, _, _ in }, subtitles: nil)
+        m.start(); await m.waitForIdleForTesting()
+        await playTo(1200, m, engine)
+        engine.emit(.state(.failed("Playback failed."))); await m.waitForIdleForTesting()
+        await playTo(1210, m, engine)
+        engine.emit(.state(.failed("Playback failed."))); await m.waitForIdleForTesting()
+        #expect(m.phase.isFailed)
+
+        m.tryAnotherVersion(); await m.waitForIdleForTesting()
+        #expect(engine.loadCount == 3)
+        engine.emit(.state(.failed("Playback failed."))); await m.waitForIdleForTesting()
+
+        #expect(!m.phase.isFailed)
+        #expect(engine.loadCount == 4)
+        await m.teardown()
+    }
+
     /// The review's loop (D2): libvlc reports `.playing` before any frame, and that re-armed the
     /// silent reopen — so an open that "played" and failed reopened forever, an RD unrestrict and
     /// a libvlc open each time, until RD throttled the account.
