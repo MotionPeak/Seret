@@ -185,7 +185,7 @@ private final class ProgressGate {
         engine.emit(.time(.init(position: 600, duration: 6000)))
         engine.emit(.time(.init(position: 601, duration: 6000)))
         await model.waitForIdleForTesting()
-        engine.emit(.state(.failed("libvlc error"))); await model.waitForIdleForTesting()
+        await emitFailureThatSticks("libvlc error", engine: engine, model: model)
         #expect(model.phase.isFailed && !model.isBuffering)
 
         model.skip(10)

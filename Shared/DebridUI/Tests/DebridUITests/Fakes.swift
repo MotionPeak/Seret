@@ -99,6 +99,17 @@ final class FakeVideoPlayerEngine: VideoPlayerEngine, EventCountingEngineForTest
     private var slavesOfCurrentMedia: Set<URL> = []
 }
 
+/// A failure the player SHOWS. The first `.failed` of an attempt gets one silent reopen
+/// (`PlayerModel.beginSilentRecovery`) — on the Apple TV that is what turns a reclaimed socket
+/// into a film that simply plays — so the error screen takes a second failure, from the reopened
+/// media. Tests about the failure screen itself go through here.
+@MainActor
+func emitFailureThatSticks(_ reason: String, engine: FakeVideoPlayerEngine,
+                           model: PlayerModel) async {
+    engine.emit(.state(.failed(reason))); await model.waitForIdleForTesting()
+    engine.emit(.state(.failed(reason))); await model.waitForIdleForTesting()
+}
+
 // MARK: - FakeTrackPreferences
 
 @MainActor

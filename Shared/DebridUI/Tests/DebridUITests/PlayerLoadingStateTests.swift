@@ -118,9 +118,14 @@ import DebridCore
 
         engine.emit(.state(.ended))                    // never rendered, position still 0
         await model.waitForIdleForTesting()
+        #expect(advancedTo == ["rd://e1", "rd://e1"])  // one silent reopen of the SAME episode…
+        #expect(!model.phase.isFailed)
+
+        engine.emit(.state(.ended))                    // …and when that fails too, the error
+        await model.waitForIdleForTesting()
 
         #expect(model.phase == .failed("The stream stopped before it started. The Real-Debrid link may have expired."))
-        #expect(advancedTo == ["rd://e1"])             // did NOT auto-advance
+        #expect(advancedTo == ["rd://e1", "rd://e1"])  // did NOT auto-advance
         #expect(model.shouldDismiss == false)
     }
 
@@ -212,8 +217,7 @@ import DebridCore
         model.start()
         await model.waitForIdleForTesting()
 
-        engine.emit(.state(.failed("stream is dead")))
-        await model.waitForIdleForTesting()
+        await emitFailureThatSticks("stream is dead", engine: engine, model: model)
         #expect(model.phase == .failed("stream is dead"))
 
         engine.emit(.state(.buffering))

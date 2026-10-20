@@ -153,11 +153,12 @@ import DebridCore
         let saved = try #require(store.saved["m1"])
         #expect(saved >= 2399 && saved <= 2400)          // the new session owns the place now
         let failedAt = model.position
-        engine.emit(.state(.failed("boom"))); await model.waitForIdleForTesting()
+        await emitFailureThatSticks("boom", engine: engine, model: model)
         model.retry(); await model.waitForIdleForTesting()
         // The playhead it failed at — not the store's place, which lags it by a save interval
-        // (and late in a film can say "nowhere"; see `PlayerStoreBackedTests`).
-        #expect(engine.seeks == [failedAt])
+        // (and late in a film can say "nowhere"; see `PlayerStoreBackedTests`). Twice: the silent
+        // reopen, then the viewer's Retry.
+        #expect(engine.seeks == [failedAt, failedAt])
     }
 
     /// Play/Pause on the failure screen called `engine.play()` on the dead media: libvlc reopened

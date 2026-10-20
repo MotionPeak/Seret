@@ -12,6 +12,50 @@ import DebridCore
 /// never retries, typically -1005 straight after a wake — was "the link could not be opened".
 extension PlayerModel {
 
+    // MARK: - One silent reopen
+
+    /// Reopen once — on a fresh socket and a fresh link — instead of showing `.failed`.
+    ///
+    /// One per failure: armed again only once this media renders a frame (`markRendered`) or the
+    /// viewer asks again (`retry`, `tryAnotherVersion`), so a stream that keeps failing reaches the
+    /// error screen after exactly one more try. A refusal from RD is final and skips it. Mid-film
+    /// the reopen resumes at the playhead, and a second failure within 30 s of the same place is
+    /// shown — a file that cannot get past a point must not loop.
+    ///
+    /// Synchronous on purpose: it disowns the dying media at once (`engineHoldsCurrentMedia`), so
+    /// the `.ended` libvlc sends after an error cannot be taken for this media's end meanwhile.
+    ///
+    /// - Returns: true when a recovery is under way and the caller must not show the failure.
+    @discardableResult
+    func beginSilentRecovery() -> Bool {
+        guard !isTornDown, silentRecoveryArmed, !phase.isFailed else { return false }
+        let place: Double? = hasRenderedFrame && playheadSettled && position > 0 ? position : nil
+        if let place, let last = interruptedAt, abs(place - last) <= 30 { return false }
+        silentRecoveryArmed = false
+        engineHoldsCurrentMedia = false        // the failing media's trailing events are not ours
+        isBuffering = true
+        let generation = mediaGeneration
+        engine.note("recover: reopening silently" + (place.map { " at \(Int($0))s" } ?? " (open)"))
+        recoveryTask = Task { [weak self] in
+            guard let self else { return }
+            // RD saying no is final: a reopen would only ask again.
+            if let refusal = await self.streamRefusal() {
+                guard self.mediaGeneration == generation, !self.isTornDown else { return }
+                self.phase = .failed(refusal)
+                return
+            }
+            guard self.mediaGeneration == generation, !self.isTornDown else { return }
+            if let place {
+                self.interruptedAt = place
+                await self.recordCurrentProgress()
+                guard self.mediaGeneration == generation, !self.isTornDown else { return }
+                self.reopenAt = place
+            }
+            self.reload()
+        }
+        return true
+    }
+
     // MARK: - Unrestrict with a deadline and retries
 
     /// `unrestrict` for a load: a deadline on every attempt, and up to `unrestrictRetryDelays`

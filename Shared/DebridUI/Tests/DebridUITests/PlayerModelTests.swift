@@ -203,10 +203,10 @@ import DebridCore
         let model = makeModel(request: Fixture.request(sources: [s1, s2]), engine: engine,
                               unrestrict: { link in unrestricted.append(link); return URL(string: "https://cdn/x.mkv")! })
         model.start(); await model.waitForIdleForTesting()
-        engine.emit(.state(.failed("boom"))); await model.waitForIdleForTesting()
+        await emitFailureThatSticks("boom", engine: engine, model: model)
         #expect(model.canTryAnotherVersion == true)
         model.tryAnotherVersion(); await model.waitForIdleForTesting()
-        #expect(unrestricted == ["rd://one", "rd://two"])
+        #expect(unrestricted == ["rd://one", "rd://one", "rd://two"])   // (one silent reopen)
         // The long-lived event loop must still deliver events for the newly-loaded source:
         engine.emit(.state(.playing)); await model.waitForIdleForTesting()
         #expect(model.phase == .playing)
@@ -218,10 +218,11 @@ import DebridCore
         let model = makeModel(request: Fixture.request(), engine: engine,
                               unrestrict: { link in unrestricted.append(link); return URL(string: "https://cdn/x.mkv")! })
         model.start(); await model.waitForIdleForTesting()
-        engine.emit(.state(.failed("boom"))); await model.waitForIdleForTesting()
+        await emitFailureThatSticks("boom", engine: engine, model: model)
         #expect(model.phase == .failed("boom"))
+        #expect(unrestricted == ["rd://link", "rd://link"])   // the silent reopen
         model.retry(); await model.waitForIdleForTesting()
-        #expect(unrestricted == ["rd://link", "rd://link"])   // same source reloaded
+        #expect(unrestricted == ["rd://link", "rd://link", "rd://link"])   // same source reloaded
         #expect(model.phase != .failed("boom"))               // reload moved past the failure
     }
 
@@ -1245,9 +1246,10 @@ import DebridCore
         model.start(); await model.waitForIdleForTesting()
         #expect(engine.seeks.isEmpty)                        // nothing saved yet → from the start
         saved = 44                                           // playback progressed, then failed
-        engine.emit(.state(.failed("boom"))); await model.waitForIdleForTesting()
+        await emitFailureThatSticks("boom", engine: engine, model: model)
         model.retry(); await model.waitForIdleForTesting()
-        #expect(engine.seeks == [44])                        // resumed where it failed
+        #expect(engine.seeks == [44, 44])                    // the silent reopen and the retry
+                                                             // both resumed where it failed
     }
 
     @Test func finishedElsewhereMeansStartFromZeroDespiteAHint() async {

@@ -41,6 +41,96 @@ import DebridCore
         await model.waitForIdleForTesting()
     }
 
+    // MARK: - D2: one silent reopen
+
+    @Test func aFailedOpenReopensOnceOnAFreshSocketAndLink() async {
+        let engine = FakeVideoPlayerEngine(), proxy = FakeStreamProxy(), unrestricts = Box(0)
+        let m = model(engine, proxy: proxy, unrestricts: unrestricts)
+        m.start(); await m.waitForIdleForTesting()
+
+        engine.emit(.state(.failed("Playback failed."))); await m.waitForIdleForTesting()
+
+        #expect(!m.phase.isFailed, "the first failed open reached the viewer")
+        #expect(engine.loadCount == 2)
+        #expect(unrestricts.value == 2)                    // a fresh link…
+        #expect(await proxy.opened.count == 2)             // …through a fresh stream session
+        #expect(m.isColdOpen)                              // still the loading screen, no error
+
+        engine.emit(.state(.failed("Playback failed."))); await m.waitForIdleForTesting()
+        #expect(m.phase == .failed("Playback failed."))    // the second one is shown
+        #expect(engine.loadCount == 2)
+        await m.teardown()
+    }
+
+    /// The `.ended` libvlc sends after its error belongs to the dying media, not the reopen.
+    @Test func theEndThatFollowsTheErrorDoesNotSpendTheReopensFailure() async {
+        let engine = FakeVideoPlayerEngine()
+        let m = model(engine)
+        m.start(); await m.waitForIdleForTesting()
+        engine.emit(.state(.failed("Playback failed.")))
+        engine.emit(.state(.ended))
+        await m.waitForIdleForTesting()
+        #expect(!m.phase.isFailed)
+        #expect(engine.loadCount == 2)
+        await m.teardown()
+    }
+
+    @Test func aStreamRDRefusedIsNotReopened() async {
+        let engine = FakeVideoPlayerEngine(), proxy = FakeStreamProxy()
+        let m = model(engine, proxy: proxy)
+        m.start(); await m.waitForIdleForTesting()
+        await proxy.failWith(.upstreamStatus(404))
+        engine.emit(.state(.failed("Playback failed."))); await m.waitForIdleForTesting()
+        #expect(m.phase == .failed("Real-Debrid no longer has this file."))
+        #expect(engine.loadCount == 1)
+        await m.teardown()
+    }
+
+    @Test func aMidFilmFailureReopensAtThePlayhead() async {
+        let engine = FakeVideoPlayerEngine()
+        let m = model(engine)
+        m.start(); await m.waitForIdleForTesting()
+        await playTo(1200, m, engine)
+
+        engine.emit(.state(.failed("Playback failed."))); await m.waitForIdleForTesting()
+
+        #expect(!m.phase.isFailed)
+        #expect(engine.loadCount == 2)
+        #expect(engine.seeks.last == 1200)
+        await m.teardown()
+    }
+
+    /// Played again after the reopen, a later failure somewhere else is a new one…
+    @Test func aReopenThatPlaysEarnsTheNextFailureItsOwnReopen() async {
+        let engine = FakeVideoPlayerEngine()
+        let m = model(engine)
+        m.start(); await m.waitForIdleForTesting()
+        await playTo(1200, m, engine)
+        engine.emit(.state(.failed("Playback failed."))); await m.waitForIdleForTesting()
+        await playTo(2400, m, engine)
+
+        engine.emit(.state(.failed("Playback failed."))); await m.waitForIdleForTesting()
+
+        #expect(!m.phase.isFailed)
+        #expect(engine.loadCount == 3)
+        await m.teardown()
+    }
+
+    /// …but failing again where it failed before is the file, not the network: shown.
+    @Test func failingAgainAtTheSamePlaceIsShown() async {
+        let engine = FakeVideoPlayerEngine()
+        let m = model(engine)
+        m.start(); await m.waitForIdleForTesting()
+        await playTo(1200, m, engine)
+        engine.emit(.state(.failed("Playback failed."))); await m.waitForIdleForTesting()
+        await playTo(1210, m, engine)
+
+        engine.emit(.state(.failed("Playback failed."))); await m.waitForIdleForTesting()
+
+        #expect(m.phase == .failed("Playback failed."))
+        #expect(engine.loadCount == 2)
+        await m.teardown()
+    }
 
     // MARK: - D6: unrestrict, with a deadline and retries
 
@@ -96,5 +186,4 @@ import DebridCore
         #expect(engine.loadCount == 0)
         await m.teardown()
     }
-
 }

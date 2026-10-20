@@ -112,6 +112,9 @@ extension PlayerModel {
         case .failed(let reason):
             // …and its failure: the error overlay came back in the middle of a retry.
             guard engineHoldsCurrentMedia else { break }
+            // An open that failed — on the Apple TV, the proxy socket reclaimed while the app was
+            // idle — or a stream that died mid-film gets one silent reopen first.
+            if beginSilentRecovery() { break }
             phase = .failed(reason)
             isBuffering = false     // it is not waiting on frames; it is over
         }
@@ -419,6 +422,8 @@ extension PlayerModel {
         if !hasRenderedFrame {
             hasRenderedFrame = true
             markStreamPlaybackStarted()
+            // This media plays: a later failure is a new one, and gets its own silent reopen.
+            silentRecoveryArmed = true
         }
         if isBuffering { isBuffering = false }
         if loadWatchdog != nil {
@@ -470,6 +475,8 @@ extension PlayerModel {
         // (`position` is the pending resume point while one is still travelling, so that counts as
         // not started too.)
         if !hasRenderedFrame, position < 1 || resumeTarget > 0 {
+            // One silent reopen first, on a fresh socket and link (see `beginSilentRecovery`).
+            if beginSilentRecovery() { return }
             phase = .failed("The stream stopped before it started. The Real-Debrid link may have expired.")
             return
         }
@@ -499,6 +506,7 @@ extension PlayerModel {
            interruptedAt.map({ abs(position - $0) > 30 }) ?? true {
             let place = position
             interruptedAt = place
+            silentRecoveryArmed = false    // this reopen IS the automatic recovery
             await recordCurrentProgress()
             guard !isTornDown, mediaGeneration == generation else { return }
             reopenAt = place               // the playhead itself — see `reopenAt`
@@ -528,11 +536,16 @@ extension PlayerModel {
 
     // MARK: - Recovery
 
-    public func retry() { reload() }
+    /// The viewer asking again: a fresh attempt, with its own silent reopen should the open fail.
+    public func retry() {
+        silentRecoveryArmed = true
+        reload()
+    }
 
     public func tryAnotherVersion() {
         guard sourceIndex + 1 < sources.count else { return }
         sourceIndex += 1
+        silentRecoveryArmed = true
         reload()
     }
 
@@ -558,6 +571,7 @@ extension PlayerModel {
         upNextTask?.cancel()
         seekDispatchTask?.cancel()
         loadWatchdog?.cancel()
+        recoveryTask?.cancel()
         subtitleFallbackTask?.cancel()          // else it spends OpenSubtitles quota on a dead engine
         filmEndTask?.cancel()                   // …and so would this
         subtitleAttachTimeoutTask?.cancel()

@@ -522,6 +522,10 @@ public final class PlayerModel {
     /// taking that echo for a dropped seek issued the same seek twice.
     var earlyResumeSeekIssued = false
 
+    /// One silent reopen is allowed for the failure in progress (see `beginSilentRecovery`).
+    var silentRecoveryArmed = true
+    /// The silent reopen on its way — held so the test seam can wait for it.
+    var recoveryTask: Task<Void, Never>?
     /// The longest one RD `unrestrict` may take before it is abandoned and asked again.
     let unrestrictAttemptTimeout: Double
     /// The pauses before each retry of an `unrestrict` that failed for now (see
@@ -1069,6 +1073,8 @@ public final class PlayerModel {
         await progressSaveTask?.value
         // So does the halfway lookup of where the film ends.
         await filmEndTask?.value
+        // A silent reopen decides (and reloads) in a task of its own.
+        await recoveryTask?.value
         // A handler can start a new load (retry, the next episode) — let that one land too.
         if awaitingLoad { await loadTask?.value }
     }
