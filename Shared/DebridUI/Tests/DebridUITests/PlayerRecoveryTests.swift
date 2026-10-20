@@ -316,6 +316,24 @@ import DebridCore
         await m.teardown()
     }
 
+    /// At the file's real end an outage the cache saw earlier is stale: every byte to the end was
+    /// already in. Reopening there opened past the last frame — "The stream stopped before it
+    /// started" and no Up Next (review of D8). It is the end.
+    @Test func aStaleOutageAtTheRealEndIsTheEnd() async {
+        let engine = FakeVideoPlayerEngine(), proxy = FakeStreamProxy()
+        let m = model(engine, proxy: proxy)
+        m.start(); await m.waitForIdleForTesting()
+        await playTo(5999, m, engine)
+        await proxy.outageWith(.transport("The network connection was lost."))
+
+        engine.emit(.state(.ended)); await m.waitForIdleForTesting()
+
+        #expect(engine.loadCount == 1, "reopened at the end of the file")
+        #expect(!m.phase.isFailed, "the end was shown as \(m.phase)")
+        #expect(m.shouldDismiss)
+        await m.teardown()
+    }
+
     /// The reopen fails the same way at the same place: now the viewer is told — in words that
     /// say what to do, not that the file is gone.
     @Test func anOutageThatOutlastsTheReopenIsWordedAsOne() async {

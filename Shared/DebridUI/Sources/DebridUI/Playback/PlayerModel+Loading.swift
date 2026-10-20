@@ -496,7 +496,7 @@ extension PlayerModel {
             guard mediaGeneration == generation else { return }
             phase = .failed(Self.refusalMessage(failure))
             return
-        case .unavailable?:
+        case .unavailable? where !atTheVeryEnd:
             // RD failing FOR NOW — the network down, a link refresh that did not get through — is
             // no reason to give up on the film, and it used to say "Real-Debrid stopped sending
             // this file". Reopen at the playhead instead, once per place: the reopen resolves a
@@ -516,6 +516,11 @@ extension PlayerModel {
             }
             phase = .failed(Self.unreachableMessage)
             return
+        case .unavailable?:
+            // At the file's real end. The outage is stale — every byte to the end was already
+            // here — and a reopen there opened past the last frame: "The stream stopped before it
+            // started", and no Up Next. This is the end.
+            engine.note("end: RD unavailable earlier, but the playhead is at the end")
         case nil:
             break
         }
@@ -563,6 +568,13 @@ extension PlayerModel {
     var stoppedShortOfTheEnd: Bool {
         guard duration > 0, hasRenderedFrame else { return false }
         return duration - position > max(60, duration * 0.02)
+    }
+
+    /// The playhead is within a last tick of the file's length: an "end" here is the end, whatever
+    /// else the stream cache saw on the way. VLCKit's clock moves in whole seconds, so its last
+    /// tick can land a second or two before the real end.
+    var atTheVeryEnd: Bool {
+        duration > 0 && duration - position <= 5
     }
 
     // MARK: - Recovery
