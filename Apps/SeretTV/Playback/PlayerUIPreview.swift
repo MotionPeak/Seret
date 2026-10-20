@@ -25,6 +25,10 @@ import DebridCore
 ///   - `playerloading` / `playererror` — the real player before its first frame, and after a
 ///     source that could not be opened (Retry focused). `playererrorrow`: the open fails while the
 ///     control row is up — the row must go, leaving Retry focused and nothing hidden behind it
+///     `playererrorbrowser`: the same failure with the subtitle browser up — the browser (drawn
+///     above the error) must close, leaving Retry focused
+///   - `playerupnextbuffering` — Up Next up, then playback stalls: the small spinner rides in the
+///     Up Next bar; the scrub bar stays down and Up Next does not move
 ///   - `subtitles` — the full subtitle browser with ranked, badged results
 ///   - `subtitlesfailed` — the same browser after a pick that could not be honoured
 ///   - `detail`    — the Movie Detail page with a rating-capable stub store (no art: the title
@@ -88,6 +92,8 @@ struct PlayerUIPreview: View {
 
     var body: some View {
         switch target {
+        // Sign-in, splash, profiles, Settings and the watchlist toast — see `ScreensUIPreview`.
+        case _ where ScreensUIPreview.targets.contains(target): ScreensUIPreview(target: target)
         case "settings":   SettingsPanelPreview()
         case "playercontrols":      PlayerChromePreview(overlay: .controls, paused: true)
         case "playercontrolsshow":  PlayerChromePreview(overlay: .controls, paused: true, show: true)
@@ -100,6 +106,9 @@ struct PlayerUIPreview: View {
         case "playerloading":       PlayerChromePreview(overlay: .none, stage: .loading)
         case "playererror":         PlayerChromePreview(overlay: .none, stage: .failed)
         case "playererrorrow":      PlayerChromePreview(overlay: .controls, stage: .failed)
+        case "playererrorbrowser":  PlayerChromePreview(overlay: .subtitleBrowser, stage: .failed)
+        case "playerupnextbuffering": PlayerChromePreview(overlay: .none, show: true, nearEnd: true,
+                                                          bufferingAtEnd: true)
         case "subtitles":  SubtitleBrowserPreview()
         case "subtitlesfailed": SubtitleBrowserPreview(failing: true)
         case "inputprobe": InputProbePreview()
@@ -1312,6 +1321,8 @@ private struct PlayerChromePreview: View {
     let skipping: Bool
     let show: Bool
     let nearEnd: Bool
+    /// After Up Next rises, the engine reports a stall (`.buffering`).
+    let bufferingAtEnd: Bool
     let stage: Stage
     @State private var driver: SubtitlePreviewDriver
 
@@ -1326,9 +1337,11 @@ private struct PlayerChromePreview: View {
     static let frame = TMDBClient.imageURL(path: "/fRGxZuo7jJUWQsVg9PREb98Aclp.jpg", size: "original")
 
     init(overlay: PlayerView.PreviewOverlay, paused: Bool = false, skipping: Bool = false,
-         show: Bool = false, nearEnd: Bool = false, stage: Stage = .playing) {
+         show: Bool = false, nearEnd: Bool = false, bufferingAtEnd: Bool = false,
+         stage: Stage = .playing) {
         self.overlay = overlay
         self.nearEnd = nearEnd
+        self.bufferingAtEnd = bufferingAtEnd
         self.paused = paused
         self.skipping = skipping
         self.show = show
@@ -1361,6 +1374,10 @@ private struct PlayerChromePreview: View {
                 driver.engine.emit(.time(.init(position: 7760, duration: 7784)))
                 try? await Task.sleep(for: .milliseconds(100))
                 driver.engine.emit(.time(.init(position: 7761, duration: 7784)))
+                if bufferingAtEnd {
+                    try? await Task.sleep(for: .milliseconds(1200))
+                    driver.engine.emit(.state(.buffering))
+                }
             }
             if skipping {
                 try? await Task.sleep(for: .milliseconds(600))
@@ -1935,11 +1952,11 @@ private struct LetterboxdCardPreview: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 28) {
                     SettingsCard(title: "Above", icon: "arrow.up") {
-                        Button("Focusable above") {}
+                        Button("Focusable above") {}.buttonStyle(SeretActionButtonStyle())
                     }
                     LetterboxdCard(model: model, profileID: "preview-profile", push: push)
                     SettingsCard(title: "Below", icon: "arrow.down") {
-                        Button("Focusable below") {}
+                        Button("Focusable below") {}.buttonStyle(SeretActionButtonStyle())
                     }
                 }
                 .frame(maxWidth: .infinity)

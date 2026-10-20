@@ -55,7 +55,7 @@ struct PlayerView: View {
 
     #if DEBUG
     /// What the `-uiPreview` harness opens the real player on.
-    enum PreviewOverlay { case none, controls, sheet(SettingsSection) }
+    enum PreviewOverlay { case none, controls, sheet(SettingsSection), subtitleBrowser }
 
     /// The real player — input surface, routing and all — over a still instead of libvlc, opened
     /// on an overlay, so the chrome can be screenshot-verified with no stream and no remote.
@@ -73,6 +73,7 @@ struct PlayerView: View {
             _showSettings = State(initialValue: true)
             _settingsSection = State(initialValue: section)
             _sheetOpenedFrom = State(initialValue: section.control)
+        case .subtitleBrowser: _showSubtitleBrowser = State(initialValue: true)
         }
     }
     #endif
@@ -317,13 +318,17 @@ struct PlayerView: View {
         }
         // A failed open puts Retry / Back up over everything. Anything focusable left open under
         // it — the row, the sheet, the strip — would still be in the focus engine's reach, behind
-        // an overlay that hides it.
+        // an overlay that hides it. The subtitle browser and the sync pad go too: they are drawn
+        // ABOVE the error overlay, so left up they would cover Retry outright, and the pad's
+        // session belongs to a file that no longer plays.
         .onChange(of: hasFailed) { _, failed in
             guard failed else { return }
             showControls = false
             showSettings = false
             sheetOpenedFrom = nil
             showEpisodes = false
+            showSubtitleBrowser = false
+            if showManualSync { showManualSync = false; model.endManualSync() }
         }
         .onChange(of: model.shouldDismiss) { _, dismissNow in if dismissNow { dismiss() } }
         // Each prompt starts as an invitation, whatever happened to the last one.
@@ -628,14 +633,15 @@ private struct EpisodeStripExpanded: View {
         let isCurrent = ep.season == model.currentEpisode?.season && ep.number == model.currentEpisode?.number
         return VStack(alignment: .leading, spacing: 6) {
             RemoteImage(url: TMDBClient.imageURL(path: ep.stillPath, size: "w300"),
-                        contentMode: .fill) { _ in Rectangle().fill(.white.opacity(0.08)) }
+                        contentMode: .fill) { _ in Rectangle().fill(Theme.Palette.glassFaint) }
                 .frame(width: 200, height: 112)
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .overlay(alignment: .topLeading) {
                     Text("\(ep.number)")
-                        .font(.seret(.caption1, .bold)).monospacedDigit().foregroundStyle(.white)
+                        .font(.seret(.caption1, .bold)).monospacedDigit()
+                        .foregroundStyle(Theme.Palette.textPrimary)
                         .padding(.horizontal, 7).padding(.vertical, 2)
-                        .background(.black.opacity(0.6), in: Capsule())
+                        .background(Theme.Palette.badgeBacking, in: Capsule())
                         .padding(6)
                 }
                 .overlay {
@@ -643,10 +649,10 @@ private struct EpisodeStripExpanded: View {
                         RoundedRectangle(cornerRadius: 10, style: .continuous)
                             .strokeBorder(Theme.Palette.strokeStrong, lineWidth: 4)
                     } else if !ep.isPlayable {
-                        RoundedRectangle(cornerRadius: 10, style: .continuous).fill(.black.opacity(0.45))
+                        RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.Palette.artDim)
                             .overlay {
                                 Image(systemName: "arrow.down.circle").font(.title2)
-                                    .foregroundStyle(.white.opacity(0.85))
+                                    .foregroundStyle(Theme.Palette.textPrimary.opacity(0.85))
                             }
                     }
                 }

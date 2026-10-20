@@ -1,7 +1,7 @@
 #if os(macOS)
 import AppKit
 import Foundation
-import MediaPlayer
+@preconcurrency import MediaPlayer
 import Testing
 @testable import DebridUI
 

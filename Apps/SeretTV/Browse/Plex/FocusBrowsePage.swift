@@ -64,6 +64,8 @@ struct FocusBrowsePage<Rails: View>: View {
     var initialFocus: String?
     var focusOnEntry = false
     var handle: FocusBrowseHandle?
+    /// What the header says while there is no subject — see `FocusPreviewHeader.placeholder`.
+    var placeholder: FocusPreviewPlaceholder?
     @ViewBuilder var rails: Rails
 
     static var leadingInset: CGFloat { FocusBrowseLayout.leadingInset }
@@ -91,12 +93,14 @@ struct FocusBrowsePage<Rails: View>: View {
 
     init(preview: FocusPreviewModel, art: TitleArtStore?, initialFocus: String? = nil,
          focusOnEntry: Bool = false, handle: FocusBrowseHandle? = nil,
+         placeholder: FocusPreviewPlaceholder? = nil,
          @ViewBuilder rails: () -> Rails) {
         self.preview = preview
         self.art = art
         self.initialFocus = initialFocus
         self.focusOnEntry = focusOnEntry
         self.handle = handle
+        self.placeholder = placeholder
         self.rails = rails()
     }
 
@@ -104,7 +108,8 @@ struct FocusBrowsePage<Rails: View>: View {
         let subject = preview.shown
         VStack(alignment: .leading, spacing: 0) {
             FocusPreviewHeader(subject: subject, art: subject.flatMap(artFor),
-                               holdTitle: subject != nil && holdingTitleFor == subject?.id)
+                               holdTitle: subject != nil && holdingTitleFor == subject?.id,
+                               placeholder: placeholder)
                 .padding(.top, FocusBrowseLayout.headerTopPadding)
                 .padding(.leading, FocusBrowseLayout.leadingInset)
                 .frame(maxWidth: .infinity, alignment: .leading)

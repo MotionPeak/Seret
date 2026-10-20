@@ -237,7 +237,7 @@ struct AutoSyncBar: View {
                 .font(.seret(24, .semibold))
             if let fraction = banner.fraction {
                 ZStack(alignment: .leading) {
-                    Capsule().fill(.white.opacity(0.28))
+                    Capsule().fill(Theme.Palette.track)
                     Capsule().fill(Theme.Palette.focus)
                         // A floor, so the bar reads as started rather than as broken while the
                         // first seconds of audio are still arriving.
@@ -290,9 +290,20 @@ struct UpNextBar: View {
             Spacer()
             HStack(spacing: 22) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("UP NEXT")
-                        .font(.seret(.caption1, .semibold)).kerning(1.5)
-                        .foregroundStyle(Theme.Palette.textSecondary)
+                    HStack(spacing: 12) {
+                        Text("UP NEXT")
+                            .font(.seret(.caption1, .semibold)).kerning(1.5)
+                            .foregroundStyle(Theme.Palette.textSecondary)
+                        // A stall while Up Next is up. The bar's own spinner is out of reach here —
+                        // the bar stays down so Up Next does not jump — so the hint rides in this
+                        // line instead. Always laid out, only faded, so its arrival moves nothing.
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(Theme.Palette.textPrimary)
+                            .opacity(model.isBuffering ? 1 : 0)
+                            .accessibilityHidden(!model.isBuffering)
+                    }
+                    .animation(Theme.Anim.pageFade, value: model.isBuffering)
                     Text("S\(next.season) \u{2022} E\(next.number)  \u{00B7}  Playing in \(model.upNextSecondsRemaining)s")
                         .font(.seret(30, .semibold))
                         .monospacedDigit()

@@ -56,8 +56,10 @@ private let hungerGames = TMDBCollection(
                                 details: FranchiseDetails(ref: hungerGamesRef, collection: hungerGames),
                                 watch: nil)
         #expect(store.isInCollection == false)       // unknown until the details land
+        #expect(store.awaitsFranchise == false)
         await store.load()
         #expect(store.isInCollection)
+        #expect(store.awaitsFranchise == false)      // answered: the franchise itself holds the row
         #expect(store.franchise?.name == "The Hunger Games Collection")
         #expect(store.franchise?.parts.map(\.id) == [70160, 101299, 131634, 131631, 695721])
         #expect(store.franchise?.position == 3)
@@ -87,6 +89,9 @@ private let hungerGames = TMDBCollection(
                                 watch: nil)
         await store.load()
         #expect(store.franchise == nil)
+        // Settled empty: a page stops holding room for a franchise line that is not coming.
+        #expect(store.isInCollection)
+        #expect(store.awaitsFranchise == false)
         #expect(store.richState == .loaded)
         #expect(store.runtime == 142)
     }

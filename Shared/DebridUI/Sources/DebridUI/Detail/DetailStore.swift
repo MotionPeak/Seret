@@ -84,6 +84,13 @@ public final class DetailStore {
     /// the `franchise` it may become. A page holds room for the franchise line from here on, so
     /// the line landing never pushes what is below it (focus is already on Play).
     public var isInCollection: Bool { collectionRef != nil }
+    /// The franchise fetch has finished — with a franchise or without one (standalone after all,
+    /// a collection of one, a failed request).
+    public private(set) var franchiseSettled = false
+    /// A franchise may still be on its way: the film is in a collection and the fetch has not
+    /// answered yet. What a page should hold room for — `isInCollection` stays true after a failed
+    /// fetch, and a row reserved on it stayed blank for good.
+    public var awaitsFranchise: Bool { isInCollection && !franchiseSettled }
     /// The viewer's history rollup for this title, loaded lazily by the view.
     private let versionPrefs: VersionPreferring?
     /// The user's chosen source key for this title, once loaded. Nil = let the ranker decide.
@@ -317,6 +324,7 @@ public final class DetailStore {
                 directors = d.directors
                 similar = d.similar
                 collectionRef = d.collection
+                franchiseSettled = false
             case .show:
                 let d = try await details.tvDetails(tmdbID: tmdbID)
                 backdropPath = d.preferredBackdropPath ?? backdropPath
@@ -435,6 +443,7 @@ public final class DetailStore {
     /// one. Costs a single request, and only for films that are part of a series. Any failure just
     /// leaves the badge and rail off the page.
     private func loadFranchise() async {
+        defer { franchiseSettled = true }
         guard item.kind == .movie, let ref = collectionRef, let tmdbID = item.tmdbID,
               let collection = try? await details.collection(id: ref.id) else { return }
         let ordered = FranchiseOrder.ordered(collection.parts, now: Date())

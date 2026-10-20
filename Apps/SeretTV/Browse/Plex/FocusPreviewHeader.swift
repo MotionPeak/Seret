@@ -15,6 +15,10 @@ struct FocusPreviewHeader: View {
     /// title does not appear only to be replaced by its logo a beat later. Never longer than the
     /// page's logo budget; everything else in the header shows regardless.
     var holdTitle = false
+    /// What to say while there is no title to preview at all (a page whose rails could not load):
+    /// the page's own name and a line about it, where the title would be — so the header reads as
+    /// a calm page top rather than a broken, empty block.
+    var placeholder: FocusPreviewPlaceholder? = nil
 
     /// Width of the text block, from the mockup.
     static let width: CGFloat = 920
@@ -29,6 +33,9 @@ struct FocusPreviewHeader: View {
                 PreviewHeaderContent(subject: subject, art: art, holdTitle: holdTitle)
                     .id(subject.id)
                     .transition(hadSubject ? Self.change : .identity)
+            } else if let placeholder {
+                PlaceholderContent(placeholder: placeholder)
+                    .transition(.opacity.animation(Theme.Anim.previewIn))
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -39,6 +46,35 @@ struct FocusPreviewHeader: View {
     private static let change = AnyTransition.asymmetric(
         insertion: .opacity.combined(with: .offset(y: 8)).animation(Theme.Anim.previewIn.delay(0.18)),
         removal: .opacity.combined(with: .offset(y: 8)).animation(Theme.Anim.previewOut))
+}
+
+/// The header's stand-in when a page has no title to preview — see `FocusPreviewHeader.placeholder`.
+struct FocusPreviewPlaceholder: Equatable {
+    let title: String
+    let hint: String
+}
+
+/// Laid out like a subject: the title in the logo slot's text style, sitting on the same baseline,
+/// and the hint where the metadata row would be.
+private struct PlaceholderContent: View {
+    let placeholder: FocusPreviewPlaceholder
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(placeholder.title)
+                .font(.seret(64, .heavy))
+                .tracking(-1)
+                .foregroundStyle(Theme.Palette.textPrimary)
+                .lineLimit(1)
+                .frame(height: 170, alignment: .bottomLeading)
+            Text(placeholder.hint)
+                .font(.seret(25))
+                .foregroundStyle(Theme.Palette.textSecondary)
+                .lineLimit(2)
+                .padding(.top, 14)
+        }
+        .frame(width: FocusPreviewHeader.width, alignment: .leading)
+    }
 }
 
 private struct PreviewHeaderContent: View {

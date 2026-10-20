@@ -172,10 +172,11 @@ struct MovieDetailView: View {
 
     /// The chips line is on screen — or may yet be, so its room is held: while the details load
     /// (an unowned film learns of a franchise only from them), and for a film in a collection
-    /// until the franchise lands.
+    /// until the franchise fetch answers. A fetch that answers with nothing lets the room go, so
+    /// an unowned film whose franchise could not be loaded keeps no blank row.
     private var reservesChipRow: Bool {
         store.bestSource != nil || store.hebrewChip != nil || store.franchise != nil
-            || settling || store.isInCollection
+            || settling || store.awaitsFranchise
     }
 
     /// The details (and with them the logo) are still on their way.
@@ -505,10 +506,10 @@ private struct MovieDownloadSection: View {
             }
             .buttonStyle(SeretActionButtonStyle())
             if case .downloading = status?.phase {
-                ProgressView(value: status?.fraction ?? 0).frame(maxWidth: 600)
+                ProgressLine(fraction: status?.fraction ?? 0, height: 8).frame(maxWidth: 600)
             }
             Text(caption(status))
-                .font(.seretCallout).foregroundStyle(.secondary)
+                .font(.seretCallout).foregroundStyle(Theme.Palette.textSecondary)
                 .frame(maxWidth: 1000, alignment: .leading)
         }
     }

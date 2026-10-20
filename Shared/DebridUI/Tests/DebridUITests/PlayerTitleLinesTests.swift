@@ -1,4 +1,5 @@
 import Testing
+import Foundation
 import DebridCore
 @testable import DebridUI
 
@@ -37,6 +38,30 @@ struct PlayerTitleLinesTests {
                                           kind: .show, year: 2022, episode: nil, episodeName: nil,
                                           duration: 3_000)
         #expect(lines == PlayerTitleLines(title: "Severance — S1·E3", subtitle: "50 min"))
+    }
+
+    /// The model's own lookup: the name comes from the loaded season list, matched on season AND
+    /// number — a same-numbered episode of another season must not lend its name.
+    @MainActor
+    @Test func modelTakesTheNameOfTheMatchingSeasonAndNumber() {
+        let model = PlayerModel(request: Fixture.showRequest(episodes: 3, playingEpisode: 2),
+                                engine: FakeVideoPlayerEngine(),
+                                unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
+                                recordProgress: { _, _, _, _, _ in }, subtitles: nil)
+        #expect(model.titleLines.title == "Episode 2")            // nothing loaded yet
+
+        model.seasonEpisodes = [
+            .init(season: 2, number: 2, name: "Another Season's Second", stillPath: nil, owned: nil),
+            .init(season: 1, number: 1, name: "Pilot", stillPath: nil, owned: nil),
+            .init(season: 1, number: 2, name: "  The Second\n", stillPath: nil, owned: nil),
+            .init(season: 1, number: 3, name: "Third", stillPath: nil, owned: nil),
+        ]
+        #expect(model.titleLines == PlayerTitleLines(title: "The Second",
+                                                     subtitle: "The Show · S1 \u{2022} E2"))
+
+        // A name that is only whitespace and newlines falls back to the number.
+        model.seasonEpisodes = [.init(season: 1, number: 2, name: " \n\t", stillPath: nil, owned: nil)]
+        #expect(model.titleLines.title == "Episode 2")
     }
 
     @Test func runtimeFormats() {

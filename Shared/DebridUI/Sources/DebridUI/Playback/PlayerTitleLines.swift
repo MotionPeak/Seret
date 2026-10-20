@@ -29,7 +29,11 @@ public struct PlayerTitleLines: Equatable, Sendable {
             let parts = [kind == .movie ? year.map(String.init) : nil, runtime].compactMap { $0 }
             return PlayerTitleLines(title: label, subtitle: parts.joined(separator: " · "))
         }
-        let name = episodeName.flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 }
+        // Trimmed, newlines included: TMDB names occasionally carry a stray trailing newline, which
+        // would push the top line onto a second, empty row.
+        let name = episodeName
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .flatMap { $0.isEmpty ? nil : $0 }
         let parts = [itemTitle, "S\(episode.season) \u{2022} E\(episode.number)", runtime]
             .compactMap { $0 }
         return PlayerTitleLines(title: name ?? "Episode \(episode.number)",

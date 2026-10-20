@@ -147,8 +147,14 @@ struct BrowseScreen: View {
             ?? (segmentFailed ? PageRow.retry : nil)
             ?? rows.first?.hits.first.map { Self.tileID(rows[0].id, $0) }
             ?? Self.segmentID(segment)
+        // A failed segment has no title to preview: the header names the page instead of standing
+        // empty above the controls.
+        let placeholder = segmentFailed
+            ? FocusPreviewPlaceholder(title: kind == .movie ? "Movies" : "Shows",
+                                      hint: "Titles appear here once they load.")
+            : nil
         return FocusBrowsePage(preview: preview, art: art, initialFocus: focusTarget,
-                               focusOnEntry: true, handle: focusHandle) {
+                               focusOnEntry: true, handle: focusHandle, placeholder: placeholder) {
             // A failed segment's message lives IN the controls row, under the pills: as a row of its
             // own, focusing Retry scrolled it to the top of the rail area and the pills up under
             // the top fade (measured in `-uiPreview browsefailed`).
