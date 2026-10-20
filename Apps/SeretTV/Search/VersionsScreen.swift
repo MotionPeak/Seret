@@ -112,8 +112,8 @@ struct VersionsScreen: View {
                         .font(.seretCallout).foregroundStyle(Theme.Palette.textSecondary)
                 }
             case .failed(let reason):
-                Label(reason, systemImage: "exclamationmark.triangle")
-                    .font(.seretTitle3).foregroundStyle(.orange)
+                Label(reason, systemImage: "exclamationmark.triangle.fill")
+                    .font(.seretTitle3).foregroundStyle(Theme.Palette.textPrimary)
             case .ready:
                 EmptyView()
             }

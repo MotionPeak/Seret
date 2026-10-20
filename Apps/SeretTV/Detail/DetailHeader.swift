@@ -21,8 +21,18 @@ enum DetailLayout {
     /// How long the logo slot may stay empty while the details (and so the logo) are on their way,
     /// before the title is printed instead. A logo that lands later fades in over the title.
     static let logoBudget: Duration = .milliseconds(500)
-    /// Past this much scroll the viewer is in the rails: the trailer pauses and the art dims.
-    static let scrolledAwayOffset: CGFloat = 320
+    /// Past `recedeAt` of scroll the viewer is in the rails and the art dims; it comes back only
+    /// once the scroll is under `returnAt`. Two thresholds, not one: a focus move between two rows
+    /// that straddle a single threshold flipped the dim on every press.
+    static let recedeAt: CGFloat = 360
+    static let returnAt: CGFloat = 240
+
+    /// Whether the page is scrolled down into the rails, with the hysteresis above. `wasAway` is
+    /// the current answer — the threshold that applies depends on it.
+    static func scrolledAway(_ geo: ScrollGeometry, wasAway: Bool) -> Bool {
+        let offset = geo.contentOffset.y + geo.contentInsets.top
+        return wasAway ? offset > returnAt : offset > recedeAt
+    }
 }
 
 /// The title's logo art, or its name until (or unless) the logo can be drawn.
@@ -36,12 +46,16 @@ struct DetailTitleArt: View {
     let logoPath: String?
     let settling: Bool
 
-    @State private var loaded: UIImage?
+    /// The last logo decoded here, and the url it is for. Kept across a `.task(id:)` re-run for
+    /// the SAME url — coming back from the player re-runs the task, and clearing it then flashed
+    /// the title up until the logo had loaded again.
+    @State private var loaded: (url: URL, image: UIImage)?
     @State private var budgetSpent = false
 
     var body: some View {
         let url = TMDBClient.imageURL(path: logoPath, size: "w500")
-        let image = url.flatMap { ImageMemoryCache.shared.object(forKey: $0 as NSURL) } ?? loaded
+        let image = url.flatMap { ImageMemoryCache.shared.object(forKey: $0 as NSURL) }
+            ?? (loaded?.url == url ? loaded?.image : nil)
         ZStack(alignment: .bottomLeading) {
             if let image {
                 Image(uiImage: image)
@@ -71,12 +85,15 @@ struct DetailTitleArt: View {
         .accessibilityLabel(title)
         .accessibilityAddTraits(.isHeader)
         .task(id: url) {
-            loaded = nil
-            guard let url else { return }
-            let image = await ImageMemoryCache.load(url)
+            guard let url, loaded?.url != url else { return }
+            if let cached = ImageMemoryCache.shared.object(forKey: url as NSURL) {
+                loaded = (url, cached)
+                return
+            }
+            guard let image = await ImageMemoryCache.load(url) else { return }
             // A cancelled load belongs to a url this view no longer shows.
             guard !Task.isCancelled else { return }
-            loaded = image
+            loaded = (url, image)
         }
         .task {
             try? await Task.sleep(for: DetailLayout.logoBudget)

@@ -23,7 +23,7 @@ struct MovieDetailView: View {
     /// neighbours along, and they slide rather than jump.
     private enum Field: Hashable { case play, fromStart, versions, watchlist, more }
     @FocusState private var focus: Field?
-    /// Scrolled down into the rails: the trailer pauses and the art recedes behind them.
+    /// Scrolled down into the rails: the art recedes behind them (the trailer plays on).
     @State private var scrolledAway = false
     @Environment(AppSession.self) private var session
     /// Absent until `DetailView` has built it, and absent in previews — the button is simply not
@@ -75,8 +75,8 @@ struct MovieDetailView: View {
                 .padding(.bottom, 40)
             }
         }
-        .onScrollGeometryChange(for: Bool.self) { geo in
-            geo.contentOffset.y + geo.contentInsets.top > DetailLayout.scrolledAwayOffset
+        .onScrollGeometryChange(for: Bool.self) { [wasAway = scrolledAway] geo in
+            DetailLayout.scrolledAway(geo, wasAway: wasAway)
         } action: { _, away in
             scrolledAway = away
         }
@@ -99,8 +99,7 @@ struct MovieDetailView: View {
         .onDisappear { isOnScreen = false }
         .background {
             TrailerHero(tmdbID: item.tmdbID, kind: .movie, backdropPath: pageBackdrop,
-                        resolvedURL: $trailerURL, paused: expandTrailer || scrolledAway,
-                        receded: scrolledAway)
+                        resolvedURL: $trailerURL, paused: expandTrailer, receded: scrolledAway)
         }
         .fullScreenCover(isPresented: $expandTrailer) {
             if let u = trailerURL { FullScreenTrailer(url: u) }
@@ -123,21 +122,22 @@ struct MovieDetailView: View {
             DetailTitleArt(title: item.title, logoPath: store.logoPath, settling: settling)
             DetailMetaRow(items: metaItems, ratings: store.ratings, letterboxd: store.letterboxdRating)
                 .padding(.top, 22)
-            if store.bestSource != nil || store.hebrewChip != nil || store.franchise != nil {
-                HStack(spacing: 16) {
-                    if let best = store.bestSource { QualityChips(parsed: best.parsed) }
-                    if let chip = store.hebrewChip {
-                        HebrewBadge(HebrewIndicator(chip: chip), prominent: true)
-                    } else if store.bestSource != nil {
-                        // Holds the row at the badge's height, so the chip landing does not push
-                        // the page — and the Play button focus was just placed on — down. Height
-                        // only: at its own width it pushed the franchise line off to the right.
-                        HebrewBadge(.inFile, prominent: true).fixedSize().hidden().frame(width: 0)
-                    }
-                    if let franchise = store.franchise {
-                        Text("Film \(franchise.position) of \(franchise.count)  ·  \(franchise.name)")
-                            .calloutText().foregroundStyle(Theme.Palette.textPrimary)
-                            .lineLimit(1)
+            if reservesChipRow {
+                // The hidden badge is a LAYER, not a row item: it holds the row at the badge's
+                // height (so the chips, the Hebrew badge or the franchise line landing never push
+                // Play down after focus is on it) without taking any width or spacing in the row.
+                ZStack(alignment: .leading) {
+                    HebrewBadge(.inFile, prominent: true).fixedSize().hidden()
+                    HStack(spacing: 16) {
+                        if let best = store.bestSource { QualityChips(parsed: best.parsed) }
+                        if let chip = store.hebrewChip {
+                            HebrewBadge(HebrewIndicator(chip: chip), prominent: true)
+                        }
+                        if let franchise = store.franchise {
+                            Text("Film \(franchise.position) of \(franchise.count)  ·  \(franchise.name)")
+                                .calloutText().foregroundStyle(Theme.Palette.textPrimary)
+                                .lineLimit(1)
+                        }
                     }
                 }
                 .padding(.top, 16)
@@ -168,6 +168,14 @@ struct MovieDetailView: View {
         // is waiting for arrives, so hanging the load that produces it off a conditionally-empty
         // body makes it depend on SwiftUI keeping an empty view in the tree.
         .task { await store.loadWatchSummary() }
+    }
+
+    /// The chips line is on screen — or may yet be, so its room is held: while the details load
+    /// (an unowned film learns of a franchise only from them), and for a film in a collection
+    /// until the franchise lands.
+    private var reservesChipRow: Bool {
+        store.bestSource != nil || store.hebrewChip != nil || store.franchise != nil
+            || settling || store.isInCollection
     }
 
     /// The details (and with them the logo) are still on their way.
@@ -358,8 +366,8 @@ struct MovieDetailView: View {
     /// Request Download section below, which already renders whenever there is no playable source.
     @ViewBuilder private var acquisitionStatus: some View {
         if let playUnavailable {
-            Label(playUnavailable, systemImage: "exclamationmark.triangle")
-                .font(.seretCallout).foregroundStyle(.orange)
+            Label(playUnavailable, systemImage: "exclamationmark.triangle.fill")
+                .font(.seretCallout).foregroundStyle(Theme.Palette.textPrimary)
         }
         switch acquisition?.phase {
         case .noneCached:
@@ -367,8 +375,8 @@ struct MovieDetailView: View {
                   systemImage: "magnifyingglass")
                 .font(.seretCallout).foregroundStyle(Theme.Palette.textSecondary)
         case let .failed(message):
-            Label(message, systemImage: "exclamationmark.triangle")
-                .font(.seretCallout).foregroundStyle(.orange)
+            Label(message, systemImage: "exclamationmark.triangle.fill")
+                .font(.seretCallout).foregroundStyle(Theme.Palette.textPrimary)
         default:
             EmptyView()
         }
@@ -392,7 +400,7 @@ struct MovieDetailView: View {
         VStack(alignment: .leading, spacing: 12) {
             // "Find Other Versions" moved up into the action row, where it is reachable on a title
             // you do not own too (this section only renders once you own something).
-            Text("Versions").sectionTitle().frame(maxWidth: 1100, alignment: .leading)
+            Text("Versions").sectionTitle().frame(maxWidth: 1400, alignment: .leading)
             ForEach(store.versions, id: \.self) { src in
                 let hebrew = HebrewIndicator(store.hebrew(for: src))
                 NavigationLink(value: store.playRequest(source: src, episode: nil, label: item.title)) {
@@ -433,10 +441,11 @@ struct MovieDetailView: View {
                 }
             }
         }
-        // Inner frame keeps the rows 1100pt wide; the outer one widens only the FOCUS target to the
+        // Inner frame keeps the rows 1400pt wide — room for the chips, the Hebrew badge AND the
+        // group · size that tells copies apart. The outer one widens only the FOCUS target to the
         // full page, so travelling UP from a poster on the right of the "More Like This" rail lands
         // in Versions instead of dying on empty space.
-        .frame(maxWidth: 1100, alignment: .leading)
+        .frame(maxWidth: 1400, alignment: .leading)
         .frame(maxWidth: .infinity, alignment: .leading)
         .focusSection()
     }

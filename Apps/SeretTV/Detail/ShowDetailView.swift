@@ -39,7 +39,7 @@ struct ShowDetailView: View {
     /// as a circle opens into a pill, so its neighbours slide rather than jump.
     private enum Field: Hashable { case play, fromStart, more }
     @FocusState private var focus: Field?
-    /// Scrolled down into the seasons and rails: the trailer pauses and the art recedes.
+    /// Scrolled down into the seasons and rails: the art recedes (the trailer plays on).
     @State private var scrolledAway = false
     @State private var trailerURL: URL?
     @State private var expandTrailer = false
@@ -91,16 +91,15 @@ struct ShowDetailView: View {
                 .padding(.bottom, 40)
             }
         }
-        .onScrollGeometryChange(for: Bool.self) { geo in
-            geo.contentOffset.y + geo.contentInsets.top > DetailLayout.scrolledAwayOffset
+        .onScrollGeometryChange(for: Bool.self) { [wasAway = scrolledAway] geo in
+            DetailLayout.scrolledAway(geo, wasAway: wasAway)
         } action: { _, away in
             scrolledAway = away
         }
         .defaultFocus($focus, .play)
         .background {
             TrailerHero(tmdbID: item.tmdbID, kind: .show, backdropPath: pageBackdrop,
-                        resolvedURL: $trailerURL, paused: expandTrailer || scrolledAway,
-                        receded: scrolledAway)
+                        resolvedURL: $trailerURL, paused: expandTrailer, receded: scrolledAway)
         }
         .fullScreenCover(isPresented: $expandTrailer) {
             if let u = trailerURL { FullScreenTrailer(url: u) }

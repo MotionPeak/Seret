@@ -80,6 +80,10 @@ public final class DetailStore {
     public private(set) var franchise: Franchise?
     /// The collection reference from the details call, held so the franchise fetch has an id.
     private var collectionRef: TMDBCollectionRef?
+    /// TMDB says this film belongs to a collection — known with the details, a round-trip BEFORE
+    /// the `franchise` it may become. A page holds room for the franchise line from here on, so
+    /// the line landing never pushes what is below it (focus is already on Play).
+    public var isInCollection: Bool { collectionRef != nil }
     /// The viewer's history rollup for this title, loaded lazily by the view.
     private let versionPrefs: VersionPreferring?
     /// The user's chosen source key for this title, once loaded. Nil = let the ranker decide.

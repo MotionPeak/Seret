@@ -37,9 +37,10 @@ struct EpisodeRow: View {
                 onDownload(row)
             }
         } label: { lockup }
-        // Chrome-free: the still draws the focus look itself (see `lockup`). `.borderless` drew
-        // tvOS's own highlight, which matches nothing else on the page.
-        .buttonStyle(BareButtonStyle())
+        // `.borderless`, NOT a custom ButtonStyle: under `BareButtonStyle` the long-press menu
+        // below never opened (measured in `-uiPreview showdetail` — the card stayed half-pressed).
+        // Without a `hoverEffect` it draws no system highlight; the still draws the focus look.
+        .buttonStyle(.borderless)
         .contextMenu {
             // Selecting the card resumes; this starts a part-watched episode over (the Mac's
             // episode grid has offered it all along).

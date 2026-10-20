@@ -18,9 +18,10 @@ struct TrailerHero: View {
     let backdropPath: String?
     /// Published up once resolved so the page can offer full-screen playback.
     @Binding var resolvedURL: URL?
-    /// True while something covers the page (the full-screen trailer) or the viewer has scrolled
-    /// down to the rails. A cover does not make the page disappear, so the muted loop kept
-    /// decoding underneath it: two video streams at once on an Apple TV, one nobody could see.
+    /// True while something covers the page — the full-screen trailer. A cover does not make the
+    /// page disappear, so the muted loop kept decoding underneath it: two video streams at once on
+    /// an Apple TV, one nobody could see. Deliberately NOT tied to scrolling: pausing tears the
+    /// loop down, and it restarted from 0:00 every time the page crossed back.
     var paused = false
     /// Darkens the art once the viewer has scrolled past the title: the rails then run the full
     /// width of the screen, and over bright sharp art their titles and captions lost contrast.

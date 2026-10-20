@@ -32,5 +32,8 @@ struct QualityChips: View {
             .padding(.horizontal, 12).padding(.vertical, 6)
             .background(Theme.Palette.glassFaint, in: Capsule())
             .overlay(Capsule().strokeBorder(Theme.Palette.textPrimary.opacity(0.35), lineWidth: 1.5))
+            // A chip is a word, never a column: squeezed in a full Versions row it broke into
+            // "2160 / p" and "REM / UX". The row's other text gives way instead.
+            .fixedSize()
     }
 }

@@ -55,7 +55,9 @@ private let hungerGames = TMDBCollection(
         let store = DetailStore(item: movie(131634),
                                 details: FranchiseDetails(ref: hungerGamesRef, collection: hungerGames),
                                 watch: nil)
+        #expect(store.isInCollection == false)       // unknown until the details land
         await store.load()
+        #expect(store.isInCollection)
         #expect(store.franchise?.name == "The Hunger Games Collection")
         #expect(store.franchise?.parts.map(\.id) == [70160, 101299, 131634, 131631, 695721])
         #expect(store.franchise?.position == 3)
@@ -76,6 +78,7 @@ private let hungerGames = TMDBCollection(
                                 details: FranchiseDetails(ref: nil, collection: nil), watch: nil)
         await store.load()
         #expect(store.franchise == nil)
+        #expect(store.isInCollection == false)
     }
 
     @Test func aFailedCollectionFetchLeavesTheRestOfThePageIntact() async {
