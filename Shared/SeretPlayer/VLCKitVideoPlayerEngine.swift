@@ -642,6 +642,10 @@ extension VLCKitVideoPlayerEngine: VLCMediaPlayerDelegate {
     }
     nonisolated func mediaPlayerTrackUpdated(_ trackId: String, with trackType: VLCMedia.TrackType) {
         continuation.yield(.tracksChanged)
+        #if os(tvOS)
+        // The frame rate can arrive only with an update, after the track itself.
+        if trackType == .video { Task { @MainActor [weak self] in self?.videoTrackAppeared() } }
+        #endif
     }
 }
 

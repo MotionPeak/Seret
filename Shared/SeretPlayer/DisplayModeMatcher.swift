@@ -28,6 +28,13 @@ final class DisplayModeMatcher {
     private(set) var applied: DisplayModePlan?
     /// A plan still waiting for libvlc's frame rate.
     private var pending: DisplayModePlan?
+    /// Bumped by every `prepare` and `reset`: a prepare that resumes after either stands down, so
+    /// nothing asks for a film's mode once the player has handed the display back.
+    private var generation = 0
+    /// Modes asked for straight from the interface's mode that started no switch: the interface
+    /// already runs in them. Asking for one again pays no `switchStartGrace`. Process-wide, since
+    /// every player starts from the interface's mode; a switch seen for one removes it.
+    private static var interfaceRunsIn: Set<DisplayModePlan> = []
 
     /// The longest the header read may take before the film loads without it.
     static let probeTimeout: Double = 2.5
@@ -45,6 +52,8 @@ final class DisplayModeMatcher {
     /// `switchStartGrace` + `switchTimeout`, and returns at once when matching is off.
     func prepare(url: URL, window: UIWindow?) async {
         pending = nil
+        generation &+= 1
+        let mine = generation
         guard let manager = window?.avDisplayManager ?? Self.keyWindow()?.avDisplayManager else {
             note("display: no window to ask")
             return
@@ -56,7 +65,7 @@ final class DisplayModeMatcher {
         }
         let started = Date()
         let probe = await Self.probeVideoTrack(url, timeout: Self.probeTimeout)
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled, generation == mine else { return }   // superseded, or reset
         let video: ContainerTrack?
         switch probe {
         case .found(let track): video = track
@@ -74,50 +83,74 @@ final class DisplayModeMatcher {
             note("display: \(plan.range.rawValue), frame rate not in the header — waiting for the player's")
             return
         }
-        await apply(plan, to: manager, waitForSwitch: true, since: started)
+        let fromInterface = applied == nil
+        guard request(plan, from: manager, since: started) else { return }
+        await waitOutSwitch(for: plan, on: manager, fromInterface: fromInterface, generation: mine,
+                            since: started)
     }
 
-    /// libvlc reported the video track: complete a plan that was waiting for its frame rate.
+    /// libvlc reported the video track, or updated it: complete a plan that was waiting for its
+    /// frame rate. The frame rate can come only with a later update, so a plan still without one
+    /// keeps waiting. Synchronous on purpose: a request from a task could land after `reset()`
+    /// had handed the display back, and leave the interface in the film's mode.
     func videoTrackAppeared(fps: Double?) {
         guard let plan = pending, let manager else { return }
         let full = plan.with(fps: fps)
         guard full.refreshRate != nil else { return }
         pending = nil
-        Task { await apply(full, to: manager, waitForSwitch: false, since: Date()) }
+        request(full, from: manager, since: Date())
     }
 
     /// The film is over: hand the display back to the interface's mode.
     func reset() {
         pending = nil
+        generation &+= 1
         guard applied != nil else { return }
         applied = nil
         manager?.preferredDisplayCriteria = nil
         note("display: back to the interface's mode")
     }
 
-    private func apply(_ plan: DisplayModePlan, to manager: AVDisplayManager, waitForSwitch: Bool,
-                       since started: Date) async {
+    /// Ask the display for `plan`. False when there was nothing to ask: it is already in force,
+    /// or it cannot be put as criteria.
+    @discardableResult
+    private func request(_ plan: DisplayModePlan, from manager: AVDisplayManager, since started: Date) -> Bool {
         let label = Self.describe(plan)
         guard plan != applied else {
             note("display: already \(label)")
-            return
+            return false
         }
-        guard let criteria = Self.criteria(for: plan) else { return }
+        guard let criteria = Self.criteria(for: plan) else { return false }
         manager.preferredDisplayCriteria = criteria
         applied = plan
         note("display: asked for \(label) (+\(Self.ms(since: started)))")
-        guard waitForSwitch else { return }
+        return true
+    }
+
+    /// Hold the film until the switch the request started is over — bounded, and skipped when the
+    /// interface is known to run in this mode already (most requests change nothing).
+    private func waitOutSwitch(for plan: DisplayModePlan, on manager: AVDisplayManager,
+                               fromInterface: Bool, generation mine: Int, since started: Date) async {
+        if fromInterface, Self.interfaceRunsIn.contains(plan), !manager.isDisplayModeSwitchInProgress {
+            note("display: the interface already runs in this mode — no switch to wait for")
+            return
+        }
         let graceEnd = Date().addingTimeInterval(Self.switchStartGrace)
-        while !manager.isDisplayModeSwitchInProgress, Date() < graceEnd, !Task.isCancelled {
+        while !manager.isDisplayModeSwitchInProgress, Date() < graceEnd, !Task.isCancelled,
+              generation == mine {
             try? await Task.sleep(for: .milliseconds(25))
         }
+        guard generation == mine else { return }
         guard manager.isDisplayModeSwitchInProgress else {
+            if fromInterface { Self.interfaceRunsIn.insert(plan) }
             note("display: no switch started (+\(Self.ms(since: started)))")
             return
         }
+        Self.interfaceRunsIn.remove(plan)
         let switchStarted = Date()
         let deadline = switchStarted.addingTimeInterval(Self.switchTimeout)
-        while manager.isDisplayModeSwitchInProgress, Date() < deadline, !Task.isCancelled {
+        while manager.isDisplayModeSwitchInProgress, Date() < deadline, !Task.isCancelled,
+              generation == mine {
             try? await Task.sleep(for: .milliseconds(50))
         }
         let still = manager.isDisplayModeSwitchInProgress
