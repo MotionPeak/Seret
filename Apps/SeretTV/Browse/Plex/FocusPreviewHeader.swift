@@ -98,9 +98,10 @@ private struct PreviewHeaderContent: View {
             }
 
             let meta = PreviewMeta.items(subject: subject, art: art)
-            if !meta.isEmpty {
+            if !meta.isEmpty || !subject.tags.isEmpty {
                 HStack(spacing: 18) {
                     ForEach(Array(meta.enumerated()), id: \.offset) { Text($0.element) }
+                    ForEach(subject.tags, id: \.self) { PreviewTag(text: $0) }
                 }
                 .font(.seret(23, .medium))
                 .foregroundStyle(Theme.Palette.textPrimary.opacity(0.9))
@@ -118,6 +119,22 @@ private struct PreviewHeaderContent: View {
             }
         }
         .frame(width: FocusPreviewHeader.width, alignment: .leading)
+    }
+}
+
+/// A small outlined label at the end of the metadata row — the Watchlist's "In Library",
+/// "Both of you", "Noga's pick".
+private struct PreviewTag: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.seret(20, .semibold))
+            .foregroundStyle(Theme.Palette.textPrimary)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 3)
+            .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .strokeBorder(Theme.Palette.textPrimary.opacity(0.75), lineWidth: 1.5))
     }
 }
 
@@ -177,7 +194,7 @@ enum PreviewMeta {
     static func items(subject: PreviewSubject, art: TitleArt?) -> [String] {
         var items: [String] = []
         if let year = subject.year { items.append(String(year)) }
-        items.append(subject.kind == .movie ? "Movie" : "Series")
+        if subject.showsKind { items.append(subject.kind == .movie ? "Movie" : "Series") }
         if let vote = art?.voteAverage, vote > 0 {
             items.append("★ " + vote.formatted(Self.rating))
         }

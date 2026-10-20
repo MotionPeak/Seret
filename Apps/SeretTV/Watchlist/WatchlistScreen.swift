@@ -2,15 +2,29 @@ import DebridCore
 import DebridUI
 import SwiftUI
 
-/// The owner's Letterboxd watchlist — films they mean to watch, most recently added first.
+/// The owner's Letterboxd watchlist (and their partner's, as one list) — a Plex page like Home and
+/// Movies: a focus-driven preview header (the focused film's logo, year · runtime · ★ · genres,
+/// its "In Library" / "Both of you" / "<Partner>'s pick" tags, its synopsis, over the ultrablur of
+/// its backdrop) above rows of posters, with a big Surprise Me pill on the right of the header.
 ///
-/// Laid out as the app's other grid screens are: no in-content page title (the side menu already
-/// names the section — see `LibraryScreen`), a pinned control row above a grid that scrolls under
-/// a top fade, `PosterGridLayout`'s metrics so a poster here is the same size it is on Home and in
-/// My Library, and the focused film's ultrablur behind it all (`GridBackdrop`).
+/// - Rows (`WatchlistRows`, in DebridUI): In Your Library · Recently Added · Highest Rated · You
+///   Both Want to See · <Partner>'s Picks · a row per genre · Short Ones · Classics · Not Matched.
+///   The rating, genre and runtime rows need TMDB details, which `WatchlistDetailsStore` fetches
+///   (capped, store-owned) and keeps on disk — so they fill in on a first visit and are there at
+///   once after. A row inserted above the focused one is answered by the page's realign.
+/// - Every row ends in a See All tile that PUSHES the row's full grid (`WatchlistGridScreen`);
+///   Menu pops back to the same tile.
+/// - Surprise Me runs the spin (`WatchlistSpinScreen`); Sync beside it crawls Letterboxd now.
+/// - A long-press on any film removes it, worded by whose list it is on.
 struct WatchlistScreen: View {
     @Environment(AppSession.self) private var session
+    /// False while this is a kept-alive page behind another one (the shell disables it).
+    @Environment(\.isEnabled) private var isVisiblePage
+    /// OPTIONAL, deliberately — a non-optional `@Environment` read of an `@Observable` traps when it
+    /// is absent. A film added or removed elsewhere reaches this page through its outcomes.
+    @Environment(WatchlistMarks.self) private var watchlistMarks: WatchlistMarks?
     @State private var model: WatchlistModel?
+    @State private var detailsStore: WatchlistDetailsStore?
 
     /// Opens a title page. The shell owns the navigation path, so a spin's result is pushed by
     /// handing it back up rather than by this screen registering a destination of its own — the
@@ -23,14 +37,25 @@ struct WatchlistScreen: View {
     var previewModel: WatchlistModel?
     /// The harness's art store (the unsigned preview session has none).
     var previewArt: TitleArtStore?
+    /// The harness's details store (no session details provider either).
+    var previewDetails: WatchlistDetailsStore?
     private var art: TitleArtStore? { previewArt ?? session.titleArt }
 #else
     private var art: TitleArtStore? { session.titleArt }
 #endif
 
-    /// The backdrop's subject: tiles report focus, it publishes the one focus settles on. Only the
-    /// backdrop reads it, so a move across the grid never re-renders this screen.
+    /// Drives the preview header: tiles report focus, it publishes the one focus settles on.
     @State private var preview = FocusPreviewModel()
+    /// The page's focus, followed without a `FocusState` of this screen's own — that re-rendered
+    /// the screen, and rebuilt every rail, on each move along a rail (measured on Home).
+    @State private var focusHandle = FocusBrowseHandle()
+    /// What every focus move writes. Not observed: nothing in it is drawn.
+    @State private var focusMemory = BrowseFocusMemory()
+    /// The film focus is on, or was last on — so its header can be completed when its details land.
+    @State private var focusedFilm = WatchlistFocusedFilm()
+    /// Where focus was when it last left the page (the side menu, a pushed title or grid, the
+    /// spin): coming back in lands there. Written once per departure, not per move.
+    @State private var entryFocus: String?
 
     /// The spin in progress. Replacing it re-runs the reel, which is how "Spin Again" works.
     @State private var spin: WatchlistRandomizer.Spin?
@@ -39,15 +64,15 @@ struct WatchlistScreen: View {
 
     var body: some View {
         ZStack {
+            CanvasBackground()
             if let model {
-                content(model)
+                page(model)
             } else {
                 message("Set your Letterboxd username on your iPhone, in Seret → Settings.",
                         systemImage: "person.crop.circle.badge.questionmark")
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background { GridBackdrop(preview: preview, art: art) }
         .fullScreenCover(item: $spin) { current in
             WatchlistSpinScreen(
                 spin: current,
@@ -66,135 +91,154 @@ struct WatchlistScreen: View {
                 onSpinAgain: { spin = model?.spin() },
                 onClose: { spin = nil })
         }
-        .confirmationDialog("Remove from watchlist?",
-                            isPresented: .constant(pendingRemoval != nil),
-                            titleVisibility: .visible,
-                            presenting: pendingRemoval) { entry in
-            Button("Remove", role: .destructive) {
-                pendingRemoval = nil
-                Task { await model?.remove(entry) }
+        .watchlistRemovalDialog(pending: $pendingRemoval, model: model)
+        // A See All tile's grid. Its own route type, so it collides with nothing the shell routes;
+        // the grid reads the same model and details as this page, so a removal there shows here.
+        .navigationDestination(for: WatchlistGridRoute.self) { route in
+            if let model {
+                WatchlistGridScreen(route: route, model: model, details: detailsStore, art: art)
             }
-            Button("Cancel", role: .cancel) { pendingRemoval = nil }
-        } message: { entry in
-            // Worded by whose list the film is on: only the owner's Letterboxd can be written,
-            // so a partner's film is hidden here and stays on theirs.
-            Text(model?.removalMessage(for: entry)
-                 ?? "\(WatchlistName.stripYear(from: entry.name)) will be removed from your Letterboxd watchlist.")
         }
         .task {
 #if DEBUG
-            if let previewModel { model = previewModel; return }
+            if let previewModel {
+                model = previewModel
+                detailsStore = previewDetails
+                return
+            }
 #endif
             if model == nil { model = session.makeWatchlistModel() }
+            if detailsStore == nil { detailsStore = session.makeWatchlistDetailsStore() }
             await model?.syncIfStale()
         }
+        // A kept-alive page: films added or removed on a title page (or a tile elsewhere) while it
+        // was behind another one are read back from the mirror — no crawl — when it is shown again,
+        // and when a change is made while it is on screen under a pushed page.
+        .onChange(of: isVisiblePage) { _, visible in
+            if visible { Task { await model?.reloadCached() } }
+        }
+        .onChange(of: watchlistMarks?.lastOutcome?.event) { _, _ in
+            Task { await model?.reloadCached() }
+        }
     }
 
-    @ViewBuilder
-    private func content(_ model: WatchlistModel) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            statusRow(model)
+    // MARK: - The Plex page
 
-            if model.entries.isEmpty {
-                // Only genuinely empty once a sync has settled — mid-sync this is the first run,
-                // and "nothing on your watchlist" would be a lie told to someone who is watching
-                // it load.
-                if case .syncing = model.phase {
-                    SeretLoader(label: "Reading your watchlist…")
-                } else {
-                    message("Nothing on your watchlist yet.", systemImage: "bookmark")
-                }
+    /// Stable ids for the page's non-rail focus targets and rows.
+    enum PageID {
+        static let surprise = "wl-surprise"
+        static let sync = "wl-sync"
+        static let emptyRow = "wl-empty"
+    }
+
+    static func tileID(_ row: String, _ entry: WatchlistEntry) -> String { "\(row)/\(entry.slug)" }
+    static func seeAllID(_ row: String) -> String { "seeall/\(row)" }
+
+    private func page(_ model: WatchlistModel) -> some View {
+        let data = WatchlistPageData(model: model, details: detailsStore)
+        let rows = data.rows
+        let keys = focusKeys(rows, canSpin: model.canSpin)
+        // Back where focus was while that is still on the page, else the first film of the row it
+        // was in, else the first film — or, with no films, the Sync pill.
+        let focusTarget = [focusMemory.lastFocused, entryFocus].compactMap { $0 }.first(where: keys.contains)
+            ?? Self.firstTileID(ofRowAt: focusMemory.lastRowIndex, in: rows)
+            ?? Self.firstTileID(ofRowAt: 0, in: rows)
+            ?? PageID.sync
+        let first = rows.first?.entries.first
+        // The first film's header, until a tile has had focus — keyed on what it shows, so its
+        // synopsis and tags appear when they arrive.
+        let firstSubject = first.map { data.subject(for: $0) }
+        let placeholder = FocusPreviewPlaceholder(
+            title: "Watchlist",
+            hint: model.phase.isSyncing ? "Reading your watchlist…" : "Nothing on your watchlist yet.")
+        // Every matched film, so the details store can fetch what it is missing.
+        let ids = model.entries.compactMap(\.tmdbID)
+        let idsKey = ids.map(String.init).joined(separator: ",")
+
+        return FocusBrowsePage(preview: preview, art: art, initialFocus: focusTarget,
+                               focusOnEntry: true, handle: focusHandle, placeholder: placeholder) {
+            if rows.isEmpty {
+                emptyRow(model)
             } else {
-                grid(model)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-
-    /// The grid pads itself rather than being padded by a parent, so the focus lift has somewhere
-    /// to go at the row edges instead of being clipped against them.
-    private func grid(_ model: WatchlistModel) -> some View {
-        let preview = preview
-        // The films with a page: the backdrop's possible subjects. An unmatched film has no art.
-        let matched = model.entries.compactMap { MediaItem.watchlistTitle($0, library: session.libraryStore) }
-        let matchedIDs = Set(matched.map(\.id))
-        return ScrollView {
-            LazyVGrid(columns: PosterGridLayout.columns, spacing: PosterGridLayout.rowSpacing) {
-                ForEach(model.entries) { entry in
-                    WatchlistTile(entry: entry, owned: model.isOwned(entry),
-                                  onRemove: { pendingRemoval = $0 },
-                                  onFocus: { preview.focus(PreviewSubject(item: $0)) })
+                ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                    PlexRail(title: row.title, subtitle: row.subtitle, id: row.id) {
+                        ForEach(row.entries.prefix(WatchlistRows.railLimit)) { entry in
+                            tile(entry, row: row.id, index: index, data: data)
+                        }
+                        // Every row has one, from the moment it exists — never a branch swap
+                        // inside the lazy row.
+                        seeAll(row, index: index)
+                    }
                 }
             }
-            .padding(.horizontal, PosterGridLayout.rootInset)
-            .padding(.vertical, PosterGridLayout.topPadding)
+        } accessory: {
+            WatchlistHeaderControls(model: model, partnerName: data.partnerName,
+                                    onSpin: { spin = model.spin() })
         }
-        .gridTopFade()
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .focusSection()
-        // The newest matched film until focus picks one — and again when the film on the backdrop
-        // leaves the list (removed here, or gone after a sync). Ids are the films' page ids.
-        .seedsGridBackdrop(preview, key: matched.map(\.id).joined(separator: "|"),
-                           first: matched.first.map(PreviewSubject.init(item:)),
-                           contains: { matchedIDs.contains($0) })
+        .onChange(of: firstSubject, initial: true) { _, subject in
+            if let subject {
+                guard !focusMemory.tileHasHadFocus else { return }
+                preview.showImmediately(subject)
+            } else {
+                focusMemory.tileHasHadFocus = false
+                preview.clear()
+            }
+        }
+        // The focused film's details landed after it was focused (a first visit): complete its
+        // header in place — same title, so nothing fades.
+        .onChange(of: data.details.count) { _, _ in
+            guard let entry = focusedFilm.entry, let shown = preview.shown else { return }
+            let subject = data.subject(for: entry)
+            if subject.id == shown.id, subject != shown { preview.showImmediately(subject) }
+        }
+        .task(id: idsKey) { await detailsStore?.ensure(ids) }
+        .onAppear { focusHandle.onChange = { focusChanged($0) } }
     }
 
-    /// The sync affordance, pinned above the scroll like `GenreGridScreen`'s sort row — a control
-    /// row, not a title bar. It stays put while the grid moves under it.
+    private func tile(_ entry: WatchlistEntry, row: String, index: Int,
+                      data: WatchlistPageData) -> some View {
+        let memory = focusMemory, preview = preview, film = focusedFilm, art = art
+        let details = entry.tmdbID.flatMap { data.details[$0] }
+        return WatchlistTile(entry: entry, owned: data.isOwned(entry), badge: data.badge(for: entry),
+                             onRemove: { pendingRemoval = $0 },
+                             onFocus: {
+                                 memory.tileHasHadFocus = true
+                                 memory.lastRowIndex = index
+                                 film.entry = entry
+                                 // The header's logo, rating and genres from the cache, at once.
+                                 if let details, let id = entry.tmdbID {
+                                     art?.seed(details.titleArt, for: .movie, tmdbID: id)
+                                 }
+                                 preview.focus(data.subject(for: entry))
+                             })
+            .plexFocusID(Self.tileID(row, entry))
+    }
+
+    private func seeAll(_ row: WatchlistRow, index: Int) -> some View {
+        let memory = focusMemory
+        return SeeAllTile(title: row.title, value: WatchlistGridRoute(rowID: row.id, title: row.title),
+                          onFocus: { memory.lastRowIndex = index })
+            .plexFocusID(Self.seeAllID(row.id))
+    }
+
+    /// No films (yet): the page names itself in the header and says why here; Sync is the focus.
     @ViewBuilder
-    private func statusRow(_ model: WatchlistModel) -> some View {
-        HStack(spacing: 16) {
-            switch model.phase {
-            case .idle:
-                // Offered only when a spin has something to land on, rather than shown disabled —
-                // a disabled control is unreachable on tvOS, so it would be a dead spot.
-                if model.canSpin {
-                    Button("Surprise Me", systemImage: "dice.fill") { spin = model.spin() }
-                        .buttonStyle(SeretActionButtonStyle())
-                }
-                Button("Sync") { Task { await model.syncNow() } }
-                    .buttonStyle(SeretPillStyle(selected: false))
-                if !model.entries.isEmpty {
-                    Text("\(model.entries.count) films")
-                        .calloutText()
+    private func emptyRow(_ model: WatchlistModel) -> some View {
+        Group {
+            if model.phase.isSyncing {
+                SeretLoader(label: "Reading your watchlist…")
+            } else {
+                VStack(spacing: 24) {
+                    Image(systemName: "bookmark").font(.system(size: 54))
+                        .foregroundStyle(Theme.Palette.textSecondary)
+                    Text("Nothing on your watchlist yet.").sectionTitle()
                         .foregroundStyle(Theme.Palette.textSecondary)
                 }
-                // A removal that could not reach Letterboxd is still gone from here, so this is
-                // the only place the owner would ever learn it is half-done.
-                if let message = model.relayMessage {
-                    Label(message, systemImage: "exclamationmark.triangle.fill")
-                        .calloutText()
-                        .lineLimit(1)
-                        .foregroundStyle(Theme.Palette.destructive)
-                }
-                // The other person's list could not be read. Secondary, not red: the owner's own
-                // list is fine and nothing they asked for failed.
-                if let message = model.partnerMessage {
-                    Text(message)
-                        .calloutText()
-                        .lineLimit(1)
-                        .foregroundStyle(Theme.Palette.textSecondary)
-                }
-            case .syncing(let done, let total):
-                ProgressView().tint(Theme.Palette.textPrimary)
-                Text(total > 0 ? "Matching \(done) of \(total)…" : "Reading your watchlist…")
-                    .calloutText()
-                    .foregroundStyle(Theme.Palette.textSecondary)
-            case .failed(let message):
-                Button("Retry") { Task { await model.syncNow() } }
-                    .buttonStyle(SeretPillStyle(selected: false))
-                // The palette's own error colour, not a raw `.red` — a sync failure should read
-                // as a failure without shouting in a hue the app uses nowhere else.
-                Text(message)
-                    .calloutText()
-                    .lineLimit(2)
-                    .foregroundStyle(Theme.Palette.destructive)
             }
         }
-        .padding(.leading, PosterGridLayout.rootInset)
-        .padding(.bottom, 8)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .focusSection()
+        .padding(.top, 60)
+        .frame(maxWidth: .infinity)
+        .plexBrowseRow(id: PageID.emptyRow)
     }
 
     /// Centered full-canvas state, matching `LibraryScreen`'s.
@@ -206,57 +250,305 @@ struct WatchlistScreen: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
+
+    // MARK: - Focus bookkeeping
+
+    /// The first film of the row at `index` (clamped to the last row), if there is one.
+    static func firstTileID(ofRowAt index: Int?, in rows: [WatchlistRow]) -> String? {
+        guard let index, !rows.isEmpty else { return nil }
+        let row = rows[min(max(index, 0), rows.count - 1)]
+        return row.entries.first.map { tileID(row.id, $0) }
+    }
+
+    /// Every focus id on the page: each rail's films and See All, and the header's pills.
+    private func focusKeys(_ rows: [WatchlistRow], canSpin: Bool) -> Set<String> {
+        var keys: Set<String> = [PageID.sync]
+        if canSpin { keys.insert(PageID.surprise) }
+        for row in rows {
+            for entry in row.entries.prefix(WatchlistRows.railLimit) { keys.insert(Self.tileID(row.id, entry)) }
+            keys.insert(Self.seeAllID(row.id))
+        }
+        return keys
+    }
+
+    /// As `BrowseScreen.focusChanged`: a move is remembered without re-rendering; leaving the page
+    /// is recorded once it has settled, so coming back in lands where focus left from.
+    private func focusChanged(_ key: String?) {
+        focusMemory.departure?.cancel()
+        if let key {
+            focusMemory.lastFocused = key
+            return
+        }
+        let handle = focusHandle, memory = focusMemory, entry = $entryFocus
+        memory.departure = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(80))
+            guard !Task.isCancelled, handle.focused == nil,
+                  entry.wrappedValue != memory.lastFocused else { return }
+            entry.wrappedValue = memory.lastFocused
+        }
+    }
 }
 
-/// One watchlist film — the grid cell every grid uses (`CaptionedPoster` over a `PosterTile`), so
-/// the grid reads as the same grid it is everywhere else: the poster lifts with a ring, the title
-/// sits below it and brightens with focus, and a film already in the library carries the grey
-/// "in library" ✓.
+/// The film the page's focus is on. A plain reference in `@State`, so writing it per focus move
+/// never re-renders the page.
+@MainActor
+final class WatchlistFocusedFilm {
+    var entry: WatchlistEntry?
+}
+
+/// A See All tile's value: which row's grid to push.
+struct WatchlistGridRoute: Hashable {
+    let rowID: String
+    let title: String
+}
+
+/// One render's worth of what the page and its grids show — built in one place so a rail and the
+/// grid behind its See All always agree.
+@MainActor
+struct WatchlistPageData {
+    let rows: [WatchlistRow]
+    let details: [Int: WatchlistFilmDetails]
+    /// Nil with no partner (or none configured): no Both / Picks rows, no badges, no tags.
+    let membership: WatchlistMembership?
+    let partnerName: String?
+    private let owned: Set<String>
+
+    init(model: WatchlistModel, details store: WatchlistDetailsStore?) {
+        let status = model.combinedStatus
+        partnerName = status.partnerName
+        membership = status.partnerName == nil ? nil : status.membership
+        details = store?.details ?? [:]
+        let entries = model.entries
+        owned = Set(entries.filter(model.isOwned).map(\.slug))
+        let owned = owned
+        rows = WatchlistRows.build(entries: entries, details: details,
+                                   isOwned: { owned.contains($0.slug) },
+                                   membership: membership, partnerName: partnerName)
+    }
+
+    func isOwned(_ entry: WatchlistEntry) -> Bool { owned.contains(entry.slug) }
+
+    func badge(for entry: WatchlistEntry) -> String? {
+        WatchlistRows.badge(for: entry, membership: membership, partnerName: partnerName)
+    }
+
+    /// The header's description of a film: its page's id (so the art store keys it), its cached
+    /// synopsis and backdrop, and its tags. An unmatched film says so instead.
+    func subject(for entry: WatchlistEntry) -> PreviewSubject {
+        let title = WatchlistName.stripYear(from: entry.name)
+        guard let item = MediaItem.watchlistMovie(entry) else {
+            let stub = MediaItem(id: "watchlist:\(entry.slug)", kind: .movie, title: title,
+                                 year: entry.year, sources: [], seasons: [], tmdbID: nil,
+                                 posterPath: entry.posterPath)
+            return PreviewSubject(item: stub, overview: nil, backdropPath: nil,
+                                  tags: ["No TMDB match"], showsKind: false)
+        }
+        let info = entry.tmdbID.flatMap { details[$0] }
+        return PreviewSubject(item: item, overview: info?.overview, backdropPath: info?.backdropPath,
+                              tags: WatchlistRows.tags(for: entry, owned: isOwned(entry),
+                                                       membership: membership,
+                                                       partnerName: partnerName),
+                              showsKind: false)
+    }
+}
+
+extension WatchlistModel.Phase {
+    var isSyncing: Bool {
+        if case .syncing = self { return true }
+        return false
+    }
+}
+
+// MARK: - Header controls
+
+/// The header's right side: Sync and the big Surprise Me pill, and one line of status under them.
+/// Both rest as glass and turn solid white with focus, like every action on the TV.
 ///
-/// A film that resolved to nothing is still shown — as a plain card, not a link. Hiding it would
+/// The Sync button never leaves while a sync runs — only its label changes — so a focused Sync is
+/// never swapped out from under the viewer.
+private struct WatchlistHeaderControls: View {
+    let model: WatchlistModel
+    let partnerName: String?
+    let onSpin: () -> Void
+
+    var body: some View {
+        VStack(alignment: .trailing, spacing: 16) {
+            HStack(spacing: 22) {
+                Button { Task { await model.syncNow() } } label: {
+                    Label(syncLabel, systemImage: "arrow.triangle.2.circlepath")
+                }
+                .buttonStyle(SeretActionButtonStyle())
+                .background(Capsule().fill(Self.backing))
+                .plexFocusID(WatchlistScreen.PageID.sync)
+
+                // Offered only when a spin has something to land on, rather than shown disabled —
+                // a disabled control is unreachable on tvOS, so it would be a dead spot.
+                if model.canSpin {
+                    Button(action: onSpin) {
+                        HStack(spacing: 20) {
+                            Image(systemName: "die.face.5")
+                                .font(.system(size: 34, weight: .semibold))
+                            Text("Surprise Me")
+                                .font(.seret(34, .bold))
+                            Text(countLine)
+                                .font(.seret(22, .medium))
+                                .opacity(0.72)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                    }
+                    .buttonStyle(SeretActionButtonStyle())
+                    .background(Capsule().fill(Self.backing))
+                    .plexFocusID(WatchlistScreen.PageID.surprise)
+                    .accessibilityLabel("Surprise Me, \(countLine)")
+                }
+            }
+            status
+        }
+    }
+
+    /// A shade under the glass, so a white label still reads over a bright backdrop (snow, a
+    /// white poster). Behind the style's fill, so a focused pill is still solid white.
+    private static let backing = Theme.Palette.shadeInk.opacity(0.4)
+
+    private var syncLabel: String {
+        switch model.phase {
+        case .idle: "Sync"
+        case .syncing: "Syncing…"
+        case .failed: "Retry"
+        }
+    }
+
+    /// "255 films · yours + Noga's", or "88 films" with no partner.
+    private var countLine: String {
+        let count = model.entries.count
+        let films = count == 1 ? "1 film" : "\(count) films"
+        guard let partnerName else { return films }
+        return "\(films) · yours + \(partnerName)'s"
+    }
+
+    @ViewBuilder
+    private var status: some View {
+        switch model.phase {
+        case .syncing(let done, let total):
+            Text(total > 0 ? "Matching \(done) of \(total)…" : "Reading your watchlist…")
+                .calloutText()
+                .foregroundStyle(Theme.Palette.textSecondary)
+                .statusPlate()
+        case .failed(let message):
+            // The palette's own error colour, not a raw `.red`.
+            Text(message)
+                .calloutText()
+                .lineLimit(2)
+                .multilineTextAlignment(.trailing)
+                .foregroundStyle(Theme.Palette.destructive)
+                .statusPlate()
+                .frame(maxWidth: 680, alignment: .trailing)
+        case .idle:
+            // A removal that could not reach Letterboxd is still gone from here, so this is the
+            // only place the owner would ever learn it is half-done.
+            if let message = model.relayMessage {
+                Label(message, systemImage: "exclamationmark.triangle.fill")
+                    .calloutText()
+                    .lineLimit(1)
+                    .foregroundStyle(Theme.Palette.destructive)
+                    .statusPlate()
+                    .frame(maxWidth: 680, alignment: .trailing)
+            } else if let message = model.partnerMessage {
+                // The other person's list could not be read. Secondary, not red: the owner's own
+                // list is fine and nothing they asked for failed.
+                Text(message)
+                    .calloutText()
+                    .lineLimit(2)
+                    .multilineTextAlignment(.trailing)
+                    .foregroundStyle(Theme.Palette.textSecondary)
+                    .statusPlate()
+                    .frame(maxWidth: 680, alignment: .trailing)
+            } else if !model.canSpin, !model.entries.isEmpty {
+                Text(countLine)
+                    .calloutText()
+                    .foregroundStyle(Theme.Palette.textSecondary)
+                    .statusPlate()
+            }
+        }
+    }
+}
+
+private extension View {
+    /// A soft dark plate under a status line, so it reads over any backdrop — the header's art
+    /// runs right behind it, and a bright plate (snow, a white set) washed the text out.
+    func statusPlate() -> some View {
+        padding(.horizontal, 14)
+            .padding(.vertical, 6)
+            .background(Theme.Palette.shadeInk.opacity(0.55),
+                        in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+}
+
+// MARK: - Tile
+
+/// One watchlist film as a bare rail poster (a grid wraps it in `CaptionedPoster`): the poster, a
+/// "Both" / "<Partner>" chip for a film on the partner's list, and the grey ✓ for one already in
+/// the library.
+///
+/// A film that resolved to nothing is still shown — as a plain button, not a link. Hiding it would
 /// make the count disagree with Letterboxd and give no way to find out why; making it a link would
-/// promise a page that does not exist.
-private struct WatchlistTile: View {
+/// promise a page that does not exist. Focusable regardless: tvOS scrolls by MOVING FOCUS, so a
+/// tile with no focus target could never be scrolled to. Which kind a tile is never changes after
+/// it is built (a film's match only changes with a sync, which rebuilds its rows).
+struct WatchlistTile: View {
     let entry: WatchlistEntry
     let owned: Bool
+    let badge: String?
     /// Long-press → remove. Raised rather than handled here so the confirmation belongs to the
-    /// screen: a dialog owned by a tile dies with the tile the moment the grid updates.
+    /// screen: a dialog owned by a tile dies with the tile the moment the row updates.
     var onRemove: (WatchlistEntry) -> Void = { _ in }
-    /// Focus landed on a matched film — the page's backdrop follows it.
-    var onFocus: (MediaItem) -> Void = { _ in }
+    /// Focus landed on the film — the page's header (or a grid's backdrop) follows it.
+    var onFocus: () -> Void = {}
+
+    @Environment(AppSession.self) private var session
 
     private var title: String { WatchlistName.stripYear(from: entry.name) }
 
-    @Environment(AppSession.self) private var session
-    /// The library's own item when the film is owned — see `watchlistTitle`.
-    private var item: MediaItem? { MediaItem.watchlistTitle(entry, library: session.libraryStore) }
-
     var body: some View {
-        let item = item
-        // Short enough to survive one line at the caption size — "Couldn't match this on TMDB"
-        // truncated to "Couldn't matc…", which explains nothing at all. The poster surface above
-        // already carries the film's name, so this only has to say why it is grey.
-        CaptionedPoster(caption: item == nil ? "No TMDB match" : title, note: item == nil) {
-            if let item {
-                PosterTile(posterPath: entry.posterPath, title: title, owned: owned,
-                           onFocus: { onFocus(item) }, value: BrowseDestination.detail(item))
-                    .contextMenu { removeButton }
-            } else {
-                // Focusable although it goes nowhere (a button with no action). tvOS scrolls by
-                // MOVING FOCUS, so a tile with no focus target cannot be scrolled to: a trailing
-                // row of unmatched films — and the caption explaining why they are grey — sat
-                // permanently below the fold with the d-pad refusing to advance.
-                PosterTile(posterPath: entry.posterPath, title: title, owned: owned, action: {})
-                    // Removable too — an unmatched film is the one you are most likely to want
-                    // rid of, since it is the one Seret can do nothing with.
-                    .contextMenu { removeButton }
-            }
+        if let item = MediaItem.watchlistTitle(entry, library: session.libraryStore) {
+            PosterTile(posterPath: entry.posterPath, title: title, chip: badge, owned: owned,
+                       onFocus: onFocus, value: BrowseDestination.detail(item))
+                .contextMenu { removeButton }
+        } else {
+            PosterTile(posterPath: entry.posterPath, title: title, chip: badge, owned: owned,
+                       onFocus: onFocus, action: {})
+                // Removable too — an unmatched film is the one you are most likely to want rid
+                // of, since it is the one Seret can do nothing with.
+                .contextMenu { removeButton }
         }
     }
 
     private var removeButton: some View {
         Button("Remove from Watchlist", systemImage: "minus.circle", role: .destructive) {
             onRemove(entry)
+        }
+    }
+}
+
+// MARK: - Removal
+
+extension View {
+    /// The removal confirmation, worded by whose list the film is on: only the owner's Letterboxd
+    /// can be written, so a partner's film is hidden here and stays on theirs.
+    func watchlistRemovalDialog(pending: Binding<WatchlistEntry?>, model: WatchlistModel?) -> some View {
+        confirmationDialog("Remove from watchlist?",
+                           isPresented: .constant(pending.wrappedValue != nil),
+                           titleVisibility: .visible,
+                           presenting: pending.wrappedValue) { entry in
+            Button("Remove", role: .destructive) {
+                pending.wrappedValue = nil
+                Task { await model?.remove(entry) }
+            }
+            Button("Cancel", role: .cancel) { pending.wrappedValue = nil }
+        } message: { entry in
+            Text(model?.removalMessage(for: entry)
+                 ?? "\(WatchlistName.stripYear(from: entry.name)) will be removed from your Letterboxd watchlist.")
         }
     }
 }
