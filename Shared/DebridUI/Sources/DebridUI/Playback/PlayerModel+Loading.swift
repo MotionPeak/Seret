@@ -278,7 +278,7 @@ extension PlayerModel {
     }
 
     func reload() {
-        guard !isTornDown else { return }  // a recovery or retry racing teardown starts nothing
+        guard !isTornDown, !isClosing else { return }  // a recovery or retry racing the exit starts nothing
         mediaGeneration &+= 1             // anything still handling the old media stands down
         closeStream()                     // the old session must not outlive its media
         phase = .preparing
@@ -372,12 +372,12 @@ extension PlayerModel {
                 position = resumeTarget                  // …and is where the viewer is until playback says so
             }
             let url = try await unrestrictForLoad(currentSource.restrictedLink)
-            guard !Task.isCancelled, !isTornDown else { return }   // superseded, or the player closed
+            guard !Task.isCancelled, !isTornDown, !isClosing else { return }   // superseded, or leaving
             let playURL = await openStream(for: url)
-            guard !Task.isCancelled, !isTornDown else { return }
+            guard !Task.isCancelled, !isTornDown, !isClosing else { return }
             // tvOS: the display's mode for this film, switched before the first frame.
             await engine.prepareToPlay(url: playURL)
-            guard !Task.isCancelled, !isTornDown else { return }
+            guard !Task.isCancelled, !isTornDown, !isClosing else { return }
             engine.load(url: playURL, headers: [:], audioLanguage: preferredAudioLanguageOption,
                         audioTrackID: rememberedAudioTrackID)
             engineHoldsCurrentMedia = true   // from here, time events describe THIS source
@@ -616,6 +616,10 @@ extension PlayerModel {
     public func beginClosing() {
         guard hasStarted, !isTornDown, !isClosing else { return }
         isClosing = true
+        // Nothing may start a media under the dismiss: a load or a silent reopen still in flight
+        // would `load()` and `play()` — sound again — on an engine the viewer has left.
+        loadTask?.cancel()
+        recoveryTask?.cancel()
         engine.setVolume(0)
         engine.pause()
         engine.note("close: paused and muted for the dismiss")

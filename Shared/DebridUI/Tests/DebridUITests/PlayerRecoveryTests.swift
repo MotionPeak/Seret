@@ -397,6 +397,45 @@ import DebridCore
         await m.teardown()
         #expect(saved.last == 601)
     }
+
+    private final class Flag: @unchecked Sendable { var value = false }
+
+    /// A load still resolving its link when the viewer leaves must not `load()` and `play()` —
+    /// sound again — under the dismiss (review of D14).
+    @Test func leavingDuringALoadStartsNoMedia() async {
+        let engine = FakeVideoPlayerEngine(), release = Flag()
+        let m = PlayerModel(request: Fixture.request(), engine: engine,
+                            unrestrict: { _ in
+                                while !release.value { try? await Task.sleep(for: .milliseconds(5)) }
+                                return URL(string: "https://cdn/x.mkv")!
+                            },
+                            recordProgress: { _, _, _, _, _ in }, subtitles: nil)
+        m.start()
+        try? await Task.sleep(for: .milliseconds(30))       // the load is in its unrestrict
+        m.beginClosing()
+        release.value = true
+        await m.waitForIdleForTesting()
+        try? await Task.sleep(for: .milliseconds(50))
+        #expect(engine.loadCount == 0)
+        await m.teardown()
+    }
+
+    /// …and neither may a silent reopen decided just before the viewer left.
+    @Test func leavingDuringASilentReopenStartsNoMedia() async {
+        let engine = FakeVideoPlayerEngine()
+        let m = PlayerModel(request: Fixture.request(), engine: engine,
+                            unrestrict: { _ in URL(string: "https://cdn/x.mkv")! },
+                            recordProgress: { _, _, _, _, _ in }, subtitles: nil)
+        m.start(); await m.waitForIdleForTesting()
+        #expect(engine.loadCount == 1)
+
+        m.handle(state: .failed("Playback failed."))        // the reopen is decided…
+        m.beginClosing()                                    // …and the viewer leaves
+        await m.waitForIdleForTesting()
+
+        #expect(engine.loadCount == 1)
+        await m.teardown()
+    }
 }
 
 /// The engine prepares for the file (on tvOS: the display mode) before it is loaded (D1).
