@@ -33,8 +33,18 @@ final class DisplayModeMatcher {
     private var generation = 0
     /// Modes asked for straight from the interface's mode that started no switch: the interface
     /// already runs in them. Asking for one again pays no `switchStartGrace`. Process-wide, since
-    /// every player starts from the interface's mode; a switch seen for one removes it.
+    /// every player starts from the interface's mode.
+    ///
+    /// Only ever a hint about the present: it is emptied by any mode switch the system starts and
+    /// whenever the app comes back to the foreground (a change in Settings means leaving the app),
+    /// and a mode is added only after `noSwitchWindow` has passed with no switch at all — not when
+    /// the grace merely ran out, since a switch could still start after it.
     private static var interfaceRunsIn: Set<DisplayModePlan> = []
+    /// Mode switches the system has started in this process (`AVDisplayManagerModeSwitchStart`).
+    private static var switchStarts = 0
+    private static var observers: [NSObjectProtocol] = []
+    /// How long a request must go without any switch before its mode is taken for the interface's.
+    static let noSwitchWindow: Double = 5
 
     /// The longest the header read may take before the film loads without it.
     static let probeTimeout: Double = 2.5
@@ -46,6 +56,25 @@ final class DisplayModeMatcher {
 
     init(note: @escaping @Sendable (String) -> Void) {
         self.note = note
+        Self.observeOnce()
+    }
+
+    /// Forget what the interface runs in on every switch and every return to the foreground.
+    private static func observeOnce() {
+        guard observers.isEmpty else { return }
+        let center = NotificationCenter.default
+        observers = [
+            center.addObserver(forName: .AVDisplayManagerModeSwitchStart, object: nil, queue: .main) { _ in
+                MainActor.assumeIsolated {
+                    switchStarts &+= 1
+                    interfaceRunsIn.removeAll()
+                }
+            },
+            center.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil,
+                               queue: .main) { _ in
+                MainActor.assumeIsolated { interfaceRunsIn.removeAll() }
+            },
+        ]
     }
 
     /// Ask for `url`'s mode and wait out the switch it causes. Bounded by `probeTimeout` +
@@ -84,7 +113,9 @@ final class DisplayModeMatcher {
             return
         }
         let fromInterface = applied == nil
+        let switchesBefore = Self.switchStarts
         guard request(plan, from: manager, since: started) else { return }
+        if fromInterface { Self.learnIfNoSwitch(plan, on: manager, switchesBefore: switchesBefore) }
         await waitOutSwitch(for: plan, on: manager, fromInterface: fromInterface, generation: mine,
                             since: started)
     }
@@ -142,11 +173,9 @@ final class DisplayModeMatcher {
         }
         guard generation == mine else { return }
         guard manager.isDisplayModeSwitchInProgress else {
-            if fromInterface { Self.interfaceRunsIn.insert(plan) }
             note("display: no switch started (+\(Self.ms(since: started)))")
             return
         }
-        Self.interfaceRunsIn.remove(plan)
         let switchStarted = Date()
         let deadline = switchStarted.addingTimeInterval(Self.switchTimeout)
         while manager.isDisplayModeSwitchInProgress, Date() < deadline, !Task.isCancelled,
@@ -156,6 +185,18 @@ final class DisplayModeMatcher {
         let still = manager.isDisplayModeSwitchInProgress
         note("display: switch \(still ? "still running after" : "done in") \(Self.ms(since: switchStarted))"
              + " — loading the film (+\(Self.ms(since: started)))")
+    }
+
+    /// Take `plan` for the interface's own mode once a full `noSwitchWindow` has passed since the
+    /// request without the system starting any switch.
+    private static func learnIfNoSwitch(_ plan: DisplayModePlan, on manager: AVDisplayManager,
+                                        switchesBefore: Int) {
+        Task { @MainActor [weak manager] in
+            try? await Task.sleep(for: .seconds(noSwitchWindow))
+            guard let manager, switchStarts == switchesBefore,
+                  !manager.isDisplayModeSwitchInProgress else { return }
+            interfaceRunsIn.insert(plan)
+        }
     }
 
     /// The criteria for a plan. The format description carries only what the display mode is
