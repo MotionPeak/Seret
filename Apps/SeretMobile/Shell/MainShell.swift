@@ -43,6 +43,8 @@ struct MainShell: View {
 #if DEBUG
             // `-startSection <watchlist|library|…>`: open the real, signed-in app on that section,
             // so a page can be screenshot on live data without driving the tab bar by touch.
+            // `-openSettings YES`: the real Settings sheet, for the same reason.
+            if UserDefaults.standard.bool(forKey: "openSettings") { showingSettings = true }
             if let name = UserDefaults.standard.string(forKey: "startSection"),
                let section = Section(rawValue: name) {
                 router.selectedSection = section

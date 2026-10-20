@@ -16,6 +16,8 @@ struct UIPreviewStores {
     /// `-uiPreview search…`: the search store (real TMDB search) and a query typed in at once.
     var search: SearchStore?
     var searchQuery: String?
+    /// `-uiPreview settings`: the Letterboxd section's model (the harness session has no library).
+    var letterboxdImport: LetterboxdImportModel?
     /// `-uiPreview library`: the library page's store, over `PagesFixture`'s titles.
     var library: LibraryStore?
     /// `-uiPreview homescript`: drives Home's stack and scroll on a timer.

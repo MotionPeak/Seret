@@ -27,6 +27,9 @@ struct SeretMobileApp: App {
                             || preview.hasPrefix("watchlist") || preview.hasPrefix("library")
                             || preview.hasPrefix("search") {
                     PagesUIPreview(target: preview)    // -uiPreview home|movies|shows|genregrid
+                } else if ["settings", "settingsletterboxd", "opensubs", "profiles", "addprofile"].contains(preview)
+                            || preview.hasPrefix("signin") {
+                    ScreensUIPreview(target: preview)  // -uiPreview settings|signincode|profiles|…
                 } else if preview == "moviedetail" {
                     DetailUIPreview()                  // -uiPreview moviedetail
                 } else if preview == "versions" {
