@@ -185,6 +185,26 @@ extension StreamingNetworkTests {
             await s.close()
         }
 
+        /// RD going quiet mid-connection used to cost URLSession's whole 30 s request timeout —
+        /// longer than libvlc's buffer — with the reader waiting on it. A connection no one paused
+        /// that sends nothing for `stallTimeout` is replaced.
+        @Test func aStalledConnectionIsReplaced() async throws {
+            RangeFileURLProtocol.reset(.init(fileSize: 64 << 20, faults: [.stall]))
+            var policy = Self.quick
+            policy.stallTimeout = .milliseconds(200)
+            let s = makeSession(retry: policy)
+            let clock = ContinuousClock()
+            let started = clock.now
+            let reader = Task { try await self.read(s) }
+            let timeout = Task { try await Task.sleep(for: .seconds(5)); reader.cancel() }
+            #expect(try await reader.value == Self.bytes())
+            timeout.cancel()
+            #expect(started.duration(to: clock.now) < .seconds(3))
+            #expect(RangeFileURLProtocol.requests.count == 2)
+            #expect(await s.stallCount == 1)
+            await s.close()
+        }
+
         /// "No" stays no. A refusal no link refresh can fix (451: the file is blocked) fails at
         /// once and for good — asking again for a minute would not change the answer.
         @Test func aRefusalTheRefreshCannotFixIsNotRetried() async throws {

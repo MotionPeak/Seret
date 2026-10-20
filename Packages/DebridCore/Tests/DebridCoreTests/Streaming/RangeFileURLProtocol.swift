@@ -21,6 +21,8 @@ final class RangeFileURLProtocol: URLProtocol, @unchecked Sendable {
         case status(Int)
         /// The Range header ignored: a 200 with the whole file, from byte 0.
         case wholeFile
+        /// A 206 and its headers, then silence: RD's connection stalls and never finishes.
+        case stall
     }
 
     struct Stub: Sendable {
@@ -87,6 +89,11 @@ final class RangeFileURLProtocol: URLProtocol, @unchecked Sendable {
             client?.urlProtocol(self, didFailWithError: URLError(code))
         case .status(let status)?:
             refuse(url, status: status)
+        case .stall?:
+            let response = HTTPURLResponse(url: url, statusCode: 206, httpVersion: "HTTP/1.1", headerFields: [
+                "Content-Range": "bytes \(start)-\(stub.fileSize - 1)/\(stub.fileSize)",
+                "Content-Type": "application/force-download"])!
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         case .wholeFile?:
             stream(stub, url: url, status: 200, from: 0, headers: [
                 "Content-Length": "\(stub.fileSize)",

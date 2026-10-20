@@ -81,6 +81,11 @@ actor StreamSession {
     private(set) var upstreamRequestCount = 0
     /// How many times a fetch has been paused (tests and diagnostics).
     private(set) var suspendCount = 0
+    /// Fetches started ahead of the reader because its read-ahead ran short with nothing left
+    /// feeding it (see `refillAhead(of:)`; tests and diagnostics).
+    private(set) var refillCount = 0
+    /// Connections replaced because RD went quiet on them (see `cancelStalledFetches`).
+    private(set) var stallCount = 0
     var suspendedFetchCount: Int { fetches.values.filter(\.suspended).count }
 
     private struct ActiveFetch {
@@ -92,6 +97,9 @@ actor StreamSession {
         var suspended = false
         /// Whether RD has sent it a byte. One that ends without any has failed, however it ended.
         var received = false
+        /// When it last showed life — started, answered, sent a byte, or was resumed. A fetch no
+        /// one paused that goes `retry.stallTimeout` without any is stalled.
+        var lastProgress: ContinuousClock.Instant = .now
         /// The end of the latest read served from this fetch's bytes: where ITS reader is. libvlc
         /// reads with more than one connection at once (the header and the keyframe index at open),
         /// so read-ahead must be measured per reader — against one global "last read", each
@@ -161,12 +169,13 @@ actor StreamSession {
             if closed { throw StreamError.closed }
             if let totalSize { return (totalSize, contentType) }
             if let refusal { throw refusal }
+            cancelStalledFetches()
             if fetches.isEmpty {
                 guard try await clearToFetch(&patience) else { continue }
                 patience.started()
                 startFetch(at: 0)
             }
-            try await waitForProgress()
+            try await waitForProgress(until: nextStallCheck())
         }
     }
 
@@ -181,6 +190,7 @@ actor StreamSession {
                 noteRead(offset: offset, count: data.count)
                 return data
             }
+            cancelStalledFetches()
             let chunk = cache.chunkIndex(of: offset)
             let decision = planner.decide(
                 offset: offset, cached: false, inIndex: indexed.contains(chunk),
@@ -198,7 +208,7 @@ actor StreamSession {
                 }
             case .wait(let id):
                 if fetches[id]?.suspended == true { resumeFetch(id) }
-                try await waitForProgress()
+                try await waitForProgress(until: nextStallCheck())
             case .fetch(let start, let lookBehind, let cancel):
                 // RD has refused this file: asking again only repeats the refusal.
                 if let refusal { throw refusal }
@@ -207,7 +217,7 @@ actor StreamSession {
                 for id in cancel { cancelFetch(id) }
                 startFetch(at: cache.fetchStart(for: start))
                 if let lookBehind { startFetch(at: cache.fetchStart(for: lookBehind)) }
-                try await waitForProgress()
+                try await waitForProgress(until: nextStallCheck())
             }
         }
     }
@@ -233,6 +243,8 @@ actor StreamSession {
 
     private func handle(_ event: UpstreamFetcher.Event, from id: Int) async {
         guard var fetch = fetches[id] else { return }            // cancelled
+        fetch.lastProgress = .now
+        fetches[id]?.lastProgress = fetch.lastProgress
         switch event {
         case .response(let status, let total, let type):
             if (200...299).contains(status) && !(status == 200 && fetch.start > 0) {
@@ -366,6 +378,7 @@ actor StreamSession {
     private func resumeFetch(_ id: Int) {
         guard fetches[id]?.suspended == true else { return }
         fetches[id]?.suspended = false
+        fetches[id]?.lastProgress = .now                         // a pause is not a stall
         fetches[id]?.fetcher.resume()
         log("fetch #\(id) resumed (reads at \(fetches[id]?.readerPosition ?? -1), "
             + "ram \(cache.byteCount >> 20) MiB)")
@@ -442,6 +455,65 @@ actor StreamSession {
             && planner.shouldResume(position: fetch.position, lastReadEnd: fetch.readerPosition) {
             resumeFetch(id)
         }
+        refillAhead(of: end)
+    }
+
+    /// Keep the reader's read-ahead fed BEFORE it runs out.
+    ///
+    /// A read-ahead fetch is paused when it is far enough ahead, and URLSession then times the
+    /// paused connection out after 30 s. On the Apple TV that happened 418 times in a week of
+    /// films — every refill — and nothing replaced the dead fetch until libvlc's read reached the
+    /// end of what it had left: the new connection's TLS handshake and RD's first byte were paid
+    /// with the reader already waiting, and in 10 of those 418 libvlc's buffer ran dry
+    /// (`Buffering 0%`). A refill is also the moment a slow or refusing RD turns into a stall.
+    ///
+    /// So once the bytes cached in front of the reader fall under half the read-ahead — the very
+    /// point a paused fetch would have been resumed — and nothing is left that will extend them, a
+    /// fetch starts at the end of what is cached. Half the read-ahead is seconds of film even at a
+    /// remux's bitrate, against RD's ~0.5 s to a first byte. After the first frame only (the open's
+    /// readers jump around and plan their own fetches), and never past a refusal or into an
+    /// outage's pause (the read path's own retry pacing applies there).
+    private func refillAhead(of end: Int64) {
+        guard playbackStarted, !closed, refusal == nil, let totalSize, end < totalSize,
+              fetches.count < budget.maxFetches else { return }
+        if let outage, ContinuousClock.now < outage.retryAt { return }
+        let limit = min(totalSize, end + Int64(budget.readAheadBytes / 2))
+        var index = cache.chunkIndex(of: end)
+        var edge: Int64
+        while true {
+            let start = cache.chunkStart(index)
+            if start >= limit { return }                         // enough in front of the reader
+            if cache.isComplete(index) || indexed.contains(index) { index += 1; continue }
+            edge = max(end, cache.fetchStart(for: start))
+            break
+        }
+        // Something already streaming at (or just short of) the edge will extend the run itself.
+        let window = Int64(budget.waitWindowBytes)
+        if fetches.values.contains(where: { $0.position >= end && $0.position <= edge + window }) {
+            return
+        }
+        refillCount += 1
+        log("refill: \((edge - end) >> 20) MiB left in front of \(end), fetching from \(edge)")
+        startFetch(at: edge)
+    }
+
+    /// Replace any connection RD went quiet on: no byte for `retry.stallTimeout` while nothing
+    /// paused it. Counted as a failure, so the replacement is paced like any other retry.
+    private func cancelStalledFetches() {
+        let now = ContinuousClock.now
+        for (id, fetch) in fetches
+        where !fetch.suspended && fetch.lastProgress.duration(to: now) >= retry.stallTimeout {
+            stallCount += 1
+            log("fetch #\(id) stalled: nothing from RD for \(retry.stallTimeout)")
+            noteFailure(.transport("RD stopped sending (stalled)"), fetch: id)
+            cancelFetch(id)
+        }
+    }
+
+    /// When a waiting read must look again for a stalled connection.
+    private func nextStallCheck() -> ContinuousClock.Instant {
+        let oldest = fetches.values.filter { !$0.suspended }.map(\.lastProgress).min() ?? .now
+        return max(oldest + retry.stallTimeout, ContinuousClock.now + .milliseconds(50))
     }
 
     // MARK: - Waiting

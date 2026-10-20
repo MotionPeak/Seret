@@ -231,6 +231,47 @@ extension StreamingNetworkTests {
             await s.close()
         }
 
+        /// A paused read-ahead connection is timed out by URLSession after 30 s; on the Apple TV
+        /// that was every refill (418 in a week), and the replacement was only started when the
+        /// reader ran out — TLS and RD's first byte paid with libvlc waiting, sometimes a
+        /// `Buffering 0%`. Once half the read-ahead is left with nothing feeding it, a fetch starts
+        /// at the end of what is cached, ahead of the reader.
+        @Test func aDeadReadAheadIsReplacedBeforeTheReaderGetsThere() async throws {
+            let ended = 10 * Self.mib                                // the connection dies here
+            RangeFileURLProtocol.reset(.init(fileSize: 64 << 20, maxBytesPerRequest: ended))
+            let s = makeSession()
+            _ = try await read(s, 0, 4096)
+            await s.markPlaybackStarted()
+            _ = try await read(s, 4096, Int(7 * Self.mib) - 4096)    // the reader is at 7 MiB
+            var refilled = false
+            for _ in 0..<300 {                                       // keep reading near 7 MiB
+                _ = try await read(s, 7 * Self.mib, 4096)
+                if RangeFileURLProtocol.requests.map(\.start).contains(ended) { refilled = true; break }
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            #expect(refilled, "no fetch from \(ended) until the reader got there: \(RangeFileURLProtocol.requests)")
+            #expect(await s.refillCount == 1)
+            // …and the bytes it brings are the right ones.
+            #expect(try await read(s, ended - 4096, 8192)
+                == RangeFileURLProtocol.bytes((ended - 4096)..<(ended + 4096)))
+            await s.close()
+        }
+
+        /// Before the first frame the open's readers jump around and plan their own fetches.
+        @Test func noRefillBeforeTheFirstFrame() async throws {
+            let ended = 10 * Self.mib
+            RangeFileURLProtocol.reset(.init(fileSize: 64 << 20, maxBytesPerRequest: ended))
+            let s = makeSession()
+            _ = try await read(s, 0, Int(7 * Self.mib))
+            for _ in 0..<30 {
+                _ = try await read(s, 7 * Self.mib, 4096)
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            #expect(!RangeFileURLProtocol.requests.map(\.start).contains(ended))
+            #expect(await s.refillCount == 0)
+            await s.close()
+        }
+
         @Test func aClosedSessionRefusesReads() async throws {
             let s = makeSession()
             _ = try await s.head()

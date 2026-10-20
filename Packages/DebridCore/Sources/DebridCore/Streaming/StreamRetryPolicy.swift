@@ -16,6 +16,10 @@ struct StreamRetryPolicy: Sendable, Equatable {
     /// server may pass; RD ignoring the range for this file every time will not, and the whole
     /// file is not the bytes that were asked for.
     var wholeFileAnswers: Int
+    /// How long a connection may go without a byte, while nothing paused it, before it is taken
+    /// for stalled and replaced. URLSession's own request timeout is 30 s — the whole of libvlc's
+    /// buffer, and then some — so a silently stalled RD connection used to cost a visible freeze.
+    var stallTimeout: Duration = .seconds(8)
 
     static let standard = StreamRetryPolicy(firstDelay: .milliseconds(500), maxDelay: .seconds(5),
                                             budget: .seconds(60), wholeFileAnswers: 3)
