@@ -92,6 +92,8 @@ struct WatchlistFilmTile: View {
     /// Raised rather than handled here, so the confirmation belongs to the screen: a dialog owned
     /// by a tile dies with the tile the moment its row updates.
     let onRemove: (WatchlistEntry) -> Void
+    /// False on Home, whose rows are the day's short list: the Watchlist page owns removal.
+    var allowsRemove = true
 
     @Environment(AppSession.self) private var session
     @Environment(AppRouter.self) private var router
@@ -125,7 +127,7 @@ struct WatchlistFilmTile: View {
         .contextMenu {
             WatchlistFilmActions(entry: entry, item: item, watched: watched,
                                  open: { if let item { router.detail = item } },
-                                 onRemove: onRemove)
+                                 onRemove: allowsRemove ? onRemove : nil)
         }
     }
 }
@@ -136,7 +138,8 @@ struct WatchlistFilmActions: View {
     let item: MediaItem?
     let watched: Bool
     let open: () -> Void
-    let onRemove: (WatchlistEntry) -> Void
+    /// Nil: no Remove (Home's rows).
+    let onRemove: ((WatchlistEntry) -> Void)?
 
     @Environment(AppSession.self) private var session
     @Environment(TileWatchMarks.self) private var marks: TileWatchMarks?
@@ -150,8 +153,10 @@ struct WatchlistFilmActions: View {
                                           marks: marks)
             }
         }
-        Button("Remove from Watchlist", systemImage: "minus.circle", role: .destructive) {
-            onRemove(entry)
+        if let onRemove {
+            Button("Remove from Watchlist", systemImage: "minus.circle", role: .destructive) {
+                onRemove(entry)
+            }
         }
     }
 }

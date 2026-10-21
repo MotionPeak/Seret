@@ -10,6 +10,9 @@ struct UIPreviewStores {
     var home: HomeStore?
     var art: TitleArtStore?
     var downloads: [DownloadTile]?
+    /// `-uiPreview homepicks…`: Home's watchlist rows, as with a Letterboxd username set (non-nil
+    /// stands in for `session.homePicks`). Their details come from `watchlistDetails`.
+    var homePicks: HomeWatchlistRows?
     var moviesBrowse: DiscoverStore?
     var showsBrowse: DiscoverStore?
     var genreBrowsing: GenreBrowsing?

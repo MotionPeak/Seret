@@ -13,6 +13,11 @@ import SwiftUI
 /// - `home` — hero (American History X, part-way), Continue Watching (incl. an up-next episode),
 ///   Recently Added Movies / Shows. `homedownloading` adds a Downloading rail;
 ///   `homedownloadsonly` has downloads and nothing else (no hero).
+/// - `-homeScrollTo <picked|both|shows>` with any Home target scrolls to that rail after 6 s.
+/// - `homepicks` — Home with Letterboxd set up: the hero and Continue Watching, then "Picked for
+///   Right Now" and "Both of You Want to See" over the Watchlist harness's films (Noga as the
+///   partner, real TMDB details), and no Recently Added. `homepicksdownloading` adds Downloading
+///   between them; `homepicksonly` has nothing under way, so the hero is the first picked film.
 /// - `movies` / `shows` — the browse page's rows, arriving progressively (For You first, then
 ///   Trending, New, Top Rated, then a row per genre); `-browseDelay N` (ms) slows each row.
 /// - `genregrid` — the Drama grid a genre row's "See All" opens, seeded from its row.
@@ -76,6 +81,11 @@ struct PagesUIPreview: View {
         .task {
             await build()
             if target == "homescript" { await runHomeScript() }
+            // `-homeScrollTo picked|both|shows`: scroll Home to that rail once it has settled.
+            if let rail = UserDefaults.standard.string(forKey: "homeScrollTo") {
+                try? await Task.sleep(for: .seconds(6))
+                stores?.homeScript?.scrollTo = "home-rail-\(rail)"
+            }
         }
     }
 
@@ -108,23 +118,27 @@ struct PagesUIPreview: View {
         let home = HomeStore(watch: PagesFixture.Watch())
         home.activeProfileID = "preview"
         // `homedownloadsonly`: nothing watched, nothing in the library — only a download under way,
-        // so Home has no hero and its first rail must start below the header.
+        // so Home has no hero and its first rail must start below the header. `homepicksonly`:
+        // nothing under way at all, so the hero is a picked film.
         let downloadsOnly = target == "homedownloadsonly"
-        await home.rebuild(movies: downloadsOnly ? [] : PagesFixture.movies,
-                           shows: downloadsOnly ? [] : PagesFixture.shows)
+        let picksOnly = target == "homepicksonly"
+        await home.rebuild(movies: downloadsOnly || picksOnly ? [] : PagesFixture.movies,
+                           shows: downloadsOnly || picksOnly ? [] : PagesFixture.shows)
         let delay = UserDefaults.standard.integer(forKey: "browseDelay")
         stores = UIPreviewStores(
             home: home,
             art: TitleArtStore(details: TMDBDetailsService(client: TMDBClient(apiKey: Secrets.tmdbAPIKey))),
-            downloads: target == "homedownloading" ? [PagesFixture.download]
+            downloads: target == "homedownloading" || target == "homepicksdownloading" ? [PagesFixture.download]
                 : downloadsOnly ? [PagesFixture.download, PagesFixture.noArtDownload] : [],
             moviesBrowse: DiscoverStore(kind: .movie, discover: PagesFixture.Discover(delay: delay),
                                         seeds: PagesFixture.Seeds()),
             showsBrowse: DiscoverStore(kind: .show, discover: PagesFixture.Discover(delay: delay),
                                        seeds: nil),
             genreBrowsing: PagesFixture.Genres(),
-            homeScript: target == "homescript" ? HomePreviewScript() : nil)
+            homeScript: target == "homescript" || UserDefaults.standard.string(forKey: "homeScrollTo") != nil
+                ? HomePreviewScript() : nil)
         if target.hasPrefix("watchlist") || target == "spin" { buildWatchlist() }
+        if target.hasPrefix("homepicks") { buildHomePicks() }
         if target.hasPrefix("search") {
             stores?.search = SearchStore(search: TMDBSearchService(client: TMDBClient(apiKey: Secrets.tmdbAPIKey)))
             stores?.searchQuery = switch target {
@@ -138,6 +152,22 @@ struct PagesUIPreview: View {
             stores?.library = library
             stores?.downloads = target == "library" ? [PagesFixture.download, PagesFixture.noArtDownload] : []
         }
+    }
+
+    /// Picked: a run of films from both lists, Noga's only and the unmatched one among them (it
+    /// opens nothing and says "No TMDB match"). Both: every film on both lists. The same rows as
+    /// the Apple TV's `homepicks`. The details store starts empty: Home asks it for its films, as
+    /// it does for real, so the hero completes as they land, the way a first visit goes.
+    private func buildHomePicks() {
+        let entries = WatchlistPreviewFixture.entries
+        stores?.homePicks = HomeWatchlistRows(
+            picked: [15, 4, 16, 8, 2, 12, 9, 17, 5, 18, 0, 13].map { entries[$0] },
+            both: [6, 11, 15, 2].map { entries[$0] },
+            membership: WatchlistMembership(owner: WatchlistPreviewFixture.owners,
+                                            partner: WatchlistPreviewFixture.partners),
+            partnerName: "Noga")
+        stores?.watchlistDetails = WatchlistDetailsStore(
+            fileURL: nil, details: TMDBDetailsService(client: TMDBClient(apiKey: Secrets.tmdbAPIKey)))
     }
 
     private func buildWatchlist() {

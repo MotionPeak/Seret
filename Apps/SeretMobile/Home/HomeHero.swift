@@ -3,17 +3,41 @@ import DebridUI
 import SwiftUI
 
 /// What Home's hero features: the title you were last watching — or, with nothing under way, the
-/// newest arrival in the library.
+/// first film picked from the watchlists (else the first you both want to see), or with no
+/// Letterboxd set up, the newest arrival in the library.
 enum HomeHeroSubject: Equatable {
     case resume(HomeItem)
     case added(MediaItem)
+    case picked(HomePickedFilm)
 
     var item: MediaItem {
         switch self {
         case .resume(let entry): entry.item
         case .added(let item): item
+        case .picked(let film): film.item
         }
     }
+
+    /// The synopsis under the iPad's logo: a watchlist film's comes from its TMDB details, since
+    /// the title page's stub carries none.
+    var overview: String? {
+        if case .picked(let film) = self { return film.item.overview ?? film.details?.overview }
+        return item.overview
+    }
+}
+
+/// A watchlist film as Home's hero: the film, the title page it opens (the library's own item when
+/// owned), its TMDB details once they have landed, and which row it heads.
+struct HomePickedFilm: Equatable {
+    enum Row: Equatable { case picked, both }
+
+    let entry: WatchlistEntry
+    let item: MediaItem
+    let details: WatchlistFilmDetails?
+    let row: Row
+
+    /// The meta line's lead.
+    var lead: String { row == .picked ? "Picked for You" : "Both of You Want to See" }
 }
 
 /// The hero's actions, supplied by Home (which owns the router and the removal flow).
@@ -74,6 +98,10 @@ struct HomeHero: View {
         }
         .task(id: item.id) {
             guard let art, let id = item.tmdbID else { artSettledFor = item.id; return }
+            // A watchlist film's logo, plate and rating are already in its details — drawn at once.
+            if case .picked(let film) = subject, let details = film.details {
+                art.seed(details.titleArt, for: .movie, tmdbID: id)
+            }
             _ = await art.load(item.kind, tmdbID: id)
             artSettledFor = item.id
         }
@@ -160,7 +188,7 @@ struct HomeHero: View {
                       maxWidth: 420, maxHeight: 110, alignment: .bottomLeading,
                       font: .system(size: 48, weight: .heavy))
             metaLine(compact: false)
-            if let overview = item.overview, !overview.isEmpty {
+            if let overview = subject.overview, !overview.isEmpty {
                 Text(overview)
                     .font(.system(size: 17))
                     .foregroundStyle(Theme.Palette.textPrimary.opacity(0.82))
@@ -222,7 +250,8 @@ struct HomeHero: View {
                 Label(entry.isUpNext || entry.resumeAt == nil ? "Play" : "Resume", systemImage: "play.fill")
             }
             .buttonStyle(PrimaryPillButtonStyle())
-        case .added(let item):
+        case .added, .picked:
+            // The title page — a watchlist film's version is picked and played from there.
             Button { actions.open(item) } label: {
                 Label("More Info", systemImage: "info.circle")
             }
@@ -230,9 +259,12 @@ struct HomeHero: View {
         }
     }
 
-    /// Films only: Letterboxd has no watchlist a show can go on.
+    /// Films only: Letterboxd has no watchlist a show can go on. Not for a picked film — it is on a
+    /// watchlist already, and Home's picks leave removal to the Watchlist page.
     @ViewBuilder private var watchlistCircle: some View {
-        if let film = WatchlistFilm(item: item), let watchlist {
+        if case .picked = subject {
+            EmptyView()
+        } else if let film = WatchlistFilm(item: item), let watchlist {
             let on = watchlist.contains(tmdbID: film.tmdbID)
             GlassCircleButton(systemImage: on ? "checkmark" : "plus",
                               label: on ? "Remove from Watchlist" : "Add to Watchlist", size: 46) {
@@ -253,13 +285,16 @@ struct HomeHero: View {
                 actions.open(item)
             }
             LibraryTitleActions(item: item, session: session, onRemove: actions.remove)
+        case .picked(let film):
+            Button("Go to Movie", systemImage: "info.circle") { actions.open(film.item) }
         }
     }
 
     // MARK: Text
 
     /// The metadata row. Compact (iPhone): "Continue · 1h 12m left", year, ★ 8.1. Regular (iPad):
-    /// year, runtime (or seasons), ★ 8.1, then "1h 12m left" / the episode.
+    /// year, runtime (or seasons), ★ 8.1, then "1h 12m left" / the episode. A picked film leads
+    /// with "Picked for You" (or "Both of You Want to See") on both.
     static func metaParts(subject: HomeHeroSubject, art: TitleArt?, compact: Bool) -> [String] {
         let item = subject.item
         var lead: String?
@@ -281,6 +316,8 @@ struct HomeHero: View {
                 lead = [entry.isUpNext ? "Up Next" : nil, episode, entry.isUpNext ? nil : left]
                     .compactMap { $0 }.joined(separator: " · ")
             }
+        } else if case .picked(let film) = subject {
+            lead = film.lead
         } else if compact {
             lead = "Recently Added"
         }
@@ -293,7 +330,9 @@ struct HomeHero: View {
             if item.kind == .movie { return art?.runtimeMinutes.map(Self.duration) }
             return art?.seasonCount.map { $0 == 1 ? "1 Season" : "\($0) Seasons" }
         }()
-        return [year, length, rating, lead].compactMap { $0 }.filter { !$0.isEmpty }
+        // Where a film comes from leads; how far into one you are follows its facts.
+        let parts = if case .picked = subject { [lead, year, length, rating] } else { [year, length, rating, lead] }
+        return parts.compactMap { $0 }.filter { !$0.isEmpty }
     }
 
     /// "1h 12m", "45m", "2h".

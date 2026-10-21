@@ -25,7 +25,7 @@ struct SeretMobileApp: App {
                     ShellUIPreview(target: preview)    // -uiPreview shell [-shellSection movies]
                 } else if ["home", "homedownloading", "homedownloadsonly", "homescript", "movies", "shows", "genregrid", "spin"].contains(preview)
                             || preview.hasPrefix("watchlist") || preview.hasPrefix("library")
-                            || preview.hasPrefix("search") {
+                            || preview.hasPrefix("search") || preview.hasPrefix("homepicks") {
                     PagesUIPreview(target: preview)    // -uiPreview home|movies|shows|genregrid
                 } else if ["settings", "settingsletterboxd", "opensubs", "profiles", "addprofile"].contains(preview)
                             || preview.hasPrefix("signin") {
