@@ -1,24 +1,23 @@
 import SwiftUI
 import DebridUI
 
-/// OpenSubtitles sign-in, with the typing moved to the viewer's phone.
+/// OpenSubtitles sign-in, with the typing moved to the viewer's phone. Pushed from Settings →
+/// Subtitles → Downloads.
 ///
 /// A QR is the primary path because entering a password on a TV remote is miserable, and
 /// OpenSubtitles offers no device-code flow to lean on the way Real-Debrid does — so the Apple TV
 /// serves the form itself (see `LocalPairingServer`) and the QR is just its address. The on-screen
 /// fields remain as a fallback, collapsed by default so they do not compete with the QR.
-struct OpenSubtitlesSection: View {
+struct OpenSubtitlesPage: View {
     @Bindable var model: SettingsModel
     @State private var server: LocalPairingServer?
     @State private var showingManualEntry = false
 
     var body: some View {
-        SettingsCard(title: "Subtitle downloads", icon: "captions.bubble.fill") {
-            if model.isConnected {
-                connected
-            } else {
-                pairing
-            }
+        SettingsPageLayout(title: "OpenSubtitles", clearsSideMenu: true) {
+            pane
+        } rows: {
+            rows
         }
         .onAppear(perform: syncServer)
         // The server exists ONLY to receive a password. Starting it while already connected put a
@@ -28,46 +27,36 @@ struct OpenSubtitlesSection: View {
         .onDisappear(perform: stopServer)
     }
 
-    // MARK: - States
+    // MARK: - Pane
 
-    private var connected: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            SettingsStatus(text: "Connected as \(model.username)", good: true)
-            Text("Used to fetch Hebrew and English subtitles during playback.")
-                .settingsCaption()
-            Button("Disconnect", role: .destructive) { model.remove() }
-                .buttonStyle(SeretActionButtonStyle(destructive: true))
-        }
-    }
-
-    private var pairing: some View {
-        HStack(alignment: .top, spacing: 36) {
-            VStack(alignment: .leading, spacing: 14) {
-                // Under the card's 34pt heading, never above it in size.
-                Text(headline)
-                    .cardTitle()
+    @ViewBuilder private var pane: some View {
+        if model.isConnected {
+            VStack(alignment: .leading, spacing: 26) {
+                SettingsSymbol(icon: "checkmark")
+                Text("Connected as \(model.username)")
+                    .sectionTitle()
                     .foregroundStyle(Theme.Palette.textPrimary)
-                Text(caption).settingsCaption()
+                Text("Used to fetch Hebrew and English subtitles during playback.")
+                    .calloutText().lineSpacing(6)
+                    .foregroundStyle(Theme.Palette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 26) {
+                if case .unavailable = status {} else { qr }
+                Text(headline)
+                    .sectionTitle()
+                    .foregroundStyle(Theme.Palette.textPrimary)
+                Text(caption)
+                    .calloutText().lineSpacing(6)
+                    .foregroundStyle(Theme.Palette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 if case .ready(let address) = status {
                     Text(address)
                         .font(.seret(.callout, .semibold)).monospaced()
                         .foregroundStyle(Theme.Palette.textPrimary)
                 }
-                // Hidden while pairing is available so it does not compete with the QR, and shown
-                // outright when it is the only way in.
-                if case .unavailable = status {
-                    manualEntry
-                } else {
-                    Button(showingManualEntry ? "Hide keyboard entry" : "Type it here instead") {
-                        showingManualEntry.toggle()
-                    }
-                    .buttonStyle(SeretActionButtonStyle())
-                    .padding(.top, 4)
-                    if showingManualEntry { manualEntry }
-                }
             }
-            Spacer(minLength: 0)
-            if case .unavailable = status {} else { qr }
         }
     }
 
@@ -94,31 +83,51 @@ struct OpenSubtitlesSection: View {
             code.interpolation(.none).resizable()
                 .frame(width: 240, height: 240)
                 .padding(14)
-                .background(.white, in: RoundedRectangle(cornerRadius: 16))
+                .background(.white, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
         } else {
-            RoundedRectangle(cornerRadius: 16)
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
                 .fill(Theme.Palette.surface2)
                 .frame(width: 268, height: 268)
                 .overlay { ProgressView().tint(Theme.Palette.textPrimary) }
         }
     }
 
-    private var manualEntry: some View {
+    // MARK: - Rows
+
+    @ViewBuilder private var rows: some View {
+        SettingsSectionHeader(title: "Account", first: true)
+        // Present in both states, so the page always has a row to land on — including the moment
+        // Disconnect swaps the rows below it.
+        SettingsRow(title: "OpenSubtitles", value: model.isConnected ? model.username : "Not connected") {}
+        if model.isConnected {
+            SettingsRow(title: "Disconnect", destructive: true) { model.remove() }
+        } else if case .unavailable = status {
+            manualEntry
+        } else {
+            // Hidden while pairing is available so it does not compete with the QR, and shown
+            // outright when it is the only way in. The row stays put; only its words change.
+            SettingsRow(title: showingManualEntry ? "Hide Keyboard Entry" : "Type It Here Instead") {
+                showingManualEntry.toggle()
+            }
+            if showingManualEntry { manualEntry }
+        }
+    }
+
+    @ViewBuilder private var manualEntry: some View {
+        SettingsSectionHeader(title: "Sign in here")
         VStack(alignment: .leading, spacing: 12) {
             TextField("Username", text: $model.username).textContentType(.username)
             SecureField("Password", text: $model.password).textContentType(.password)
-            Button("Save") { model.save() }
-                .buttonStyle(SeretActionButtonStyle(prominent: true))
-                .padding(.top, 6)
         }
-        .frame(maxWidth: 520)
-        .padding(.top, 6)
+        .padding(.horizontal, 6)
+        SettingsRow(title: "Save") { model.save() }
+            .padding(.top, 10)
     }
 
     // MARK: - Server
 
-    /// The listener runs only while this section is on screen — see `LocalPairingServer`.
-    /// Runs the pairing server exactly while it is needed: not before, and not a moment after.
+    /// Runs the pairing server exactly while it is needed: not before, and not a moment after —
+    /// only while this page is on screen and the account is not connected. See `LocalPairingServer`.
     private func syncServer() {
         if model.isConnected { stopServer() } else { startServer() }
     }

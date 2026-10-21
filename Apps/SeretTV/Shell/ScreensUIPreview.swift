@@ -36,7 +36,8 @@ struct ScreensUIPreview: View {
         case "addprofile":
             AddProfileScreen().environment(session)
         case "settingsscreen":
-            SettingsView().environment(session)
+            // In a stack, as the shell hosts it, so its rows can push their pages.
+            NavigationStack { SettingsView() }.environment(session)
         case "watchlistchange":
             ZStack(alignment: .top) {
                 CanvasBackground()

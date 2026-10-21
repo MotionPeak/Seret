@@ -65,7 +65,7 @@ import DebridCore
 ///   - `spinnoart` — the same landing with no TMDB art: text title, plain background
 ///   - `serverprobe` — can this Apple TV actually reach SeretServer? Names ATS and local-network
 ///     refusals separately from an unreachable server
-///   - `letterboxd` — the Settings Letterboxd card with the import blocked, between two cards
+///   - `letterboxd` — the Settings Letterboxd section with the import blocked, between two rows
 ///     that DO take focus, so "can the remote reach it?" is answerable from a screenshot
 ///   - `letterboxdrating` / `letterboxdrerating` — the post-credits rating prompt, unrated and
 ///     already rated 7. Prints what the press produced, so a screenshot answers it
@@ -365,10 +365,7 @@ private struct OpenSubtitlesPreview: View {
         secretStore: KeychainSecretStore(service: "com.solomons.seret.opensubtitles.preview"))
 
     var body: some View {
-        ZStack {
-            CanvasBackground()
-            ScrollView { OpenSubtitlesSection(model: model).padding(.vertical, 60) }
-        }
+        NavigationStack { OpenSubtitlesPage(model: model) }
     }
 }
 
@@ -1987,6 +1984,7 @@ private struct AlwaysSignedOutRelay: LetterboxdRelaying {
 
 /// and see where focus ends up.
 private struct LetterboxdCardPreview: View {
+    @State private var help = SettingsHelp()
     @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()))
     @State private var model = LetterboxdImportModel(
         settingsStore: InMemoryLetterboxdSettingsStore(
@@ -2008,24 +2006,17 @@ private struct LetterboxdCardPreview: View {
         isEnabled: { true })
 
     var body: some View {
-        ZStack {
-            CanvasBackground()
-            ScrollView {
-                VStack(alignment: .leading, spacing: 28) {
-                    SettingsCard(title: "Above", icon: "arrow.up") {
-                        Button("Focusable above") {}.buttonStyle(SeretActionButtonStyle())
-                    }
-                    LetterboxdCard(model: model, profileID: "preview-profile", push: push)
-                    SettingsCard(title: "Below", icon: "arrow.down") {
-                        Button("Focusable below") {}.buttonStyle(SeretActionButtonStyle())
-                    }
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 40)
-                .focusSection()
-            }
+        SettingsPageLayout(title: "Letterboxd", clearsSideMenu: true) {
+            SettingsHelpPane(content: help.current)
+        } rows: {
+            SettingsSectionHeader(title: "Above", first: true)
+            SettingsRow(title: "Focusable above") {}
+            LetterboxdSettingsSection(model: model, profileID: "preview-profile", push: push)
+            SettingsSectionHeader(title: "Below")
+            SettingsRow(title: "Focusable below") {}
         }
-        // `LetterboxdCard` reads `AppSession` non-optionally, and a missing one is a fatalError
+        .environment(help)
+        // `LetterboxdSettingsSection` reads `AppSession` non-optionally, and a missing one is a fatalError
         // rather than a blank view — this harness rendered pure black until it was provided.
         // See the Settings card's own environment read.
         .environment(session)
