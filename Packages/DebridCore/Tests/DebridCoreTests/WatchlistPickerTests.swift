@@ -73,6 +73,23 @@ private func slugs(_ picks: [WatchlistPick]) -> [String] { picks.map(\.entry.slu
         #expect(abs(picks[2].score - 0.1) < 1e-9)           // 0.1 × 1 × 1 × 1 shared genre
     }
 
+    /// The central ranking rule: a tier is never beaten by a higher score from a lower tier. A
+    /// score-only sort would put D (about 1.43) ahead of C (0.24).
+    @Test func aCloserTierBeatsAHigherScoreFromALowerOne() {
+        let filler = (1...39).map { "filler\($0)" }
+        let inputs = WatchlistPickInputs(
+            recentFilms: [film("unrated"), film("r1", rating: 10), film("r2", rating: 10),
+                          film("r3", rating: 10)],
+            similar: ["unrated": filler + ["c"]],           // "c" is 40th: position weight 0.4
+            directorFilms: ["r1": ["d"], "r2": ["d"], "r3": ["d"]],
+            candidates: [row("d", 0), row("c", 1)])         // D is first on the watchlist, too
+        let picks = WatchlistPicker.pick(inputs)
+        #expect(slugs(picks) == ["c", "d"])
+        #expect(picks.map(\.tier) == [.close, .director])
+        #expect(abs(picks[0].score - 0.24) < 1e-9)          // 1.0 recency x 0.6 unrated x 0.4
+        #expect(picks[1].score > 1.0)                       // the lower tier does outscore it
+    }
+
     @Test func aWeakerSignalAddsToScoreButNotTier() {
         let inputs = WatchlistPickInputs(
             recentFilms: [film("ref", rating: 10)],
