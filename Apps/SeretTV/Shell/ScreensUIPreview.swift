@@ -36,8 +36,9 @@ struct ScreensUIPreview: View {
         case "addprofile":
             AddProfileScreen().environment(session)
         case "settingsscreen":
-            // In a stack, as the shell hosts it, so its rows can push their pages.
-            NavigationStack { SettingsView() }.environment(session)
+            // In a stack and beside the menu's footprint, as the shell hosts it, so its rows can
+            // push their pages and the columns sit where they do in the app.
+            NavigationStack { SettingsView().sideMenuContentInset() }.environment(session)
         case "watchlistchange":
             ZStack(alignment: .top) {
                 CanvasBackground()
