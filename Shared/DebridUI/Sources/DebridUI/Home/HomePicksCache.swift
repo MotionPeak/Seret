@@ -10,10 +10,25 @@ public struct HomePicksSnapshot: Codable, Sendable, Equatable {
     /// The local calendar day it was computed on, `yyyy-MM-dd` — `HomePicksStore.day(of:)`.
     public let day: String
     public let picks: [WatchlistPick]
+    /// The Letterboxd account whose diary the picks follow, so a list made for another account is
+    /// never shown and is recomputed at once. Nil in a file written before this existed.
+    public let username: String?
 
-    public init(day: String, picks: [WatchlistPick]) {
+    public init(day: String, picks: [WatchlistPick], username: String? = nil) {
         self.day = day
         self.picks = picks
+        self.username = username
+    }
+
+    private enum CodingKeys: String, CodingKey { case day, picks, username }
+
+    /// Lenient about fields added later: an older file that failed to decode would empty the row
+    /// until the next refresh.
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        day = try c.decode(String.self, forKey: .day)
+        picks = try c.decode([WatchlistPick].self, forKey: .picks)
+        username = try c.decodeIfPresent(String.self, forKey: .username)
     }
 }
 

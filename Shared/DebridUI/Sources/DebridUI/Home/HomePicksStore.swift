@@ -68,7 +68,12 @@ public final class HomePicksStore {
     public private(set) var partnerName: String?
 
     @ObservationIgnored private let dependencies: HomePicksDependencies
+    /// The account the picks are for. A cached list for any other account is ignored. Nil skips
+    /// the check (tests that do not care about accounts).
+    @ObservationIgnored private let username: String?
     @ObservationIgnored private let now: @Sendable () -> Date
+    /// Set by `cancel()`: the store is being replaced and must not crawl or write again.
+    @ObservationIgnored private var isCancelled = false
     /// The store is the cache's only writer, so once read, memory is the truth.
     @ObservationIgnored private var snapshot: HomePicksSnapshot?
     @ObservationIgnored private var cacheRead = false
@@ -77,9 +82,18 @@ public final class HomePicksStore {
     /// Bumped by every publish, so a slow one cannot overwrite a newer one.
     @ObservationIgnored private var publishGeneration = 0
 
-    public init(dependencies: HomePicksDependencies, now: @escaping @Sendable () -> Date = Date.init) {
+    public init(dependencies: HomePicksDependencies, username: String? = nil,
+                now: @escaping @Sendable () -> Date = Date.init) {
         self.dependencies = dependencies
+        self.username = username
         self.now = now
+    }
+
+    /// Stops the crawl in flight (between two requests) and any later one, and keeps it from
+    /// writing the cache. For a store about to be replaced — the account changed.
+    public func cancel() {
+        isCancelled = true
+        refreshTask?.cancel()
     }
 
     /// The store, or nil when no Letterboxd username is set — "not configured", and Home then
@@ -89,7 +103,7 @@ public final class HomePicksStore {
                             dependencies: (_ username: String) -> HomePicksDependencies) -> HomePicksStore? {
         let username = settings.username.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !username.isEmpty else { return nil }
-        return HomePicksStore(dependencies: dependencies(username), now: now)
+        return HomePicksStore(dependencies: dependencies(username), username: username, now: now)
     }
 
     /// The local calendar day, `yyyy-MM-dd`. The cache's key and the Both row's shuffle seed.
@@ -122,27 +136,35 @@ public final class HomePicksStore {
         // A refresh may have landed during the read; never replace it with the older file.
         guard !cacheRead else { return }
         cacheRead = true
-        if snapshot == nil { snapshot = stored }
+        // Another account's list is never shown, not even while this one's is computed.
+        if snapshot == nil, let stored, isForThisAccount(stored) { snapshot = stored }
+    }
+
+    private func isForThisAccount(_ snapshot: HomePicksSnapshot) -> Bool {
+        username == nil || snapshot.username == username
     }
 
     private func startRefreshIfStale() {
-        guard refreshTask == nil else { return }
+        guard refreshTask == nil, !isCancelled else { return }
         let date = now()
         let today = Self.day(of: date)
-        guard snapshot?.day != today else { return }
+        if let snapshot, snapshot.day == today, isForThisAccount(snapshot) { return }
         if let failedAt, date >= failedAt, date.timeIntervalSince(failedAt) < Self.retryAfter { return }
 
         let dependencies = dependencies
         let genres = dependencies.candidateGenres()
         refreshTask = Task { [weak self] in
             let picks = await Self.compute(dependencies, candidateGenres: genres)
+            // Cancelled: the store is being replaced. Write nothing, publish nothing.
+            guard !Task.isCancelled else { return }
             await self?.finishRefresh(picks, day: today)
         }
     }
 
     private func finishRefresh(_ picks: [WatchlistPick]?, day: String) async {
+        guard !isCancelled else { return }
         if let picks {
-            let fresh = HomePicksSnapshot(day: day, picks: picks)
+            let fresh = HomePicksSnapshot(day: day, picks: picks, username: username)
             snapshot = fresh
             cacheRead = true
             failedAt = nil
@@ -154,8 +176,9 @@ public final class HomePicksStore {
         await publish()
     }
 
-    /// The day's picks, read off Letterboxd. Nil when the diary cannot be read — the one request
-    /// the list cannot do without. Any other page that fails is simply left out.
+    /// The day's picks, read off Letterboxd. Nil — keep the cached list, back off — when the diary
+    /// cannot be read, when Letterboxd fails `Crawl.maxFailuresInARow` pages running, when not one
+    /// taste page came back, or when the task is cancelled. A page that fails on its own is left out.
     ///
     /// Nonisolated, so the whole crawl runs off the main actor; only the result is published there.
     nonisolated static func compute(_ dependencies: HomePicksDependencies,
@@ -166,6 +189,7 @@ public final class HomePicksStore {
         } catch {
             return nil
         }
+        guard !Task.isCancelled else { return nil }
 
         let lists = await dependencies.watchlists()
         let candidates = WatchlistMerge.combine(owner: lists.owner, partner: lists.partner ?? [])
@@ -185,48 +209,57 @@ public final class HomePicksStore {
         guard !eligible.isEmpty, !refs.isEmpty else { return [] }
 
         let taste = dependencies.taste
+        var crawl = Crawl()
         var similar: [String: [String]] = [:]
         var referenceGenres: [String: [String]] = [:]
         var directorsOf: [String: [String]] = [:]
-        for ref in refs {
-            if let list = try? await taste.similarFilms(to: ref.slug) {
-                similar[ref.slug] = list.map(\.slug)
-            }
-            if let facts = try? await taste.filmPage(ref.slug) {
-                referenceGenres[ref.slug] = facts.genres
-                directorsOf[ref.slug] = facts.directorSlugs
-            }
-        }
-
-        var byDirector: [String: [String]] = [:]
         var directorFilms: [String: [String]] = [:]
-        for ref in refs.prefix(directorReferences) {
-            var slugs: [String] = []
-            for director in directorsOf[ref.slug] ?? [] {
-                if byDirector[director] == nil {
-                    // A failure is remembered as empty: the next reference by the same director
-                    // should not ask again.
-                    byDirector[director] = (try? await taste.films(byDirector: director))?.map(\.slug) ?? []
-                }
-                slugs += byDirector[director] ?? []
-            }
-            if !slugs.isEmpty { directorFilms[ref.slug] = slugs }
-        }
-
-        // Looser matches only when the close and director ones cannot fill the row.
         var secondHop: [String: [String]] = [:]
-        let reached = Set(similar.values.joined()).union(directorFilms.values.joined())
-        if eligible.intersection(reached).count < WatchlistPicker.rowTarget {
-            var asked: Set<String> = []
-            for ref in refs.prefix(secondHopReferences) {
-                for slug in (similar[ref.slug] ?? []).prefix(secondHopPerReference)
-                where asked.insert(slug).inserted {
-                    if let list = try? await taste.similarFilms(to: slug) {
-                        secondHop[slug] = list.map(\.slug)
+        do {
+            for ref in refs {
+                if let list = try await crawl.fetch({ try await taste.similarFilms(to: ref.slug) }) {
+                    similar[ref.slug] = list.map(\.slug)
+                }
+                if let facts = try await crawl.fetch({ try await taste.filmPage(ref.slug) }) {
+                    referenceGenres[ref.slug] = facts.genres
+                    directorsOf[ref.slug] = facts.directorSlugs
+                }
+            }
+
+            var byDirector: [String: [String]] = [:]
+            for ref in refs.prefix(directorReferences) {
+                var slugs: [String] = []
+                for director in directorsOf[ref.slug] ?? [] {
+                    if byDirector[director] == nil {
+                        // A failure is remembered as empty: the next reference by the same
+                        // director should not ask again.
+                        byDirector[director] = try await crawl.fetch({
+                            try await taste.films(byDirector: director)
+                        })?.map(\.slug) ?? []
+                    }
+                    slugs += byDirector[director] ?? []
+                }
+                if !slugs.isEmpty { directorFilms[ref.slug] = slugs }
+            }
+
+            // Looser matches only when the close and director ones cannot fill the row.
+            let reached = Set(similar.values.joined()).union(directorFilms.values.joined())
+            if eligible.intersection(reached).count < WatchlistPicker.rowTarget {
+                var asked: Set<String> = []
+                for ref in refs.prefix(secondHopReferences) {
+                    for slug in (similar[ref.slug] ?? []).prefix(secondHopPerReference)
+                    where asked.insert(slug).inserted {
+                        if let list = try await crawl.fetch({ try await taste.similarFilms(to: slug) }) {
+                            secondHop[slug] = list.map(\.slug)
+                        }
                     }
                 }
             }
+        } catch {
+            return nil                                  // stopped: cancelled, or Letterboxd refusing us
         }
+        // Nothing came back at all: an empty list would replace a good one until tomorrow.
+        guard crawl.succeeded else { return nil }
 
         let inputs = WatchlistPickInputs(recentFilms: films,
                                          similar: similar,
@@ -287,5 +320,38 @@ public final class HomePicksStore {
             .prefix(Self.bothLimit))
         self.membership = membership
         partnerName = membership == nil ? nil : lists.partnerName
+    }
+}
+
+/// One crawl's request bookkeeping: stops it when the task is cancelled or Letterboxd keeps
+/// failing, and says whether anything came back at all.
+///
+/// Every request goes through `fetch` rather than `try?`, which would swallow the reader's
+/// `CancellationError` and carry the crawl on after the store was replaced.
+private struct Crawl {
+    static let maxFailuresInARow = 3
+
+    struct Stopped: Error {}
+
+    private(set) var succeeded = false
+    private var failuresInARow = 0
+
+    /// The request's result, or nil if it failed on its own. Throws `Stopped` once the task is
+    /// cancelled or `maxFailuresInARow` requests have failed running.
+    mutating func fetch<T>(_ request: () async throws -> T) async throws -> T? {
+        guard !Task.isCancelled else { throw Stopped() }
+        let value: T
+        do {
+            value = try await request()
+        } catch {
+            if Task.isCancelled || error is CancellationError { throw Stopped() }
+            failuresInARow += 1
+            if failuresInARow >= Self.maxFailuresInARow { throw Stopped() }
+            return nil
+        }
+        guard !Task.isCancelled else { throw Stopped() }
+        failuresInARow = 0
+        succeeded = true
+        return value
     }
 }

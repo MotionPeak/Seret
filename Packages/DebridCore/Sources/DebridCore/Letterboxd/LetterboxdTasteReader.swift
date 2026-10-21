@@ -56,6 +56,9 @@ public struct LetterboxdTasteReader: LetterboxdTasteReading {
         } catch is CancellationError {
             throw CancellationError()
         } catch {
+            // Paced like a success: a Letterboxd that is refusing us (429/403) must not be hit
+            // back-to-back by the rest of the crawl.
+            if pageDelay > .zero { try await Task.sleep(for: pageDelay) }
             throw LetterboxdError.profileUnavailable
         }
         if pageDelay > .zero { try await Task.sleep(for: pageDelay) }

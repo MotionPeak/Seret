@@ -25,30 +25,72 @@ private actor FakeTaste: LetterboxdTasteReading {
     private let directors: [String: [String]]
     /// Slugs whose similar page fails, to prove one bad page does not sink the refresh.
     private let failingSimilar: Set<String>
+    /// Every page fails — Letterboxd refusing us after the diary read went through.
+    private let failsEverything: Bool
     private(set) var similarAsked: [String] = []
     private(set) var calls = 0
 
     init(similar: [String: [String]] = [:], facts: [String: LetterboxdFilmFacts] = [:],
-         directors: [String: [String]] = [:], failingSimilar: Set<String> = []) {
+         directors: [String: [String]] = [:], failingSimilar: Set<String> = [],
+         failsEverything: Bool = false) {
         self.similar = similar
         self.facts = facts
         self.directors = directors
         self.failingSimilar = failingSimilar
+        self.failsEverything = failsEverything
     }
 
     func similarFilms(to slug: String) async throws -> [LetterboxdEntry] {
         calls += 1
         similarAsked.append(slug)
-        if failingSimilar.contains(slug) { throw LetterboxdError.profileUnavailable }
+        if failsEverything || failingSimilar.contains(slug) { throw LetterboxdError.profileUnavailable }
         return (similar[slug] ?? []).map { LetterboxdEntry(slug: $0, name: $0, year: nil, rating: nil) }
     }
     func filmPage(_ slug: String) async throws -> LetterboxdFilmFacts {
         calls += 1
+        if failsEverything { throw LetterboxdError.profileUnavailable }
         return facts[slug] ?? LetterboxdFilmFacts(directorSlugs: [], genres: [])
     }
     func films(byDirector slug: String) async throws -> [LetterboxdEntry] {
         calls += 1
+        if failsEverything { throw LetterboxdError.profileUnavailable }
         return (directors[slug] ?? []).map { LetterboxdEntry(slug: $0, name: $0, year: nil, rating: nil) }
+    }
+}
+
+/// Holds its first request until released, so a test can cancel the store mid-crawl.
+private actor GatedTaste: LetterboxdTasteReading {
+    private var gate: CheckedContinuation<Void, Never>?
+    private let started: AsyncStream<Void>.Continuation
+    let startedSignal: AsyncStream<Void>
+    private(set) var calls = 0
+
+    init() {
+        (startedSignal, started) = AsyncStream.makeStream(of: Void.self)
+    }
+
+    func release() { gate?.resume(); gate = nil }
+
+    private func hold() async {
+        calls += 1
+        guard calls == 1 else { return }
+        await withCheckedContinuation { continuation in
+            gate = continuation
+            started.yield()
+        }
+    }
+
+    func similarFilms(to slug: String) async throws -> [LetterboxdEntry] {
+        await hold()
+        return [LetterboxdEntry(slug: "collateral", name: "collateral", year: nil, rating: nil)]
+    }
+    func filmPage(_ slug: String) async throws -> LetterboxdFilmFacts {
+        await hold()
+        return LetterboxdFilmFacts(directorSlugs: ["mann"], genres: ["Crime"])
+    }
+    func films(byDirector slug: String) async throws -> [LetterboxdEntry] {
+        await hold()
+        return []
     }
 }
 
@@ -81,7 +123,8 @@ private actor FakeFinished {
     }
 
     private static func store(profile: FakeProfile = FakeProfile([]),
-                              taste: FakeTaste = FakeTaste(),
+                              taste: any LetterboxdTasteReading = FakeTaste(),
+                              username: String? = nil,
                               owner: [WatchlistEntry] = [collateral, thief],
                               partner: [WatchlistEntry]? = nil,
                               partnerName: String? = nil,
@@ -95,7 +138,7 @@ private actor FakeFinished {
             finishedTMDB: { ids in await finished.ids.intersection(ids) },
             candidateGenres: { [:] },
             cache: cache)
-        return HomePicksStore(dependencies: deps, now: { now })
+        return HomePicksStore(dependencies: deps, username: username, now: { now })
     }
 
     private static func day(_ date: Date) -> String { HomePicksStore.day(of: date) }
@@ -184,6 +227,79 @@ private actor FakeFinished {
         await store.refreshIfStale()
 
         #expect(await profile.calls == 1)
+    }
+
+    /// The diary read went through but every taste page failed: the picker would get nothing, and
+    /// an empty list must not replace yesterday's good one until tomorrow.
+    @Test func aCrawlWhereEveryTastePageFailsKeepsYesterdaysPicks() async {
+        let cache = Self.cache()
+        let old = HomePicksSnapshot(day: Self.day(Self.yesterday), picks: [Self.pick(Self.thief)])
+        await cache.write(old)
+        let profile = FakeProfile([LetterboxdEntry(slug: "heat", name: "Heat", year: 1995, rating: 9)])
+        let store = Self.store(profile: profile, taste: FakeTaste(failsEverything: true), cache: cache)
+
+        await store.load()
+        await store.refreshIfStale()
+
+        #expect(store.picked.map(\.slug) == ["thief"])
+        #expect(await cache.read() == old)
+    }
+
+    @Test func threeFailuresInARowStopTheCrawl() async {
+        let refs = (0..<5).map { LetterboxdEntry(slug: "ref\($0)", name: "ref\($0)", year: 2000, rating: 9) }
+        let taste = FakeTaste(failsEverything: true)
+        let cache = Self.cache()
+        let store = Self.store(profile: FakeProfile(refs), taste: taste, cache: cache)
+
+        await store.load()
+        await store.refreshIfStale()
+
+        #expect(await taste.calls == 3)
+        #expect(store.picked.isEmpty)
+        #expect(await cache.read() == nil)
+    }
+
+    @Test func aSnapshotForAnotherAccountIsStale() async {
+        let cache = Self.cache()
+        await cache.write(HomePicksSnapshot(day: Self.day(Self.today), picks: [Self.pick(Self.thief)],
+                                            username: "someoneelse"))
+        let profile = FakeProfile([LetterboxdEntry(slug: "heat", name: "Heat", year: 1995, rating: 9)])
+        let taste = FakeTaste(similar: ["heat": ["collateral"]])
+        let store = Self.store(profile: profile, taste: taste, username: "thebigshin", cache: cache)
+
+        await store.load()
+        #expect(store.picked.isEmpty)                        // never the other account's picks
+        await store.refreshIfStale()
+
+        #expect(await profile.calls == 1)
+        #expect(store.picked.map(\.slug) == ["collateral"])
+        let written = await cache.read()
+        #expect(written?.username == "thebigshin")
+        #expect(written?.day == Self.day(Self.today))
+    }
+
+    @Test func aCancelledStoreStopsCrawling() async {
+        let cache = Self.cache()
+        let taste = GatedTaste()
+        let refs = (0..<5).map { LetterboxdEntry(slug: "ref\($0)", name: "ref\($0)", year: 2000, rating: 9) }
+        let store = Self.store(profile: FakeProfile(refs), taste: taste, cache: cache)
+
+        await store.load()
+        for await _ in taste.startedSignal { break }         // the crawl is inside its first page
+        store.cancel()
+        await taste.release()
+        await store.refreshIfStale()                         // joins the cancelled crawl, starts none
+
+        #expect(await taste.calls == 1)
+        #expect(await cache.read() == nil)
+        #expect(store.picked.isEmpty)
+    }
+
+    @Test func aSnapshotWrittenBeforeUsernamesStillDecodes() throws {
+        let json = #"{"day":"2026-10-20","picks":[]}"#
+        let snapshot = try JSONDecoder().decode(HomePicksSnapshot.self, from: Data(json.utf8))
+        #expect(snapshot.day == "2026-10-20")
+        #expect(snapshot.username == nil)
     }
 
     @Test func oneFailingPageIsSkippedNotFatal() async {

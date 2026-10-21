@@ -69,6 +69,16 @@ extension MockTests {
             #expect(Set(films.map(\.slug)).isSuperset(of: ["the-lives-of-others", "the-tourist", "never-look-away"]))
         }
 
+        /// A Letterboxd that is refusing us (429) must not be hit back-to-back by the rest of a crawl.
+        @Test func aFailureIsPacedLikeASuccess() async {
+            serve(Data(), status: 429)
+            let r = LetterboxdTasteReader(http: HTTPClient(session: .mock), pageDelay: .milliseconds(300))
+            let clock = ContinuousClock()
+            let start = clock.now
+            await #expect(throws: LetterboxdError.profileUnavailable) { _ = try await r.similarFilms(to: "x") }
+            #expect(clock.now - start >= .milliseconds(300))
+        }
+
         @Test func aServerErrorIsProfileUnavailable() async {
             serve(Data(), status: 503)
             let r = reader()

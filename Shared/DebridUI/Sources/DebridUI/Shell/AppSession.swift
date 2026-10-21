@@ -241,6 +241,7 @@ public final class AppSession {
         letterboxdRatingProvider = nil
         watchStore = nil
         home = nil
+        homePicks?.cancel()
         homePicks = nil
         homePicksUsername = nil
         torrents = nil
@@ -663,6 +664,8 @@ public final class AppSession {
         let username = settings.username.trimmingCharacters(in: .whitespacesAndNewlines)
         guard username != homePicksUsername else { return }
         homePicksUsername = username
+        // The old account's crawl must not run on, nor write its list over the new account's.
+        homePicks?.cancel()
         homePicks = HomePicksStore.make(settings: settings) { makeHomePicksDependencies(username: $0) }
     }
 
