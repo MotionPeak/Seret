@@ -176,7 +176,8 @@ enum ViewDump {
             guard let window = NSApp.windows.max(by: { $0.frame.width < $1.frame.width }),
                   let root = window.contentView?.superview ?? window.contentView else { return }
             var lines = ["window \(window.frame.integral) key=\(window.isKeyWindow)"]
-            func walk(_ view: NSView, _ depth: Int) {
+            // The block runs on the main queue; a local func is nonisolated unless it says so.
+            @MainActor func walk(_ view: NSView, _ depth: Int) {
                 let frame = view.convert(view.bounds, to: nil).integral
                 var extra = ""
                 if let scroll = view as? NSScrollView {

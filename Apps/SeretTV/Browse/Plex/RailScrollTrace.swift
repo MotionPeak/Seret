@@ -18,7 +18,8 @@ enum RailScrollTrace {
                 typealias F = @convention(c) (UIScrollView, Selector, CGPoint) -> Void
                 let orig = unsafeBitCast(method_getImplementation(m), to: F.self)
                 let block: @convention(block) (UIScrollView, CGPoint) -> Void = { sv, p in
-                    report(sv, p, name)
+                    // UIKit sets a scroll view's offset on the main thread only.
+                    MainActor.assumeIsolated { report(sv, p, name) }
                     orig(sv, sel, p)
                 }
                 method_setImplementation(m, imp_implementationWithBlock(block))
@@ -26,7 +27,7 @@ enum RailScrollTrace {
                 typealias F = @convention(c) (UIScrollView, Selector, CGPoint, Bool) -> Void
                 let orig = unsafeBitCast(method_getImplementation(m), to: F.self)
                 let block: @convention(block) (UIScrollView, CGPoint, Bool) -> Void = { sv, p, a in
-                    report(sv, p, name + (a ? " ANIM" : ""))
+                    MainActor.assumeIsolated { report(sv, p, name + (a ? " ANIM" : "")) }
                     orig(sv, sel, p, a)
                 }
                 method_setImplementation(m, imp_implementationWithBlock(block))
@@ -34,14 +35,14 @@ enum RailScrollTrace {
         }
     }
 
-    nonisolated(unsafe) static var printed = 0
-    static func report(_ sv: UIScrollView, _ p: CGPoint, _ how: String) {
+    @MainActor static var printed = 0
+    @MainActor static func report(_ sv: UIScrollView, _ p: CGPoint, _ how: String) {
         // The rail area: a vertical scroll view whose top inset is the hidden band (924).
         guard sv.contentInset.top > 800 || sv.adjustedContentInset.top > 800 else { return }
         let dy = p.y - sv.contentOffset.y
         guard abs(dy) > 0.5 else { return }
         print("[RAILTRACE] SET \(how) \(Int(sv.contentOffset.y))→\(Int(p.y)) dy=\(Int(dy)) inset=\(sv.adjustedContentInset) bounds=\(sv.bounds.size) frameInWin=\(sv.convert(sv.bounds, to: nil).integral)")
-        if let item = UIScreen.main.focusedItem {
+        if let item = sv.window?.windowScene?.focusSystem?.focusedItem {
             let f = item.frame
             let space = item.parentFocusEnvironment?.focusItemContainer?.coordinateSpace ?? UIScreen.main.coordinateSpace; let win = space.convert(f, to: UIScreen.main.coordinateSpace)
             print("[RAILTRACE] FOCUSED \(type(of: item)) frameOnScreen=\(win.integral)")
