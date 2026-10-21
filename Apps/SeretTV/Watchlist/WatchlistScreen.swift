@@ -437,23 +437,12 @@ struct WatchlistPageData {
         WatchlistRows.badge(for: entry, membership: membership, partnerName: partnerName)
     }
 
-    /// The header's description of a film: its page's id (so the art store keys it), its cached
-    /// synopsis and backdrop, and its tags. An unmatched film says so instead.
+    /// The header's description of a film (`PreviewSubject.watchlist`, shared with Home's rows).
     func subject(for entry: WatchlistEntry) -> PreviewSubject {
-        let title = WatchlistName.stripYear(from: entry.name)
-        guard let item = MediaItem.watchlistMovie(entry) else {
-            let stub = MediaItem(id: "watchlist:\(entry.slug)", kind: .movie, title: title,
-                                 year: entry.year, sources: [], seasons: [], tmdbID: nil,
-                                 posterPath: entry.posterPath)
-            return PreviewSubject(item: stub, overview: nil, backdropPath: nil,
-                                  tags: ["No TMDB match"], showsKind: false)
-        }
-        let info = entry.tmdbID.flatMap { details[$0] }
-        return PreviewSubject(item: item, overview: info?.overview, backdropPath: info?.backdropPath,
-                              tags: WatchlistRows.tags(for: entry, owned: isOwned(entry),
-                                                       membership: membership,
-                                                       partnerName: partnerName),
-                              showsKind: false)
+        PreviewSubject.watchlist(entry, details: entry.tmdbID.flatMap { details[$0] },
+                                 tags: WatchlistRows.tags(for: entry, owned: isOwned(entry),
+                                                          membership: membership,
+                                                          partnerName: partnerName))
     }
 }
 
@@ -620,6 +609,10 @@ struct WatchlistTile: View {
     var onRemove: (WatchlistEntry) -> Void = { _ in }
     /// Focus landed on the film — the page's header (or a grid's backdrop) follows it.
     var onFocus: () -> Void = {}
+    /// Whether the long-press offers Remove. Home's rows pass false: removal belongs to the
+    /// Watchlist page, which hosts the confirmation. Fixed for the tile's life, so a menu is never
+    /// added to or taken from a tile under focus.
+    var allowsRemove = true
 
     @Environment(AppSession.self) private var session
 
@@ -627,15 +620,22 @@ struct WatchlistTile: View {
 
     var body: some View {
         if let item = MediaItem.watchlistTitle(entry, library: session.libraryStore) {
-            PosterTile(posterPath: entry.posterPath, title: title, chip: badge, owned: owned,
-                       onFocus: onFocus, value: BrowseDestination.detail(item))
-                .contextMenu { removeButton }
+            removable(PosterTile(posterPath: entry.posterPath, title: title, chip: badge, owned: owned,
+                                 onFocus: onFocus, value: BrowseDestination.detail(item)))
         } else {
-            PosterTile(posterPath: entry.posterPath, title: title, chip: badge, owned: owned,
-                       onFocus: onFocus, action: {})
-                // Removable too — an unmatched film is the one you are most likely to want rid
-                // of, since it is the one Seret can do nothing with.
-                .contextMenu { removeButton }
+            // Removable too — an unmatched film is the one you are most likely to want rid of,
+            // since it is the one Seret can do nothing with.
+            removable(PosterTile(posterPath: entry.posterPath, title: title, chip: badge, owned: owned,
+                                 onFocus: onFocus, action: {}))
+        }
+    }
+
+    @ViewBuilder
+    private func removable(_ tile: some View) -> some View {
+        if allowsRemove {
+            tile.contextMenu { removeButton }
+        } else {
+            tile
         }
     }
 

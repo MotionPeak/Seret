@@ -143,6 +143,9 @@ struct PlayerUIPreview: View {
         case "homefailed":          HomeScreenPreview(failure: "Couldn't reach Real-Debrid. Check the connection and try again.")
         case "homedownloading":     HomeScreenPreview(downloading: true)
         case "homedownloadsonly":   HomeScreenPreview(downloading: true, downloadsOnly: true)
+        case "homepicks":           HomeScreenPreview(picks: true)
+        case "homepicksdownloading": HomeScreenPreview(downloading: true, picks: true)
+        case "homepicksonly":       HomeScreenPreview(picks: true, picksOnly: true)
         case "downloadstrip":       DownloadStripPreview()
         case "watchlist":           WatchlistScreenPreview()
         case "watchlistremove":     WatchlistScreenPreview(removeFocusedAfter: .seconds(20))
@@ -1550,12 +1553,24 @@ private struct ManualSyncPreviewProvider: SubtitleProvider {
 /// and pressing it must leave it focused, reading "Trying…". `homedownloading` adds a Downloading
 /// rail with one download in flight, between Continue Watching and Recently Added;
 /// `homedownloadsonly` has that download and nothing else.
+///
+/// `homepicks` is Home with Letterboxd set up: Continue Watching, then "Picked for Right Now" and
+/// "Both of You Want to See" over the Watchlist harness's films (Noga as the partner, real TMDB
+/// details for the header) — and no Recently Added rails. `homepicksdownloading` adds the
+/// Downloading rail between Continue Watching and the picks; `homepicksonly` has no Continue
+/// Watching, so Home must open on the first picked film.
 private struct HomeScreenPreview: View {
     var failure: String?
     var downloading = false
     /// `homedownloadsonly`: a download under way and nothing else — Home must open on its tile,
     /// with its header, rather than on no tile at all.
     var downloadsOnly = false
+    /// `homepicks*`: the watchlist rows, as Home shows them with a Letterboxd username set.
+    var picks = false
+    /// `homepicksonly`: the watchlist rows and nothing else.
+    var picksOnly = false
+    @State private var watchlistDetails = WatchlistDetailsStore(
+        fileURL: nil, details: TMDBDetailsService(client: TMDBClient(apiKey: Secrets.tmdbAPIKey)))
     @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()))
     @State private var home = HomeStore(watch: PreviewWatch())
     /// The failed state's store: empty, so nothing but the failure is on screen.
@@ -1572,9 +1587,14 @@ private struct HomeScreenPreview: View {
                 } else if downloadsOnly {
                     HomeScreen(previewHome: emptyHome, previewArt: art,
                                previewDownloads: [DownloadPreviewFixture.dune])
+                } else if picksOnly {
+                    HomeScreen(previewHome: emptyHome, previewArt: art,
+                               previewPicks: Self.watchlistRows, previewWatchlistDetails: watchlistDetails)
                 } else if ready {
                     HomeScreen(previewHome: home, previewArt: art,
-                               previewDownloads: downloading ? [DownloadPreviewFixture.dune] : nil)
+                               previewDownloads: downloading ? [DownloadPreviewFixture.dune] : nil,
+                               previewPicks: picks ? Self.watchlistRows : nil,
+                               previewWatchlistDetails: picks ? watchlistDetails : nil)
                 } else {
                     Color.black
                 }
@@ -1586,10 +1606,28 @@ private struct HomeScreenPreview: View {
         }
         .environment(session)
         .task {
+            if picks {
+                // Not awaited: the rows are on screen at once, the headers complete as details land
+                // — the way a first visit goes.
+                let details = watchlistDetails
+                Task { await details.ensure(WatchlistPreviewFixture.entries.compactMap(\.tmdbID)) }
+            }
             home.activeProfileID = "preview"
             await home.rebuild(movies: Self.movies, shows: Self.shows)
             ready = true
         }
+    }
+
+    /// Picked: a run of films from both lists, Noga's only and the unmatched one among them (it
+    /// still opens nothing and says "No TMDB match"). Both: every film on both lists.
+    private static var watchlistRows: HomeWatchlistRows {
+        let entries = WatchlistPreviewFixture.entries
+        let picked = [15, 4, 16, 8, 2, 12, 9, 17, 5, 18, 0, 13].map { entries[$0] }
+        let both = [6, 11, 15, 2].map { entries[$0] }
+        return HomeWatchlistRows(picked: picked, both: both,
+                                 membership: WatchlistMembership(owner: WatchlistPreviewFixture.owners,
+                                                                 partner: WatchlistPreviewFixture.partners),
+                                 partnerName: "Noga")
     }
 
     /// Two part-way entries, because the two kinds offer different menus — a movie is marked on its

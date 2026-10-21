@@ -127,4 +127,45 @@ import DebridCore
         #expect(s.overview == nil)
         #expect(s.kind == .show)
     }
+
+    // MARK: Watchlist films
+
+    private static func entry(tmdbID: Int?) -> WatchlistEntry {
+        WatchlistEntry(slug: "heat", name: "Heat (1995)", year: 1995, position: 0, tmdbID: tmdbID,
+                       posterPath: "/heat.jpg", resolvedAt: Date())
+    }
+
+    @Test func matchedWatchlistFilmTakesItsDetailsAndTheGivenTags() {
+        let details = WatchlistFilmDetails(tmdbID: 949, genres: ["Crime"], runtimeMinutes: 170,
+                                           voteAverage: 7.9, voteCount: 9_000, overview: "A heist.",
+                                           backdropPath: "/plate.jpg", logoPath: nil, fetchedAt: Date())
+        let s = PreviewSubject.watchlist(Self.entry(tmdbID: 949), details: details,
+                                         tags: ["In Library", "Both of you"])
+        #expect(s.id == "movie:tmdb:949")      // the title page's id, so the art store keys it
+        #expect(s.tmdbID == 949)
+        #expect(s.title == "Heat")             // the year stripped off the Letterboxd name
+        #expect(s.year == 1995)
+        #expect(s.overview == "A heist.")
+        #expect(s.backdropPath == "/plate.jpg")
+        #expect(s.posterPath == "/heat.jpg")
+        #expect(s.tags == ["In Library", "Both of you"])
+        #expect(s.showsKind == false)
+    }
+
+    @Test func matchedWatchlistFilmWithNoDetailsYetHasNoSynopsis() {
+        let s = PreviewSubject.watchlist(Self.entry(tmdbID: 949), details: nil, tags: [])
+        #expect(s.id == "movie:tmdb:949")
+        #expect(s.overview == nil)
+        #expect(s.backdropPath == nil)
+        #expect(s.tags.isEmpty)
+    }
+
+    @Test func unmatchedWatchlistFilmSaysSoAndIgnoresTheTags() {
+        let s = PreviewSubject.watchlist(Self.entry(tmdbID: nil), details: nil, tags: ["Both of you"])
+        #expect(s.id == "watchlist:heat")
+        #expect(s.tmdbID == nil)
+        #expect(s.title == "Heat")
+        #expect(s.tags == ["No TMDB match"])
+        #expect(s.showsKind == false)
+    }
 }

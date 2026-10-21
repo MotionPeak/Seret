@@ -4,12 +4,15 @@ import SwiftUI
 
 /// Home tab, Plex-style: a focus-driven preview header (logo, metadata, synopsis over the ultrablur
 /// backdrop of the focused title) above sideways poster rails — Continue Watching, Downloading
-/// (while anything is), Recently Added Movies and Recently Added Shows — composed on the shared
-/// `session.home`.
+/// (while anything is), then "Picked for Right Now" and "Both of You Want to See" from the
+/// Letterboxd watchlists (`session.homePicks`) — composed on the shared `session.home`. With no
+/// Letterboxd username set up, Recently Added Movies and Recently Added Shows take the watchlist
+/// rows' place, so Home is never blank.
 ///
 /// Continue Watching resumes on Select (its page only when the file no longer resolves) and keeps
 /// its press-and-hold menu; Recently Added tiles open the title's page and keep the library menu and
-/// the watched ✓; Downloading tiles open the title's page.
+/// the watched ✓; Downloading tiles and watchlist films open the title's page. A watchlist film has
+/// no long-press Remove here — the Watchlist page owns removal.
 struct HomeScreen: View {
     @Environment(AppSession.self) private var session
     /// Pushes a page onto the shell's stack. A no-op outside the shell (previews, the harness).
@@ -40,11 +43,31 @@ struct HomeScreen: View {
     /// The harness's downloads (`-uiPreview homedownloading`) — the preview session has no store.
     var previewDownloads: [DownloadTile]?
     var activeDownloads: [DownloadTile] { previewDownloads ?? session.downloadStore?.activeTiles ?? [] }
+    /// The harness's watchlist rows (`-uiPreview homepicks`) — the preview session has no
+    /// Letterboxd account.
+    var previewPicks: HomeWatchlistRows?
+    /// The harness's watchlist details, so a picked film's header has its synopsis and backdrop.
+    var previewWatchlistDetails: WatchlistDetailsStore?
+    var watchlistRows: HomeWatchlistRows? {
+        previewPicks ?? session.homePicks.map(HomeWatchlistRows.init)
+    }
+    private var injectedWatchlistDetails: WatchlistDetailsStore? { previewWatchlistDetails }
 #else
     private var homeStore: HomeStore? { session.home }
     private var art: TitleArtStore? { session.titleArt }
     var activeDownloads: [DownloadTile] { session.downloadStore?.activeTiles ?? [] }
+    /// Home's watchlist rows. Nil when no Letterboxd username is set — Home then shows Recently
+    /// Added instead.
+    var watchlistRows: HomeWatchlistRows? { session.homePicks.map(HomeWatchlistRows.init) }
+    private var injectedWatchlistDetails: WatchlistDetailsStore? { nil }
 #endif
+
+    /// The watchlist films' TMDB details (synopsis, backdrop, logo) for their headers — the one the
+    /// Watchlist page fills. Set once Home appears, never made in the body: making it registers it
+    /// on the session.
+    @State private var watchlistDetails: WatchlistDetailsStore?
+    /// `HomePicksStore.load()` has answered once — until then "nothing on Home" is not yet known.
+    @State private var picksLoaded = false
 
     /// Drives the preview header: tiles report focus, it publishes the one focus settles on.
     @State private var preview = FocusPreviewModel()
@@ -62,8 +85,9 @@ struct HomeScreen: View {
     /// into an empty library is exactly when the viewer wants to see it.
     private var homeReady: Bool {
         guard let h = homeStore else { return false }
-        if !activeDownloads.isEmpty { return true }
-        return !(h.continueWatching.isEmpty && h.recentlyAdded.isEmpty)
+        if !activeDownloads.isEmpty || !h.continueWatching.isEmpty { return true }
+        if let picks = watchlistRows { return !picks.isEmpty }
+        return !h.recentlyAdded.isEmpty
     }
 
     /// A Try Again is under way — see `failed(_:)`.
@@ -85,9 +109,16 @@ struct HomeScreen: View {
     /// Nothing on Home YET: the library is still being read, or it has titles that Home has not
     /// composed yet. Both used to show "Nothing here yet — play something", for the whole first
     /// build of a cold launch.
+    ///
+    /// With the watchlist rows in Recently Added's place, a library with titles in it no longer
+    /// means Home has something to show — so it waits for Home's first build and the picks' first
+    /// answer instead, then says it is empty rather than spinning for good.
     private var stillLoading: Bool {
         guard let library = session.libraryStore else { return false }
-        return library.state == .loading || !(library.movies.isEmpty && library.shows.isEmpty)
+        if library.state == .loading { return true }
+        let libraryEmpty = library.movies.isEmpty && library.shows.isEmpty
+        guard watchlistRows != nil else { return !libraryEmpty }
+        return !picksLoaded || (!libraryEmpty && homeStore?.hasBuiltForProfile != true)
     }
 
     var body: some View {
@@ -96,6 +127,16 @@ struct HomeScreen: View {
             content
         }
         .task { await rebuild() }
+        // The watchlist rows: the day's cached picks and the mirrors at once, the day's refresh in
+        // the background (store-owned, so it outlives this task). Again when the Letterboxd
+        // account changes, which replaces the store.
+        .task(id: session.homePicks.map(ObjectIdentifier.init)) {
+            if watchlistDetails == nil {
+                watchlistDetails = injectedWatchlistDetails ?? session.makeWatchlistDetailsStore()
+            }
+            await session.homePicks?.load()
+            picksLoaded = true
+        }
         .onChange(of: session.libraryStore?.state) { _, state in
             if state != .loading { retrying = false }      // answered, either way
         }
@@ -128,6 +169,8 @@ struct HomeScreen: View {
         static let downloading = "downloading"
         static let movies = "movies"
         static let shows = "shows"
+        static let picked = "picked"
+        static let both = "both"
     }
 
     /// The rails, each present only while it has something in it. A rail appearing or leaving is
@@ -135,12 +178,15 @@ struct HomeScreen: View {
     /// each rail keeps one id for its whole life.
     private func rails(_ home: HomeStore) -> some View {
         let downloads = activeDownloads
-        let movies = home.recentlyAddedMovies
-        let shows = home.recentlyAddedShows
-        let keys = tileKeys(home)
+        let picks = watchlistRows
+        // Recently Added only stands in for the watchlist rows when there is no Letterboxd account.
+        let movies = picks == nil ? home.recentlyAddedMovies : []
+        let shows = picks == nil ? home.recentlyAddedShows : []
+        let keys = tileKeys(home, picks: picks)
         // Where focus goes: the tile the viewer was last on while it is still there (so coming back
         // from the side menu returns to it), else the tile Home opens on.
-        let focusTarget = entryTile.flatMap { keys.contains($0) ? $0 : nil } ?? initialFocusID(home)
+        let focusTarget = entryTile.flatMap { keys.contains($0) ? $0 : nil }
+            ?? initialFocusID(home, picks: picks)
         return FocusBrowsePage(preview: preview, art: art, initialFocus: focusTarget, focusOnEntry: true,
                                handle: focusHandle) {
             if !home.continueWatching.isEmpty {
@@ -159,6 +205,18 @@ struct HomeScreen: View {
                     }
                 }
             }
+            // No See All: these rows are the day's short list, and the whole watchlist is a page
+            // of its own.
+            if let picks, !picks.picked.isEmpty {
+                PlexRail(title: "Picked for Right Now", id: Rail.picked) {
+                    ForEach(picks.picked) { entry in watchlistTile(entry, rail: Rail.picked, picks: picks) }
+                }
+            }
+            if let picks, !picks.both.isEmpty {
+                PlexRail(title: "Both of You Want to See", id: Rail.both) {
+                    ForEach(picks.both) { entry in watchlistTile(entry, rail: Rail.both, picks: picks) }
+                }
+            }
             if !movies.isEmpty {
                 PlexRail(title: "Recently Added Movies", id: Rail.movies) {
                     ForEach(movies) { item in recentTile(item, rail: Rail.movies) }
@@ -172,7 +230,7 @@ struct HomeScreen: View {
         }
         // Until a tile has focus, the header shows what the page opens on — and follows it while
         // the rails are still arriving (Recently Added lands before Continue Watching).
-        .onChange(of: initialSubject(home), initial: true) { _, subject in
+        .onChange(of: initialSubject(home, picks: picks), initial: true) { _, subject in
             guard !focusMemory.tileHasFocused, let subject else { return }
             preview.showImmediately(subject)
         }
@@ -233,6 +291,37 @@ struct HomeScreen: View {
             })
     }
 
+    /// A watchlist film: its poster, whose list it is on ("Both", "Noga") and the grey ✓ when it is
+    /// already in the library. Select opens its title page, owned or not. No chip in Both of You
+    /// Want to See, where every film would wear the same one.
+    private func watchlistTile(_ entry: WatchlistEntry, rail: String, picks: HomeWatchlistRows) -> some View {
+        let badge = rail == Rail.both ? nil
+            : WatchlistRows.badge(for: entry, membership: picks.membership, partnerName: picks.partnerName)
+        return WatchlistTile(entry: entry, owned: isOwned(entry), badge: badge,
+                             onFocus: {
+                                 // The header's logo, rating and genres from the cache, at once.
+                                 if let id = entry.tmdbID, let details = watchlistDetails?.details[id] {
+                                     art?.seed(details.titleArt, for: .movie, tmdbID: id)
+                                 }
+                                 focus(watchlistSubject(entry, picks: picks))
+                             },
+                             allowsRemove: false)
+            .plexFocusID(Self.focusID(rail, entry.id))
+    }
+
+    /// A watchlist film's header — built as the Watchlist page builds it, with its tags.
+    private func watchlistSubject(_ entry: WatchlistEntry, picks: HomeWatchlistRows) -> PreviewSubject {
+        PreviewSubject.watchlist(entry, details: entry.tmdbID.flatMap { watchlistDetails?.details[$0] },
+                                 tags: WatchlistRows.tags(for: entry, owned: isOwned(entry),
+                                                          membership: picks.membership,
+                                                          partnerName: picks.partnerName))
+    }
+
+    private func isOwned(_ entry: WatchlistEntry) -> Bool {
+        guard let id = entry.tmdbID else { return false }
+        return session.libraryStore?.ownedItem(tmdbID: id, kind: .movie) != nil
+    }
+
     private func focus(_ subject: PreviewSubject?) {
         focusMemory.tileHasFocused = true
         guard let subject else { return }
@@ -242,21 +331,31 @@ struct HomeScreen: View {
     static func focusID(_ rail: String, _ id: String) -> String { "\(rail)/\(id)" }
 
     /// The tile Home opens on: the first tile of the first rail there is — Continue Watching,
-    /// Downloading, Recently Added Movies, Recently Added Shows — the top-leading tile, the one the
-    /// header starts on. Downloading counts: with only a download under way there is no other
-    /// tile, and with no target launch focus could park on the side menu.
-    private func initialFocusID(_ home: HomeStore) -> String? {
+    /// Downloading, then Picked for Right Now and Both of You Want to See (or, with no Letterboxd
+    /// account, Recently Added Movies and Shows) — the top-leading tile, the one the header starts
+    /// on. Downloading counts: with only a download under way there is no other tile, and with no
+    /// target launch focus could park on the side menu.
+    private func initialFocusID(_ home: HomeStore, picks: HomeWatchlistRows?) -> String? {
         if let hi = home.continueWatching.first { return Self.focusID(Rail.continueWatching, hi.id) }
         if let tile = activeDownloads.first { return Self.focusID(Rail.downloading, tile.id) }
+        if let picks {
+            if let entry = picks.picked.first { return Self.focusID(Rail.picked, entry.id) }
+            return picks.both.first.map { Self.focusID(Rail.both, $0.id) }
+        }
         if let movie = home.recentlyAddedMovies.first { return Self.focusID(Rail.movies, movie.id) }
         return home.recentlyAddedShows.first.map { Self.focusID(Rail.shows, $0.id) }
     }
 
     /// The header for `initialFocusID`'s tile.
-    private func initialSubject(_ home: HomeStore) -> PreviewSubject? {
+    private func initialSubject(_ home: HomeStore, picks: HomeWatchlistRows?) -> PreviewSubject? {
         if let hi = home.continueWatching.first { return Self.subject(for: hi) }
         if let tile = activeDownloads.first {
             return Self.subject(for: downloadDestination(for: tile, library: session.libraryStore))
+        }
+        if let picks {
+            // Read only when a watchlist film IS the opening tile, so Home follows the details
+            // store's progress only then — completing that header as its synopsis lands.
+            return (picks.picked.first ?? picks.both.first).map { watchlistSubject($0, picks: picks) }
         }
         let first = home.recentlyAddedMovies.first ?? home.recentlyAddedShows.first
         return first.map(PreviewSubject.init(item:))

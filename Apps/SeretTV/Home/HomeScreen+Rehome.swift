@@ -21,12 +21,19 @@ final class HomeFocusMemory {
 }
 
 extension HomeScreen {
-    /// Every tile's focus id, rail by rail, in screen order.
-    func tileKeys(_ home: HomeStore) -> [String] {
-        home.continueWatching.map { Self.focusID(Rail.continueWatching, $0.id) }
+    /// Every tile's focus id, rail by rail, in screen order: Continue Watching, Downloading, then
+    /// the watchlist rows — or, with no Letterboxd account (`picks` nil), Recently Added.
+    func tileKeys(_ home: HomeStore, picks: HomeWatchlistRows?) -> [String] {
+        let leading = home.continueWatching.map { Self.focusID(Rail.continueWatching, $0.id) }
             + activeDownloads.map { Self.focusID(Rail.downloading, $0.id) }
-            + home.recentlyAddedMovies.map { Self.focusID(Rail.movies, $0.id) }
-            + home.recentlyAddedShows.map { Self.focusID(Rail.shows, $0.id) }
+        guard let picks else {
+            return leading
+                + home.recentlyAddedMovies.map { Self.focusID(Rail.movies, $0.id) }
+                + home.recentlyAddedShows.map { Self.focusID(Rail.shows, $0.id) }
+        }
+        return leading
+            + picks.picked.map { Self.focusID(Rail.picked, $0.id) }
+            + picks.both.map { Self.focusID(Rail.both, $0.id) }
     }
 
     func tileFocusChanged(_ key: String?) {
