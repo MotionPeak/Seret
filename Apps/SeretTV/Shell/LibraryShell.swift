@@ -320,6 +320,8 @@ private struct ShellPages: View, Equatable {
             // A transparent page still holds every bitmap it drew; this lets its images go (the
             // cache keeps the recent ones, so coming back is still instant).
             .environment(\.retainsImages, visible)
+            // Hidden pages keep their state but drop their tiles — see `ShellPageVisibleKey`.
+            .environment(\.shellPageVisible, visible)
             .opacity(visible ? 1 : 0)
             .allowsHitTesting(visible)
             .disabled(!visible)
@@ -341,11 +343,27 @@ private struct SideMenuFocusKey: EnvironmentKey {
     static let defaultValue = SideMenuFocusFlag()
 }
 
+/// Whether this root page is the one on screen. A kept-alive page behind another keeps its state
+/// (its models, loads and focus memory) but builds NO tiles, header or backdrop while hidden.
+///
+/// Measured on the real Apple TV with a scripted walk along Home's rail: with Movies, Shows,
+/// Watchlist and Library alive behind Home, every focus move dropped 0.6–1.4 frames; with them gone,
+/// 0.03–0.05. No one page was the cause — dropping any single one changed nothing — the cost grows
+/// with every focusable tile in the window, visible or not. Pushed pages never set it (default true).
+private struct ShellPageVisibleKey: EnvironmentKey {
+    static let defaultValue = true
+}
+
 extension EnvironmentValues {
     /// A `ShellAction`, not a closure — see why there.
     var openBrowseDestination: ShellAction<BrowseDestination> {
         get { self[OpenBrowseDestinationKey.self] }
         set { self[OpenBrowseDestinationKey.self] = newValue }
+    }
+
+    var shellPageVisible: Bool {
+        get { self[ShellPageVisibleKey.self] }
+        set { self[ShellPageVisibleKey.self] = newValue }
     }
 
     var sideMenuFocus: SideMenuFocusFlag {

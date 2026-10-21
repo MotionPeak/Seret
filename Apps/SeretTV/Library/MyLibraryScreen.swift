@@ -50,7 +50,18 @@ struct MyLibraryScreen: View {
         Set(store.watchByKey.filter { $0.value.finished }.map(\.key))
     }
 
+    @Environment(\.shellPageVisible) private var visible
+
     var body: some View {
+        if visible {
+            page
+        } else {
+            // Kept alive behind another page: state only, no tiles (see `ShellPageVisibleKey`).
+            Color.clear
+        }
+    }
+
+    private var page: some View {
         // No gap of its own under the pills: the scroll below starts with its top fade band.
         VStack(spacing: 0) {
             HStack(spacing: 24) {

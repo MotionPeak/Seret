@@ -111,6 +111,10 @@ struct FocusBrowsePage<Rails: View, Accessory: View>: View {
 
     /// What the backdrop shows — written by the header's settle, read only by the backdrop layer.
     @State private var backdrop = FocusBrowseBackdropPath()
+    /// Which row holds focus. Here rather than in the rail area so it outlives a hidden page's
+    /// tiles: the rebuilt rail area scrolls back to it, so the remembered tile exists for focus.
+    @State private var rows = FocusBrowseRows()
+    @Environment(\.shellPageVisible) private var visible
 
     init(preview: FocusPreviewModel, art: TitleArtStore?, initialFocus: String? = nil,
          focusOnEntry: Bool = false, handle: FocusBrowseHandle? = nil,
@@ -134,6 +138,16 @@ struct FocusBrowsePage<Rails: View, Accessory: View>: View {
     /// it five or six times and every run reached every tile (measured on `-uiPreview plexrails`:
     /// 84–126 tile-modifier bodies per press).
     var body: some View {
+        if visible {
+            page
+        } else {
+            // A kept-alive page behind another: no tiles, header or backdrop — see
+            // `ShellPageVisibleKey`. Never focused while hidden, so this swap never moves focus.
+            Color.clear
+        }
+    }
+
+    private var page: some View {
         VStack(alignment: .leading, spacing: 0) {
             FocusBrowseHeaderSlot(preview: preview, art: art, placeholder: placeholder,
                                   backdrop: backdrop)
@@ -155,7 +169,7 @@ struct FocusBrowsePage<Rails: View, Accessory: View>: View {
                     }
                 }
 
-            FocusBrowseRailsArea(rails: rails)
+            FocusBrowseRailsArea(rails: rails, rows: rows)
         }
         // The backdrop, full-bleed: out past the safe area AND past the shell's leading inset, so
         // the art runs under the side menu as it does in Plex.
@@ -281,8 +295,8 @@ private struct FocusBrowseHeaderSlot: View {
 /// changes identity, and which tells the handle about each move.
 private struct FocusBrowseRailsArea<Rails: View>: View {
     let rails: Rails
+    let rows: FocusBrowseRows
 
-    @State private var rows = FocusBrowseRows()
     /// When the page last scrolled a row to the top — re-alignment waits for that to finish.
     @State private var lastRowScroll = ContinuousClock.now
     /// The focused row's latest offset from the top of the rail area (see `FocusedRowOffsetKey`).
@@ -311,6 +325,11 @@ private struct FocusBrowseRailsArea<Rails: View>: View {
             .scrollClipDisabled()
             .gridTopFade(FocusBrowseLayout.railVerticalPadding,
                          hiddenAbove: FocusBrowseLayout.hiddenRailBand)
+            // Rebuilt after the page was hidden: back to the row focus was in, at once, so the
+            // tile the page re-focuses is built (a lazy stack only builds what is on screen).
+            .onAppear {
+                if let row = rows.focused { proxy.scrollTo(row, anchor: .top) }
+            }
             .onChange(of: rows.focused) { _, row in
                 guard let row else { return }
                 lastRowScroll = .now
