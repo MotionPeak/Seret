@@ -21,6 +21,13 @@ public struct TitleArt: Sendable, Equatable {
 
 /// A bounded cache of `TitleArt`, shared by every screen with a preview header.
 ///
+/// **Observed per title.** Each title's art lives in its own observable slot, so a view that read
+/// one title re-renders only when THAT title's art lands. The cache used to be one observed
+/// dictionary: every title Home's banner loaded invalidated every header that had read any art —
+/// the kept-alive Movies, Shows and Watchlist pages behind Home included — on every title change.
+/// Measured on the real Apple TV (a scripted walk along a rail): 0.6–1.3 dropped frames per focus
+/// move with those pages alive, 0.03 with them gone.
+///
 /// The load is **store-owned**: it runs in a task the store creates, so a caller that goes away
 /// (focus moved on, the view disappeared) cannot cancel a fetch another caller is waiting on, and
 /// two callers for one title share a single request.
@@ -31,7 +38,9 @@ public final class TitleArtStore {
 
     @ObservationIgnored private let details: MediaDetailsProviding
     @ObservationIgnored private let capacity: Int
-    private var cache: [Key: TitleArt] = [:]
+    @ObservationIgnored private var cache: [Key: TitleArt] = [:]
+    /// One observable slot per title a view has asked about — see the type's doc.
+    @ObservationIgnored private var slots: [Key: Slot] = [:]
     /// Least- to most-recently used.
     @ObservationIgnored private var order: [Key] = []
     @ObservationIgnored private var inFlight: [Key: Task<TitleArt?, Never>] = [:]
@@ -44,7 +53,28 @@ public final class TitleArtStore {
     /// The cached art, or nil when it hasn't loaded (or failed). Synchronous, so a view can render
     /// it the moment it exists.
     public func art(for kind: MediaKind, tmdbID: Int) -> TitleArt? {
-        cache[Key(kind: kind, tmdbID: tmdbID)]
+        slot(Key(kind: kind, tmdbID: tmdbID)).art
+    }
+
+    /// The title's slot, made on first ask (unobserved bookkeeping, safe inside a view's body).
+    private func slot(_ key: Key) -> Slot {
+        if let existing = slots[key] { return existing }
+        let made = Slot(art: cache[key])
+        slots[key] = made
+        return made
+    }
+
+    /// Writes the cache and tells only that title's readers.
+    private func store(_ art: TitleArt?, for key: Key) {
+        cache[key] = art
+        if let slot = slots[key] {
+            if art == nil {
+                slot.art = nil
+                slots[key] = nil
+            } else if slot.art != art {
+                slot.art = art
+            }
+        }
     }
 
     /// Loads (or joins the load of) a title's art. Nil on any error; a later call retries.
@@ -65,10 +95,10 @@ public final class TitleArtStore {
     private func finish(_ key: Key, _ art: TitleArt?) {
         inFlight[key] = nil
         guard let art else { return }
-        cache[key] = art
+        store(art, for: key)
         touch(key)
         while order.count > capacity {
-            cache[order.removeFirst()] = nil
+            store(nil, for: order.removeFirst())
         }
     }
 
@@ -77,10 +107,10 @@ public final class TitleArtStore {
     public func seed(_ art: TitleArt, for kind: MediaKind, tmdbID: Int) {
         let key = Key(kind: kind, tmdbID: tmdbID)
         guard cache[key] == nil else { return }
-        cache[key] = art
+        store(art, for: key)
         touch(key)
         while order.count > capacity {
-            cache[order.removeFirst()] = nil
+            store(nil, for: order.removeFirst())
         }
     }
 
@@ -110,4 +140,12 @@ public final class TitleArtStore {
             return nil
         }
     }
+}
+
+/// One title's art, observed on its own (see `TitleArtStore`).
+@MainActor
+@Observable
+private final class Slot {
+    var art: TitleArt?
+    init(art: TitleArt?) { self.art = art }
 }

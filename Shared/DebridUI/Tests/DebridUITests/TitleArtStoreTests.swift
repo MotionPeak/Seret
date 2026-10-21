@@ -43,6 +43,29 @@ private final class GatedDetails: MediaDetailsProviding, @unchecked Sendable {
 }
 
 @Suite struct TitleArtStoreTests {
+    /// A header that read one title's art must not re-render when another title's art lands —
+    /// the kept-alive pages behind Home re-rendered on every title Home's banner loaded.
+    @MainActor @Test func anotherTitleLandingDoesNotInvalidateAReader() async {
+        let store = TitleArtStore(details: GatedDetails())
+        _ = await store.load(.movie, tmdbID: 1)
+        let fired = Flag()
+        withObservationTracking { _ = store.art(for: .movie, tmdbID: 1) } onChange: { fired.set() }
+        _ = await store.load(.movie, tmdbID: 2)
+        store.seed(TitleArt(logoPath: nil, backdropPath: nil, voteAverage: nil, genres: [],
+                            runtimeMinutes: nil, seasonCount: nil), for: .movie, tmdbID: 3)
+        #expect(!fired.value)
+    }
+
+    /// …but a reader waiting on a title still hears its art arrive.
+    @MainActor @Test func aTitleLandingInvalidatesItsOwnReader() async {
+        let store = TitleArtStore(details: GatedDetails())
+        let fired = Flag()
+        withObservationTracking { _ = store.art(for: .movie, tmdbID: 5) } onChange: { fired.set() }
+        _ = await store.load(.movie, tmdbID: 5)
+        #expect(fired.value)
+        #expect(store.art(for: .movie, tmdbID: 5)?.logoPath == "/logo5.png")
+    }
+
     @MainActor @Test func concurrentLoadsShareOneFetch() async {
         let fake = GatedDetails()
         let gate = AsyncGate()
@@ -149,4 +172,11 @@ private final class GatedDetails: MediaDetailsProviding, @unchecked Sendable {
         #expect(store.art(for: .movie, tmdbID: 7) != nil)
         #expect(fake.calls == [7])
     }
+}
+
+private final class Flag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _value = false
+    var value: Bool { lock.withLock { _value } }
+    func set() { lock.withLock { _value = true } }
 }
