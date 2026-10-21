@@ -28,6 +28,14 @@ public protocol LetterboxdRatingStoring: Sendable {
     func setRating(_ value: Int?, contentKey: String, profileID: String) async throws
 }
 
+/// Reads Letterboxd's taste signals — similar films, a film's director and genres, a director's
+/// filmography. A seam so the picker can be tested without a network.
+public protocol LetterboxdTasteReading: Sendable {
+    func similarFilms(to slug: String) async throws -> [LetterboxdEntry]
+    func filmPage(_ slug: String) async throws -> LetterboxdFilmFacts
+    func films(byDirector slug: String) async throws -> [LetterboxdEntry]
+}
+
 extension LetterboxdProfileReader: LetterboxdProfileReading {}
 extension LetterboxdFilmResolver: LetterboxdFilmResolving {}
 
