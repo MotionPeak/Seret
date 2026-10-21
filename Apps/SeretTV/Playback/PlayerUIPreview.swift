@@ -146,6 +146,7 @@ struct PlayerUIPreview: View {
         case "homepicks":           HomeScreenPreview(picks: true)
         case "homepicksdownloading": HomeScreenPreview(downloading: true, picks: true)
         case "homepicksonly":       HomeScreenPreview(picks: true, picksOnly: true)
+        case "homepicksslow":       HomeScreenPreview(picks: true, slowDetails: true)
         case "downloadstrip":       DownloadStripPreview()
         case "watchlist":           WatchlistScreenPreview()
         case "watchlistremove":     WatchlistScreenPreview(removeFocusedAfter: .seconds(20))
@@ -1558,7 +1559,8 @@ private struct ManualSyncPreviewProvider: SubtitleProvider {
 /// "Both of You Want to See" over the Watchlist harness's films (Noga as the partner, real TMDB
 /// details for the header) — and no Recently Added rails. `homepicksdownloading` adds the
 /// Downloading rail between Continue Watching and the picks; `homepicksonly` has no Continue
-/// Watching, so Home must open on the first picked film.
+/// Watching, so Home must open on the first picked film. `homepicksslow` is `homepicks` with TMDB
+/// answering 15 s late: a pick focused before its details land must get its synopsis in place.
 private struct HomeScreenPreview: View {
     var failure: String?
     var downloading = false
@@ -1569,8 +1571,25 @@ private struct HomeScreenPreview: View {
     var picks = false
     /// `homepicksonly`: the watchlist rows and nothing else.
     var picksOnly = false
-    @State private var watchlistDetails = WatchlistDetailsStore(
-        fileURL: nil, details: TMDBDetailsService(client: TMDBClient(apiKey: Secrets.tmdbAPIKey)))
+    /// No file, so Home's own fetch is what fills it — the way a first run goes.
+    @State private var watchlistDetails: WatchlistDetailsStore
+
+    init(failure: String? = nil, downloading: Bool = false, downloadsOnly: Bool = false,
+         picks: Bool = false, picksOnly: Bool = false, slowDetails: Bool = false) {
+        self.failure = failure
+        self.downloading = downloading
+        self.downloadsOnly = downloadsOnly
+        self.picks = picks
+        self.picksOnly = picksOnly
+        let service = TMDBDetailsService(client: TMDBClient(apiKey: Secrets.tmdbAPIKey))
+        _watchlistDetails = State(initialValue: slowDetails
+            ? WatchlistDetailsStore(fileURL: nil, publishEvery: 1) { id in
+                try await Task.sleep(for: .seconds(15))
+                return WatchlistFilmDetails(movie: try await service.movieDetails(tmdbID: id),
+                                            fetchedAt: Date())
+            }
+            : WatchlistDetailsStore(fileURL: nil, details: service))
+    }
     @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()))
     @State private var home = HomeStore(watch: PreviewWatch())
     /// The failed state's store: empty, so nothing but the failure is on screen.
@@ -1606,12 +1625,6 @@ private struct HomeScreenPreview: View {
         }
         .environment(session)
         .task {
-            if picks {
-                // Not awaited: the rows are on screen at once, the headers complete as details land
-                // — the way a first visit goes.
-                let details = watchlistDetails
-                Task { await details.ensure(WatchlistPreviewFixture.entries.compactMap(\.tmdbID)) }
-            }
             home.activeProfileID = "preview"
             await home.rebuild(movies: Self.movies, shows: Self.shows)
             ready = true

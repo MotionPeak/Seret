@@ -305,16 +305,25 @@ public final class HomePicksStore {
         let liveBySlug = Dictionary(live.map { ($0.slug, $0) }, uniquingKeysWith: { first, _ in first })
         let liveByID = Dictionary(live.compactMap { entry in entry.tmdbID.map { ($0, entry) } },
                                   uniquingKeysWith: { first, _ in first })
-        picked = Array(picks.lazy.compactMap { pick -> WatchlistEntry? in
+        // Once per film, first occurrence wins: a pick whose own row is gone resolves by TMDB id
+        // to the live film, which can be a pick in its own right — and two tiles with one id in a
+        // lazy row break tvOS focus.
+        var row: [WatchlistEntry] = []
+        var seen = Set<String>()
+        for pick in picks where row.count < WatchlistPicker.rowTarget {
             guard let entry = liveBySlug[pick.entry.slug] ?? pick.entry.tmdbID.flatMap({ liveByID[$0] }),
-                  let tmdb = entry.tmdbID, !finished.contains(tmdb) else { return nil }
-            return entry
-        }.prefix(WatchlistPicker.rowTarget))
+                  let tmdb = entry.tmdbID, !finished.contains(tmdb),
+                  seen.insert(entry.slug).inserted else { continue }
+            row.append(entry)
+        }
+        picked = row
 
         // Shuffled from a fixed order (by slug, not list position — a film added to either list
         // renumbers every position) so the day's order only depends on which films are shared.
         var generator = SeededGenerator(seed: Self.day(of: now()))
-        both = Array(shared.sorted { $0.slug < $1.slug }
+        var seenShared = Set<String>()
+        both = Array(shared.filter { seenShared.insert($0.slug).inserted }
+            .sorted { $0.slug < $1.slug }
             .shuffled(using: &generator)
             .filter { !finished.contains($0.tmdbID ?? -1) }
             .prefix(Self.bothLimit))

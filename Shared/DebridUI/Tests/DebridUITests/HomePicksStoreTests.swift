@@ -369,6 +369,22 @@ private actor FakeFinished {
         #expect(store.picked.map(\.slug) == ["thief"])
     }
 
+    /// A pick whose own row is gone (the slug was renamed on Letterboxd) is shown as the live
+    /// film with its TMDB id — which can be another pick in its own right. One film, one tile:
+    /// two tiles with one id in a lazy row break tvOS focus.
+    @Test func aPickThatResolvesToAnotherPickIsShownOnce() async {
+        let cache = Self.cache()
+        let renamed = Self.film("collateral-2004", 1)          // gone; same TMDB id as `collateral`
+        await cache.write(HomePicksSnapshot(day: Self.day(Self.today),
+                                            picks: [Self.pick(Self.collateral, 3), Self.pick(Self.thief, 2),
+                                                    Self.pick(renamed, 1)]))
+        let store = Self.store(owner: [Self.collateral, Self.thief], cache: cache)
+
+        await store.load()
+
+        #expect(store.picked.map(\.slug) == ["collateral", "thief"])
+    }
+
     // MARK: - Both of you want to see
 
     @Test func noPartnerMeansNoBothRow() async {

@@ -137,6 +137,13 @@ struct HomeScreen: View {
             await session.homePicks?.load()
             picksLoaded = true
         }
+        // The details of the films on Home's rows — the synopsis, backdrop and logo their headers
+        // show. Fetched here rather than left to the Watchlist page's preload, which is gated and
+        // walks the whole list. Again for a new day's list; the store skips what it already has.
+        .task(id: watchlistDetailIDs) {
+            guard !watchlistDetailIDs.ids.isEmpty else { return }
+            await watchlistDetails?.ensure(watchlistDetailIDs.ids)
+        }
         .onChange(of: session.libraryStore?.state) { _, state in
             if state != .loading { retrying = false }      // answered, either way
         }
@@ -239,6 +246,15 @@ struct HomeScreen: View {
         // anywhere, the header still describing the gone title) until the next press, so focus
         // is handed to its neighbour here.
         .onChange(of: keys) { old, new in rehomeFocus(old: old, new: new) }
+        // A focused film's details landed after it was focused (a first run): complete its header
+        // in place — same title, so nothing fades. Per publish batch, never per press.
+        .onChange(of: watchlistDetails?.generation) { _, _ in
+            guard let picks, let key = focusHandle.focused,
+                  let entry = Self.watchlistEntry(forFocusID: key, in: picks),
+                  let shown = preview.shown else { return }
+            let fresh = watchlistSubject(entry, picks: picks)
+            if fresh.id == shown.id, fresh != shown { preview.showImmediately(fresh) }
+        }
         .onAppear { focusHandle.onChange = { tileFocusChanged($0) } }
         // Never move focus by itself while the viewer is in the menu (the rehome checks the menu
         // before every write) or on another page.
@@ -315,6 +331,31 @@ struct HomeScreen: View {
                                  tags: WatchlistRows.tags(for: entry, owned: isOwned(entry),
                                                           membership: picks.membership,
                                                           partnerName: picks.partnerName))
+    }
+
+    /// The film behind a `picked/…` or `both/…` focus id, if it is still in that row.
+    private static func watchlistEntry(forFocusID key: String, in picks: HomeWatchlistRows) -> WatchlistEntry? {
+        for (rail, row) in [(Rail.picked, picks.picked), (Rail.both, picks.both)] {
+            let prefix = focusID(rail, "")
+            if key.hasPrefix(prefix) {
+                let slug = key.dropFirst(prefix.count)
+                return row.first { $0.slug == slug }
+            }
+        }
+        return nil
+    }
+
+    /// The TMDB ids of the films on Home's rows, with whether the details store is there yet — so
+    /// the fetch re-runs once it is, and whenever the rows change.
+    private var watchlistDetailIDs: WatchlistDetailIDs {
+        let picks = watchlistRows
+        let ids = ((picks?.picked ?? []) + (picks?.both ?? [])).compactMap(\.tmdbID)
+        return WatchlistDetailIDs(ids: ids, hasStore: watchlistDetails != nil)
+    }
+
+    private struct WatchlistDetailIDs: Equatable {
+        let ids: [Int]
+        let hasStore: Bool
     }
 
     private func isOwned(_ entry: WatchlistEntry) -> Bool {
