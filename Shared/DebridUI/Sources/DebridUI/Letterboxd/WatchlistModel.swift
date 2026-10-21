@@ -47,6 +47,9 @@ public final class WatchlistModel {
     /// `.failed`: the owner's list is fine, and an error over it would say otherwise.
     public var partnerMessage: String? { combinedStatus.partnerError }
 
+    /// How soon after a Letterboxd crawl another is skipped. Home's watchlist sync keeps to it too.
+    nonisolated public static let defaultMinimumInterval: TimeInterval = 600
+
     private let settings: LetterboxdSettings
     private let minimumInterval: TimeInterval
     private let now: @Sendable () -> Date
@@ -61,7 +64,7 @@ public final class WatchlistModel {
 
     public init(cached: [WatchlistEntry],
                 settings: LetterboxdSettings,
-                minimumInterval: TimeInterval = 600,
+                minimumInterval: TimeInterval = defaultMinimumInterval,
                 now: @escaping @Sendable () -> Date = { Date() },
                 remove: @escaping WatchlistRemoving = { _ in [] },
                 relay: @escaping WatchlistRelaying = { .idle },

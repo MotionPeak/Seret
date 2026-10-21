@@ -10,6 +10,10 @@ public struct HomePicksDependencies: Sendable {
     /// The two watchlist mirrors as they stand on disk. `partner` is nil with no partner set up.
     public var watchlists: @Sendable () async -> (owner: [WatchlistEntry], partner: [WatchlistEntry]?,
                                                   partnerName: String?)
+    /// Brings both mirrors up to date with Letterboxd before the day's picks are made — Home may
+    /// be the only screen this device ever opens. Never throws: a failed sync leaves the mirrors
+    /// as they were.
+    public var syncWatchlists: @Sendable () async -> Void
     /// Which of these TMDB ids the device has finished.
     public var finishedTMDB: @Sendable (_ ids: [Int]) async -> Set<Int>
     /// TMDB genres for the watchlist films whose details are known.
@@ -21,12 +25,14 @@ public struct HomePicksDependencies: Sendable {
                 watchlists: @escaping @Sendable () async -> (owner: [WatchlistEntry],
                                                              partner: [WatchlistEntry]?,
                                                              partnerName: String?),
+                syncWatchlists: @escaping @Sendable () async -> Void = {},
                 finishedTMDB: @escaping @Sendable (_ ids: [Int]) async -> Set<Int>,
                 candidateGenres: @escaping @MainActor () -> [Int: [String]],
                 cache: HomePicksCache) {
         self.profile = profile
         self.taste = taste
         self.watchlists = watchlists
+        self.syncWatchlists = syncWatchlists
         self.finishedTMDB = finishedTMDB
         self.candidateGenres = candidateGenres
         self.cache = cache
@@ -66,6 +72,8 @@ public final class HomePicksStore {
     /// Whose list each film is on. Nil with no partner.
     public private(set) var membership: WatchlistMembership?
     public private(set) var partnerName: String?
+    /// True while the day's picks are being made.
+    public private(set) var isRefreshing = false
 
     @ObservationIgnored private let dependencies: HomePicksDependencies
     /// The account the picks are for. A cached list for any other account is ignored. Nil skips
@@ -93,6 +101,7 @@ public final class HomePicksStore {
     /// writing the cache. For a store about to be replaced — the account changed.
     public func cancel() {
         isCancelled = true
+        isRefreshing = false
         refreshTask?.cancel()
     }
 
@@ -153,6 +162,7 @@ public final class HomePicksStore {
 
         let dependencies = dependencies
         let genres = dependencies.candidateGenres()
+        isRefreshing = true
         refreshTask = Task { [weak self] in
             let picks = await Self.compute(dependencies, candidateGenres: genres)
             // Cancelled: the store is being replaced. Write nothing, publish nothing.
@@ -173,12 +183,14 @@ public final class HomePicksStore {
             failedAt = now()
         }
         refreshTask = nil
+        isRefreshing = false
         await publish()
     }
 
     /// The day's picks, read off Letterboxd. Nil — keep the cached list, back off — when the diary
-    /// cannot be read, when Letterboxd fails `Crawl.maxFailuresInARow` pages running, when not one
-    /// taste page came back, or when the task is cancelled. A page that fails on its own is left out.
+    /// cannot be read, when the owner's watchlist mirror is empty, when Letterboxd fails
+    /// `Crawl.maxFailuresInARow` pages running, when not one taste page came back, or when the task
+    /// is cancelled. A page that fails on its own is left out.
     ///
     /// Nonisolated, so the whole crawl runs off the main actor; only the result is published there.
     nonisolated static func compute(_ dependencies: HomePicksDependencies,
@@ -191,7 +203,15 @@ public final class HomePicksStore {
         }
         guard !Task.isCancelled else { return nil }
 
+        // The mirrors are otherwise only synced by the Watchlist page, which a device may never
+        // open. The sync is for the account as it stands now, so after a username change it
+        // re-crawls the new account into the owner's mirror before anything is picked from it.
+        await dependencies.syncWatchlists()
+        guard !Task.isCancelled else { return nil }
+
         let lists = await dependencies.watchlists()
+        // Never read, or unreadable: picks made from nothing would be cached as the whole day's.
+        guard !lists.owner.isEmpty else { return nil }
         let candidates = WatchlistMerge.combine(owner: lists.owner, partner: lists.partner ?? [])
         let membership = lists.partner.map { WatchlistMembership(owner: lists.owner, partner: $0) }
         let watchedSlugs = Set(films.map(\.slug))
@@ -199,12 +219,8 @@ public final class HomePicksStore {
             candidates.filter { !$0.isRemoved }.compactMap(\.tmdbID))
 
         let refs = WatchlistPicker.references(films)
-        let refSlugs = Set(refs.map(\.slug))
-        let eligible = Set(candidates.compactMap { entry -> String? in
-            guard let tmdb = entry.tmdbID, !entry.isRemoved, !watchedSlugs.contains(entry.slug),
-                  !watchedTMDB.contains(tmdb), !refSlugs.contains(entry.slug) else { return nil }
-            return entry.slug
-        })
+        let eligible = Set(WatchlistPicker.eligible(candidates, watchedSlugs: watchedSlugs,
+                                                    watchedTMDB: watchedTMDB, references: refs).map(\.slug))
         // Nothing to choose from: no point reading a single film page.
         guard !eligible.isEmpty, !refs.isEmpty else { return [] }
 
@@ -242,9 +258,10 @@ public final class HomePicksStore {
                 if !slugs.isEmpty { directorFilms[ref.slug] = slugs }
             }
 
-            // Looser matches only when the close and director ones cannot fill the row.
-            let reached = Set(similar.values.joined()).union(directorFilms.values.joined())
-            if eligible.intersection(reached).count < WatchlistPicker.rowTarget {
+            // Looser matches only when the close ones cannot fill the row. Director matches do
+            // not count: a row of one director's films is exactly what must not stop the search.
+            let close = Set(similar.values.joined())
+            if eligible.intersection(close).count < WatchlistPicker.rowTarget {
                 var asked: Set<String> = []
                 for ref in refs.prefix(secondHopReferences) {
                     for slug in (similar[ref.slug] ?? []).prefix(secondHopPerReference)
@@ -317,6 +334,7 @@ public final class HomePicksStore {
             row.append(entry)
         }
         picked = row
+        let pickedSlugs = Set(row.map(\.slug))
 
         // Shuffled from a fixed order (by slug, not list position — a film added to either list
         // renumbers every position) so the day's order only depends on which films are shared.
@@ -325,7 +343,9 @@ public final class HomePicksStore {
         both = Array(shared.filter { seenShared.insert($0.slug).inserted }
             .sorted { $0.slug < $1.slug }
             .shuffled(using: &generator)
-            .filter { !finished.contains($0.tmdbID ?? -1) }
+            // One film, one row: a pick on both lists shows in Picked only. Filtered after the
+            // shuffle, like a finish, so it does not reorder the rest.
+            .filter { !finished.contains($0.tmdbID ?? -1) && !pickedSlugs.contains($0.slug) }
             .prefix(Self.bothLimit))
         self.membership = membership
         partnerName = membership == nil ? nil : lists.partnerName

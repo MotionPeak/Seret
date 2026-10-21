@@ -94,6 +94,22 @@ private actor GatedTaste: LetterboxdTasteReading {
     }
 }
 
+/// The watchlist mirrors on disk, which a sync can fill in.
+private actor FakeMirror {
+    var owner: [WatchlistEntry]
+    private let afterSync: [WatchlistEntry]
+    private(set) var syncs = 0
+
+    init(owner: [WatchlistEntry], afterSync: [WatchlistEntry]) {
+        self.owner = owner
+        self.afterSync = afterSync
+    }
+    func sync() {
+        syncs += 1
+        owner = afterSync
+    }
+}
+
 /// What the device has finished, changeable between loads.
 private actor FakeFinished {
     var ids: Set<Int> = []
@@ -129,12 +145,17 @@ private actor FakeFinished {
                               partner: [WatchlistEntry]? = nil,
                               partnerName: String? = nil,
                               finished: FakeFinished = FakeFinished(),
+                              mirror: FakeMirror? = nil,
                               cache: HomePicksCache,
                               now: Date = today) -> HomePicksStore {
         let deps = HomePicksDependencies(
             profile: profile,
             taste: taste,
-            watchlists: { (owner, partner, partnerName) },
+            watchlists: {
+                guard let mirror else { return (owner, partner, partnerName) }
+                return (await mirror.owner, partner, partnerName)
+            },
+            syncWatchlists: { await mirror?.sync() },
             finishedTMDB: { ids in await finished.ids.intersection(ids) },
             candidateGenres: { [:] },
             cache: cache)
@@ -336,25 +357,107 @@ private actor FakeFinished {
         #expect(full.picked.count == WatchlistPicker.rowTarget)
     }
 
+    // MARK: - The watchlist mirrors
+
+    /// Home may be the only screen a device opens (the TV): the mirrors must be synced before
+    /// the picks are made from them, or the picks follow a list that was never read.
+    @Test func theMirrorsAreSyncedBeforeThePicksAreMade() async {
+        let mirror = FakeMirror(owner: [], afterSync: [Self.collateral, Self.thief])
+        let profile = FakeProfile([LetterboxdEntry(slug: "heat", name: "Heat", year: 1995, rating: 9)])
+        let taste = FakeTaste(similar: ["heat": ["collateral"]])
+        let store = Self.store(profile: profile, taste: taste, mirror: mirror, cache: Self.cache())
+
+        await store.load()
+        await store.refreshIfStale()
+
+        #expect(await mirror.syncs == 1)
+        #expect(store.picked.map(\.slug) == ["collateral"])
+    }
+
+    /// An empty owner's mirror is one that could not be read, not a watchlist with nothing on it:
+    /// caching an empty list would leave the row empty until tomorrow.
+    @Test func anEmptyOwnerMirrorKeepsYesterdaysPicks() async {
+        let cache = Self.cache()
+        let old = HomePicksSnapshot(day: Self.day(Self.yesterday), picks: [Self.pick(Self.thief)])
+        await cache.write(old)
+        let mirror = FakeMirror(owner: [], afterSync: [])
+        let profile = FakeProfile([LetterboxdEntry(slug: "heat", name: "Heat", year: 1995, rating: 9)])
+        let taste = FakeTaste(similar: ["heat": ["thief"]])
+        let store = Self.store(profile: profile, taste: taste, mirror: mirror, cache: cache)
+
+        await store.load()
+        await store.refreshIfStale()
+
+        #expect(await cache.read() == old)
+        #expect(await taste.calls == 0)
+        // Not taken as today's list: a store made later the same day still tries again.
+        let again = Self.store(profile: profile, taste: taste, mirror: mirror, cache: cache)
+        await again.load()
+        await again.refreshIfStale()
+        #expect(await profile.calls == 2)
+    }
+
+    /// A row full of one director's films is the director-only matching the owner ruled out.
+    /// Director matches must not count towards skipping the looser, similar-of-similar hop.
+    @Test func directorMatchesDoNotSkipTheSecondHop() async {
+        let byMann = (0..<WatchlistPicker.rowTarget).map { Self.film("mann\($0)", 300 + $0, position: $0 + 2) }
+        let profile = FakeProfile([LetterboxdEntry(slug: "heat", name: "Heat", year: 1995, rating: 9)])
+        let taste = FakeTaste(similar: ["heat": ["ronin"], "ronin": ["thief"]],
+                              facts: ["heat": LetterboxdFilmFacts(directorSlugs: ["mann"], genres: [])],
+                              directors: ["mann": byMann.map(\.slug)])
+        let store = Self.store(profile: profile, taste: taste, owner: [Self.collateral, Self.thief] + byMann,
+                               cache: Self.cache())
+
+        await store.load()
+        await store.refreshIfStale()
+
+        #expect(await taste.similarAsked == ["heat", "ronin"])
+        #expect(store.picked.map(\.slug).contains("thief"))
+    }
+
+    @Test func theRowSaysWhenTheDaysPicksAreBeingMade() async {
+        let taste = GatedTaste()
+        let refs = [LetterboxdEntry(slug: "heat", name: "Heat", year: 1995, rating: 9)]
+        let store = Self.store(profile: FakeProfile(refs), taste: taste, cache: Self.cache())
+        #expect(!store.isRefreshing)
+
+        await store.load()
+        #expect(store.isRefreshing)
+        for await _ in taste.startedSignal { break }
+        await taste.release()
+        await store.refreshIfStale()
+        #expect(!store.isRefreshing)
+
+        // A replaced store is not refreshing anything.
+        let gated = GatedTaste()
+        let cancelled = Self.store(profile: FakeProfile(refs), taste: gated, cache: Self.cache())
+        await cancelled.load()
+        for await _ in gated.startedSignal { break }
+        cancelled.cancel()
+        #expect(!cancelled.isRefreshing)
+        await gated.release()
+    }
+
     // MARK: - Local watch state
 
     @Test func aFilmFinishedLocallyDropsOutOfBothRows() async {
         let cache = Self.cache()
+        let ronin = Self.film("ronin", 3, position: 2)
         await cache.write(HomePicksSnapshot(day: Self.day(Self.today),
-                                            picks: [Self.pick(Self.collateral, 2), Self.pick(Self.thief)]))
+                                            picks: [Self.pick(Self.collateral, 2), Self.pick(ronin)]))
         let finished = FakeFinished()
-        let store = Self.store(partner: [Self.collateral, Self.thief], partnerName: "Noga",
-                               finished: finished, cache: cache)
+        let store = Self.store(owner: [Self.collateral, Self.thief, ronin], partner: [Self.thief, ronin],
+                               partnerName: "Noga", finished: finished, cache: cache)
 
         await store.load()
-        #expect(store.picked.map(\.slug) == ["collateral", "thief"])
-        #expect(Set(store.both.map(\.slug)) == ["collateral", "thief"])
+        #expect(store.picked.map(\.slug) == ["collateral", "ronin"])
+        #expect(store.both.map(\.slug) == ["thief"])            // ronin is shown once, in Picked
 
         // Finished today, after the day's list was made: gone on the next load.
-        await finished.set([1])
+        await finished.set([1, 2])
         await store.load()
-        #expect(store.picked.map(\.slug) == ["thief"])
-        #expect(store.both.map(\.slug) == ["thief"])
+        #expect(store.picked.map(\.slug) == ["ronin"])
+        #expect(store.both.isEmpty)
     }
 
     @Test func aPickTakenOffTheWatchlistsLeavesTheRow() async {
@@ -412,6 +515,19 @@ private actor FakeFinished {
         #expect(store.both.map(\.slug) == ["thief"])
         #expect(store.membership != nil)
         #expect(store.partnerName == "Noga")
+    }
+
+    /// One film, one row: a pick that is on both lists shows in Picked, not again in Both.
+    @Test func aPickedFilmIsNotRepeatedInBoth() async {
+        let cache = Self.cache()
+        await cache.write(HomePicksSnapshot(day: Self.day(Self.today), picks: [Self.pick(Self.collateral)]))
+        let store = Self.store(owner: [Self.collateral, Self.thief], partner: [Self.collateral, Self.thief],
+                               partnerName: "Noga", cache: cache)
+
+        await store.load()
+
+        #expect(store.picked.map(\.slug) == ["collateral"])
+        #expect(store.both.map(\.slug) == ["thief"])
     }
 
     @Test func theBothRowIsStableAllDayAndChangesTheNextDay() async {

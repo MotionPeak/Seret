@@ -66,6 +66,10 @@ public final class AppSession {
     public private(set) var homePicks: HomePicksStore?
     /// The username `homePicks` was built for, so it is rebuilt when the one in iCloud changes.
     private var homePicksUsername: String?
+    /// The account whose watchlist mirror this session last synced, and when. The owner's mirror
+    /// is one file whatever the username, so until this session has synced it for the current
+    /// account it may still hold the previous account's films.
+    private var watchlistSynced: (username: String, at: Date)?
 
     /// On-demand OpenSubtitles provider (nil while signed out or if no key+account configured).
     public private(set) var subtitlesProvider: SubtitleProvider?
@@ -244,6 +248,7 @@ public final class AppSession {
         homePicks?.cancel()
         homePicks = nil
         homePicksUsername = nil
+        watchlistSynced = nil
         torrents = nil
         linkCache = nil
         streamProxy = nil
@@ -611,7 +616,11 @@ public final class AppSession {
     public func selectProfile(_ id: String) {
         activeProfiles?.select(id)
         home?.activeProfileID = activeProfileID
-        Task { await rebuildHome() }
+        Task {
+            await rebuildHome()
+            // The watchlist rows leave out what THIS profile has finished.
+            await homePicks?.load()
+        }
     }
 
     /// Switch user — clears the device selection so the Who's-Watching gate reappears.
@@ -683,6 +692,7 @@ public final class AppSession {
                 guard let mirrors = await self?.homePicksMirrors() else { return ([], nil, nil) }
                 return (mirrors.owner.load(), mirrors.partner?.load(), mirrors.partnerName)
             },
+            syncWatchlists: { [weak self] in await self?.syncWatchlistsForHome() },
             finishedTMDB: { [weak self] ids in
                 guard !ids.isEmpty, let context = await self?.homePicksWatchContext() else { return [] }
                 let byKey = Dictionary(ids.map { (DownloadKey.movie(tmdbID: $0), $0) },
@@ -704,6 +714,40 @@ public final class AppSession {
         let owner = pipeline(for: settingsStore, username: settings.username)
         let combined = combinedWatchlist(settings: settings, owner: owner)
         return (owner.store, combined.partnerStore, settings.hasPartner ? settings.partnerDisplayName : nil)
+    }
+
+    /// Home's watchlist sync, made before the day's picks.
+    ///
+    /// The Watchlist page's gate applies — Letterboxd was crawled moments ago, so leave it be —
+    /// but only once this session has synced the mirror for the current account: the owner's
+    /// mirror is one file for every username, and after a username change it holds the last
+    /// account's films until a sync re-crawls it for the new one (`pipeline(for:username:)` is
+    /// rebuilt for the new username, so `currentCombinedWatchlist()` crawls the right profile).
+    /// The crawl itself is shared with the Watchlist page's if one is running (see
+    /// `CombinedWatchlist.sync`). A failure leaves the mirrors alone; the picks then go on with
+    /// them as they are, or skip the day's list if the owner's is empty.
+    private func syncWatchlistsForHome() async {
+        let settings = UbiquitousLetterboxdSettingsStore().load()
+        let username = settings.username.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !username.isEmpty else { return }
+        let now = Date()
+        let interval = WatchlistModel.defaultMinimumInterval
+        if let synced = watchlistSynced, synced.username == username {
+            if now.timeIntervalSince(synced.at) < interval { return }
+            if let last = settings.lastImportAt, now.timeIntervalSince(last) < interval { return }
+        }
+        _ = try? await syncCurrentWatchlist(onProgress: nil)
+    }
+
+    /// Syncs the combined list for the settings as they stand now, and remembers which account
+    /// the mirror now belongs to. Every watchlist sync goes through here.
+    private func syncCurrentWatchlist(
+        onProgress: (@Sendable (Int, Int) -> Void)?) async throws -> [WatchlistEntry] {
+        let username = UbiquitousLetterboxdSettingsStore().load().username
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let synced = try await currentCombinedWatchlist().sync(onProgress: onProgress)
+        watchlistSynced = (username, Date())
+        return synced
     }
 
     /// The profile spelt "" when unresolved — what every other watch read here uses.
@@ -1146,8 +1190,8 @@ public final class AppSession {
                                    reload: { [weak self] in
                                        await self?.currentCombinedWatchlist().cached() ?? []
                                    }) { [weak self] onProgress in
-            guard let combined = await self?.currentCombinedWatchlist() else { return [] }
-            return try await combined.sync(onProgress: onProgress)
+            guard let self else { return [] }
+            return try await self.syncCurrentWatchlist(onProgress: onProgress)
         }
         // Live, not a copy: the model is built when the shell mounts, before the library is read.
         model.ownedLookup = { [weak library] id in library?.ownedItem(tmdbID: id, kind: .movie) != nil }
