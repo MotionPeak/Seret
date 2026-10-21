@@ -205,6 +205,45 @@ private func slugs(_ picks: [WatchlistPick]) -> [String] { picks.map(\.entry.slu
         #expect(WatchlistPicker.pick(inputs, limit: 5).count == 5)
     }
 
+    /// Director-only matching is an anti-goal: one prolific director must not fill the row. The
+    /// director tier takes at most a third of the row; its overflow waits behind the looser tiers.
+    @Test func theDirectorTierTakesAtMostAThirdOfTheRow() {
+        let directors = (0..<10).map { "d\($0)" }
+        let loose = (0..<3).map { "l\($0)" }
+        let genre = (0..<2).map { "g\($0)" }
+        var candidates: [WatchlistEntry] = []
+        for slug in directors + loose { candidates.append(row(slug, candidates.count)) }
+        for slug in genre { candidates.append(row(slug, candidates.count, tmdb: .some(900 + candidates.count))) }
+        let inputs = WatchlistPickInputs(
+            recentFilms: [film("ref", year: 2000, rating: 9)],
+            similar: ["ref": ["hop"]],
+            secondHop: ["hop": loose],
+            directorFilms: ["ref": directors],
+            referenceGenres: ["ref": ["Drama"]],
+            candidates: candidates,
+            candidateGenres: Dictionary(uniqueKeysWithValues: candidates.suffix(2).map { ($0.tmdbID!, ["drama"]) }))
+
+        let cap = WatchlistPicker.rowTarget / 3
+        let picks = WatchlistPicker.pick(inputs)
+        #expect(slugs(picks) == Array(directors.prefix(cap)) + loose + genre + Array(directors.dropFirst(cap)))
+        #expect(picks.prefix(cap).allSatisfy { $0.tier == .director })
+
+        // A shorter row caps by its own length.
+        let short = WatchlistPicker.pick(inputs, limit: 9)
+        #expect(slugs(short) == ["d0", "d1", "d2"] + loose + genre + ["d3"])
+    }
+
+    @Test func eligibilityIsOneRuleForEveryCaller() {
+        let unmatched = WatchlistEntry(slug: "unmatched", name: "unmatched (2000)", year: 2000,
+                                       position: 0, tmdbID: nil, resolvedAt: Date())
+        let candidates = [unmatched, row("removed", 1, removed: true), row("seen-slug", 2),
+                          row("seen-tmdb", 3, tmdb: 555), row("ref", 4), row("fresh", 5)]
+        let eligible = WatchlistPicker.eligible(candidates, watchedSlugs: ["seen-slug"],
+                                                watchedTMDB: [555],
+                                                references: [film("ref", rating: 9)])
+        #expect(eligible.map(\.slug) == ["fresh"])
+    }
+
     @Test func withNothingToGoOnItPicksNothing() {
         let inputs = WatchlistPickInputs(recentFilms: [], candidates: [row("a", 0)])
         #expect(WatchlistPicker.pick(inputs).isEmpty)

@@ -87,19 +87,29 @@ public enum WatchlistPicker {
         Array(recent.lazy.filter { likingWeight($0.rating) > 0 }.prefix(referenceCount))
     }
 
+    /// The watchlist films that may be picked at all, in the candidates' order: matched to TMDB,
+    /// not taken off the list, not watched (on Letterboxd or here) and not themselves one of the
+    /// references. The one rule — the Home store asks it too before spending a crawl.
+    public static func eligible(_ candidates: [WatchlistEntry], watchedSlugs: Set<String>,
+                                watchedTMDB: Set<Int>, references: [LetterboxdEntry]) -> [WatchlistEntry] {
+        let refSlugs = Set(references.map(\.slug))
+        return candidates.filter { entry in
+            guard let tmdb = entry.tmdbID else { return false }
+            return !entry.isRemoved && !watchedSlugs.contains(entry.slug) && !watchedTMDB.contains(tmdb)
+                && !refSlugs.contains(entry.slug)
+        }
+    }
+
     public static func pick(_ inputs: WatchlistPickInputs, limit: Int = rowTarget) -> [WatchlistPick] {
         guard limit > 0 else { return [] }
         let refs = references(inputs.recentFilms)
         guard !refs.isEmpty else { return [] }
-        let refSlugs = Set(refs.map(\.slug))
 
-        var eligible: [String: WatchlistEntry] = [:]
-        for entry in inputs.candidates {
-            guard let tmdb = entry.tmdbID, !entry.isRemoved,
-                  !inputs.watchedSlugs.contains(entry.slug), !inputs.watchedTMDB.contains(tmdb),
-                  !refSlugs.contains(entry.slug) else { continue }
-            eligible[entry.slug] = entry
-        }
+        // Last row wins for a repeated slug, as it always has.
+        let eligible = Dictionary(
+            Self.eligible(inputs.candidates, watchedSlugs: inputs.watchedSlugs,
+                          watchedTMDB: inputs.watchedTMDB, references: refs).map { ($0.slug, $0) },
+            uniquingKeysWith: { _, last in last })
         guard !eligible.isEmpty else { return [] }
 
         var scores: [String: Double] = [:]
@@ -163,12 +173,28 @@ public enum WatchlistPicker {
 
         // Tier, then score, then the watchlist's own order. The slug is only a last resort so the
         // result never depends on dictionary order.
-        return Array(picks.sorted { lhs, rhs in
+        let ranked = picks.sorted { lhs, rhs in
             if lhs.tier != rhs.tier { return lhs.tier < rhs.tier }
             if lhs.score != rhs.score { return lhs.score > rhs.score }
             if lhs.entry.position != rhs.entry.position { return lhs.entry.position < rhs.entry.position }
             return lhs.entry.slug < rhs.entry.slug
-        }.prefix(limit))
+        }
+
+        // Director-only matching is what the row must not become: one prolific director would
+        // otherwise fill it ahead of everything looser. The director tier keeps a third of the
+        // row; the rest of it waits behind the looser tiers, still there when they run out.
+        let cap = directorCap(limit: limit)
+        let directors = ranked.filter { $0.tier == .director }
+        let capped = ranked.filter { $0.tier == .close }
+            + directors.prefix(cap)
+            + ranked.filter { $0.tier > .director }
+            + directors.dropFirst(cap)
+        return Array(capped.prefix(limit))
+    }
+
+    /// The most director matches ahead of the looser tiers: a third of the row.
+    static func directorCap(limit: Int) -> Int {
+        max(1, min(limit, rowTarget) / 3)
     }
 
     // MARK: - Weights
