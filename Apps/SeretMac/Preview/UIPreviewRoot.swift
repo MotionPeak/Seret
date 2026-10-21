@@ -17,7 +17,7 @@ struct UIPreviewRoot: View {
             case "design":
                 DesignGalleryPreview()
             case "splash":
-                SplashView { }
+                LaunchIntroView { }
             case "shell":
                 MainShell(model: ShellModel(defaults: UserDefaults(suiteName: "seret.preview.shell")!))
             case "shellcollapsed":

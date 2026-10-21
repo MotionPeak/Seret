@@ -20,7 +20,7 @@ struct RootView: View {
             content
                 .animation(.easeInOut(duration: 0.45), value: session.needsProfileSelection)
             if showSplash {
-                SplashView { withAnimation(Theme.Motion.fade) { showSplash = false } }
+                LaunchIntroView { withAnimation(Theme.Motion.fade) { showSplash = false } }
                     .transition(.opacity)
                     .zIndex(1)
             }

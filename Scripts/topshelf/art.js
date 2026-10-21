@@ -123,96 +123,210 @@ function loopNoise(f, u, v, T) {
 const landNoise = (u, v) => fbm(u * 1.4 + 20, v * 1.4 + 20, 3.7);
 const crestNoise = (u, v) => vnoise(u * 4 + 3, v * 4 + 7, 1.3);
 
+/** The Top Shelf loop: the finished landscape, drifting, rippling and lit, forever. */
 function range(ctx, W, H, t, opt = {}) {
   const T = ((t % LOOP) + LOOP) % LOOP;
+  scene(ctx, W, H, {
+    rows: opt.rows, cols: opt.cols,
+    noise: (f, u, v) => loopNoise(f, u, v, T),
+    twinkle: T / LOOP,
+    ages: PULSES.map(tp => T - tp),
+    band: T / LOOP,
+    wordmark: opt.wordmark !== false,
+  });
+}
+
+/**
+ * Draws the Range landscape. Every animated quantity is a field of `p`; anything left out is the
+ * finished, resting landscape, so `range` (the Top Shelf loop) and `intro` (the launch animation)
+ * share one drawing.
+ *
+ * p.noise(f, u, v)   the terrain noise at map point (u, v) — required
+ * p.twinkle          the stars' twinkle phase, in loops
+ * p.glow, p.stars    horizon glow / star opacity, 0…1
+ * p.row(near)        [opacity, lift] of a row, near = 0 at the horizon … 1 at the viewer
+ * p.rise             how far the triangle's peaks have risen, 0 (flat land) … 1
+ * p.crest            the peaks' glow, 0…1
+ * p.ages             seconds since each ripple started (each lives 4.5 s)
+ * p.band             the raking light's position: 0 off the left edge … 1 off the right
+ * p.wordmark         draw סֶרֶט / SERET; p.word = { a, dy, track, latinA } animates it
+ * p.zoom             scale about the triangle's centre (the launch's dive)
+ * p.fade             a navy veil over everything, 0…1
+ * p.portrait         lay the frame out for a tall screen
+ */
+function scene(ctx, W, H, p) {
   const u1 = H / 720;                                    // one "pixel" at 720p
-  const s = H * 0.5, cx = W / 2, cyL = H * 0.36;         // layout: triangle box size + centre
-  const S = s / 0.9, nR = opt.rows || 90, NX = opt.cols || 480;
-  const ua = -3.2 * (W / H) / (16 / 9), ub = -ua, va = -1.75, vb = 1.35;
+  const tall = !!p.portrait;
+  // p.size / p.centre override the Top Shelf's layout (triangle box size, and the land's centre
+  // as a fraction of H): the intro stands the land lower and smaller so the sky can hold the name.
+  const s = p.size ?? H * 0.5, cx = W / 2, cyL = H * (p.centre ?? 0.36);
+  const S = s / 0.9, nR = p.rows || 90, NX = p.cols || 480;
+  const ua = -3.2 * (W / H) / (16 / 9) * (H * 0.5 / s), ub = -ua;
+  const va = -1.75, vb = tall ? 2.2 : 1.35;
   const Pt = triPts(cx, cyL + s * 0.16, s * 1.05), sdS = makeSdf(Pt);
   const pr = camera(cx, cyL + s * 0.12, S, 0.98, 3.0), hz = pr(0, va, 0);
   const xs = new Float32Array(NX), ys = new Float32Array(NX), ins = new Float32Array(NX);
+  const glowA = p.glow ?? 1, starA = p.stars ?? 1, rise = p.rise ?? 1, crest = p.crest ?? 1;
+  const row = p.row || (() => [1, 1]);
 
   reset(ctx);
   ctx.fillStyle = BG; ctx.fillRect(0, 0, W, H);
-  const glow = ctx.createRadialGradient(cx, hz[1], 0, cx, hz[1], W * 0.55);
+  const zoom = p.zoom ?? 1;
+  if (zoom !== 1) {
+    const zx = (Pt[0][0] + Pt[1][0] + Pt[2][0]) / 3, zy = (Pt[0][1] + Pt[1][1] + Pt[2][1]) / 3;
+    ctx.translate(zx, zy); ctx.scale(zoom, zoom); ctx.translate(-zx, -zy);
+  }
+  const glow = ctx.createRadialGradient(cx, hz[1], 0, cx, hz[1], Math.max(W, H * 0.9) * 0.55);
   glow.addColorStop(0, 'rgba(70,88,128,0.42)'); glow.addColorStop(1, 'rgba(10,13,20,0)');
-  ctx.fillStyle = glow; ctx.fillRect(0, 0, W, H);
+  ctx.globalAlpha = glowA; ctx.fillStyle = glow; ctx.fillRect(-W, -H, W * 3, H * 3);
 
   // Stars — each twinkles k whole times per loop.
   ctx.fillStyle = '#fff';
   for (const st of STARS) {
     const y = st.y * (hz[1] - H * 0.03);
-    const a = (0.15 + 0.55 * (0.5 + 0.5 * Math.sin(T / LOOP * 6.2832 * st.k + st.ph))) * ss(hz[1], hz[1] * 0.4, y);
+    const a = (0.15 + 0.55 * (0.5 + 0.5 * Math.sin((p.twinkle || 0) * 6.2832 * st.k + st.ph))) * ss(hz[1], hz[1] * 0.4, y) * starA;
     if (a < 0.01) continue;
     ctx.globalAlpha = a; ctx.beginPath(); ctx.arc(st.x * W, y, st.r * u1, 0, 7); ctx.fill();
   }
 
-  const scMid = pr(1, 0, 0)[0] - pr(0, 0, 0)[0], Apx = H * 0.1;
-  const us = lerp(-4.2, 4.2, T / LOOP) * (ub / 3.2);    // the raking light, off-screen at both ends
+  const scMid = pr(1, 0, 0)[0] - pr(0, 0, 0)[0], Apx = H * 0.1 * (s / (H * 0.5));
+  const us = lerp(-4.2, 4.2, clamp(p.band ?? 0.5)) * (ub / 3.2);    // the raking light, off-screen at both ends
   for (let r = 0; r < nR; r++) {
     const v = lerp(va, vb, r / (nR - 1)), near = r / (nR - 1);
+    const [ra, lift] = row(near);
+    if (ra <= 0.001) continue;
     const scl = (pr(1, v, 0)[0] - pr(0, v, 0)[0]) / scMid;
     for (let x = 0; x < NX; x++) {
-      const u = lerp(ua, ub, x / (NX - 1)), p = pr(u, v, 0);
-      const n = loopNoise(landNoise, u, v, T), n2 = loopNoise(crestNoise, u, v, T);
-      const inside = ss(s * 0.05, -s * 0.05, sdS(p[0], p[1]));
-      ins[x] = inside;
-      let d = n * n * 0.75 * Apx + inside * (0.45 + 0.8 * n2) * Apx;
-      for (const tp of PULSES) {
-        const age = T - tp;
+      const u = lerp(ua, ub, x / (NX - 1)), q = pr(u, v, 0);
+      const n = p.noise(landNoise, u, v), n2 = p.noise(crestNoise, u, v);
+      const inside = ss(s * 0.05, -s * 0.05, sdS(q[0], q[1]));
+      ins[x] = inside * rise;
+      let d = n * n * 0.75 * Apx + inside * rise * (0.45 + 0.8 * n2) * Apx;
+      for (const age of p.ages || []) {
         if (age > 0 && age < 4.5) {
           const dist = Math.hypot(u, (v - 0.1) * 1.3);
           d += Apx * 0.2 * Math.exp(-Math.pow((dist - age * 0.95) / 0.075, 2)) * (1 - age / 4.5);
         }
       }
-      xs[x] = p[0]; ys[x] = p[1] - d * scl;
+      xs[x] = q[0]; ys[x] = q[1] - d * lift * scl;
     }
     // Occlude everything behind this row, then draw it.
-    ctx.globalAlpha = 1; ctx.fillStyle = BG;
+    ctx.globalAlpha = ra; ctx.fillStyle = BG;
     ctx.beginPath(); ctx.moveTo(xs[0], ys[0]);
     for (let x = 1; x < NX; x++) ctx.lineTo(xs[x], ys[x]);
-    ctx.lineTo(xs[NX - 1], H + 20); ctx.lineTo(xs[0], H + 20); ctx.closePath(); ctx.fill();
+    ctx.lineTo(xs[NX - 1], H * 3); ctx.lineTo(xs[0], H * 3); ctx.closePath(); ctx.fill();
 
     const gx = pr(us, v, 0)[0], bw = Math.abs(scMid * scl) * 0.9;
     const band = ctx.createLinearGradient(gx - bw, 0, gx + bw, 0);
     band.addColorStop(0, 'rgba(255,255,255,0.5)'); band.addColorStop(0.5, '#ffffff'); band.addColorStop(1, 'rgba(255,255,255,0.5)');
     const da = lerp(0.14, 0.9, Math.pow(near, 0.7));
-    ctx.strokeStyle = band; ctx.globalAlpha = da; ctx.lineWidth = lerp(0.8, 1.25, near) * u1;
+    ctx.strokeStyle = band; ctx.globalAlpha = da * ra; ctx.lineWidth = lerp(0.8, 1.25, near) * u1;
     ctx.beginPath(); ctx.moveTo(xs[0], ys[0]);
     for (let x = 1; x < NX; x++) ctx.lineTo(xs[x], ys[x]);
     ctx.stroke();
 
     // The triangle's crests glow.
-    ctx.save();
-    ctx.shadowColor = 'rgba(255,255,255,0.9)'; ctx.shadowBlur = 9 * u1;
-    ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.35 * u1; ctx.globalAlpha = Math.min(1, da + 0.25);
-    ctx.beginPath(); let on = false;
-    for (let x = 0; x < NX; x++) {
-      if (ins[x] > 0.12) { on ? ctx.lineTo(xs[x], ys[x]) : ctx.moveTo(xs[x], ys[x]); on = true; } else on = false;
+    if (crest > 0.001) {
+      ctx.save();
+      ctx.shadowColor = 'rgba(255,255,255,0.9)'; ctx.shadowBlur = 9 * u1;
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.35 * u1; ctx.globalAlpha = Math.min(1, da + 0.25) * ra * crest;
+      ctx.beginPath(); let on = false;
+      for (let x = 0; x < NX; x++) {
+        if (ins[x] > 0.12) { on ? ctx.lineTo(xs[x], ys[x]) : ctx.moveTo(xs[x], ys[x]); on = true; } else on = false;
+      }
+      ctx.stroke(); ctx.restore();
     }
-    ctx.stroke(); ctx.restore();
   }
 
   // Haze on the horizon and fades at both sides.
   ctx.globalAlpha = 1;
-  const fog = ctx.createLinearGradient(0, hz[1] - H * 0.06, 0, hz[1] + H * 0.12);
-  fog.addColorStop(0, 'rgba(10,13,20,0.95)'); fog.addColorStop(1, 'rgba(10,13,20,0)');
-  ctx.fillStyle = fog; ctx.fillRect(0, hz[1] - H * 0.06, W, H * 0.18);
+  if (p.size === undefined) {
+    const fog = ctx.createLinearGradient(0, hz[1] - H * 0.06, 0, hz[1] + H * 0.12);
+    fog.addColorStop(0, 'rgba(10,13,20,0.95)'); fog.addColorStop(1, 'rgba(10,13,20,0)');
+    ctx.fillStyle = fog; ctx.fillRect(-W, hz[1] - H * 0.06, W * 3, H * 0.18);
+  } else {
+    // With open sky above the horizon, the haze has to rise out of it softly, not start at an edge.
+    const top = hz[1] - H * 0.1, fog = ctx.createLinearGradient(0, top, 0, hz[1] + H * 0.12);
+    fog.addColorStop(0, 'rgba(10,13,20,0)'); fog.addColorStop(0.4, 'rgba(10,13,20,0.9)');
+    fog.addColorStop(1, 'rgba(10,13,20,0)');
+    ctx.fillStyle = fog; ctx.fillRect(-W, top, W * 3, H * 0.22);
+  }
+  if (tall) {
+    // Bottom fade: the near rows run off a tall frame instead of filling it.
+    const foot = ctx.createLinearGradient(0, H * 0.82, 0, H);
+    foot.addColorStop(0, 'rgba(10,13,20,0)'); foot.addColorStop(1, 'rgba(10,13,20,0.9)');
+    ctx.fillStyle = foot; ctx.fillRect(-W, H * 0.82, W * 3, H * 3);
+  }
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
   const side = ctx.createLinearGradient(0, 0, W, 0);
-  const e = 0.12 * (16 / 9) / (W / H);
+  const e = tall ? 0.1 : 0.12 * (16 / 9) / (W / H);
   side.addColorStop(0, 'rgba(10,13,20,1)'); side.addColorStop(e, 'rgba(10,13,20,0)');
   side.addColorStop(1 - e, 'rgba(10,13,20,0)'); side.addColorStop(1, 'rgba(10,13,20,1)');
   ctx.fillStyle = side; ctx.fillRect(0, 0, W, H);
 
-  if (opt.wordmark !== false) {
-    const sz = H * 0.05;
-    ctx.save();
-    ctx.fillStyle = '#F5F6F8'; ctx.textAlign = 'center'; ctx.direction = 'rtl';
-    ctx.font = `700 ${sz}px ${HEB}`; ctx.fillText('סֶרֶט', W / 2, H * 0.1);
-    ctx.restore();
-    ctx.save(); ctx.globalAlpha = 0.9; spaced(ctx, 'SERET', W / 2, H * 0.1 + sz * 0.72, sz * 0.25, sz * 0.24, '#A3AAB8'); ctx.restore();
+  if (p.wordmark) {
+    const w = p.word || { a: 1, dy: 0, track: 1, latinA: 1 };
+    // The intro's name is the hero: larger, standing in the sky just above the horizon.
+    const sz = p.word ? (tall ? W * 0.17 : H * 0.095) : H * 0.05;
+    const y = (p.word ? hz[1] - H * (tall ? 0.085 : 0.075) : H * 0.1) + w.dy;
+    if (w.a > 0.001) {
+      ctx.save();
+      ctx.globalAlpha = w.a;
+      ctx.shadowColor = 'rgba(200,215,255,0.55)'; ctx.shadowBlur = p.word ? sz * 0.45 * (w.glow ?? 0) : 0;
+      ctx.fillStyle = '#F5F6F8'; ctx.textAlign = 'center'; ctx.direction = 'rtl';
+      ctx.font = `700 ${sz}px ${HEB}`; ctx.fillText('סֶרֶט', W / 2, y);
+      ctx.restore();
+    }
+    if ((w.latinA ?? w.a) > 0.001) {
+      ctx.save(); ctx.globalAlpha = 0.9 * (w.latinA ?? w.a);
+      spaced(ctx, 'SERET', W / 2, y + sz * 0.72, sz * 0.25, sz * 0.24 * w.track, '#A3AAB8');
+      ctx.restore();
+    }
   }
+
+  if (p.fade) { ctx.globalAlpha = clamp(p.fade); ctx.fillStyle = BG; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; }
+}
+
+// ───────────────────────────── Intro ─────────────────────────────
+//
+// The launch animation, played once when the app opens: out of the dark the horizon glows, the
+// ridgelines pour in from the horizon toward the viewer, the triangle's peaks rise out of the
+// land and catch light, two ripples roll out as they settle, a band of light rakes across, the
+// name arrives in the sky — then the camera dives into the triangle and everything sinks into
+// the app's own navy. INTRO_HOLD is the frame where everything is in and nothing has dived yet
+// (the app may pause there while the library loads, and shows it as a still under Reduce Motion).
+
+const INTRO = 3.4;
+const INTRO_HOLD = 2.7;
+const easeOutBack = x => { const c = 1.45; x = clamp(x); return 1 + (c + 1) * Math.pow(x - 1, 3) + c * Math.pow(x - 1, 2); };
+
+function intro(ctx, W, H, t, portrait) {
+  const dive = ss(INTRO_HOLD, INTRO, t);                 // 0 until the hold, then 0…1
+  const drift = DRIFT * 2 * t + 0.9 * dive * dive;       // the land runs under the camera as it dives
+  scene(ctx, W, H, {
+    portrait,
+    size: portrait ? Math.min(H * 0.5, W * 0.95) : H * 0.42,
+    centre: portrait ? 0.55 : 0.46,
+    noise: (f, u, v) => f(u, v - drift),
+    twinkle: t / 4,
+    glow: ss(0, 0.7, t) * (1 + 0.35 * ss(1.6, 2.2, t) * (1 - ss(2.2, 3.0, t))),
+    stars: ss(0.4, 1.5, t),
+    row: near => { const t0 = 0.15 + 1.0 * near, a = ss(t0, t0 + 0.4, t); return [a, a]; },
+    rise: easeOutBack((t - 1.05) / 0.9),
+    crest: ss(1.25, 1.85, t),
+    ages: [t - 1.8, t - 2.1],
+    band: (t - 1.5) / 1.3,
+    wordmark: true,
+    word: {
+      a: ss(1.95, 2.45, t) * (1 - ss(2.75, 3.05, t)),
+      dy: (1 - ss(1.95, 2.55, t)) * H * 0.02,
+      track: lerp(2.4, 1, ss(2.0, 2.75, t)),
+      latinA: ss(2.15, 2.65, t) * (1 - ss(2.75, 3.0, t)),
+      glow: ss(2.0, 2.4, t) * (1 - 0.6 * ss(2.4, 2.8, t)),
+    },
+    zoom: 1 + 2.2 * Math.pow(dive, 2.4),
+    fade: ss(2.95, INTRO - 0.05, t),
+  });
 }
 
 // ───────────────────────────── Monogram ─────────────────────────────
@@ -255,6 +369,8 @@ function monoFront(ctx, W, H, size) {
 const ART = {
   range: (ctx, W, H, t) => range(ctx, W, H, t),
   rangeStill: (ctx, W, H) => range(ctx, W, H, 0),
+  introWide: (ctx, W, H, t) => intro(ctx, W, H, t, false),
+  introTall: (ctx, W, H, t) => intro(ctx, W, H, t, true),
   monoBack: (ctx, W, H) => monoBack(ctx, W, H),
   monoFrontTV: (ctx, W, H) => { ctx.clearRect(0, 0, W, H); monoFront(ctx, W, H, 0.98); },
   monoPhone: (ctx, W, H) => { monoBack(ctx, W, H); monoFront(ctx, W, H, 0.86); },

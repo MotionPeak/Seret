@@ -2,13 +2,15 @@ import DebridCore
 import DebridUI
 import SwiftUI
 
-/// Resolves launch state, then routes between sign-in and the shell. The splash plays at launch and
-/// again right after a fresh sign-in, over the first library load — as on the iPhone.
+/// Resolves launch state, then routes between sign-in and the shell. The launch intro plays at launch
+/// and again right after a fresh sign-in, over the first library load — as on the iPhone. It holds on
+/// its last frame before the dive until `SplashGate` says the shell underneath is ready.
 struct RootView: View {
     @Environment(AppSession.self) private var session
     @Environment(\.scenePhase) private var scenePhase
     @State private var showSplash = true
     @State private var splashAnimationDone = false
+    @State private var introReleased = false
     @State private var animationEndedAt: ContinuousClock.Instant?
     @State private var shell = ShellModel()
 
@@ -16,11 +18,13 @@ struct RootView: View {
         ZStack {
             content
             if showSplash {
-                SplashView {
+                LaunchIntroView(released: introReleased, onHoldReached: {
                     splashAnimationDone = true
                     animationEndedAt = .now
                     evaluate()
-                }
+                }, onFinished: {
+                    withAnimation(Theme.Motion.fade) { showSplash = false }
+                })
                 .transition(.opacity)
                 .zIndex(1)
             }
@@ -32,6 +36,7 @@ struct RootView: View {
             if newValue == .signedIn, oldValue == .signedOut {
                 showSplash = true
                 splashAnimationDone = false
+                introReleased = false
                 animationEndedAt = nil
             }
         }
@@ -66,14 +71,15 @@ struct RootView: View {
         }
     }
 
-    /// Hides the splash once `SplashGate` says its work is done — the animation, plus whatever the
-    /// shell underneath needed (nothing if signed out, the library's first answer if signed in).
+    /// Lets the intro dive (and so finish) once `SplashGate` says its work is done — the intro up to
+    /// its hold frame, plus whatever the shell underneath needed (nothing if signed out, the
+    /// library's first answer if signed in).
     private func evaluate() {
-        guard showSplash else { return }
+        guard showSplash, !introReleased else { return }
         let heldFor = animationEndedAt.map { ContinuousClock.now - $0 } ?? .zero
         if SplashGate.shouldHide(animationFinished: splashAnimationDone, session: session.state,
                                  library: session.libraryStore?.state, heldFor: heldFor) {
-            withAnimation(Theme.Motion.fade) { showSplash = false }
+            introReleased = true
         }
     }
 }
