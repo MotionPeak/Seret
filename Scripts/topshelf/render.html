@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Seret art renderer</title></head>
+<body style="margin:0;background:#000">
+<canvas id="c"></canvas>
+<script src="art.js"></script>
+<script>
+// Called by render.swift once per frame or image: draws ART[kind] and returns a PNG data URL.
+window.renderFrame = (kind, w, h, t) => {
+  const c = document.getElementById('c');
+  if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
+  const ctx = c.getContext('2d');
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, w, h);
+  ART[kind](ctx, w, h, t);
+  return c.toDataURL('image/png');
+};
+window.artReady = true;
+</script>
+</body></html>
