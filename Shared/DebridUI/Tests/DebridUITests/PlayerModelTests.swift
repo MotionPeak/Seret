@@ -804,6 +804,69 @@ import DebridCore
         #expect(model.selectedAudioID == nil)
     }
 
+    /// The Lives of Others (MrTentsaw release), as the Apple TV's log showed it: German DTS-HD main
+    /// mix, then the director's commentary in English — the release's ONLY English track — then the
+    /// same commentary in German. "English when the release has it" picked the commentary, and the
+    /// load-time `en` hint had the engine open it too, so the film started on the director talking.
+    private func livesOfOthersTracks(selected: String?) -> [MediaTrack] {
+        let comment = "Commentary by director Florian Henckel von Donnersmarck"
+        return [MediaTrack(id: "audio/2", kind: .audio, name: "GER", language: "ger", codec: "dts ",
+                           channels: 6, isSelected: selected == "audio/2"),
+                MediaTrack(id: "audio/3", kind: .audio, name: comment, language: "en", codec: "a52 ",
+                           channels: 2, isSelected: selected == "audio/3"),
+                MediaTrack(id: "audio/4", kind: .audio, name: comment, language: "ger", codec: "a52 ",
+                           channels: 2, isSelected: selected == "audio/4")]
+    }
+
+    @Test func automaticAudioMovesOffACommentaryTheEngineOpened() async {
+        let engine = FakeVideoPlayerEngine()
+        let prefs = FakeTrackPreferences(audio: .automatic)
+        let model = makeModel(request: Fixture.request(), engine: engine, trackPreferences: prefs)
+        model.start(); await model.waitForIdleForTesting()
+        engine.audioTracks = livesOfOthersTracks(selected: "audio/3")
+        engine.emit(.tracksChanged); await model.waitForIdleForTesting()
+        #expect(engine.selectedAudioID == .some("audio/2"))
+        #expect(model.selectedAudioID == "audio/2")
+    }
+
+    /// The same-language commentary is no better: on the German commentary, the main mix still wins
+    /// even though the commentary's AC-3 decodes more cheaply than the main mix's DTS.
+    @Test func automaticAudioMovesOffASameLanguageCommentary() async {
+        let engine = FakeVideoPlayerEngine()
+        let prefs = FakeTrackPreferences(audio: .automatic)
+        let model = makeModel(request: Fixture.request(), engine: engine, trackPreferences: prefs)
+        model.start(); await model.waitForIdleForTesting()
+        engine.audioTracks = livesOfOthersTracks(selected: "audio/4")
+        engine.emit(.tracksChanged); await model.waitForIdleForTesting()
+        #expect(engine.selectedAudioID == .some("audio/2"))
+    }
+
+    /// A viewer whose remembered language is English gets the film, not the English commentary.
+    @Test func preferredEnglishNeverPicksTheEnglishCommentary() async {
+        let engine = FakeVideoPlayerEngine()
+        let prefs = FakeTrackPreferences(audio: .language("en"))
+        let model = makeModel(request: Fixture.request(), engine: engine, trackPreferences: prefs)
+        model.start(); await model.waitForIdleForTesting()
+        engine.audioTracks = livesOfOthersTracks(selected: "audio/3")
+        engine.emit(.tracksChanged); await model.waitForIdleForTesting()
+        #expect(engine.selectedAudioID == .some("audio/2"))
+    }
+
+    /// Choosing the commentary by hand is respected — the automatic pick stops for good.
+    @Test func aCommentaryChosenByHandStays() async {
+        let engine = FakeVideoPlayerEngine()
+        let prefs = FakeTrackPreferences(audio: .automatic)
+        let model = makeModel(request: Fixture.request(), engine: engine, trackPreferences: prefs)
+        model.start(); await model.waitForIdleForTesting()
+        engine.audioTracks = livesOfOthersTracks(selected: "audio/2")
+        engine.emit(.tracksChanged); await model.waitForIdleForTesting()
+        model.selectAudio(id: "audio/3")
+        engine.audioTracks = livesOfOthersTracks(selected: "audio/3") + [
+            MediaTrack(id: "audio/5", kind: .audio, name: "GER", language: "ger", codec: "a52 ")]
+        engine.emit(.tracksChanged); await model.waitForIdleForTesting()
+        #expect(engine.selectedAudioID == .some("audio/3"))
+    }
+
     // MARK: - Audio codec (a REMUX lists lossless FIRST, compatibility AC-3 second)
 
     /// The reported bug: many titles played silent or with audio-only dropouts over a smooth

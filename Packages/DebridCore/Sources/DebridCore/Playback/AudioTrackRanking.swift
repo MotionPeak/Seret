@@ -46,6 +46,20 @@ public extension MediaTrack {
         return .unknown
     }
 
+    /// Whether this is a commentary track rather than the film's own sound, by the name the release
+    /// gives it ("Commentary by director …", "Audiokommentar", "Commentaire …"). The name is the only
+    /// signal VLCKit passes through — MKV's FlagCommentary is not exposed. Never an automatic pick:
+    /// on The Lives of Others the only English track was the director's commentary, and "English
+    /// when the release has it" opened the film on him talking.
+    var isCommentary: Bool {
+        let name = self.name.lowercased()
+        return Self.commentaryWords.contains { name.contains($0) }
+    }
+
+    /// "comment" covers commentary / commentaire / commento / comentario's English cousins;
+    /// "kommentar" German and Scandinavian; "comentario" Spanish and Portuguese.
+    private static let commentaryWords = ["comment", "kommentar", "comentario", "comentário"]
+
     /// Whether this track is in `language`.
     ///
     /// Containers spell the tag as "en", "eng", "en-US" or "English" depending on the muxer, so
@@ -80,8 +94,9 @@ public extension Array where Element == MediaTrack {
             .map(\.element)
     }
 
-    /// The best-playing audio track in `language`, or nil when the media carries none.
+    /// The best-playing audio track in `language`, or nil when the media carries none. A commentary
+    /// never counts: a release whose only English track is a commentary has no English sound.
     func bestAudio(forLanguage language: String) -> MediaTrack? {
-        mostDecodableFirst().first { $0.matchesLanguage(language) }
+        mostDecodableFirst().first { !$0.isCommentary && $0.matchesLanguage(language) }
     }
 }

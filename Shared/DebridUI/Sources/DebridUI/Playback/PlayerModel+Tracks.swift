@@ -149,10 +149,16 @@ extension PlayerModel {
     /// DIFFERS from the file's first track, so a release whose default is already the best keeps
     /// the engine's own choice untouched even when the engine cannot tell us what it selected.
     /// A foreign film or show therefore plays in its original language, never a wrong dub.
+    ///
+    /// Commentaries are never chosen (`bestAudio` skips them), and "the file's first track" means its
+    /// first one that is not a commentary. When the ENGINE sits on a commentary — the load-time
+    /// language hint opens the first track in that language, which can be the only English one, the
+    /// director's — the film's own track is returned even when it is the first, so it gets moved off.
     static func automaticAudioChoice(among tracks: [MediaTrack]) -> (MediaTrack?, String?) {
         if let english = tracks.bestAudio(forLanguage: "en") { return (english, "en") }
-        if let first = tracks.first, let original = first.language,
-           let best = tracks.bestAudio(forLanguage: original), best.id != first.id {
+        let onCommentary = tracks.contains { $0.isSelected && $0.isCommentary }
+        if let first = tracks.first(where: { !$0.isCommentary }), let original = first.language,
+           let best = tracks.bestAudio(forLanguage: original), best.id != first.id || onCommentary {
             return (best, original)
         }
         return (nil, nil)
@@ -172,6 +178,7 @@ extension PlayerModel {
         // No engine has told us what it selected (older engine, or a test fake) — behave as before.
         guard let current = audioTracks.first(where: \.isSelected) else { return true }
         if current.id == desired.id { return false }
+        if current.isCommentary && !desired.isCommentary { return true }    // the film, not a commentary
         if let language, !current.matchesLanguage(language) { return true }   // wrong language
         return desired.audioDecodeTier < current.audioDecodeTier              // else: only to escape a bad codec
     }

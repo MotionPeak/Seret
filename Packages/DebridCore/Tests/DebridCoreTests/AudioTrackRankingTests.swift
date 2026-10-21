@@ -16,6 +16,34 @@ struct AudioTrackRankingTests {
                    codec: codec, channels: channels)
     }
 
+    private func commentary(_ id: String, _ codec: String?, _ language: String?) -> MediaTrack {
+        MediaTrack(id: id, kind: .audio, name: "Commentary by director Florian Henckel von Donnersmarck",
+                   language: language, codec: codec, channels: 2)
+    }
+
+    /// Commentary tracks are told apart by the name the release gives them — the one thing VLCKit
+    /// passes through (MKV's FlagCommentary is not exposed).
+    @Test func commentaryIsRecognisedByItsName() {
+        func named(_ name: String) -> MediaTrack { MediaTrack(id: "a", kind: .audio, name: name, language: "en") }
+        #expect(named("Commentary by director Florian Henckel von Donnersmarck").isCommentary)
+        #expect(named("Director's commentary").isCommentary)
+        #expect(named("Audiokommentar").isCommentary)
+        #expect(named("Commentaire du réalisateur").isCommentary)
+        #expect(!named("English").isCommentary)
+        #expect(!named("DTS-HD MA 5.1").isCommentary)
+        #expect(!named("EN").isCommentary)
+    }
+
+    /// The Lives of Others (MrTentsaw release): German main mix, and the only English track is the
+    /// director's commentary. A language match must never land on a commentary — there the
+    /// English preference has nothing to offer, and the main mix in the film's own language wins.
+    @Test func bestAudioNeverPicksACommentary() {
+        let tracks = [track("main", "dts ", "ger"), commentary("en-comm", "a52 ", "en"),
+                      commentary("de-comm", "a52 ", "ger")]
+        #expect(tracks.bestAudio(forLanguage: "en") == nil)
+        #expect(tracks.bestAudio(forLanguage: "ger")?.id == "main")   // DTS main over AC-3 commentary
+    }
+
     @Test func acThreeOutranksTrueHDEvenWhenTrueHDIsListedFirst() {
         let tracks = [track("truehd", "trhd", channels: 8), track("ac3", "a52 ", channels: 6)]
         #expect(tracks.mostDecodableFirst().map(\.id) == ["ac3", "truehd"])
