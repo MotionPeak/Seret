@@ -61,6 +61,12 @@ public final class AppSession {
     /// Home feed (Continue Watching + Recently Added), composed from the library + watch store.
     public private(set) var home: HomeStore?
 
+    /// Home's watchlist rows ("Picked for right now", "Both of you want to see"). Nil while signed
+    /// out, and nil with no Letterboxd username — "not configured", so Home keeps Recently Added.
+    public private(set) var homePicks: HomePicksStore?
+    /// The username `homePicks` was built for, so it is rebuilt when the one in iCloud changes.
+    private var homePicksUsername: String?
+
     /// On-demand OpenSubtitles provider (nil while signed out or if no key+account configured).
     public private(set) var subtitlesProvider: SubtitleProvider?
 
@@ -235,6 +241,8 @@ public final class AppSession {
         letterboxdRatingProvider = nil
         watchStore = nil
         home = nil
+        homePicks = nil
+        homePicksUsername = nil
         torrents = nil
         linkCache = nil
         streamProxy = nil
@@ -595,6 +603,7 @@ public final class AppSession {
             }
         }
         state = .signedIn
+        syncHomePicks()
     }
 
     /// Pick a profile (Who's-Watching tap): persist the device selection, re-scope Home, rebuild.
@@ -635,7 +644,69 @@ public final class AppSession {
 
     /// Public refresh so a screen can update Continue Watching after playback writes progress
     /// (the Home tab is kept alive, so its `.task` doesn't re-run when you return to it).
-    public func refreshHome() async { await rebuildHome() }
+    /// Also refreshes the watchlist rows: a film finished in the player leaves them here, and the
+    /// day's picks are recomputed (in the background) once the date has changed.
+    public func refreshHome() async {
+        await rebuildHome()
+        syncHomePicks()
+        await homePicks?.load()
+    }
+
+    // MARK: Home watchlist picks
+
+    /// Builds `homePicks` for the Letterboxd username as it stands now. Re-read on every Home
+    /// refresh because the username is typed on the iPhone and reaches a TV through iCloud, which
+    /// can be after sign-in.
+    private func syncHomePicks() {
+        guard state == .signedIn else { return }
+        let settings = UbiquitousLetterboxdSettingsStore().load()
+        let username = settings.username.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard username != homePicksUsername else { return }
+        homePicksUsername = username
+        homePicks = HomePicksStore.make(settings: settings) { makeHomePicksDependencies(username: $0) }
+    }
+
+    /// The live seams behind `HomePicksStore`. The watchlists are the existing pipelines' mirrors,
+    /// read per call, so a partner set after this was built is still picked up.
+    private func makeHomePicksDependencies(username: String) -> HomePicksDependencies {
+        let http = HTTPClient()
+        // tvOS has no Application Support: `WritableStorage` finds a place that takes the file.
+        let cacheURL = WritableStorage.file(named: "home-picks.json")
+            ?? FileManager.default.temporaryDirectory.appending(path: "home-picks.json")
+        return HomePicksDependencies(
+            profile: LetterboxdProfileReader(http: http, username: username),
+            taste: LetterboxdTasteReader(http: http),
+            watchlists: { [weak self] in
+                guard let mirrors = await self?.homePicksMirrors() else { return ([], nil, nil) }
+                return (mirrors.owner.load(), mirrors.partner?.load(), mirrors.partnerName)
+            },
+            finishedTMDB: { [weak self] ids in
+                guard !ids.isEmpty, let context = await self?.homePicksWatchContext() else { return [] }
+                let byKey = Dictionary(ids.map { (DownloadKey.movie(tmdbID: $0), $0) },
+                                       uniquingKeysWith: { first, _ in first })
+                let states = (try? await context.watch.progress(forContentKeys: Array(byKey.keys),
+                                                                 profileID: context.profileID)) ?? [:]
+                return Set(states.compactMap { key, state in state.finished ? byKey[key] : nil })
+            },
+            candidateGenres: { [weak self] in
+                self?.makeWatchlistDetailsStore()?.settled.mapValues(\.genres) ?? [:]
+            },
+            cache: HomePicksCache(fileURL: cacheURL))
+    }
+
+    /// The owner's and partner's mirrors, through the shared pipelines — no new syncers.
+    private func homePicksMirrors() -> (owner: WatchlistStore, partner: WatchlistStore?, partnerName: String?) {
+        let settingsStore = UbiquitousLetterboxdSettingsStore()
+        let settings = settingsStore.load()
+        let owner = pipeline(for: settingsStore, username: settings.username)
+        let combined = combinedWatchlist(settings: settings, owner: owner)
+        return (owner.store, combined.partnerStore, settings.hasPartner ? settings.partnerDisplayName : nil)
+    }
+
+    /// The profile spelt "" when unresolved — what every other watch read here uses.
+    private func homePicksWatchContext() -> (watch: WatchProgressProviding, profileID: String)? {
+        watchStore.map { ($0, activeProfileID ?? "") }
+    }
 
     /// Install once: when the persistent store imports CloudKit changes, refresh Home so a title
     /// watched on another device shows up in Continue Watching without relaunch. `[weak self]` +
