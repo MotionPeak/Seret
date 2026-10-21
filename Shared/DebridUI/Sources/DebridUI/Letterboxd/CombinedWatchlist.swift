@@ -51,13 +51,84 @@ public actor CombinedWatchlist {
         WatchlistMerge.combine(owner: await owner.cached(), partner: await partner?.cached() ?? [])
     }
 
+    /// The crawl in flight and who is waiting on it. See `sync(onProgress:)`.
+    private struct Crawl {
+        let id: Int
+        let task: Task<[WatchlistEntry], any Error>
+        var waiters: Set<Int>
+    }
+    private var crawl: Crawl?
+    private var crawlsStarted = 0
+    private var waitersJoined = 0
+    private var progressHandlers: [Int: @Sendable (Int, Int) -> Void] = [:]
+
+    /// How many callers are waiting on the crawl in flight. For tests.
+    var syncWaiters: Int { crawl?.waiters.count ?? 0 }
+
     /// The owner's list, then the partner's — in that order so the partner's resolver can reuse
     /// what the owner's has just matched.
     ///
     /// The two fail independently. The owner's failure is still the screen's failure, thrown as
     /// before; the partner's is recorded for a secondary line, so a private or renamed profile
     /// never puts an error over a list that is otherwise fine.
+    ///
+    /// ONE crawl at a time: Home (its daily picks) and the Watchlist page both sync through this
+    /// object, and a caller arriving while a crawl runs joins it — result, error and progress
+    /// alike — rather than starting a second one over the same mirror files. The crawl is
+    /// cancelled only once every caller waiting on it has been: one screen going away must not
+    /// cost another its sync.
     public func sync(onProgress: (@Sendable (Int, Int) -> Void)?) async throws -> [WatchlistEntry] {
+        let current: Crawl
+        if let crawl {
+            current = crawl
+        } else {
+            crawlsStarted += 1
+            let id = crawlsStarted
+            let task = Task { () async throws -> [WatchlistEntry] in
+                defer { if self.crawl?.id == id { self.crawl = nil } }
+                return try await self.performSync()
+            }
+            current = Crawl(id: id, task: task, waiters: [])
+        }
+        waitersJoined += 1
+        let waiter = waitersJoined
+        crawl = Crawl(id: current.id, task: current.task, waiters: current.waiters.union([waiter]))
+        if let onProgress { progressHandlers[waiter] = onProgress }
+        defer {
+            progressHandlers[waiter] = nil
+            if crawl?.id == current.id { crawl?.waiters.remove(waiter) }
+        }
+
+        let task = current.task
+        return try await withTaskCancellationHandler {
+            try await task.value
+        } onCancel: {
+            Task { await self.leave(waiter, crawl: current.id) }
+        }
+    }
+
+    /// A caller stopped waiting. The last one out cancels the crawl, and a later sync starts afresh
+    /// rather than joining one that is winding down.
+    private func leave(_ waiter: Int, crawl id: Int) {
+        progressHandlers[waiter] = nil
+        guard var current = crawl, current.id == id else { return }
+        current.waiters.remove(waiter)
+        if current.waiters.isEmpty {
+            current.task.cancel()
+            crawl = nil
+        } else {
+            crawl = current
+        }
+    }
+
+    private func report(done: Int, total: Int) {
+        for handler in progressHandlers.values { handler(done, total) }
+    }
+
+    private func performSync() async throws -> [WatchlistEntry] {
+        let onProgress: @Sendable (Int, Int) -> Void = { done, total in
+            Task { await self.report(done: done, total: total) }
+        }
         var ownerFailure: (any Error)?
         do {
             _ = try await owner.sync(onProgress: onProgress)

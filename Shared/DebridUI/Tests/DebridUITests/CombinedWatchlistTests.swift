@@ -36,6 +36,27 @@ private struct SlugResolver: WatchlistTitleResolving {
     }
 }
 
+/// Holds its first crawl until released and counts every crawl, so a test can ask a second
+/// caller to sync while the first one's crawl is in flight.
+private actor GatedListReader: LetterboxdProfileReading {
+    private var gates: [CheckedContinuation<Void, Never>] = []
+    private var released = false
+    private(set) var crawls = 0
+
+    func films() async throws -> [LetterboxdEntry] { [] }
+    func watchlist() async throws -> [LetterboxdEntry] {
+        crawls += 1
+        if !released { await withCheckedContinuation { gates.append($0) } }
+        return [LetterboxdEntry(slug: "a", name: "a (1994)", year: 1994, rating: nil)]
+    }
+    var isHolding: Bool { !gates.isEmpty }
+    func release() {
+        released = true
+        gates.forEach { $0.resume() }
+        gates = []
+    }
+}
+
 private func syncer(_ slugs: [String], error: (any Error)? = nil) -> WatchlistSyncer {
     WatchlistSyncer(reader: ListReader(slugs: slugs, error: error),
                     resolver: SlugResolver(),
@@ -176,5 +197,31 @@ private func syncer(_ slugs: [String], error: (any Error)? = nil) -> WatchlistSy
 
         let after = await combined.remove(slug: "x")
         #expect(after.filter { !$0.isRemoved }.isEmpty)
+    }
+
+    /// Home and the Watchlist page both sync through this one object. Asked together, they must
+    /// share one crawl: two at once would mean twice the Letterboxd requests and two load-merge-
+    /// saves of one mirror racing each other.
+    @Test func twoSyncsAtOnceShareOneCrawl() async throws {
+        let reader = GatedListReader()
+        let owner = WatchlistSyncer(reader: reader, resolver: SlugResolver(),
+                                    store: WatchlistStore(fileURL: FileManager.default.temporaryDirectory
+                                        .appendingPathComponent("combined-\(UUID().uuidString).json")),
+                                    resolveDelay: .zero)
+        let combined = CombinedWatchlist(owner: owner, partner: nil, partnerName: nil)
+
+        async let first = combined.sync(onProgress: nil)
+        while !(await reader.isHolding) { await Task.yield() }
+        async let second = combined.sync(onProgress: nil)
+        while await combined.syncWaiters < 2 { await Task.yield() }
+        await reader.release()
+
+        #expect(try await first.map(\.slug) == ["a"])
+        #expect(try await second.map(\.slug) == ["a"])
+        #expect(await reader.crawls == 1)
+
+        // Over once it has finished: the next sync crawls again.
+        _ = try await combined.sync(onProgress: nil)
+        #expect(await reader.crawls == 2)
     }
 }
