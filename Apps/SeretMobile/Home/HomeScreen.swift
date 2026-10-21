@@ -2,54 +2,94 @@ import DebridCore
 import DebridUI
 import SwiftUI
 
-/// Home tab: a featured hero (most recent Continue item) + Continue Watching and
-/// Recently Added rails, composed on `session.home`. Taps open Detail full-screen.
+/// Home, as the mockups (g1 iPhone, m5 iPad) and the Apple TV draw it: a full-bleed hero for the
+/// title you were last watching, then sideways poster rails — Continue Watching, Downloading
+/// (while anything is), Recently Added Movies, Recently Added Shows — composed on `session.home`.
+///
+/// - iPhone: the art runs under the status bar and the glass header ("Seret", Search, Settings);
+///   the header's shade only firms up once the hero has scrolled away.
+/// - iPad: the art runs the page's width and on under the floating sidebar
+///   (`shellLeadingInset`), with the preview (logo, metadata, synopsis, buttons) on the left.
+///
+/// Resume plays directly (the title's page only when its file no longer resolves); a tile in
+/// Continue Watching resumes too and keeps its long-press marks; Recently Added tiles open the
+/// title's page and keep the library menu; Downloading tiles open the page of what is landing.
 struct HomeScreen: View {
     @Environment(AppSession.self) private var session
     @Environment(\.horizontalSizeClass) private var hSize
     @Environment(AppRouter.self) private var router
+    /// iPad: the shell draws the hero art behind the floating sidebar; Home reports its scroll
+    /// and hides it under a pushed page. Optional — absent outside the shell.
+    @Environment(HomeBackdropModel.self) private var shellBackdrop: HomeBackdropModel?
+    /// Home's own stack — a page pushed over it (See All) hides the shell's art.
+    @State private var navPath = NavigationPath()
+    /// The page's last scroll offset, so the shell's art can be put back where the page is when
+    /// Home reappears (the scroll handler only fires on a CHANGE). A plain reference box, not
+    /// `@State` of a value: it is written on every scroll frame, and a state write would
+    /// re-evaluate Home's whole body (every rail) per frame.
+    @State private var scrollMemory = ScrollMemory()
     @State private var showingProfiles = false
     @State private var showingSettings = false
     /// A title awaiting removal confirmation, and the failure to surface if RD refuses.
     @State private var pendingRemoval: MediaItem?
     @State private var removeErrorMessage: String?
+    /// The hero has scrolled (mostly) away — the iPhone header's shade firms up for the posters.
+    @State private var pastHero = false
+
+#if DEBUG
+    /// Fixture stores from a `-uiPreview` harness (see `PagesUIPreview`), else the session's.
+    @Environment(\.uiPreviewStores) private var preview
+    private var homeStore: HomeStore? { preview?.home ?? session.home }
+    private var art: TitleArtStore? { preview?.art ?? session.titleArt }
+    private var activeDownloads: [DownloadTile] {
+        preview?.downloads ?? session.downloadStore?.activeTiles ?? []
+    }
+#else
+    private var homeStore: HomeStore? { session.home }
+    private var art: TitleArtStore? { session.titleArt }
+    private var activeDownloads: [DownloadTile] { session.downloadStore?.activeTiles ?? [] }
+#endif
 
     private var isRegular: Bool { hSize == .regular }
-    // Recently Added is a grid now — its cards size to the column, so no poster width here.
-    private var landW: CGFloat { isRegular ? 280 : 178 }
-    private var heroH: CGFloat { isRegular ? 380 : 250 }
+    private var margin: CGFloat { PosterTileMetrics.margin(hSize) }
 
     var body: some View {
-        NavigationStack {
-            ZStack {
-                CanvasBackground()
+        NavigationStack(path: $navPath) {
+            ZStack(alignment: .top) {
+                // On iPad the shell's art layer IS the background (see `HomeBackdropModel`).
+                if !(isRegular && shellBackdrop != nil) { CanvasBackground() }
                 content
+                if !isRegular { header }
             }
-            .navigationTitle("Home")
+            .toolbar(.hidden, for: .navigationBar)
+            // The stack paints an opaque page background of its own; on iPad the shell's art
+            // must show through it.
+            .containerBackground(isRegular && shellBackdrop != nil ? Color.clear : Theme.Palette.canvas,
+                                 for: .navigation)
+            .navigationDestination(for: HomeRoute.self) { route in
+                switch route {
+                case .recentlyAdded(let kind): RecentlyAddedGrid(kind: kind)
+                }
+            }
             .libraryRemovalConfirmation(pending: $pendingRemoval,
                                         errorMessage: $removeErrorMessage,
                                         store: session.libraryStore)
-            .toolbar {
-                // iPhone: profile avatar + Settings gear in the nav bar (iPad uses the sidebar).
-                if !isRegular {
-                    ToolbarItem(placement: .topBarLeading) {
-                        Button { showingSettings = true } label: {
-                            Image(systemName: "gearshape").tint(Theme.Palette.textPrimary)
-                        }
-                    }
-                    // The avatar is gone while profiles are off. See `ProfilesFeature`.
-                    if ProfilesFeature.isEnabled {
-                        ToolbarItem(placement: .topBarTrailing) {
-                            Button { showingProfiles = true } label: {
-                                ProfileAvatarImage(token: session.activeProfiles?.activeProfile?.avatar ?? "",
-                                                   diameter: 32,
-                                                   colorTag: session.activeProfiles?.activeProfile?.colorTag ?? "gold")
-                            }
-                        }
-                    }
-                }
-            }
         }
+        // The shell's art follows Home's stack: hidden under a pushed page, shown at the root —
+        // asserted on every appearance too, since a tab switch from a pushed page and back
+        // re-creates the page without the stack's emptiness ever "changing".
+        .onChange(of: navPath.isEmpty, initial: true) { _, atRoot in shellBackdrop?.hidden = !atRoot }
+        .onAppear {
+            shellBackdrop?.hidden = !navPath.isEmpty
+            shellBackdrop?.offset = scrollMemory.offset
+        }
+        // Leaving Home (another section) — the next Home starts at the top, so must the art.
+        .onDisappear { shellBackdrop?.offset = 0 }
+#if DEBUG
+        // `-uiPreview homescript` pushes and pops Home's own stack.
+        .onChange(of: preview?.homeScript?.pushes) { _, _ in navPath.append(HomeRoute.recentlyAdded(.movie)) }
+        .onChange(of: preview?.homeScript?.pops) { _, _ in if !navPath.isEmpty { navPath.removeLast() } }
+#endif
         .fullScreenCover(isPresented: $showingProfiles) {
             WhoIsWatchingScreen(onPicked: { showingProfiles = false }).environment(session)
         }
@@ -59,7 +99,7 @@ struct HomeScreen: View {
                     .environment(session)
                     .toolbar {
                         ToolbarItem(placement: .topBarTrailing) {
-                            Button("Done") { showingSettings = false }.tint(Theme.Palette.gold)
+                            Button("Done") { showingSettings = false }.tint(Theme.Palette.focus)
                         }
                     }
             }
@@ -89,10 +129,39 @@ struct HomeScreen: View {
         }
     }
 
+    // MARK: Header (iPhone)
+
+    /// "Seret" + Search + Settings over the art. Its shade stays faint over the hero, so the art
+    /// reads through as in the mockup, and firms up once the hero has scrolled away.
+    private var header: some View {
+        // Faint only while hero art is under it; firm once that has scrolled away — or when there
+        // is no hero at all (only downloads), so the first rail never shows through.
+        let overArt = homeStore.map { heroSubject($0) != nil } ?? false
+        return GlassPageHeader(title: "Seret", shade: pastHero || !overArt ? 1 : 0.3) {
+            SearchCircleLink()
+            GlassCircleButton(systemImage: "gearshape", label: "Settings") { showingSettings = true }
+            // The avatar is gone while profiles are off. See `ProfilesFeature`.
+            if ProfilesFeature.isEnabled {
+                Button { showingProfiles = true } label: {
+                    ProfileAvatarImage(token: session.activeProfiles?.activeProfile?.avatar ?? "",
+                                       diameter: 40,
+                                       colorTag: session.activeProfiles?.activeProfile?.colorTag
+                                           ?? Theme.Palette.defaultColorTag)
+                        .padding(2)
+                        .seretGlass(in: Circle())
+                }
+                .buttonStyle(GlassPressStyle())
+                .accessibilityLabel("Switch profile")
+            }
+        }
+        .animation(Theme.Motion.fade, value: pastHero)
+    }
+
+    // MARK: Content
+
     @ViewBuilder private var content: some View {
-        if let home = session.home {
-            if home.continueWatching.isEmpty && home.recentlyAdded.isEmpty
-                && (session.downloadStore?.activeTiles.isEmpty ?? true) {
+        if let home = homeStore {
+            if home.continueWatching.isEmpty && home.recentlyAdded.isEmpty && activeDownloads.isEmpty {
                 // A failed library said "Nothing here yet — play something" for good, and a library
                 // with titles Home had not composed yet said it for the whole first build.
                 if case .failed(let message) = session.libraryStore?.state {
@@ -104,96 +173,138 @@ struct HomeScreen: View {
                     empty
                 }
             } else {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: Theme.Space.xxl) {
-                        hero(home)
-                        if let tiles = session.downloadStore?.activeTiles, !tiles.isEmpty {
-                            Rail(title: "Downloading") {
-                                ForEach(tiles) { tile in
-                                    Button {
-                                        openDownload(tile, library: session.libraryStore,
-                                                     router: router)
-                                    } label: {
-                                        DownloadingTile(tile: tile)
-                                    }.pressable()
-                                }
-                            }
-                        }
-                        if !home.continueWatching.isEmpty {
-                            Rail(title: "Continue Watching") {
-                                ForEach(home.continueWatching) { hi in
-                                    Button { resume(hi) } label: {
-                                        LandscapeProgressCard(title: hi.item.title,
-                                                              subtitle: hi.isUpNext ? "Next · \(hi.subtitle)" : hi.subtitle,
-                                                              imageURL: backdropURL(hi.item),
-                                                              fraction: hi.fraction, width: landW)
-                                    }.pressable()
-                                    // The same long-press the Apple TV offers: the title's page
-                                    // (a tap resumes), and the marks that take it off the rail.
-                                    .contextMenu {
-                                        ContinueWatchingActions(entry: hi, home: home, session: session,
-                                                                openTitle: { router.detail = hi.item },
-                                                                play: { router.playback = PlaybackPresentation(request: $0) })
-                                    }
-                                }
-                            }
-                        }
-                        if !home.recentlyAdded.isEmpty {
-                            // A wall, not a side-scroller: the library can be large and a
-                            // horizontal rail hides everything past the first few posters.
-                            GridSection(title: "Recently Added") {
-                                ForEach(home.recentlyAdded) { item in
-                                    let isWatched = session.libraryStore?.watchState(for: item)?.finished == true
-                                    Button { router.detail = item } label: {
-                                        // width: nil → the card fills its grid column.
-                                        PosterCard(title: item.title, posterURL: posterURL(item),
-                                                   width: nil, watched: isWatched)
-                                    }
-                                    .pressable()
-                                    // The same actions the library grid offers. This rail used to
-                                    // mark a movie watched and nothing else.
-                                    .libraryTitleMenu(for: item, session: session,
-                                                      onRemove: { pendingRemoval = $0 })
-                                }
-                            }
-                        }
-                    }
-                    .padding(.vertical, Theme.Space.lg)
-                }
+                page(home)
             }
         } else {
-            ProgressView().tint(Theme.Palette.gold)
+            loading
         }
     }
 
-    @ViewBuilder private func hero(_ home: HomeStore) -> some View {
-        if let f = home.featured {
-            HeroBackdrop(imageURL: backdropURL(f.item), height: heroH) {
-                VStack(alignment: .leading, spacing: Theme.Space.sm) {
-                    Text(f.isUpNext ? "Up Next · \(f.subtitle)"
-                         : f.subtitle.isEmpty ? "Continue Watching" : "Continue · \(f.subtitle)")
-                        .font(Theme.Typo.label()).tracking(1.5).foregroundStyle(Theme.Palette.gold)
-                    Text(f.item.title).font(Theme.Typo.titleXL())
-                        .foregroundStyle(Theme.Palette.textPrimary).lineLimit(2)
-                    // The pill resumes playback directly; tapping the hero art (below) opens Detail.
-                    Button { resume(f) } label: {
-                        HStack(spacing: 6) { Image(systemName: "play.fill"); Text(f.isUpNext ? "Play" : "Resume") }
-                            .font(Theme.Typo.headline()).foregroundStyle(Theme.Palette.onGold)
-                            .padding(.vertical, 9).padding(.horizontal, Theme.Space.xl)
-                            .background(Theme.Palette.goldGradient, in: Capsule())
-                            .goldGlow(12, opacity: 0.4).padding(.top, 2)
+    private func heroSubject(_ home: HomeStore) -> HomeHeroSubject? {
+        if let first = home.continueWatching.first { return .resume(first) }
+        if let newest = home.recentlyAdded.first { return .added(newest) }
+        return nil
+    }
+
+    private func heroHeight(_ size: CGSize) -> CGFloat {
+        isRegular ? max(400, min(size.height * 0.56, 520)) : size.height * 0.64
+    }
+
+    private func page(_ home: HomeStore) -> some View {
+        GeometryReader { geo in
+            let subject = heroSubject(home)
+            let heroHeight = heroHeight(geo.size)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 28) {
+                    if let subject {
+                        HomeHero(subject: subject, home: home, art: art, session: session,
+                                 regular: isRegular, height: heroHeight,
+                                 artHeight: geo.size.height * 0.92, leadingMargin: margin,
+                                 actions: heroActions)
+                            // A new featured title re-runs the hero (its art, its settle budget).
+                            .id(subject.item.id)
                     }
-                    .buttonStyle(.plain)
+                    rails(home, featured: subject)
+                }
+                // No hero (only downloads under way): the page starts below the header, never
+                // under it and the status bar.
+                .padding(.top, subject == nil ? (isRegular ? Theme.Space.xxl : 84) : 0)
+                .padding(.bottom, Theme.Space.xxxl)
+            }
+            .onScrollGeometryChange(for: CGFloat.self) { geometry in
+                geometry.contentOffset.y + geometry.contentInsets.top
+            } action: { _, offset in
+                let past = offset > heroHeight - 150
+                if past != pastHero { pastHero = past }
+                // The shell's art scrolls with the page (iPad).
+                if isRegular {
+                    scrollMemory.offset = offset
+                    shellBackdrop?.offset = offset
                 }
             }
-            .contentShape(Rectangle())
-            .onTapGesture { router.detail = f.item }
-            .padding(.horizontal, Theme.Space.lg)
+#if DEBUG
+            // `-uiPreview homescript` scrolls the page without a finger (the iPad simulator
+            // cannot be driven by touch here).
+            .modifier(HomeScriptScroller(target: preview?.homeScript?.scrollTo))
+#endif
+        }
+        // Only a hero runs under the status bar and the header.
+        .ignoresSafeArea(edges: heroSubject(home) == nil ? [] : .top)
+    }
+
+    @ViewBuilder private func rails(_ home: HomeStore, featured: HomeHeroSubject?) -> some View {
+        let width = PosterTileMetrics.width(hSize)
+        // The hero IS the first entry — the rail starts with the one after it, as in the mockups.
+        let continuing: [HomeItem] = {
+            guard case .resume(let first) = featured else { return home.continueWatching }
+            return home.continueWatching.filter { $0.id != first.id }
+        }()
+        if !continuing.isEmpty {
+            PosterRail(title: "Continue Watching") {
+                ForEach(continuing) { hi in
+                    Button { resume(hi) } label: {
+                        PosterTile(posterPath: hi.item.posterPath, title: hi.item.title, width: width,
+                                   progress: hi.fraction, chip: hi.isUpNext ? "Next" : nil)
+                    }
+                    .pressable()
+                    // The same long-press the Apple TV offers: the title's page (a tap resumes),
+                    // and the marks that take it off the rail.
+                    .contextMenu {
+                        ContinueWatchingActions(entry: hi, home: home, session: session,
+                                                openTitle: { router.detail = hi.item },
+                                                play: { router.playback = PlaybackPresentation(request: $0) })
+                    }
+                }
+            }
+        }
+        if !activeDownloads.isEmpty {
+            PosterRail(title: "Downloading") {
+                ForEach(activeDownloads) { tile in
+                    Button {
+                        openDownload(tile, library: session.libraryStore, router: router)
+                    } label: {
+                        DownloadingTile(tile: tile, width: width, showsTitle: false)
+                    }
+                    .pressable()
+                }
+            }
+        }
+        recentRail("Recently Added Movies", items: home.recentlyAddedMovies, kind: .movie, width: width)
+#if DEBUG
+        recentRail("Recently Added Shows", items: home.recentlyAddedShows, kind: .show, width: width)
+            .id(HomeRailID.shows)
+#else
+        recentRail("Recently Added Shows", items: home.recentlyAddedShows, kind: .show, width: width)
+#endif
+    }
+
+    @ViewBuilder private func recentRail(_ title: String, items: [MediaItem], kind: MediaKind,
+                                         width: CGFloat) -> some View {
+        if !items.isEmpty {
+            // "See All" only once there is more than a screenful to see.
+            PosterRail(title: title, seeAll: items.count > 6 ? HomeRoute.recentlyAdded(kind) : nil) {
+                ForEach(items) { item in
+                    Button { router.detail = item } label: {
+                        PosterTile(posterPath: item.posterPath, title: item.title, width: width,
+                                   watched: session.libraryStore?.watchState(for: item)?.finished == true)
+                    }
+                    .pressable()
+                    .libraryTitleMenu(for: item, session: session, onRemove: { pendingRemoval = $0 })
+                }
+            }
         }
     }
 
-    /// Resume playback straight from a rail. Falls back to the Detail page only if the file can't be
-    /// resolved (e.g. the version was removed since it was last watched).
+    private var heroActions: HomeHeroActions {
+        let router = router
+        return HomeHeroActions(resume: { resume($0) },
+                               open: { router.detail = $0 },
+                               play: { router.playback = PlaybackPresentation(request: $0) },
+                               remove: { pendingRemoval = $0 })
+    }
+
+    /// Resume playback straight from Home. Falls back to the title's page only if the file can't
+    /// be resolved (e.g. the version was removed since it was last watched).
     private func resume(_ hi: HomeItem) {
         if let request = hi.playbackRequest() {
             router.playback = PlaybackPresentation(request: request)
@@ -202,11 +313,20 @@ struct HomeScreen: View {
         }
     }
 
+    // MARK: States
+
     private var loading: some View {
-        VStack(spacing: Theme.Space.lg) {
-            ShimmerView().frame(height: heroH).padding(.horizontal, Theme.Space.lg)
-            ShimmerView().frame(height: 120).padding(.horizontal, Theme.Space.lg)
-        }.padding(.top, Theme.Space.lg).frame(maxHeight: .infinity, alignment: .top)
+        GeometryReader { geo in
+            VStack(alignment: .leading, spacing: 28) {
+                ShimmerView()
+                    .frame(height: heroHeight(geo.size))
+                    .mask(LinearGradient(colors: [.black, .black.opacity(0)],
+                                         startPoint: .center, endPoint: .bottom))
+                RailSkeleton(rows: 1)
+            }
+        }
+        .ignoresSafeArea(edges: .top)
+        .allowsHitTesting(false)
     }
 
     private func failed(_ message: String) -> some View {
@@ -218,8 +338,9 @@ struct HomeScreen: View {
             Button { session.libraryStore?.reload() } label: {
                 Label("Try Again", systemImage: "arrow.clockwise")
             }
-            .buttonStyle(.borderedProminent).tint(Theme.Palette.gold)
-        }.frame(maxWidth: .infinity).padding(.top, 100)
+            .buttonStyle(PrimaryPillButtonStyle())
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var empty: some View {
@@ -228,26 +349,97 @@ struct HomeScreen: View {
             Text("Nothing here yet").font(Theme.Typo.headline()).foregroundStyle(Theme.Palette.textSecondary)
             Text("Play something and it'll show up here.").font(Theme.Typo.body())
                 .foregroundStyle(Theme.Palette.textTertiary)
-        }.frame(maxWidth: .infinity).padding(.top, 100)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func rebuild() async {
         guard let library = session.libraryStore, let home = session.home else { return }
         await home.rebuild(movies: library.movies, shows: library.shows)
-        // Warm the rail images in the background so cards render filled instead of popping in
-        // one by one as they scroll into view.
-        var urls: [URL] = []
-        if let f = home.featured, let u = backdropURL(f.item) { urls.append(u) }
-        urls += home.continueWatching.compactMap { backdropURL($0.item) }
-        // Only what the viewer lands on. The grid holds sixty now, and warming every one of them
-        // eagerly is sixty decodes on a phone for a wall you have to scroll to reach the end of —
-        // the rest warm lazily as they scroll in.
-        urls += home.recentlyAdded.prefix(20).compactMap { posterURL($0) }
+        // Warm the first screenful of each rail in the background so tiles render filled instead
+        // of popping in one by one as they scroll into view.
+        var urls = home.continueWatching.prefix(8).compactMap { posterURL($0.item) }
+        urls += home.recentlyAddedMovies.prefix(8).compactMap { posterURL($0) }
+        urls += home.recentlyAddedShows.prefix(8).compactMap { posterURL($0) }
         ImageMemoryCache.prefetch(urls)
     }
 
-    private func posterURL(_ i: MediaItem) -> URL? { TMDBClient.imageURL(path: i.posterPath, size: "w500") }
-    private func backdropURL(_ i: MediaItem) -> URL? {
-        TMDBClient.imageURL(path: i.backdropPath ?? i.posterPath, size: "w780")
+    private func posterURL(_ i: MediaItem) -> URL? { TMDBClient.imageURL(path: i.posterPath, size: "w342") }
+}
+
+/// Home's last scroll offset — a reference, so writing it per scroll frame invalidates nothing.
+private final class ScrollMemory {
+    var offset: CGFloat = 0
+}
+
+#if DEBUG
+/// Scroll targets on Home's page (`-uiPreview homescript` only).
+enum HomeRailID {
+    static let shows = "home-rail-shows"
+}
+
+/// `-uiPreview homescript`: scrolls the page to a rail without a finger. Wraps the scroll view in
+/// the reader only in DEBUG, so Release carries no harness plumbing.
+private struct HomeScriptScroller: ViewModifier {
+    let target: String?
+
+    func body(content: Content) -> some View {
+        ScrollViewReader { proxy in
+            content.onChange(of: target) { _, target in
+                if let target { withAnimation { proxy.scrollTo(target, anchor: .top) } }
+            }
+        }
+    }
+}
+#endif
+
+/// Where Home's "See All" links go.
+enum HomeRoute: Hashable {
+    case recentlyAdded(MediaKind)
+}
+
+/// Every recently added movie (or show) Home holds, as a grid — Recently Added's "See All".
+struct RecentlyAddedGrid: View {
+    let kind: MediaKind
+    @Environment(AppSession.self) private var session
+    @Environment(AppRouter.self) private var router
+    @Environment(\.horizontalSizeClass) private var hSize
+    @State private var pendingRemoval: MediaItem?
+    @State private var removeErrorMessage: String?
+#if DEBUG
+    @Environment(\.uiPreviewStores) private var preview
+    private var homeStore: HomeStore? { preview?.home ?? session.home }
+#else
+    private var homeStore: HomeStore? { session.home }
+#endif
+
+    private var items: [MediaItem] {
+        kind == .movie ? homeStore?.recentlyAddedMovies ?? [] : homeStore?.recentlyAddedShows ?? []
+    }
+
+    var body: some View {
+        ZStack {
+            CanvasBackground()
+            ScrollView {
+                LazyVGrid(columns: PosterTileMetrics.gridColumns(hSize), spacing: PosterTileMetrics.spacing + 4) {
+                    ForEach(items) { item in
+                        Button { router.detail = item } label: {
+                            PosterTile(posterPath: item.posterPath, title: item.title, width: nil,
+                                       watched: session.libraryStore?.watchState(for: item)?.finished == true)
+                        }
+                        .pressable()
+                        .libraryTitleMenu(for: item, session: session, onRemove: { pendingRemoval = $0 })
+                    }
+                }
+                .padding(.horizontal, PosterTileMetrics.margin(hSize))
+                .padding(.bottom, Theme.Space.xxxl)
+            }
+        }
+        .navigationTitle(kind == .movie ? "Recently Added Movies" : "Recently Added Shows")
+        .navigationBarTitleDisplayMode(.large)
+        .toolbar(.visible, for: .navigationBar)
+        .libraryRemovalConfirmation(pending: $pendingRemoval,
+                                    errorMessage: $removeErrorMessage,
+                                    store: session.libraryStore)
     }
 }

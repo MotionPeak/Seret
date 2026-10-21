@@ -24,7 +24,9 @@ struct FlowLayout: Layout {
         var x = bounds.minX, y = bounds.minY, rowHeight: CGFloat = 0
         for sub in subviews {
             let size = sub.sizeThatFits(.unspecified)
-            if x + size.width > bounds.maxX, x > bounds.minX {
+            // A half-point of slack: the bounds arrive pixel-rounded, and a row measured to fit
+            // exactly in `sizeThatFits` wrapped its last chip here — onto the view below it.
+            if x + size.width > bounds.maxX + 0.5, x > bounds.minX {
                 x = bounds.minX; y += rowHeight + spacing; rowHeight = 0
             }
             sub.place(at: CGPoint(x: x, y: y), anchor: .topLeading, proposal: ProposedViewSize(size))

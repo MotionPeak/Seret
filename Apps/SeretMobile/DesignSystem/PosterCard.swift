@@ -29,7 +29,7 @@ struct PosterCard: View {
     private var watchedBadge: some View {
         Image(systemName: "checkmark.circle.fill")
             .font(.system(size: 22))
-            .foregroundStyle(Theme.Palette.gold)
+            .foregroundStyle(Theme.Palette.focus)
             .background(Circle().fill(.black.opacity(0.55)))
             .padding(8)
             .accessibilityLabel("Watched")

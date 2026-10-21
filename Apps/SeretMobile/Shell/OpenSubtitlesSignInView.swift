@@ -14,38 +14,29 @@ struct OpenSubtitlesSignInView: View {
     }
 
     var body: some View {
-        Form {
-            Section {
-                TextField("Username", text: $model.username)
-                    .textContentType(.username).autocorrectionDisabled()
-                    .textInputAutocapitalization(.never)
-                SecureField("Password", text: $model.password).textContentType(.password)
-            } header: {
-                Text("OpenSubtitles Account").foregroundStyle(Theme.Palette.gold)
-            } footer: {
-                Text("Your free OpenSubtitles account is used to download Hebrew/English subtitles during playback.")
-                    .font(.footnote).foregroundStyle(Theme.Palette.textSecondary)
+        GlassFormPage {
+            GlassSection(title: "OpenSubtitles account",
+                         footer: "Your free OpenSubtitles account is used to download Hebrew/English subtitles during playback.") {
+                GlassField(label: "Username", text: $model.username, prompt: "OpenSubtitles username",
+                           contentType: .username)
+                GlassField(label: "Password", text: $model.password, prompt: "Password", secure: true,
+                           contentType: .password)
             }
-            .listRowBackground(Theme.Palette.surface1)
-
-            Section {
-                Button {
-                    model.save()
-                    if model.isConnected { dismiss() }
-                } label: {
-                    Text("Sign In").frame(maxWidth: .infinity)
-                }
-                .disabled(!canSubmit)
-            } footer: {
-                Link("Don’t have an account? Create one at opensubtitles.com",
-                     destination: URL(string: "https://www.opensubtitles.com/en/users/sign_up")!)
-                    .font(.footnote)
+            Button {
+                model.save()
+                if model.isConnected { dismiss() }
+            } label: {
+                Text("Sign In")
             }
-            .listRowBackground(Theme.Palette.surface1)
+            .buttonStyle(PrimaryPillButtonStyle(fullWidth: true))
+            .disabled(!canSubmit)
+            Link("Don\u{2019}t have an account? Create one at opensubtitles.com",
+                 destination: URL(string: "https://www.opensubtitles.com/en/users/sign_up")!)
+                .font(.footnote)
+                .foregroundStyle(Theme.Palette.textSecondary)
+                .frame(maxWidth: .infinity)
         }
-        .scrollContentBackground(.hidden)
-        .background(CanvasBackground())
-        .tint(Theme.Palette.gold)
+        .tint(Theme.Palette.focus)
         .navigationTitle("OpenSubtitles")
         .navigationBarTitleDisplayMode(.inline)
     }

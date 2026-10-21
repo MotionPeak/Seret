@@ -61,8 +61,12 @@ private final class FakeDiscover: DiscoverProviding, @unchecked Sendable {
     func newByGenre(_ kind: MediaKind, _ genreID: Int, from: String, to: String) async throws -> [TMDBSearchResult] {
         if failGenres { throw FakeError.boom }; return [movie(10000 + genreID)]
     }
+    /// Holds ONE genre's popular titles until opened — a row still out at the bottom of the page.
+    var genreGate: DiscoverGate?
+    var gatedGenre: Int?
     func popularByGenre(_ kind: MediaKind, _ genreID: Int) async throws -> [TMDBSearchResult] {
         lock.withLock { _popularCalls += 1 }
+        if let genreGate, gatedGenre == genreID { await genreGate.wait() }
         if failGenres || failAll { throw FakeError.boom }
         if let shared = sharedGenreHit { return [movie(shared), movie(20000 + genreID), movie(shared)] }
         return [movie(20000 + genreID)]
@@ -181,6 +185,30 @@ private func movie(_ id: Int) -> TMDBSearchResult {
         await store.refreshForYouIfBetterSeeds()      // the page calls this when the library lands
 
         #expect((store.rowsBySegment[.forYou] ?? []).map(\.title) == ["Because you watched Dune"])
+    }
+
+    /// The page reads `.loaded` from its first row on; `browseIsStreaming` is what says more rows
+    /// are still on their way (the page keeps a skeleton below the last row while it is true).
+    @Test func browsePageStreamsUntilEveryRowHasLanded() async {
+        let fake = FakeDiscover()
+        let gate = DiscoverGate()
+        fake.genreGate = gate
+        fake.gatedGenre = 37                              // Western — the last genre row
+        let store = DiscoverStore(kind: .movie, discover: fake)
+        #expect(!store.browseIsStreaming)
+
+        let load = Task { await store.loadBrowsePage() }
+        for _ in 0..<400 where store.browseState != .loaded {
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        #expect(store.browseState == .loaded)
+        #expect(store.browseIsStreaming)                  // Western is still out
+        #expect(!store.browseRows.contains { $0.title == "Western" })
+
+        await gate.open()
+        await load.value
+        #expect(!store.browseIsStreaming)
+        #expect(store.browseRows.contains { $0.title == "Western" })
     }
 
     /// The load ran inside the asking VIEW's task, so leaving the segment cancelled it — and an ask

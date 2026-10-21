@@ -13,20 +13,20 @@ struct PlayTriangle: Shape {
     }
 }
 
-/// Gold play-triangle logo. `glow` adds the halo; size via `.frame`.
+/// White/silver play-triangle logo. `glow` adds the halo; size via `.frame`.
 struct SeretMark: View {
     var glow: Bool = true
     var body: some View {
         GeometryReader { geo in
             let corner = geo.size.width * 0.14
             PlayTriangle()
-                .fill(Theme.Palette.markGradient)
+                .fill(Theme.Palette.silverGradient)
                 .overlay(
                     PlayTriangle()
-                        .stroke(Theme.Palette.markGradient,
+                        .stroke(Theme.Palette.silverGradient,
                                 style: StrokeStyle(lineWidth: corner, lineJoin: .round))
                 )
-                .goldGlow(glow ? geo.size.width * 0.22 : 0, opacity: glow ? 0.55 : 0)
+                .shadow(color: .white.opacity(glow ? 0.22 : 0), radius: glow ? geo.size.width * 0.18 : 0)
         }
         .aspectRatio(1, contentMode: .fit)
     }

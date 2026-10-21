@@ -11,6 +11,7 @@ struct SeretMobileApp: App {
     init() {
         // The stream cache's lines go into vlc.log beside libvlc's own (see DiagnosticsLog).
         AppSession.streamDiagnostics = { DiagnosticsLog.shared.write($0) }
+        MainShell.styleLegacyTabBar()
     }
 
     var body: some Scene {
@@ -20,7 +21,18 @@ struct SeretMobileApp: App {
                 Color.clear
             } else if let preview = Self.uiPreview {
                 #if DEBUG
-                if preview == "versions" {
+                if preview == "shell" || preview == "glass" {
+                    ShellUIPreview(target: preview)    // -uiPreview shell [-shellSection movies]
+                } else if ["home", "homedownloading", "homedownloadsonly", "homescript", "movies", "shows", "genregrid", "spin"].contains(preview)
+                            || preview.hasPrefix("watchlist") || preview.hasPrefix("library")
+                            || preview.hasPrefix("search") {
+                    PagesUIPreview(target: preview)    // -uiPreview home|movies|shows|genregrid
+                } else if ["settings", "settingsletterboxd", "opensubs", "profiles", "addprofile"].contains(preview)
+                            || preview.hasPrefix("signin") {
+                    ScreensUIPreview(target: preview)  // -uiPreview settings|signincode|profiles|…
+                } else if preview == "moviedetail" {
+                    DetailUIPreview()                  // -uiPreview moviedetail
+                } else if preview == "versions" {
                     VersionsUIPreview()                // -uiPreview versions
                 } else if preview.hasPrefix("magnet") {
                     MagnetUIPreview(target: preview)   // -uiPreview <magnetidle|magnetready|…>

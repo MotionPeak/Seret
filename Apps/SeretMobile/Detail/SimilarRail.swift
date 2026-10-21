@@ -21,19 +21,22 @@ struct SimilarRail: View {
     let parentKind: MediaKind
     /// Open this title's page.
     let onOpen: (MediaItem) -> Void
+    /// The page's leading margin — the header sits on it and the row scrolls out to the edge.
+    var margin: CGFloat = 0
     @Environment(AppSession.self) private var session
+    @Environment(\.horizontalSizeClass) private var hSize
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Theme.Space.sm) {
-            Text("MORE LIKE THIS")
-                .font(Theme.Typo.label()).tracking(1.5).foregroundStyle(Theme.Palette.gold)
+        VStack(alignment: .leading, spacing: Theme.Space.md) {
+            TitleSectionHeader(title: "More Like This").padding(.horizontal, margin)
             ScrollView(.horizontal, showsIndicators: false) {
                 // Lazy: `similar` is a whole TMDB page, and a non-lazy row built and image-loaded
                 // every one of them the moment the page appeared, however few were on screen.
-                LazyHStack(alignment: .top, spacing: Theme.Space.md) {
+                LazyHStack(alignment: .top, spacing: PosterTileMetrics.spacing) {
                     ForEach(titles) { tile($0) }
                 }
             }
+            .contentMargins(.horizontal, margin, for: .scrollContent)
         }
         .task {
             ImageMemoryCache.prefetch(
@@ -47,20 +50,9 @@ struct SimilarRail: View {
         return Button {
             onOpen(owned ?? .placeholder(for: SearchHit(result: title, kind: parentKind)))
         } label: {
-            PosterCard(title: title.displayTitle,
-                       posterURL: TMDBClient.imageURL(path: title.posterPath, size: "w342"))
-                .overlay(alignment: .topTrailing) {
-                    if owned != nil { inLibraryBadge.padding(6) }
-                }
+            PosterTile(posterPath: title.posterPath, title: title.displayTitle,
+                       width: PosterTileMetrics.width(hSize), owned: owned != nil)
         }
         .pressable()
-    }
-
-    private var inLibraryBadge: some View {
-        Image(systemName: "checkmark.circle.fill")
-            .font(.system(size: 18, weight: .bold))
-            .foregroundStyle(Theme.Palette.onGold, Theme.Palette.gold)
-            .background(Circle().fill(.black.opacity(0.35)))
-            .accessibilityLabel("In Library")
     }
 }

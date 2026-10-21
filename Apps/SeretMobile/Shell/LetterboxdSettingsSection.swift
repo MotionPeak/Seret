@@ -2,8 +2,10 @@ import DebridCore
 import DebridUI
 import SwiftUI
 
-/// Letterboxd import controls. iPhone/iPad only — this is where the username gets typed, because
-/// typing one on a TV remote is a punishment. The Apple TV reads the same setting.
+/// Letterboxd controls, as three glass sections — the account (username, rating import, marks),
+/// the shared watchlist (a partner's), and the Seret server. iPhone/iPad only — this is where the
+/// username gets typed, because typing one on a TV remote is a punishment. The Apple TV reads the
+/// same setting.
 struct LetterboxdSettingsSection: View {
     @Environment(AppSession.self) private var session
     @Bindable var model: LetterboxdImportModel
@@ -17,95 +19,88 @@ struct LetterboxdSettingsSection: View {
         model.settings.isEnabled && !model.settings.username.isEmpty && profileID?.isEmpty == false
     }
 
-    /// A second public watchlist, shown merged with the owner's. Read only — nothing is ever
-    /// written to that account, which the footnote says so nobody has to wonder.
-    @ViewBuilder private var partnerFields: some View {
-        LabeledContent("Also show watchlist of") {
-            TextField("Also show watchlist of", text: Binding(
-                get: { model.settings.partnerUsername },
-                set: { var s = model.settings; s.partnerUsername = $0; model.update(s) }),
-                prompt: Text("username"))
-                .multilineTextAlignment(.trailing)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-        }
-        if !model.settings.partnerUsername.trimmingCharacters(in: .whitespaces).isEmpty {
-            LabeledContent("Their name") {
-                TextField("Their name", text: Binding(
-                    get: { model.settings.partnerName },
-                    set: { var s = model.settings; s.partnerName = $0; model.update(s) }),
-                    prompt: Text("e.g. Noga"))
-                    .multilineTextAlignment(.trailing)
-            }
-            Text("Their watchlist is shown with yours. Nothing is written to their account.")
-                .font(.footnote)
-                .foregroundStyle(Theme.Palette.textSecondary)
-        }
+    /// One field of the settings, written straight back through the model.
+    private func setting(_ keyPath: WritableKeyPath<LetterboxdSettings, String>) -> Binding<String> {
+        Binding(get: { model.settings[keyPath: keyPath] },
+                set: { var s = model.settings; s[keyPath: keyPath] = $0; model.update(s) })
+    }
+
+    private func setting(_ keyPath: WritableKeyPath<LetterboxdSettings, Bool>) -> Binding<Bool> {
+        Binding(get: { model.settings[keyPath: keyPath] },
+                set: { var s = model.settings; s[keyPath: keyPath] = $0; model.update(s) })
+    }
+
+    private var hasPartner: Bool {
+        !model.settings.partnerUsername.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
     var body: some View {
-        Section("Letterboxd") {
-            Toggle("Import my ratings", isOn: Binding(
-                get: { model.settings.isEnabled },
-                set: { var s = model.settings; s.isEnabled = $0; model.update(s) }))
+        VStack(alignment: .leading, spacing: Theme.Space.xxl) {
+            // Every field carries its name above it, so a filled-in field still says what it is.
+            GlassSection(title: "Letterboxd",
+                         footer: "Your watchlist and ratings come from your public Letterboxd profile.") {
+                GlassToggleRow(title: "Import my ratings", isOn: setting(\.isEnabled))
+                GlassField(label: "Username", text: setting(\.username), prompt: "Letterboxd username")
+                // A mark is often a skim. Films finished in the player log regardless.
+                GlassToggleRow(title: "Log films I mark watched", isOn: setting(\.logsMarkedFilms))
+                importRows
+            }
 
-            // A Form row shows no title for a TextField, so once a value was typed nothing said what
-            // it was. Every field here is a LabeledContent, which keeps the name beside the value.
-            LabeledContent("Username") {
-                TextField("Username", text: Binding(
-                    get: { model.settings.username },
-                    set: { var s = model.settings; s.username = $0; model.update(s) }),
-                    prompt: Text("Letterboxd username"))
-                    .multilineTextAlignment(.trailing)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
+            // A second public watchlist, shown merged with the owner's. Read only — nothing is ever
+            // written to that account, which the footnote says so nobody has to wonder.
+            GlassSection(title: "Shared watchlist",
+                         footer: hasPartner
+                            ? "Their watchlist is shown with yours. Nothing is written to their account."
+                            : "Show someone else's public watchlist merged with yours.") {
+                GlassField(label: "Also show watchlist of", text: setting(\.partnerUsername),
+                           prompt: "Letterboxd username")
+                if hasPartner {
+                    GlassField(label: "Their name", text: setting(\.partnerName), prompt: "e.g. Noga",
+                               plain: false)
+                }
             }
 
             // Typed here and read on the Apple TV, like the username: removing a film from the
             // watchlist has to be written by a real browser, and only the server has one.
-            LabeledContent("Seret server") {
-                TextField("Seret server", text: Binding(
-                    get: { model.settings.serverURL },
-                    set: { var s = model.settings; s.serverURL = $0; model.update(s) }),
-                    prompt: Text("192.168.1.179:8080"))
-                    .multilineTextAlignment(.trailing)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .keyboardType(.URL)
-            }
-
-            // The field is free text with no feedback, which is how `:8000` got typed for a
-            // server on `:8080` — a refused connection the app could only describe as "couldn't
-            // reach your Seret server". One tap now answers it.
-            Button("Test connection") {
-                let test = session.makeServerConnectionTest(address: model.settings.serverURL)
-                connection = test
-                Task { await test.run() }
-            }
-            .disabled(model.settings.serverURL.trimmingCharacters(in: .whitespaces).isEmpty)
-
-            if let connection { connectionStatus(connection) }
-
-            // A mark is often a skim. Films finished in the player log regardless.
-            Toggle("Log films I mark watched", isOn: Binding(
-                get: { model.settings.logsMarkedFilms },
-                set: { var s = model.settings; s.logsMarkedFilms = $0; model.update(s) }))
-
-            partnerFields
-
-            switch model.phase {
-            case .idle:
-                Button("Import now") { Task { await model.importNow(profileID: profileID) } }
-                    .disabled(!canImport)
-
-            case .running(let done, let total):
-                HStack(spacing: 10) {
-                    ProgressView()
-                    Text(total > 0 ? "Matching \(done) of \(total)…" : "Reading your profile…")
-                        .foregroundStyle(Theme.Palette.textSecondary)
+            GlassSection(title: "Seret server",
+                         footer: "Removing a film from your watchlist is sent to Letterboxd through your Seret server.") {
+                GlassField(label: "Server address", text: setting(\.serverURL), prompt: "192.168.1.179:8080",
+                           keyboard: .URL)
+                // The field is free text with no feedback, which is how `:8000` got typed for a
+                // server on `:8080` — a refused connection the app could only describe as "couldn't
+                // reach your Seret server". One tap now answers it.
+                GlassButtonRow(title: "Test connection", systemImage: "network") {
+                    let test = session.makeServerConnectionTest(address: model.settings.serverURL)
+                    connection = test
+                    Task { await test.run() }
                 }
+                .disabled(model.settings.serverURL.trimmingCharacters(in: .whitespaces).isEmpty)
+                if let connection, connection.result != .untested {
+                    GlassRow { connectionStatus(connection) }
+                }
+            }
+        }
+        .task { await model.refreshPushStatus(from: push) }
+    }
 
-            case .finished(let summary):
+    /// Import now / progress / the last result, then what is waiting to be sent.
+    @ViewBuilder private var importRows: some View {
+        switch model.phase {
+        case .idle:
+            GlassButtonRow(title: "Import now", systemImage: "arrow.down.circle") {
+                Task { await model.importNow(profileID: profileID) }
+            }
+            .disabled(!canImport)
+
+        case .running(let done, let total):
+            GlassRow {
+                ProgressView().tint(Theme.Palette.textSecondary)
+                Text(total > 0 ? "Matching \(done) of \(total)…" : "Reading your profile…")
+                    .foregroundStyle(Theme.Palette.textSecondary)
+            }
+
+        case .finished(let summary):
+            GlassRow {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(summary.written == 0
                          ? "Nothing new to fill in"
@@ -121,34 +116,38 @@ struct LetterboxdSettingsSection: View {
                             .foregroundStyle(Theme.Palette.textSecondary)
                     }
                 }
-                Button("Import again") { Task { await model.importNow(profileID: profileID) } }
-                    .disabled(!canImport)
-
-            case .failed(let message):
-                Text(message).foregroundStyle(.red)
-                Button("Try again") { Task { await model.importNow(profileID: profileID) } }
-                    .disabled(!canImport)
             }
-
-            if model.pendingPushes > 0 {
-                Text("\(model.pendingPushes) watch\(model.pendingPushes == 1 ? "" : "es") waiting to send")
-                    .font(.footnote)
-                    .foregroundStyle(Theme.Palette.textSecondary)
+            GlassButtonRow(title: "Import again", systemImage: "arrow.clockwise") {
+                Task { await model.importNow(profileID: profileID) }
             }
-            if let error = model.lastPushError {
-                Text(error)
-                    .font(.footnote)
-                    .foregroundStyle(Theme.Palette.textSecondary)
-            }
+            .disabled(!canImport)
 
-            if let last = model.settings.lastImportAt {
-                Text("Last imported \(last.formatted(date: .abbreviated, time: .shortened))")
-                    .font(.footnote)
-                    .foregroundStyle(Theme.Palette.textSecondary)
+        case .failed(let message):
+            GlassRow {
+                Label(message, systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(Theme.Palette.destructive)
+            }
+            GlassButtonRow(title: "Try again", systemImage: "arrow.clockwise") {
+                Task { await model.importNow(profileID: profileID) }
+            }
+            .disabled(!canImport)
+        }
+
+        if model.pendingPushes > 0 || model.lastPushError != nil || model.settings.lastImportAt != nil {
+            GlassRow {
+                VStack(alignment: .leading, spacing: 3) {
+                    if model.pendingPushes > 0 {
+                        Text("\(model.pendingPushes) watch\(model.pendingPushes == 1 ? "" : "es") waiting to send")
+                    }
+                    if let error = model.lastPushError { Text(error) }
+                    if let last = model.settings.lastImportAt {
+                        Text("Last imported \(last.formatted(date: .abbreviated, time: .shortened))")
+                    }
+                }
+                .font(.footnote)
+                .foregroundStyle(Theme.Palette.textSecondary)
             }
         }
-        .listRowBackground(Theme.Palette.surface1)
-        .task { await model.refreshPushStatus(from: push) }
     }
 
     /// The outcome, in the owner's terms. Deliberately says which fault it was: a wrong port, a
@@ -169,11 +168,11 @@ struct LetterboxdSettingsSection: View {
         case .reachable(let address):
             Label("Reached \(address)", systemImage: "checkmark.circle.fill")
                 .font(.footnote)
-                .foregroundStyle(.green)
+                .foregroundStyle(Theme.Palette.toggleOn)
         case .failed(let message):
             Label(message, systemImage: "exclamationmark.triangle.fill")
                 .font(.footnote)
-                .foregroundStyle(.red)
+                .foregroundStyle(Theme.Palette.destructive)
         }
     }
 }

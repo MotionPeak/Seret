@@ -54,7 +54,9 @@ struct VersionsUIPreview: View {
                                 hebrew: { Self.evidence.hebrew(forVersion: $0.infoHash) })
                 }
                 .padding(Theme.Space.lg)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                // The screen's own readable column (see VersionsScreen).
+                .frame(maxWidth: TitlePageMetrics.readableWidth - 140, alignment: .leading)
+                .frame(maxWidth: .infinity)
             }
             .defaultScrollAnchor(UserDefaults.standard.string(forKey: "uiPreviewAnchor") == "bottom"
                                  ? .bottom : .top)

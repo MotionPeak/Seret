@@ -112,7 +112,7 @@ struct PersonScreen: View {
     private func section(_ title: String, hits: [SearchHit]) -> some View {
         VStack(alignment: .leading, spacing: Theme.Space.sm) {
             Text(title).font(Theme.Typo.label()).tracking(1.5)
-                .foregroundStyle(Theme.Palette.gold)
+                .foregroundStyle(Theme.Palette.textSecondary)
             LazyVGrid(columns: columns, alignment: .leading, spacing: Theme.Space.xl) {
                 ForEach(hits) { tile($0) }
             }

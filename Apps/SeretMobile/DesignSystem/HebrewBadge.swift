@@ -3,8 +3,8 @@ import SwiftUI
 
 /// The Hebrew-subtitles mark: on a version row, and larger in a title's hero.
 ///
-/// Gold so it reads before the grey chips around it: whether a version can be watched with Hebrew
-/// subtitles is the first thing this household asks of it. The two kinds look different on
+/// Whether a version can be watched with Hebrew subtitles is the first thing this household asks of
+/// it, so the mark is a white-text glass pill that reads before the flat grey chips around it. The two kinds look different on
 /// purpose. A track inside the file is always in sync, so it is lit, carries a seal and says so;
 /// its row draws it on a line of its own at the top. Matched and Available keep the flat chip.
 struct HebrewBadge: View {
@@ -28,11 +28,11 @@ struct HebrewBadge: View {
         Label(indicator.title, systemImage: indicator.systemImage)
             .labelStyle(.titleAndIcon)
             .font(.system(size: prominent ? 13 : 11, weight: .bold))
-            .foregroundStyle(.black)
+            // Available: Hebrew exists for the film, but not made for this version — quieter text.
+            .foregroundStyle(indicator == .available ? Theme.Palette.textSecondary : Theme.Palette.textPrimary)
             .padding(.vertical, prominent ? 5 : 4)
             .padding(.horizontal, prominent ? 10 : 8)
-            // Available: Hebrew exists for the film, but not made for this version.
-            .background(Theme.Palette.gold.opacity(indicator == .available ? 0.6 : 1), in: shape)
+            .background(Theme.Palette.glass, in: shape)
     }
 
     private var inFile: some View {
@@ -45,11 +45,11 @@ struct HebrewBadge: View {
             }
         }
         .font(.system(size: prominent ? 13 : 11, weight: .bold))
-        .foregroundStyle(.black)
+        .foregroundStyle(Theme.Palette.textPrimary)
         .padding(.vertical, prominent ? 5 : 4)
         .padding(.horizontal, prominent ? 11 : 9)
-        .background(Theme.Palette.markGradient, in: shape)
-        .overlay(shape.strokeBorder(Theme.Palette.goldBright, lineWidth: 1))
-        .shadow(color: Theme.Palette.goldGlow, radius: prominent ? 8 : 6)
+        .background(Theme.Palette.glass, in: shape)
+        // The emphasis that says "in sync": an outline, not a fill — as on SeretTV.
+        .overlay(shape.strokeBorder(Theme.Palette.strokeStrong, lineWidth: 1.2))
     }
 }

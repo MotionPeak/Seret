@@ -8,7 +8,7 @@ struct LoadingOverlay: View {
     var body: some View {
         DimBackdrop(url: backdropURL) {
             VStack(spacing: 14) {
-                ProgressView().controlSize(.large).tint(Theme.Palette.gold)
+                ProgressView().controlSize(.large).tint(Theme.Palette.focus)
                 Text(caption).font(Theme.Typo.headline())
                 Text(title).font(Theme.Typo.body()).foregroundStyle(.white.opacity(0.7))
             }
@@ -29,17 +29,17 @@ struct ErrorOverlay: View {
         DimBackdrop(url: backdropURL) {
             VStack(spacing: 18) {
                 Image(systemName: "exclamationmark.triangle")
-                    .font(.system(size: 48)).foregroundStyle(Theme.Palette.gold)
+                    .font(.system(size: 48)).foregroundStyle(Theme.Palette.textSecondary)
                 Text("Couldn't play this source").font(.title2.bold())
                 Text(reason).font(.callout).foregroundStyle(.white.opacity(0.7))
                     .multilineTextAlignment(.center)
                 VStack(spacing: Theme.Space.md) {
-                    Button("Retry", action: onRetry).buttonStyle(GoldButtonStyle())
+                    Button("Retry", action: onRetry).buttonStyle(PrimaryPillButtonStyle())
                     HStack(spacing: Theme.Space.md) {
                         if canTryAnother {
-                            Button("Try another", action: onTryAnother).buttonStyle(GhostButtonStyle())
+                            Button("Try another", action: onTryAnother).buttonStyle(GlassPillButtonStyle())
                         }
-                        Button("Back", action: onBack).buttonStyle(GhostButtonStyle())
+                        Button("Back", action: onBack).buttonStyle(GlassPillButtonStyle())
                     }
                 }
             }

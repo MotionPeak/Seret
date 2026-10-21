@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Branded intro: mark scales in, glow blooms, wordmark rises, gold bar fills.
+/// Branded intro: mark scales in, a faint light blooms, wordmark rises, the white bar fills.
 /// Fixed ~1.6s; Home shows its own shimmer until data lands.
 struct SplashView: View {
     var onFinished: () -> Void
@@ -12,8 +12,8 @@ struct SplashView: View {
 
     var body: some View {
         ZStack {
-            Theme.Palette.trueBlack.ignoresSafeArea()
-            RadialGradient(colors: [Theme.Palette.goldGlow, .clear],
+            Theme.Palette.canvas.ignoresSafeArea()
+            RadialGradient(colors: [Color.white.opacity(0.08), .clear],
                            center: .center, startRadius: 0, endRadius: 360)
                 .opacity(markIn ? 1 : 0).ignoresSafeArea()
             VStack(spacing: Theme.Space.xxl) {
@@ -21,16 +21,15 @@ struct SplashView: View {
                     .scaleEffect(markIn ? 1 : 0.6).opacity(markIn ? 1 : 0)
                 VStack(spacing: Theme.Space.sm) {
                     Text("סֶרֶט").font(.system(size: 48, weight: .bold))
-                        .foregroundStyle(Theme.Palette.gold)
+                        .foregroundStyle(Theme.Palette.textPrimary)
                         .environment(\.layoutDirection, .rightToLeft)
-                        .goldGlow(24, opacity: 0.5)
                         .opacity(wordIn ? 1 : 0).offset(y: wordIn ? 0 : 8)
                     Text("SERET").font(.system(size: 15, weight: .semibold)).tracking(6)
                         .foregroundStyle(Theme.Palette.textSecondary).opacity(latinIn ? 1 : 0)
                 }
             }
             VStack { Spacer()
-                GoldProgressBar(fraction: progress).frame(width: 120).padding(.bottom, 48) }
+                ProgressLine(fraction: progress).frame(width: 120).padding(.bottom, 48) }
         }
         .task { await run() }
     }

@@ -204,11 +204,6 @@ struct MediaPlaceholder: View {
 }
 
 extension View {
-    /// Soft gold halo for active/interactive elements.
-    func goldGlow(_ radius: CGFloat = 16, opacity: Double = 0.45) -> some View {
-        shadow(color: Theme.Palette.gold.opacity(opacity), radius: radius)
-    }
-
     /// Dark frosted bar/sheet background (blur + black tint + hairline top).
     func glassBackground(topHairline: Bool = true) -> some View {
         background(.ultraThinMaterial)
@@ -231,13 +226,9 @@ struct PressableButtonStyle: ButtonStyle {
     }
 }
 
-/// Full-screen Gold Glass canvas wash. Put behind screen content.
+/// The full-screen canvas behind screen content: flat navy, no wash — as on SeretTV.
 struct CanvasBackground: View {
     var body: some View {
-        ZStack {
-            Theme.Palette.canvas
-            Theme.Palette.canvasGlow
-        }
-        .ignoresSafeArea()
+        Theme.Palette.canvas.ignoresSafeArea()
     }
 }

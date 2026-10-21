@@ -11,7 +11,7 @@ struct WatchlistChangeBar: View {
     var body: some View {
         HStack(spacing: Theme.Space.sm) {
             Image(systemName: glyph)
-                .foregroundStyle(outcome.isFailure ? .orange : Theme.Palette.gold)
+                .foregroundStyle(outcome.isFailure ? .orange : Theme.Palette.textPrimary)
             Text(outcome.message)
                 .font(Theme.Typo.body())
                 .foregroundStyle(.white)

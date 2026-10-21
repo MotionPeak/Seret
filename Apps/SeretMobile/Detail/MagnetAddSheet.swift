@@ -85,7 +85,7 @@ struct MagnetAddForm: View {
                 } label: {
                     HStack {
                         if case .submitting = model.state {
-                            ProgressView().tint(Theme.Palette.gold)
+                            ProgressView().tint(Theme.Palette.focus)
                         }
                         Text("Download")
                     }

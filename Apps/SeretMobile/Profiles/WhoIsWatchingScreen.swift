@@ -20,7 +20,11 @@ struct WhoIsWatchingScreen: View {
 
     var body: some View {
         ZStack {
-            Theme.Palette.canvas.ignoresSafeArea()
+            CanvasBackground()
+            RadialGradient(colors: [Color.white.opacity(0.07), .clear],
+                           center: .center, startRadius: 0, endRadius: isPad ? 620 : 380)
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
             VStack(spacing: isPad ? 64 : 44) {
                 Text("Who's Watching?")
                     .font(.system(size: isPad ? 52 : 32, weight: .heavy))
@@ -33,6 +37,7 @@ struct WhoIsWatchingScreen: View {
                     }
                     Button { showingAdd = true } label: { AddTile(diameter: diameter) }
                         .buttonStyle(PressableStyle())
+                        .accessibilityLabel("Add Profile")
                         .opacity(selectingID == nil ? 1 : 0)
                 }
                 .frame(maxWidth: .infinity)   // centers the row
@@ -90,12 +95,11 @@ private struct AddTile: View {
     let diameter: CGFloat
     var body: some View {
         VStack(spacing: 12) {
-            ZStack {
-                Circle().strokeBorder(Theme.Palette.textSecondary, lineWidth: 2)
-                    .frame(width: diameter, height: diameter)
-                Image(systemName: "plus").font(.system(size: diameter * 0.34, weight: .bold))
-                    .foregroundStyle(Theme.Palette.textSecondary)
-            }
+            // A glass circle, like every resting control.
+            Image(systemName: "plus").font(.system(size: diameter * 0.32, weight: .semibold))
+                .foregroundStyle(Theme.Palette.textPrimary)
+                .frame(width: diameter, height: diameter)
+                .seretGlass(in: Circle(), interactive: false)
             Text("Add").font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(Theme.Palette.textSecondary)
         }

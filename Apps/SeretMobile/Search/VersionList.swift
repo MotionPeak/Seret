@@ -48,7 +48,7 @@ struct VersionList: View {
     private func blockHeader(_ availability: VersionGroup.Availability, first: Bool) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: Theme.Space.sm) {
             Image(systemName: availability.systemImage)
-                .foregroundStyle(availability == .instant ? Color.green : Theme.Palette.gold)
+                .foregroundStyle(availability == .instant ? Theme.Palette.textPrimary : Theme.Palette.textSecondary)
             VStack(alignment: .leading, spacing: 1) {
                 Text(availability.title)
                 Text(availability.caption).font(Theme.Typo.caption())
@@ -88,10 +88,10 @@ struct VersionList: View {
                             .fixedSize()
                     }
                     if picking == stream.infoHash {
-                        ProgressView().tint(Theme.Palette.gold)
+                        ProgressView().tint(Theme.Palette.focus)
                     } else {
                         Image(systemName: stream.isCached ? "play.circle.fill" : "arrow.down.circle.fill")
-                            .foregroundStyle(Theme.Palette.gold)
+                            .foregroundStyle(Theme.Palette.textPrimary)
                     }
                 }
                 // Its own line: an iPhone row has no room left beside the chips, and this is the
@@ -104,7 +104,10 @@ struct VersionList: View {
                     .lineLimit(1).truncationMode(.middle)
             }
             .padding(Theme.Space.md)
-            .background(Theme.Palette.surface2, in: RoundedRectangle(cornerRadius: Theme.Radius.chip))
+            .background(Theme.Palette.glassFaint,
+                        in: RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
+                .strokeBorder(Theme.Palette.hairline))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

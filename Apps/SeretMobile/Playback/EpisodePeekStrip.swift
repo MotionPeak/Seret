@@ -8,6 +8,8 @@ import SwiftUI
 /// episodes are shown dimmed with a ⬇︎ glyph and aren't selectable. Hidden for movies.
 struct EpisodePeekStrip: View {
     let model: PlayerModel
+    /// Hold / release the transport while the strip is open (the player counts its holds).
+    var onHold: (Bool) -> Void = { _ in }
     @State private var expanded = false
 
     var body: some View {
@@ -17,8 +19,13 @@ struct EpisodePeekStrip: View {
             }
             .animation(.spring(response: 0.34, dampingFraction: 0.86), value: expanded)
             // Open, it is being browsed: the transport it lives in must not auto-hide under it.
-            .onChange(of: expanded) { _, open in model.holdControls(open) }
-            .onDisappear { if expanded { model.holdControls(false) } }
+            .onChange(of: expanded) { _, open in onHold(open) }
+            // Collapsed as well as released: an expanded strip coming back (the transport faded in
+            // again) would be open without the hold that keeps the controls up under it.
+            .onDisappear {
+                if expanded { onHold(false) }
+                expanded = false
+            }
         }
     }
 
@@ -27,11 +34,19 @@ struct EpisodePeekStrip: View {
     private var peek: some View {
         VStack(spacing: 2) {
             Image(systemName: "chevron.compact.up").font(.caption2).foregroundStyle(.white.opacity(0.45))
-            HStack(spacing: 6) {
-                ForEach(peekEpisodes) { ep in thumb(ep, height: 54) }
-            }
-            .frame(height: 26, alignment: .top)     // crop to a sliver: only the top of each still shows
-            .clipped()
+            // An overlay on a clear sliver, so the row of stills never sets the width: eight stills
+            // are ~800pt, and as a plain child they widened the whole transport past a portrait
+            // iPhone's edges — title, pills and Up Next all ran off both sides.
+            Color.clear
+                .frame(maxWidth: .infinity)
+                .frame(height: 26)                  // crop to a sliver: only the top of each still shows
+                .overlay(alignment: .top) {
+                    HStack(spacing: 6) {
+                        ForEach(peekEpisodes) { ep in thumb(ep, height: 54) }
+                    }
+                    .fixedSize()
+                }
+                .clipped()
             .opacity(0.55)
             .mask(LinearGradient(colors: [.clear, .black, .black, .clear],
                                  startPoint: .leading, endPoint: .trailing))
@@ -113,7 +128,7 @@ struct EpisodePeekStrip: View {
         .clipped()
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay {
-            if isCurrent { RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.Palette.gold, lineWidth: 2) }
+            if isCurrent { RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.Palette.focus, lineWidth: 2) }
         }
         .overlay(alignment: .center) {
             if !ep.isPlayable {

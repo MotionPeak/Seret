@@ -65,6 +65,9 @@ struct RootView: View {
             if newValue == .signedIn, oldValue == .signedOut { showSplash = true }
         }
         .preferredColorScheme(.dark)
+        // Here, not on the shell: Detail, the player and sign-in are covers presented from this
+        // view, and a tint set below it never reached them (they fell back to system blue).
+        .tint(Theme.Palette.focus)
     }
 
     @ViewBuilder private var content: some View {

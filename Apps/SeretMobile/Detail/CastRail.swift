@@ -11,13 +11,15 @@ import SwiftUI
 /// re-lays-out under the reader.
 struct CastRail: View {
     let cast: [TMDBCastMember]
+    /// The page's leading margin — the header sits on it and the row scrolls out to the edge.
+    var margin: CGFloat = 0
 
     private let headshot: CGFloat = 72
     private let itemWidth: CGFloat = 88
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Theme.Space.sm) {
-            Text("CAST").font(Theme.Typo.label()).tracking(1.5).foregroundStyle(Theme.Palette.gold)
+        VStack(alignment: .leading, spacing: Theme.Space.md) {
+            TitleSectionHeader(title: "Cast").padding(.horizontal, margin)
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(alignment: .top, spacing: Theme.Space.lg) {
                     ForEach(cast) { member in
@@ -32,6 +34,7 @@ struct CastRail: View {
                     }
                 }
             }
+            .contentMargins(.horizontal, margin, for: .scrollContent)
         }
         .task {
             ImageMemoryCache.prefetch(

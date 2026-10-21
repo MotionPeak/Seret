@@ -2,7 +2,7 @@ import DebridCore
 import DebridUI
 import SwiftUI
 
-/// Aggregate scores as Gold-Glass chips: a gold IMDb wordmark, the 🍅 tomato, Metacritic's
+/// Aggregate scores as glass chips: the IMDb-yellow wordmark, the 🍅 tomato, Metacritic's
 /// color-coded square (green/yellow/red), and Letterboxd's three dots.
 ///
 /// Each service keeps its own units — IMDb out of ten, two percentages, Letterboxd out of five —
@@ -15,7 +15,7 @@ struct RatingsRow: View {
 
     var body: some View {
         if ratings?.hasAny == true || letterboxd != nil {
-            HStack(spacing: Theme.Space.sm) {
+            FlowLayout(spacing: Theme.Space.sm) {
                 if let r = ratings {
                     if let imdb = r.imdb {
                         chip {
@@ -23,7 +23,7 @@ struct RatingsRow: View {
                                 .font(.system(size: 10, weight: .heavy))
                                 .foregroundStyle(.black)
                                 .padding(.horizontal, 5).padding(.vertical, 2)
-                                .background(Theme.Palette.goldGradient,
+                                .background(Theme.Palette.imdbYellow,
                                             in: RoundedRectangle(cornerRadius: 4, style: .continuous))
                             value(String(format: "%.1f", imdb))
                         }
@@ -66,8 +66,8 @@ struct RatingsRow: View {
 
     private func chip<C: View>(@ViewBuilder _ content: () -> C) -> some View {
         HStack(spacing: 6) { content() }
-            .padding(.vertical, 5).padding(.horizontal, 9)
-            .background(Theme.Palette.surface2, in: Capsule())
+            .padding(.vertical, 6).padding(.horizontal, 10)
+            .background(Theme.Palette.glassFaint, in: Capsule())
             .overlay(Capsule().strokeBorder(Theme.Palette.hairline))
     }
 

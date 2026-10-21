@@ -33,6 +33,7 @@ public enum ProfileAvatars {
         case "green":  return "22C55E"
         case "red":    return "EF4444"
         case "purple": return "A855F7"
+        case "indigo": return "6C6CF5"   // the neutral apps' default (SeretTV, SeretMobile)
         default:        return "EBC11D"   // gold
         }
     }

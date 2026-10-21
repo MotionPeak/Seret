@@ -10,6 +10,9 @@ struct SettingsView: View {
     @State private var editingActive = false
     /// Built once and held, so an in-flight import survives redrawing this screen.
     @State private var letterboxdModel: LetterboxdImportModel?
+#if DEBUG
+    @Environment(\.uiPreviewStores) private var preview
+#endif
 
     /// Nil until there is a library and a watch store to write into.
     private var letterboxd: LetterboxdImportModel? {
@@ -17,133 +20,97 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        Form {
-            Section("Account") {
-                Label("Signed in to Real‑Debrid", systemImage: "checkmark.seal.fill")
-                    .foregroundStyle(Theme.Palette.textPrimary)
-                Button(role: .destructive) {
+        GlassFormPage {
+            GlassSection(title: "Account") {
+                GlassLabelRow(title: "Signed in to Real\u{2011}Debrid", systemImage: "checkmark.seal.fill",
+                              iconTint: Theme.Palette.textPrimary)
+                GlassButtonRow(title: "Sign Out", systemImage: "rectangle.portrait.and.arrow.right",
+                               destructive: true) {
                     Task { await session.signOut() }
-                } label: {
-                    Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
                 }
             }
-            .listRowBackground(Theme.Palette.surface1)
 
             // Profiles are switched off — nothing to manage here. See `ProfilesFeature`.
             if ProfilesFeature.isEnabled {
-                Section {
+                GlassSection(title: "Profile", footer: profileFooter) {
                     if session.activeProfiles?.activeProfile != nil {
-                        Button { editingActive = true } label: {
-                            Label("Edit Profile", systemImage: "pencil")
-                                .foregroundStyle(Theme.Palette.textPrimary)
-                        }
+                        GlassButtonRow(title: "Edit Profile", systemImage: "pencil") { editingActive = true }
                     }
-                    Button { showingProfiles = true } label: {
-                        Label("Manage Profiles", systemImage: "person.2.crop.square.stack")
-                            .foregroundStyle(Theme.Palette.textPrimary)
+                    GlassButtonRow(title: "Manage Profiles", systemImage: "person.2.crop.square.stack") {
+                        showingProfiles = true
                     }
-                    Label(session.profilesSyncedViaICloud ? "Syncing via iCloud" : "On this device only",
-                          systemImage: session.profilesSyncedViaICloud ? "checkmark.icloud.fill" : "icloud.slash")
-                        .foregroundStyle(session.profilesSyncedViaICloud ? Theme.Palette.gold : Theme.Palette.textSecondary)
-                } header: {
-                    Text("Profile").foregroundStyle(Theme.Palette.gold)
-                } footer: {
-                    if let name = session.activeProfiles?.activeProfile?.name {
-                        Text("Watching as \(name). Add a profile so each viewer gets their own Continue Watching and My List.")
-                            .font(.footnote).foregroundStyle(Theme.Palette.textSecondary)
-                    } else {
-                        Text("Add a profile so each viewer gets their own Continue Watching and My List.")
-                            .font(.footnote).foregroundStyle(Theme.Palette.textSecondary)
-                    }
+                    GlassLabelRow(title: session.profilesSyncedViaICloud ? "Syncing via iCloud" : "On this device only",
+                                  systemImage: session.profilesSyncedViaICloud ? "checkmark.icloud.fill" : "icloud.slash",
+                                  tint: session.profilesSyncedViaICloud ? Theme.Palette.textPrimary
+                                                                        : Theme.Palette.textSecondary)
                 }
-                .listRowBackground(Theme.Palette.surface1)
             }
 
-            Section {
+            GlassSection(title: "OpenSubtitles",
+                         footer: model.isConnected
+                            ? "Connected as \(model.username). Used to download Hebrew/English subtitles."
+                            : "Add your free OpenSubtitles account to download subtitles during playback.") {
                 if model.isConnected {
-                    Label("Signed in to OpenSubtitles", systemImage: "checkmark.seal.fill")
-                        .foregroundStyle(Theme.Palette.textPrimary)
-                    Button(role: .destructive) { model.remove() } label: {
-                        Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
-                    }
+                    GlassLabelRow(title: "Signed in to OpenSubtitles", systemImage: "checkmark.seal.fill",
+                                  iconTint: Theme.Palette.textPrimary)
+                    GlassButtonRow(title: "Sign Out", systemImage: "rectangle.portrait.and.arrow.right",
+                                   destructive: true) { model.remove() }
                 } else {
                     NavigationLink {
                         OpenSubtitlesSignInView(model: model)
                     } label: {
-                        Label("Sign in to OpenSubtitles", systemImage: "captions.bubble")
-                            .foregroundStyle(Theme.Palette.textPrimary)
+                        GlassLinkRow(title: "Sign in to OpenSubtitles", systemImage: "captions.bubble")
                     }
-                }
-            } header: {
-                Text("OpenSubtitles").foregroundStyle(Theme.Palette.gold)
-            } footer: {
-                if model.isConnected {
-                    Text("Connected as \(model.username). Used to download Hebrew/English subtitles.")
-                        .font(.footnote).foregroundStyle(Theme.Palette.textSecondary)
-                } else {
-                    Text("Add your free OpenSubtitles account to download subtitles during playback.")
-                        .font(.footnote).foregroundStyle(Theme.Palette.textSecondary)
+                    .buttonStyle(GlassRowPressStyle())
                 }
             }
-            .listRowBackground(Theme.Palette.surface1)
 
-            Section {
-                Picker("Size", selection: subtitleSize) {
+            GlassSection(title: "Subtitles",
+                         footer: "Applies to every movie and show. Takes effect the next time you start playback.") {
+                GlassPickerRow(title: "Size", selection: subtitleSize) {
                     ForEach(SubtitlePreferences.Size.allCases, id: \.self) { Text($0.label).tag($0) }
                 }
-                Picker("Font", selection: subtitleFont) {
+                GlassPickerRow(title: "Font", selection: subtitleFont) {
                     ForEach(SubtitlePreferences.Font.allCases, id: \.self) { Text($0.label).tag($0) }
                 }
-                Picker("Color", selection: subtitleColor) {
+                GlassPickerRow(title: "Color", selection: subtitleColor) {
                     ForEach(SubtitlePreferences.Color.allCases, id: \.self) { c in
-                        HStack(spacing: Theme.Space.sm) {
-                            Circle().fill(c.swatch).frame(width: 12, height: 12)
-                            Text(c.label)
-                        }.tag(c)
+                        Label { Text(c.label) } icon: { Image(systemName: "circle.fill").foregroundStyle(c.swatch) }
+                            .tag(c)
                     }
                 }
-            } header: {
-                Text("Subtitles").foregroundStyle(Theme.Palette.gold)
-            } footer: {
-                Text("Applies to every movie and show. Takes effect the next time you start playback.")
-                    .font(.footnote).foregroundStyle(Theme.Palette.textSecondary)
             }
-            .listRowBackground(Theme.Palette.surface1)
 
-            Section {
-                Toggle("Autoplay trailers", isOn: Binding(
+            GlassSection(title: "Trailers", footer: "Play a muted trailer on a title's page automatically.") {
+                GlassToggleRow(title: "Autoplay trailers", isOn: Binding(
                     get: { session.trailerSettings.autoplayTrailers },
                     set: { session.trailerSettings.autoplayTrailers = $0 }))
-            } header: {
-                Text("Trailers").foregroundStyle(Theme.Palette.gold)
-            } footer: {
-                Text("Play a muted trailer on a title's page automatically.")
-                    .font(.footnote).foregroundStyle(Theme.Palette.textSecondary)
             }
-            .listRowBackground(Theme.Palette.surface1)
 
             if let letterboxd {
                 LetterboxdSettingsSection(model: letterboxd, profileID: session.activeProfileID,
                                           push: session.letterboxdPush)
             }
 
-            Section {
-                LabeledContent("Version", value: appVersion)
-                    .foregroundStyle(Theme.Palette.textSecondary)
-            } footer: {
-                HStack(spacing: Theme.Space.sm) {
-                    SeretMark(glow: false).frame(width: 16)
-                    Text("Seret").font(Theme.Typo.label()).foregroundStyle(Theme.Palette.textTertiary)
+            GlassSection(title: "About") {
+                GlassRow {
+                    Text("Version")
+                    Spacer(minLength: 0)
+                    Text(appVersion).foregroundStyle(Theme.Palette.textSecondary)
                 }
-                .frame(maxWidth: .infinity).padding(.top, Theme.Space.lg)
             }
-            .listRowBackground(Theme.Palette.surface1)
+            HStack(spacing: Theme.Space.sm) {
+                SeretMark(glow: false).frame(width: 16)
+                Text("Seret").font(Theme.Typo.label()).foregroundStyle(Theme.Palette.textTertiary)
+            }
+            .frame(maxWidth: .infinity)
         }
-        .scrollContentBackground(.hidden)
-        .background(CanvasBackground())
-        .tint(Theme.Palette.gold)
+        .tint(Theme.Palette.focus)
         .navigationTitle("Settings")
         .task {
+#if DEBUG
+            if let fixture = preview?.letterboxdImport { letterboxdModel = fixture; return }
+#endif
             guard letterboxdModel == nil, let library = session.libraryStore else { return }
             letterboxdModel = session.makeLetterboxdImportModel(library: library)
         }
@@ -153,7 +120,7 @@ struct SettingsView: View {
                     .environment(session)
                     .toolbar {
                         ToolbarItem(placement: .topBarTrailing) {
-                            Button("Done") { showingProfiles = false }.tint(Theme.Palette.gold)
+                            Button("Done") { showingProfiles = false }.tint(Theme.Palette.focus)
                         }
                     }
             }
@@ -161,6 +128,12 @@ struct SettingsView: View {
         .sheet(isPresented: $editingActive) {
             AddProfileScreen(editing: session.activeProfiles?.activeProfile).environment(session)
         }
+    }
+
+    private var profileFooter: String {
+        let pitch = "Add a profile so each viewer gets their own Continue Watching and My List."
+        guard let name = session.activeProfiles?.activeProfile?.name else { return pitch }
+        return "Watching as \(name). " + pitch
     }
 
     // Bindings into the shared, persisted subtitle preferences.

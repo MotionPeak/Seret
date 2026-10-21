@@ -2,129 +2,52 @@ import DebridCore
 import DebridUI
 import SwiftUI
 
-/// The player's playback sheet: audio, subtitles (existing + on-demand he/en), and speed —
-/// each laid out as wrapping Gold Glass chips (selected = gold), not a vertical list.
+/// Which pill opened the playback panel — its section leads.
+enum PlayerSettingsSection: String, Identifiable {
+    case audio, subtitles, speed
+    var id: String { rawValue }
+}
+
+/// The player's playback panel: audio, subtitles (existing + on-demand he/en, search, sync,
+/// timing), speed and the volume boost — each laid out as wrapping chips (selected = white), not a
+/// vertical list. A glass sheet on iPhone; on iPad a popover over the pills, not a sheet stretched
+/// across the screen (audit). The pill that opened it decides which sections come first.
 struct PlayerSettingsSheet: View {
     let model: PlayerModel
+    var focus: PlayerSettingsSection?
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: Theme.Space.xxl) {
-                    section("Audio", "speaker.wave.2.fill") {
-                        if model.audioTracks.isEmpty {
-                            Text("No alternate tracks")
-                                .font(Theme.Typo.body()).foregroundStyle(Theme.Palette.textSecondary)
-                        } else {
-                            FlowLayout {
-                                ForEach(labeled(model.audioTracks), id: \.track.id) { e in
-                                    chip(e.label, selected: model.displayedAudioID == e.track.id) {
-                                        model.selectAudio(id: e.track.id)
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    section("Subtitles", "captions.bubble.fill") {
-                        // Grouped, as on tvOS, because the two groups can name the same language:
-                        // a release with a Hebrew track inside it AND a Hebrew subtitle fetched for
-                        // it put two identically-labelled chips side by side, one ticked and one
-                        // not, with nothing to say which was which.
-                        VStack(alignment: .leading, spacing: Theme.Space.md) {
-                            FlowLayout {
-                                chip("Off", selected: model.displayedSubtitleID == nil) { model.selectSubtitleOff() }
-                                // Muxed tracks shipped inside the file.
-                                ForEach(labeled(model.embeddedTracks), id: \.track.id) { e in
-                                    chip(e.label, selected: model.displayedSubtitleID == e.track.id) {
-                                        model.selectSubtitle(id: e.track.id)
-                                    }
-                                }
-                            }
-                            // Attached from a download this session (auto he/en or a browser pick).
-                            if !model.downloadedTracks.isEmpty {
-                                groupCaption("DOWNLOADED")
-                                FlowLayout {
-                                    ForEach(labeled(model.downloadedTracks), id: \.track.id) { e in
-                                        chip(e.label, selected: model.displayedSubtitleID == e.track.id) {
-                                            model.selectSubtitle(id: e.track.id)
-                                        }
-                                    }
-                                }
-                            }
-                            FlowLayout {
-                                // One-click he/en for the common case (no muxed subs). Hidden once
-                                // the track is attached, since it then appears above instead.
-                                ForEach(model.subtitleRows) { row in
-                                    if model.attachedTrackID(row) == nil { quickChip(row) }
-                                }
-                                searchChip
-                            }
-                        }
-                    }
-
-                    // The last resort when a subtitle still does not line up — and the ONLY one
-                    // available for a muxed track, which cannot be rewritten the way a downloaded
-                    // file is on the way in.
-                    section(timingTitle, "timer") {
-                        FlowLayout {
-                            // The automatic answer first. Only for a subtitle we downloaded — a
-                            // muxed track is timed against this file by construction.
-                            //
-                            // Tapping it closes the sheet: the measurement takes minutes, and the
-                            // point of it running in the background is that the viewer goes back to
-                            // the film. It reports from the bar across the top of the picture.
-                            if model.canAutoSyncSubtitle {
-                                chip(autoSyncTitle, selected: model.autoSyncState == .synced) {
-                                    model.startAutoSync()
-                                    dismiss()
-                                }
-                                .disabled(model.autoSyncState == .measuring)
-                            }
-                            chip("−0.5s", selected: false) { model.adjustSubtitleDelay(by: -0.5) }
-                            chip("+0.5s", selected: false) { model.adjustSubtitleDelay(by: 0.5) }
-                            chip("Reset", selected: false) { model.resetSubtitleDelay() }
-                            // The muxed-track answer — an offset recomputed every tick, which
-                            // grows as fast as the drift does. See the tvOS panel for why 25fps.
-                            chip("25fps (PAL)", selected: model.isCorrectingSubtitleDrift) {
-                                model.setSubtitleSourceFPS(
-                                    model.isCorrectingSubtitleDrift ? nil : 25)
-                            }
-                        }
-                        // A built-in track only moves as far as libvlc can reach — see the tvOS
-                        // panel. A downloaded one is rewritten, so this never shows for it.
-                        if model.subtitleOffsetBeyondEmbeddedReach {
-                            Text(PlayerModel.embeddedSubtitleReachNote)
-                                .font(.footnote)
-                                .foregroundStyle(Theme.Palette.textSecondary)
-                        }
-                    }
-
-                    section("Speed", "speedometer") {
-                        FlowLayout {
-                            ForEach(speeds, id: \.value) { opt in
-                                chip(opt.label, selected: model.playbackSpeed == opt.value) {
-                                    model.setPlaybackSpeed(opt.value)
-                                }
-                            }
-                        }
-                    }
-
-                    section("Volume", "speaker.wave.3.fill") {
-                        FlowLayout {
-                            ForEach(volumes, id: \.self) { pct in
-                                chip("\(pct)%", selected: model.volumePercent == pct) {
-                                    model.setVolume(pct)
-                                }
-                            }
-                        }
+                    switch focus {
+                    case .subtitles:
+                        subtitlesSection
+                        timingSection
+                        audioSection
+                        volumeSection
+                        speedSection
+                    case .speed:
+                        speedSection
+                        audioSection
+                        volumeSection
+                        subtitlesSection
+                        timingSection
+                    case .audio, nil:
+                        audioSection
+                        volumeSection
+                        subtitlesSection
+                        timingSection
+                        speedSection
                     }
                 }
                 .padding(Theme.Space.lg)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .navigationTitle("Playback")
+            .scrollContentBackground(.hidden)
+            .defaultScrollAnchor(Self.openingAnchor)
+            .navigationTitle(navigationTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -134,15 +57,151 @@ struct PlayerSettingsSheet: View {
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
-        .presentationBackground(Theme.Palette.canvas)
-        .tint(Theme.Palette.gold)
+        .modifier(GlassSheetBackground())
+        .tint(Theme.Palette.focus)
+    }
+
+    /// Top, always — except a DEBUG harness launched with `-uiPreviewAnchor bottom`, which opens
+    /// at the end so a screenshot can show the last section is reachable.
+    private static var openingAnchor: UnitPoint {
+        #if DEBUG
+        if UserDefaults.standard.string(forKey: "uiPreviewAnchor") == "bottom" { return .bottom }
+        #endif
+        return .top
+    }
+
+    private var navigationTitle: String {
+        switch focus {
+        case .subtitles: "Subtitles"
+        case .audio: "Audio"
+        case .speed: "Speed"
+        case nil: "Playback"
+        }
+    }
+
+    private var audioSection: some View {
+        section("Audio", "speaker.wave.2.fill") {
+            if model.audioTracks.isEmpty {
+                Text("No alternate tracks")
+                    .font(Theme.Typo.body()).foregroundStyle(Theme.Palette.textSecondary)
+            } else {
+                FlowLayout {
+                    ForEach(labeled(model.audioTracks), id: \.track.id) { e in
+                        chip(e.label, selected: model.displayedAudioID == e.track.id) {
+                            model.selectAudio(id: e.track.id)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var subtitlesSection: some View {
+        section("Subtitles", "captions.bubble.fill") {
+            // Grouped, as on tvOS, because the two groups can name the same language:
+            // a release with a Hebrew track inside it AND a Hebrew subtitle fetched for
+            // it put two identically-labelled chips side by side, one ticked and one
+            // not, with nothing to say which was which.
+            VStack(alignment: .leading, spacing: Theme.Space.md) {
+                FlowLayout {
+                    chip("Off", selected: model.displayedSubtitleID == nil) { model.selectSubtitleOff() }
+                    // Muxed tracks shipped inside the file.
+                    ForEach(labeled(model.embeddedTracks), id: \.track.id) { e in
+                        chip(e.label, selected: model.displayedSubtitleID == e.track.id) {
+                            model.selectSubtitle(id: e.track.id)
+                        }
+                    }
+                }
+                // Attached from a download this session (auto he/en or a browser pick).
+                if !model.downloadedTracks.isEmpty {
+                    groupCaption("DOWNLOADED")
+                    FlowLayout {
+                        ForEach(labeled(model.downloadedTracks), id: \.track.id) { e in
+                            chip(e.label, selected: model.displayedSubtitleID == e.track.id) {
+                                model.selectSubtitle(id: e.track.id)
+                            }
+                        }
+                    }
+                }
+                FlowLayout {
+                    // One-click he/en for the common case (no muxed subs). Hidden once
+                    // the track is attached, since it then appears above instead.
+                    ForEach(model.subtitleRows) { row in
+                        if model.attachedTrackID(row) == nil { quickChip(row) }
+                    }
+                    searchChip
+                }
+            }
+        }
+    }
+
+    // The last resort when a subtitle still does not line up — and the ONLY one available for a
+    // muxed track, which cannot be rewritten the way a downloaded file is on the way in.
+    private var timingSection: some View {
+        section(timingTitle, "timer") {
+            FlowLayout {
+                // The automatic answer first. Only for a subtitle we downloaded — a
+                // muxed track is timed against this file by construction.
+                //
+                // Tapping it closes the sheet: the measurement takes minutes, and the
+                // point of it running in the background is that the viewer goes back to
+                // the film. It reports from the bar across the top of the picture.
+                if model.canAutoSyncSubtitle {
+                    chip(autoSyncTitle, selected: model.autoSyncState == .synced) {
+                        model.startAutoSync()
+                        dismiss()
+                    }
+                    .disabled(model.autoSyncState == .measuring)
+                }
+                chip("−0.5s", selected: false) { model.adjustSubtitleDelay(by: -0.5) }
+                chip("+0.5s", selected: false) { model.adjustSubtitleDelay(by: 0.5) }
+                chip("Reset", selected: false) { model.resetSubtitleDelay() }
+                // The muxed-track answer — an offset recomputed every tick, which
+                // grows as fast as the drift does. See the tvOS panel for why 25fps.
+                chip("25fps (PAL)", selected: model.isCorrectingSubtitleDrift) {
+                    model.setSubtitleSourceFPS(
+                        model.isCorrectingSubtitleDrift ? nil : 25)
+                }
+            }
+            // A built-in track only moves as far as libvlc can reach — see the tvOS
+            // panel. A downloaded one is rewritten, so this never shows for it.
+            if model.subtitleOffsetBeyondEmbeddedReach {
+                Text(PlayerModel.embeddedSubtitleReachNote)
+                    .font(.footnote)
+                    .foregroundStyle(Theme.Palette.textSecondary)
+            }
+        }
+    }
+
+    private var speedSection: some View {
+        section("Speed", "speedometer") {
+            FlowLayout {
+                ForEach(Self.speeds, id: \.value) { opt in
+                    chip(opt.label, selected: model.playbackSpeed == opt.value) {
+                        model.setPlaybackSpeed(opt.value)
+                    }
+                }
+            }
+        }
+    }
+
+    private var volumeSection: some View {
+        section("Volume", "speaker.wave.3.fill") {
+            FlowLayout {
+                ForEach(volumes, id: \.self) { pct in
+                    chip("\(pct)%", selected: model.volumePercent == pct) {
+                        model.setVolume(pct)
+                    }
+                }
+            }
+        }
     }
 
     @ViewBuilder private func section<C: View>(_ title: String, _ icon: String,
                                               @ViewBuilder content: () -> C) -> some View {
         VStack(alignment: .leading, spacing: Theme.Space.md) {
             Label(title, systemImage: icon)
-                .font(Theme.Typo.label()).tracking(1).foregroundStyle(Theme.Palette.gold)
+                .font(Theme.Typo.label()).tracking(1).foregroundStyle(Theme.Palette.textSecondary)
             content()
         }
     }
@@ -161,10 +220,10 @@ struct PlayerSettingsSheet: View {
                 if selected { Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)) }
                 Text(title).font(.system(size: 14, weight: .semibold))
             }
-            .foregroundStyle(selected ? Theme.Palette.onGold : Theme.Palette.textPrimary)
+            .foregroundStyle(selected ? Theme.Palette.onFocus : Theme.Palette.textPrimary)
             .padding(.vertical, 9).padding(.horizontal, 15)
-            .background(selected ? AnyShapeStyle(Theme.Palette.goldGradient)
-                                 : AnyShapeStyle(Theme.Palette.surface2), in: Capsule())
+            .background(selected ? AnyShapeStyle(Theme.Palette.focus)
+                                 : AnyShapeStyle(Theme.Palette.glassFaint), in: Capsule())
             .overlay(Capsule().stroke(Theme.Palette.hairline, lineWidth: selected ? 0 : 1))
         }
         .buttonStyle(.plain)
@@ -193,8 +252,8 @@ struct PlayerSettingsSheet: View {
             }
             .foregroundStyle(Theme.Palette.textPrimary)
             .padding(.vertical, 9).padding(.horizontal, 15)
-            .background(Theme.Palette.surface2, in: Capsule())
-            .overlay(Capsule().stroke(Theme.Palette.gold.opacity(0.45),
+            .background(Theme.Palette.glassFaint, in: Capsule())
+            .overlay(Capsule().stroke(Theme.Palette.focus.opacity(0.45),
                                       style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
         }
         .buttonStyle(.plain)
@@ -203,12 +262,12 @@ struct PlayerSettingsSheet: View {
 
     @ViewBuilder private func downloadGlyph(_ state: PlayerModel.SubtitleRowState) -> some View {
         switch state {
-        case .idle:        Image(systemName: "arrow.down.circle").foregroundStyle(Theme.Palette.gold)
+        case .idle:        Image(systemName: "arrow.down.circle").foregroundStyle(Theme.Palette.textPrimary)
         case .downloading: ProgressView().controlSize(.mini)
-        case .attached:    Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.Palette.gold)
+        case .attached:    Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.Palette.textPrimary)
         case .capReached:  Image(systemName: "clock").foregroundStyle(Theme.Palette.textSecondary)
         case .noAccount:   Image(systemName: "person.crop.circle.badge.xmark").foregroundStyle(Theme.Palette.textSecondary)
-        case .error:       Image(systemName: "exclamationmark.triangle").foregroundStyle(Theme.Palette.gold)
+        case .error:       Image(systemName: "exclamationmark.triangle").foregroundStyle(Theme.Palette.textPrimary)
         }
     }
 
@@ -228,7 +287,7 @@ struct PlayerSettingsSheet: View {
             }
             .foregroundStyle(Theme.Palette.textPrimary)
             .padding(.vertical, 9).padding(.horizontal, 15)
-            .background(Theme.Palette.surface2, in: Capsule())
+            .background(Theme.Palette.glassFaint, in: Capsule())
             .overlay(Capsule().stroke(Theme.Palette.hairline, lineWidth: 1))
         }
         .buttonStyle(.plain)
@@ -246,9 +305,8 @@ struct PlayerSettingsSheet: View {
         return parts.joined(separator: " · ")
     }
 
-    private var speeds: [(label: String, value: Double)] {
+    static let speeds: [(label: String, value: Double)] =
         [("0.5×", 0.5), ("0.75×", 0.75), ("Normal", 1.0), ("1.25×", 1.25), ("1.5×", 1.5)]
-    }
 
     /// 100 = unity; up to 200 = VLC-style boost for quiet mixes.
     private var volumes: [Int] { [100, 125, 150, 175, 200] }
@@ -280,6 +338,19 @@ struct PlayerSettingsSheet: View {
     }
 }
 
+/// The panel's background: iOS 26 sheets and popovers are Liquid Glass of their own, so nothing is
+/// painted over them; iOS 18 gets a dark material, the picture showing through either way — it was
+/// an opaque canvas before.
+private struct GlassSheetBackground: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 26, *), !GlassSupport.forceFallback {
+            content
+        } else {
+            content.presentationBackground(.ultraThinMaterial)
+        }
+    }
+}
+
 /// The subtitle browser on iPhone/iPad. Same model and ranking as tvOS; a plain `List` instead of
 /// a focus-driven layout. Pushed inside the sheet's `NavigationStack`.
 struct MobileSubtitleBrowser: View {
@@ -299,7 +370,7 @@ struct MobileSubtitleBrowser: View {
                         .font(.footnote)
                         .foregroundStyle(Theme.Palette.textPrimary)
                 }
-                .listRowBackground(Theme.Palette.gold.opacity(0.16))
+                .listRowBackground(Theme.Palette.focus.opacity(0.16))
             }
             Section {
                 Picker("Language", selection: languageBinding) {

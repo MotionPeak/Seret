@@ -15,20 +15,25 @@ struct FranchiseRail: View {
     let currentTmdbID: Int?
     /// Opens a film's page (owned item, or a placeholder for one you do not have).
     let onOpen: (MediaItem) -> Void
+    /// The page's leading margin — the header sits on it and the row scrolls out to the edge.
+    var margin: CGFloat = 0
 
     @Environment(AppSession.self) private var session
+    @Environment(\.horizontalSizeClass) private var hSize
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Theme.Space.sm) {
-            Text(franchise.name.uppercased())
-                .font(Theme.Typo.label()).tracking(1.5).foregroundStyle(Theme.Palette.gold)
+        VStack(alignment: .leading, spacing: Theme.Space.md) {
+            TitleSectionHeader(title: franchise.name).padding(.horizontal, margin)
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(alignment: .top, spacing: Theme.Space.md) {
+                HStack(alignment: .top, spacing: PosterTileMetrics.spacing) {
                     ForEach(Array(franchise.parts.enumerated()), id: \.element.id) { index, part in
                         tile(part, number: index + 1)
                     }
                 }
+                // Room for the current film's ring.
+                .padding(.vertical, 2)
             }
+            .contentMargins(.horizontal, margin, for: .scrollContent)
         }
         .task {
             ImageMemoryCache.prefetch(
@@ -43,18 +48,15 @@ struct FranchiseRail: View {
         return Button {
             onOpen(owned ?? .placeholder(for: SearchHit(result: part, kind: .movie)))
         } label: {
-            PosterCard(title: part.displayTitle,
-                       posterURL: TMDBClient.imageURL(path: part.posterPath, size: "w342"))
+            PosterTile(posterPath: part.posterPath, title: part.displayTitle,
+                       width: PosterTileMetrics.width(hSize), owned: owned != nil)
                 .overlay {
                     if isCurrent {
-                        RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
-                            .strokeBorder(Theme.Palette.gold, lineWidth: 3)
+                        RoundedRectangle(cornerRadius: PosterTileMetrics.corner, style: .continuous)
+                            .strokeBorder(Theme.Palette.focus, lineWidth: 3)
                     }
                 }
-                .overlay(alignment: .topLeading) { numberBadge(number).padding(5) }
-                .overlay(alignment: .topTrailing) {
-                    if owned != nil { inLibraryBadge.padding(6) }
-                }
+                .overlay(alignment: .topLeading) { numberBadge(number).padding(6) }
         }
         .pressable()
     }
@@ -63,14 +65,6 @@ struct FranchiseRail: View {
         Text("\(number)")
             .font(.system(size: 13, weight: .heavy)).foregroundStyle(.white)
             .padding(.horizontal, 7).padding(.vertical, 3)
-            .background(.black.opacity(0.65), in: Capsule())
-    }
-
-    private var inLibraryBadge: some View {
-        Image(systemName: "checkmark.circle.fill")
-            .font(.system(size: 18, weight: .bold))
-            .foregroundStyle(Theme.Palette.onGold, Theme.Palette.gold)
-            .background(Circle().fill(.black.opacity(0.35)))
-            .accessibilityLabel("In Library")
+            .background(Theme.Palette.badgeBacking, in: Capsule())
     }
 }

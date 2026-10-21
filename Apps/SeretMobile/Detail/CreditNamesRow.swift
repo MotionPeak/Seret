@@ -21,7 +21,7 @@ struct CreditNamesRow: View {
                 } label: {
                     Text(index == people.count - 1 ? person.name : "\(person.name),")
                         .font(Theme.Typo.body())
-                        .foregroundStyle(Theme.Palette.gold)
+                        .foregroundStyle(Theme.Palette.textPrimary)
                 }
                 .buttonStyle(.plain)
             }
