@@ -18,6 +18,8 @@ import SwiftUI
 ///   Right Now" and "Both of You Want to See" over the Watchlist harness's films (Noga as the
 ///   partner, real TMDB details), and no Recently Added. `homepicksdownloading` adds Downloading
 ///   between them; `homepicksonly` has nothing under way, so the hero is the first picked film.
+///   `homepicksfirstrun` is a first run with nothing under way: no list yet, the day's first
+///   crawl still running — Home must say so, not "Nothing here yet".
 /// - `movies` / `shows` — the browse page's rows, arriving progressively (For You first, then
 ///   Trending, New, Top Rated, then a row per genre); `-browseDelay N` (ms) slows each row.
 /// - `genregrid` — the Drama grid a genre row's "See All" opens, seeded from its row.
@@ -121,7 +123,7 @@ struct PagesUIPreview: View {
         // so Home has no hero and its first rail must start below the header. `homepicksonly`:
         // nothing under way at all, so the hero is a picked film.
         let downloadsOnly = target == "homedownloadsonly"
-        let picksOnly = target == "homepicksonly"
+        let picksOnly = target == "homepicksonly" || target == "homepicksfirstrun"
         await home.rebuild(movies: downloadsOnly || picksOnly ? [] : PagesFixture.movies,
                            shows: downloadsOnly || picksOnly ? [] : PagesFixture.shows)
         let delay = UserDefaults.standard.integer(forKey: "browseDelay")
@@ -159,6 +161,10 @@ struct PagesUIPreview: View {
     /// the Apple TV's `homepicks`. The details store starts empty: Home asks it for its films, as
     /// it does for real, so the hero completes as they land, the way a first visit goes.
     private func buildHomePicks() {
+        if target == "homepicksfirstrun" {
+            stores?.homePicks = HomeWatchlistRows(isRefreshing: true)
+            return
+        }
         let entries = WatchlistPreviewFixture.entries
         stores?.homePicks = HomeWatchlistRows(
             picked: [15, 4, 16, 8, 2, 12, 9, 17, 5, 18, 0, 13].map { entries[$0] },

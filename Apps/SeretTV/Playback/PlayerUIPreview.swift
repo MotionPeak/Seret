@@ -147,6 +147,7 @@ struct PlayerUIPreview: View {
         case "homepicksdownloading": HomeScreenPreview(downloading: true, picks: true)
         case "homepicksonly":       HomeScreenPreview(picks: true, picksOnly: true)
         case "homepicksslow":       HomeScreenPreview(picks: true, slowDetails: true)
+        case "homepicksfirstrun":   HomeScreenPreview(picks: true, picksOnly: true, firstRun: true)
         case "downloadstrip":       DownloadStripPreview()
         case "watchlist":           WatchlistScreenPreview()
         case "watchlistremove":     WatchlistScreenPreview(removeFocusedAfter: .seconds(20))
@@ -1561,6 +1562,8 @@ private struct ManualSyncPreviewProvider: SubtitleProvider {
 /// Downloading rail between Continue Watching and the picks; `homepicksonly` has no Continue
 /// Watching, so Home must open on the first picked film. `homepicksslow` is `homepicks` with TMDB
 /// answering 15 s late: a pick focused before its details land must get its synopsis in place.
+/// `homepicksfirstrun` is a first run with nothing under way: no list yet and the day's first
+/// crawl still running — Home must say so, not "Nothing here yet".
 private struct HomeScreenPreview: View {
     var failure: String?
     var downloading = false
@@ -1571,12 +1574,15 @@ private struct HomeScreenPreview: View {
     var picks = false
     /// `homepicksonly`: the watchlist rows and nothing else.
     var picksOnly = false
+    /// `homepicksfirstrun`: the rows empty while the first list is made.
+    var firstRun = false
     /// No file, so Home's own fetch is what fills it — the way a first run goes.
     @State private var watchlistDetails: WatchlistDetailsStore
 
     init(failure: String? = nil, downloading: Bool = false, downloadsOnly: Bool = false,
-         picks: Bool = false, picksOnly: Bool = false, slowDetails: Bool = false) {
+         picks: Bool = false, picksOnly: Bool = false, slowDetails: Bool = false, firstRun: Bool = false) {
         self.failure = failure
+        self.firstRun = firstRun
         self.downloading = downloading
         self.downloadsOnly = downloadsOnly
         self.picks = picks
@@ -1608,7 +1614,8 @@ private struct HomeScreenPreview: View {
                                previewDownloads: [DownloadPreviewFixture.dune])
                 } else if picksOnly {
                     HomeScreen(previewHome: emptyHome, previewArt: art,
-                               previewPicks: Self.watchlistRows, previewWatchlistDetails: watchlistDetails)
+                               previewPicks: firstRun ? HomeWatchlistRows(isRefreshing: true) : Self.watchlistRows,
+                               previewWatchlistDetails: watchlistDetails)
                 } else if ready {
                     HomeScreen(previewHome: home, previewArt: art,
                                previewDownloads: downloading ? [DownloadPreviewFixture.dune] : nil,

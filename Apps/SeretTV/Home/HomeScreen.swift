@@ -131,6 +131,9 @@ struct HomeScreen: View {
         // the background (store-owned, so it outlives this task). Again when the Letterboxd
         // account changes, which replaces the store.
         .task(id: session.homePicks.map(ObjectIdentifier.init)) {
+            // A replaced store (the account changed) has not answered yet: without this, Home said
+            // "Nothing here yet" until it had.
+            picksLoaded = false
             if watchlistDetails == nil {
                 watchlistDetails = injectedWatchlistDetails ?? session.makeWatchlistDetailsStore()
             }
@@ -151,7 +154,13 @@ struct HomeScreen: View {
         .onChange(of: session.libraryStore?.shows) { _, _ in Task { await rebuild() } }
         // The active profile resolves asynchronously after sign-in; rebuild once it's known so
         // Continue Watching isn't stuck on the empty (no-profile) state.
-        .onChange(of: session.activeProfileID) { _, _ in Task { await rebuild() } }
+        // The watchlist rows too: they leave out what the profile has finished.
+        .onChange(of: session.activeProfileID) { _, _ in
+            Task {
+                await rebuild()
+                await session.homePicks?.load()
+            }
+        }
         .libraryRemovalConfirmation(pending: $pendingRemoval,
                                     errorMessage: $removeErrorMessage,
                                     store: session.libraryStore)
@@ -164,6 +173,8 @@ struct HomeScreen: View {
             failed(failureMessage)         // the button stays put, saying "Trying…", until it answers
         } else if stillLoading {
             SeretLoader()
+        } else if watchlistRows?.isRefreshing == true {
+            choosingPicks
         } else {
             empty
         }
@@ -455,6 +466,19 @@ struct HomeScreen: View {
     /// (`LibraryShell` already routes a `PlaybackRequest` to the player).
     private func resumeDestination(_ hi: HomeItem) -> BrowseDestination {
         hi.playbackRequest().map { .play($0) } ?? .detail(hi.item)
+    }
+
+    /// The day's first list is still being made (a minute of Letterboxd pages on a first run) and
+    /// nothing else is on Home. "Nothing here yet — play something" read as broken over a library
+    /// full of titles.
+    private var choosingPicks: some View {
+        VStack(spacing: 18) {
+            SeretMark().frame(width: 90).opacity(0.5)
+            Text("Choosing films for tonight").sectionTitle().foregroundStyle(Theme.Palette.textSecondary)
+            Text("Reading your Letterboxd watchlists. The first time takes a minute.").bodyText()
+                .foregroundStyle(Theme.Palette.textSecondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var empty: some View {

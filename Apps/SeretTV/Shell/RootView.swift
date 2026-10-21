@@ -47,6 +47,9 @@ struct RootView: View {
             // tvOS keeps a suspended app alive for days; without this, titles added from DMM, the
             // phone or the Real-Debrid site never appeared until the app was killed.
             session.libraryStore?.refreshIfStale(maxAge: Self.libraryMaxAge)
+            // …and a suspended app wakes on a later day with the earlier day's picks and Both
+            // order. `load()` starts the new day's refresh; on the same day it only re-publishes.
+            Task { await session.homePicks?.load() }
         }
     }
 }

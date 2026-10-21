@@ -33,6 +33,10 @@ struct RootView: View {
             // An app left in the background keeps its library; re-read it if it has gone stale so a
             // title added elsewhere shows up without relaunching.
             session.libraryStore?.refreshIfStale(maxAge: 120)
+            // …and one left in the background overnight comes back with the earlier day's picks
+            // and Both order. `load()` starts the new day's refresh; on the same day it only
+            // re-publishes.
+            Task { await session.homePicks?.load() }
         }
         .environment(router)
         .task { if tileMarks == nil { tileMarks = session.makeTileWatchMarks() } }
