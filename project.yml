@@ -31,6 +31,7 @@ targets:
       - framework: Frameworks/VLCKit.xcframework
         embed: true
         codeSign: true
+      - target: SeretTopShelf
     info:
       path: Apps/SeretTV/Info.plist
       properties:
@@ -41,6 +42,10 @@ targets:
         OpenSubtitlesAPIKey: "$(OPENSUBTITLES_API_KEY)"
         OMDBAPIKey: "$(OMDB_API_KEY)"
         LSApplicationQueriesSchemes: [youtube, vnd.youtube]
+        # `seret://` only has to open the app: it is what the Top Shelf item's action launches.
+        CFBundleURLTypes:
+          - CFBundleURLName: com.solomons.seret.tv
+            CFBundleURLSchemes: [seret]
         # SeretServer is reached over plain HTTP on a LAN address, which the SIMULATOR allows
         # without either of these — measured, by removing them and watching `-uiPreview
         # serverprobe` still GET /health -> 200. So neither is what makes the simulator work, and
@@ -80,6 +85,29 @@ targets:
     scheme:
       testTargets:
         - SeretTVTests
+  # The Top Shelf: Seret's animated brand art above the top row of apps on the Apple TV home
+  # screen. The video + poster in Resources are rendered by Scripts/topshelf/render.sh.
+  SeretTopShelf:
+    type: app-extension
+    platform: tvOS
+    deploymentTarget: "18.0"
+    sources:
+      - path: Apps/SeretTopShelf
+    info:
+      path: Apps/SeretTopShelf/Info.plist
+      properties:
+        CFBundleDisplayName: Seret
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.tv-top-shelf
+          NSExtensionPrincipalClass: "$(PRODUCT_MODULE_NAME).ContentProvider"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.solomons.seret.tv.topshelf
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: ML9HDN3QZS
+        TARGETED_DEVICE_FAMILY: "3"
   SeretTVTests:
     type: bundle.unit-test
     platform: tvOS
