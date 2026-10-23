@@ -86,6 +86,7 @@ struct MainShell: View {
             ForEach(Section.tabs) { section in
                 Tab(section.title, systemImage: section.icon, value: section) {
                     screen(for: section)
+                        .pageArrival(selected: router.selectedSection == section)
                 }
             }
         }
@@ -129,8 +130,17 @@ struct MainShell: View {
             // beside the panel and cannot draw past it (see `HomeBackdropModel`).
             if router.selectedSection == .home {
                 HomeBackdropLayer(model: homeBackdrop, pageInset: inset)
+                    .transition(.opacity.animation(PageArrival.fadeIn))
             }
-            screen(for: router.selectedSection)
+            // A crossfade between sections, not a cut. `id` makes each section its own view to
+            // transition, whichever way the selection changed (sidebar, a Home link, a restore).
+            ZStack {
+                screen(for: router.selectedSection)
+                    .id(router.selectedSection)
+                    .transition(.asymmetric(
+                        insertion: .opacity.animation(PageArrival.fadeIn),
+                        removal: .opacity.animation(PageArrival.fadeOut)))
+            }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 // The page lays out beside the panel. Padding, not a leading safe-area inset: a
                 // NavigationStack does not hand a leading inset on to its pages (measured — titles
@@ -188,6 +198,28 @@ struct MainShell: View {
             case .library: "books.vertical"
             case .search: "magnifyingglass"
             }
+        }
+    }
+}
+
+/// How a section arrives on screen — the same fade on the iPhone tabs and the iPad sidebar.
+///
+/// A fade only. The TV's fade-through also grows the page in from a hair smaller, but here that
+/// re-laid a page out the moment the scale ended: Home's hero, and a pushed page under its
+/// navigation bar, jumped ~30pt on the last frame (measured on the iPad, frame by frame).
+enum PageArrival {
+    static let fadeOut = Animation.easeIn(duration: 0.14)
+    static let fadeIn = Animation.easeOut(duration: 0.28)
+}
+
+private extension View {
+    /// A tab page fades in each time it is chosen. The system `TabView` swaps
+    /// tabs in a single frame and offers no transition of its own; the page left is already off
+    /// screen by then, so only the arrival is animated. Leaving is instant, so the next arrival
+    /// always starts from nothing.
+    func pageArrival(selected: Bool) -> some View {
+        animation(selected ? PageArrival.fadeIn : nil) {
+            $0.opacity(selected ? 1 : 0)
         }
     }
 }

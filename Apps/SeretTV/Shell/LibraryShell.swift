@@ -9,6 +9,8 @@ import SwiftUI
 struct LibraryShell: View {
     @Environment(AppSession.self) private var session
     @State private var tab: SideMenuItem = .home
+    /// The page being switched away from, kept drawn while it fades out — see `ShellPages`.
+    @State private var leavingTab: SideMenuItem?
     /// Removal requested by a poster anywhere under the shell — see `requestLibraryRemoval`.
     @State private var pendingRemoval: MediaItem?
     @State private var removeErrorMessage: String?
@@ -202,7 +204,7 @@ struct LibraryShell: View {
                 store: session.libraryStore,
                 push: { path.append(BrowseDestination.play($0)) },
                 popToRoot: { path = NavigationPath() },
-                selectTab: { tab = $0 })
+                selectTab: { switchTab(to: $0) })
         }
         .onAppear { QA.startMeters() }
         #endif
@@ -213,6 +215,11 @@ struct LibraryShell: View {
             await watchlistMarks?.load()
         }
         .environment(watchlistMarks ?? .placeholder)
+        .task(id: tab) {
+            // Cancelled by the next switch: that switch has already named its own leaving page.
+            guard (try? await Task.sleep(for: ShellPages.leavingHold)) != nil else { return }
+            leavingTab = nil
+        }
         .onChange(of: tab) { _, new in
             if new == .home { Task { await session.refreshHome() } }
             // A page the viewer comes back to should not show a library from hours ago.
@@ -266,9 +273,17 @@ struct LibraryShell: View {
         case .search:  path.append(BrowseDestination.search(searchKind))
         case .profile: showingProfiles = true
         default:
-            tab = item
+            switchTab(to: item)
             menuExpanded = false   // collapse onto the page you just chose
         }
+    }
+
+    /// Names the page being left in the same transaction as the switch, so it is never hollowed for
+    /// a frame before its fade starts.
+    private func switchTab(to item: SideMenuItem) {
+        guard item != tab else { return }
+        leavingTab = tab
+        tab = item
     }
 
     /// The library Detail for a pushed item (shared by the MediaItem and BrowseDestination routes).
@@ -286,7 +301,7 @@ struct LibraryShell: View {
 
     /// The root pages — see `ShellPages`.
     private var pages: some View {
-        ShellPages(tab: tab).equatable()
+        ShellPages(tab: tab, leaving: leavingTab).equatable()
     }
 }
 
@@ -300,29 +315,48 @@ struct LibraryShell: View {
 /// cannot compare, so Home and the Watchlist re-ran their whole bodies on each press (measured
 /// with `_printChanges`: "@self changed", twice per press). Everything else they need arrives
 /// through the environment, which still reaches them.
+///
+/// Switching is a fade-through, not a cut: the page left fades out quickly, and the page chosen
+/// fades in a beat later from a hair smaller. The page left stays drawn (`leaving`) until its fade
+/// is over — hollowing it at once would blank it on the first frame of the switch.
 private struct ShellPages: View, Equatable {
     let tab: SideMenuItem
+    let leaving: SideMenuItem?
+
+    static let fadeOut = Animation.easeIn(duration: 0.16)
+    static let fadeIn = Animation.easeOut(duration: 0.3).delay(0.08)
+    /// How long the page left stays drawn: past the end of its fade-out.
+    static let leavingHold = Duration.milliseconds(250)
 
     var body: some View {
         ZStack {
-            keptAlive(tab == .home) { HomeScreen() }
-            keptAlive(tab == .movies) { BrowseScreen(kind: .movie) }
-            keptAlive(tab == .shows) { BrowseScreen(kind: .show) }
-            keptAlive(tab == .watchlist) { WatchlistScreen() }
-            keptAlive(tab == .library) { MyLibraryScreen() }
-            if tab == .settings { SettingsView() }
+            keptAlive(.home) { HomeScreen() }
+            keptAlive(.movies) { BrowseScreen(kind: .movie) }
+            keptAlive(.shows) { BrowseScreen(kind: .show) }
+            keptAlive(.watchlist) { WatchlistScreen() }
+            keptAlive(.library) { MyLibraryScreen() }
+            if tab == .settings {
+                SettingsView().transition(.asymmetric(
+                    insertion: .opacity.combined(with: .scale(scale: 0.985)).animation(Self.fadeIn),
+                    removal: .opacity.animation(Self.fadeOut)))
+            }
         }
         .focusSection()
     }
 
-    @ViewBuilder private func keptAlive<V: View>(_ visible: Bool, @ViewBuilder _ make: () -> V) -> some View {
+    @ViewBuilder private func keptAlive<V: View>(_ page: SideMenuItem, @ViewBuilder _ make: () -> V) -> some View {
+        let visible = tab == page
+        let drawn = visible || leaving == page
         make()
             // A transparent page still holds every bitmap it drew; this lets its images go (the
             // cache keeps the recent ones, so coming back is still instant).
-            .environment(\.retainsImages, visible)
+            .environment(\.retainsImages, drawn)
             // Hidden pages keep their state but drop their tiles — see `ShellPageVisibleKey`.
-            .environment(\.shellPageVisible, visible)
-            .opacity(visible ? 1 : 0)
+            .environment(\.shellPageVisible, drawn)
+            // Scoped to these two modifiers, so nothing the switch changes INSIDE the page animates.
+            .animation(visible ? Self.fadeIn : Self.fadeOut) {
+                $0.opacity(visible ? 1 : 0).scaleEffect(visible ? 1 : 0.985)
+            }
             .allowsHitTesting(visible)
             .disabled(!visible)
             .accessibilityHidden(!visible)
