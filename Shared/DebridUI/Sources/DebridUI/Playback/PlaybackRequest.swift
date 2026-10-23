@@ -18,8 +18,13 @@ public struct PlaybackRequest: Hashable {
     /// The viewer explicitly chose "Start over" — the player must NOT resume, even if the
     /// store holds a saved position.
     public let fromStart: Bool
+    /// The language the title is spoken in (TMDB, ISO 639-1), when the screen starting playback
+    /// knows it. It picks the subtitles the film opens with — see `PlayerModel.openingSubtitleChoice`.
+    /// nil is fine: the player looks it up.
+    public let originalLanguage: String?
     public init(item: MediaItem, source: MediaSource, resumeAt: Double?, label: String,
-                contentKey: String, episode: Episode? = nil, fromStart: Bool = false) {
+                contentKey: String, episode: Episode? = nil, fromStart: Bool = false,
+                originalLanguage: String? = nil) {
         self.item = item
         self.source = source
         self.resumeAt = resumeAt
@@ -27,5 +32,6 @@ public struct PlaybackRequest: Hashable {
         self.contentKey = contentKey
         self.episode = episode
         self.fromStart = fromStart
+        self.originalLanguage = originalLanguage
     }
 }

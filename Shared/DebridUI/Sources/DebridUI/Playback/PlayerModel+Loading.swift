@@ -21,7 +21,24 @@ extension PlayerModel {
         eventTask = Task { await self.consumeEvents() }
         stallWatchTask = Task { await self.watchForStalls() }
         activateNowPlaying()
+        lookUpTitleLanguageIfNeeded()
         reload()
+    }
+
+    /// Learn the title's language when the request did not carry it. A local read that lands long
+    /// before the stream's tracks do; should it ever lose that race, the choice is re-applied.
+    func lookUpTitleLanguageIfNeeded() {
+        guard titleLanguage == nil, let lookupTitleLanguage else { return }
+        // A film's language is kept under the film; a show's under each episode its page opened.
+        let keys = [item.id, contentKey]
+        titleLanguageTask = Task { [weak self] in
+            var language: String?
+            for key in keys where language == nil { language = await lookupTitleLanguage(key) }
+            guard let self, let language, self.titleLanguage == nil else { return }
+            self.titleLanguage = language
+            self.subtitleSelectionSignature = []
+            self.applyTrackPreferencesIfNeeded()
+        }
     }
 
     /// See `stallThreshold`. A light poll rather than a timer per tick: it only has to notice the

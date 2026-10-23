@@ -15,7 +15,7 @@ final class HebrewVersionDTOTests: XCTestCase {
 
     private var hebrewOnHD: SubtitleEvidenceSet {
         SubtitleEvidenceSet(byVersion: [WatchKey.source(hd): SubtitleEvidence(hebrew: .builtIn)],
-                            originalLanguage: "en")
+                            originalLanguage: "ja")   // the Hebrew boost is for foreign films (`PlayPolicy`)
     }
 
     func testAHebrewVersionIsListedFirstAndBadged() {

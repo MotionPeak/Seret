@@ -40,9 +40,13 @@ public final class AcquisitionStore {
     /// Builds the engine for one target. Injected because it needs the RD session and the stream
     /// source, which live on `AppSession`; nil when the app has no session (signed out).
     private let makeAdd: @MainActor (StreamQuery.Kind) -> AddStore?
+    /// The title's spoken language, handed to the player so it opens with the right subtitles.
+    private let originalLanguage: String?
 
-    public init(item: MediaItem, makeAdd: @escaping @MainActor (StreamQuery.Kind) -> AddStore?) {
+    public init(item: MediaItem, originalLanguage: String? = nil,
+                makeAdd: @escaping @MainActor (StreamQuery.Kind) -> AddStore?) {
         self.item = item
+        self.originalLanguage = originalLanguage
         self.makeAdd = makeAdd
     }
 
@@ -100,14 +104,14 @@ public final class AcquisitionStore {
         case .movie:
             return PlaybackRequest(item: item, source: source, resumeAt: nil, label: item.title,
                                    contentKey: WatchKey.content(forMovie: item), episode: nil,
-                                   fromStart: true)
+                                   fromStart: true, originalLanguage: originalLanguage)
         case let .episode(season, number):
             let episode = Episode(season: season, number: number, source: source)
             return PlaybackRequest(item: item, source: source, resumeAt: nil,
                                    label: "\(item.title) — S\(season)·E\(number)",
                                    contentKey: WatchKey.content(forShow: item, season: season,
                                                                 number: number),
-                                   episode: episode, fromStart: true)
+                                   episode: episode, fromStart: true, originalLanguage: originalLanguage)
         }
     }
 }

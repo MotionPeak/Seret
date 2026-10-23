@@ -57,9 +57,9 @@ import Testing
         let web = CachedStream(infoHash: "web", fileIdx: nil, rawTitle: "Movie.2023.2160p.WEB-DL.x265-GRP",
                                parsed: FilenameParser().parse("Movie.2023.2160p.WEB-DL.x265-GRP"),
                                languages: [], sizeBytes: nil, sourceName: nil)
-        let evidence = SubtitleEvidenceSet.candidates([ts, web], hebrewResults: [], originalLanguage: "en")
+        let evidence = SubtitleEvidenceSet.candidates([ts, web], hebrewResults: [], originalLanguage: "es")
         #expect(evidence.hebrew(forVersion: "ts") == .builtIn)       // the badge still shows
-        #expect([ts, web].rankedFor(originalLanguage: "en", subtitles: evidence).first?.infoHash == "web")
+        #expect([ts, web].rankedFor(originalLanguage: "es", subtitles: evidence).first?.infoHash == "web")
     }
 
     /// The parser's `source` matches anywhere in a name, so a show called "Cam Girl" parses as a
@@ -71,8 +71,8 @@ import Testing
         let plain = CachedStream(infoHash: "hd", fileIdx: nil, rawTitle: "Cam.Girl.S01E01.1080p.WEB-DL",
                                  parsed: FilenameParser().parse("Cam.Girl.S01E01.1080p.WEB-DL"),
                                  languages: [], sizeBytes: nil, sourceName: nil)
-        let evidence = SubtitleEvidenceSet.candidates([tagged, plain], hebrewResults: [], originalLanguage: "en")
-        #expect([tagged, plain].rankedFor(originalLanguage: "en", subtitles: evidence).first?.infoHash == "he")
+        let evidence = SubtitleEvidenceSet.candidates([tagged, plain], hebrewResults: [], originalLanguage: "es")
+        #expect([tagged, plain].rankedFor(originalLanguage: "es", subtitles: evidence).first?.infoHash == "he")
     }
 
     @Test func anOwnedTelesyncIsKnownByItsFileName() {
@@ -85,7 +85,7 @@ import Testing
                                                                   fileName: "Movie.2023.1080p.TS.x264-GRP.mkv",
                                                                   tracks: [hebrew])]
         let evidence = SubtitleEvidenceSet.owned([ts, web], records: records, hebrewResults: [],
-                                                 originalLanguage: "en")
+                                                 originalLanguage: "es")
         #expect([ts, web].bestFirst(subtitles: evidence).first == web)
     }
 }

@@ -3,6 +3,8 @@ import Foundation
 import DebridCore
 @testable import DebridUI
 
+/// The Hebrew boost belongs to FOREIGN films (`PlayPolicy`), so these play a Japanese one; an
+/// English film ignores Hebrew when choosing a version.
 @MainActor
 @Suite struct AddStoreHebrewTests {
     private final class Source: StreamSource {
@@ -28,7 +30,7 @@ import DebridCore
 
     private func store(_ streams: [CachedStream], evidence: FakeSubtitleEvidence?,
                        wait: Duration = .seconds(3)) -> AddStore {
-        AddStore(imdbID: "tt15398776", kind: .movie, originalLanguage: "en",
+        AddStore(imdbID: "tt15398776", kind: .movie, originalLanguage: "ja",
                  streamSource: Source(streams), add: NoAdd(), title: "Oppenheimer", year: 2023,
                  subtitleEvidence: evidence,
                  subtitleTarget: .movie(tmdbID: 872585, title: "Oppenheimer", year: 2023),
@@ -63,7 +65,7 @@ import DebridCore
     /// search started. A slow version search used every second of it, and the list ranked blind.
     @Test func theWaitCountsFromTheVersionsNotTheSearch() async {
         let gate = HebrewGate()
-        let s = AddStore(imdbID: "tt15398776", kind: .movie, originalLanguage: "en",
+        let s = AddStore(imdbID: "tt15398776", kind: .movie, originalLanguage: "ja",
                          streamSource: SlowSource([uhd, sparks], delay: .seconds(1)), add: NoAdd(),
                          title: "Oppenheimer", year: 2023,
                          subtitleEvidence: FakeSubtitleEvidence(results: [sparksHebrew], gate: gate),
@@ -95,7 +97,7 @@ import DebridCore
     /// start the one wait either, or the full list arriving later finds it spent and ranks blind.
     @Test func aListWithNothingToOrderDoesNotSpendTheWait() async {
         let gate = HebrewGate()
-        let s = AddStore(imdbID: "tt15398776", kind: .movie, originalLanguage: "en",
+        let s = AddStore(imdbID: "tt15398776", kind: .movie, originalLanguage: "ja",
                          streamSource: NewRelease(cached: [uhd], all: [uhd, sparks], allDelay: .milliseconds(1500)),
                          add: NoAdd(), title: "Oppenheimer", year: 2023,
                          subtitleEvidence: FakeSubtitleEvidence(results: [sparksHebrew], gate: gate),

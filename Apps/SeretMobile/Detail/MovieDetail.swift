@@ -63,7 +63,8 @@ struct MovieDetail: View {
         // Rebuilt when the imdbID resolves — the engine cannot query without it.
         .task(id: store.imdbID) {
             acquisition = session.makeAcquisition(for: store.item, imdbID: store.imdbID,
-                                                  originalLanguage: store.originalLanguage)
+                                                  originalLanguage: store.originalLanguage,
+                                                  runtimeMinutes: store.runtime)
         }
         .background(CanvasBackground())
         .toolbar {

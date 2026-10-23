@@ -42,6 +42,8 @@ public final class AddFlowStore {
 
     private var imdbID: String?
     private var originalLanguage: String?
+    /// A film's runtime, so its versions' bitrates can be judged.
+    private var runtimeMinutes: Int?
 
     /// The chosen title's TMDB id + kind (for trailers / lookups).
     public var tmdbID: Int { hit.result.id }
@@ -80,6 +82,7 @@ public final class AddFlowStore {
         overview = d.overview
         imdbID = imdb
         originalLanguage = d.originalLanguage
+        runtimeMinutes = d.runtime
         let store = makeAddStore(kind: .movie)
         add = store
         phase = .movie
@@ -180,7 +183,7 @@ public final class AddFlowStore {
             contentKey = WatchKey.content(forMovie: item)
         }
         return PlaybackRequest(item: item, source: source, resumeAt: nil,
-                               label: label, contentKey: contentKey)
+                               label: label, contentKey: contentKey, originalLanguage: originalLanguage)
     }
 
     /// Only called after `resolve()` has set `imdbID` (it guards on a non-nil imdb_id before
@@ -189,7 +192,8 @@ public final class AddFlowStore {
         AddStore(imdbID: imdbID ?? "", kind: kind, originalLanguage: originalLanguage,
                  streamSource: streamSource, add: addService, seasonPack: seasonPack,
                  title: title, year: year, subtitleEvidence: subtitleEvidence,
-                 subtitleTarget: .forKind(kind, tmdbID: tmdbID, title: title, year: year))
+                 subtitleTarget: .forKind(kind, tmdbID: tmdbID, title: title, year: year),
+                 runtimeMinutes: kind == .movie ? runtimeMinutes : nil)
     }
 
     private func yearFrom(_ date: String?) -> Int? {

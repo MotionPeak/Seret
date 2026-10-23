@@ -126,6 +126,14 @@ final class FakeTrackPreferences: TrackPreferenceStoring {
     var recordedTrackIDs: [String: String] = [:]
     /// Per-FILE, per-SUBTITLE remembered offset, keyed `"<sourceKey>|<subtitle file name>"`.
     var recordedSubtitleDelays: [String: Double] = [:]
+    /// Per-TITLE subtitle picks, as `TrackPreferences` keeps them.
+    var titleSubtitles: [String: TrackChoice] = [:]
+    func ownSubtitle(forTitle titleID: String) -> TrackChoice? { titleSubtitles[titleID] }
+    func resolvedSubtitle(forTitle titleID: String) -> TrackChoice { titleSubtitles[titleID] ?? preferredSubtitle }
+    func record(subtitle: TrackChoice, forTitle titleID: String) {
+        preferredSubtitle = subtitle
+        titleSubtitles[titleID] = subtitle
+    }
     func subtitleDelay(forSource sourceKey: String, subtitle: String) -> Double? {
         recordedSubtitleDelays["\(sourceKey)|\(subtitle)"]
     }

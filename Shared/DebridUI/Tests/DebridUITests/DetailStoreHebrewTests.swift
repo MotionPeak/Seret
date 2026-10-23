@@ -3,10 +3,12 @@ import Foundation
 import DebridCore
 @testable import DebridUI
 
+/// The Hebrew boost belongs to FOREIGN films (`PlayPolicy`), so these play a Japanese one; an
+/// English film ignores Hebrew when choosing a version.
 @MainActor
 @Suite struct DetailStoreHebrewTests {
     private struct Details: MediaDetailsProviding {
-        var language: String? = "en"
+        var language: String? = "ja"
         func movieDetails(tmdbID: Int) async throws -> TMDBMovieDetails {
             TMDBMovieDetails(id: tmdbID, title: "Oppenheimer", releaseDate: "2023-07-19", overview: nil,
                              posterPath: nil, backdropPath: nil, runtime: 180, genres: [],
@@ -56,7 +58,7 @@ import DebridCore
         let gate = HebrewGate()
         let record = VersionSubtitleRecord(origin: .header, tracks: [hebrewText])
         let stored = SubtitleEvidenceSet(byVersion: [WatchKey.source(hd): SubtitleEvidence(hebrew: .builtIn)],
-                                         originalLanguage: "en")
+                                         originalLanguage: "ja")
         let evidence = FakeSubtitleEvidence(results: [], records: [WatchKey.source(hd): record],
                                             stored: stored, gate: gate)
         let store = DetailStore(item: movie([uhd, hd]), details: Details(), watch: nil,

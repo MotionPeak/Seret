@@ -888,6 +888,10 @@ public final class AppSession {
             recordTracks: { [subtitleEvidence] source, tracks in
                 await subtitleEvidence?.recordPlayback(tracks, for: source)
             },
+            // What the title page stored — Home's Resume and Up Next do not know the language.
+            lookupTitleLanguage: { [subtitleEvidence] titleID in
+                await subtitleEvidence?.storedEvidence(for: [], contentKey: titleID).originalLanguage
+            },
             audioProbe: audioProbe)
     }
 
@@ -933,11 +937,13 @@ public final class AppSession {
     /// on demand rather than held on the session like `searchStore`.
     public func makeAddStore(imdbID: String, kind: StreamQuery.Kind,
                              originalLanguage: String?,
-                             subtitleTarget: SubtitleTarget? = nil) -> AddStore? {
+                             subtitleTarget: SubtitleTarget? = nil,
+                             runtimeMinutes: Int? = nil) -> AddStore? {
         guard let streamSource, let addService else { return nil }
         return AddStore(imdbID: imdbID, kind: kind, originalLanguage: originalLanguage,
                         streamSource: streamSource, add: addService,
-                        subtitleEvidence: subtitleEvidence, subtitleTarget: subtitleTarget)
+                        subtitleEvidence: subtitleEvidence, subtitleTarget: subtitleTarget,
+                        runtimeMinutes: runtimeMinutes)
     }
 
     /// Vend a whole-season download engine (nil while signed out / Stage 2 unavailable). Used by the
@@ -962,12 +968,13 @@ public final class AppSession {
     /// added. `imdbID` comes from the page's resolved TMDB details, so it is nil until those land;
     /// the engine reports "not signed in" until then rather than silently doing nothing.
     public func makeAcquisition(for item: MediaItem, imdbID: String?,
-                                originalLanguage: String?) -> AcquisitionStore {
-        AcquisitionStore(item: item) { [weak self] kind in
+                                originalLanguage: String?, runtimeMinutes: Int? = nil) -> AcquisitionStore {
+        AcquisitionStore(item: item, originalLanguage: originalLanguage) { [weak self] kind in
             guard let self, let imdbID else { return nil }
             return self.makeAddStore(
                 imdbID: imdbID, kind: kind, originalLanguage: originalLanguage,
-                subtitleTarget: item.tmdbID.map { .forKind(kind, tmdbID: $0, title: item.title, year: item.year) })
+                subtitleTarget: item.tmdbID.map { .forKind(kind, tmdbID: $0, title: item.title, year: item.year) },
+                runtimeMinutes: kind == .movie ? runtimeMinutes : nil)
         }
     }
 

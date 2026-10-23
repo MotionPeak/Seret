@@ -22,11 +22,12 @@ import Testing
         #expect(ranked.first?.infoHash == "a")
     }
 
-    @Test func sizeBreaksQualityTies() {
-        let big = stream("a", res: "2160p", langs: ["fr"], size: 200)
-        let small = stream("b", res: "2160p", langs: ["fr"], size: 100)
-        let ranked = [small, big].rankedFor(originalLanguage: "fr")
-        #expect(ranked.first?.infoHash == "a")
+    /// The lighter of two real versions wins — the owner's "lowest bitrate above the floor".
+    @Test func theLighterVersionBreaksQualityTies() {
+        let big = stream("a", res: "2160p", langs: ["fr"], size: 30_000_000_000)
+        let small = stream("b", res: "2160p", langs: ["fr"], size: 15_000_000_000)
+        let ranked = [big, small].rankedFor(originalLanguage: "fr")
+        #expect(ranked.first?.infoHash == "b")
     }
 
     @Test func bestMatchFlagsFallbackWhenNoOriginalLanguage() {

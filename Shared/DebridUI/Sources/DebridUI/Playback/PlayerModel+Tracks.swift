@@ -198,7 +198,7 @@ extension PlayerModel {
     func applySubtitlePreference(_ prefs: TrackPreferenceStoring) {
         guard !subtitlePickedByUser else { return }
 
-        switch prefs.resolvedSubtitle(forTitle: item.id) {
+        switch openingSubtitleChoice(prefs) {
         case .automatic:
             return
         case .off:
@@ -246,6 +246,23 @@ extension PlayerModel {
             #endif
             engine.selectSubtitleTrack(id: match.id)
             selectedSubtitleID = match.id
+        }
+    }
+
+    /// The subtitles this title opens with (owner, 2026-10-23):
+    /// - the viewer's own pick for this title, whenever there is one;
+    /// - a foreign film: Hebrew — the file's own track, else the best-matched download;
+    /// - a film in English or Hebrew: nothing forced on (a forced track the file flags still shows);
+    /// - language unknown: the library-wide default, as before.
+    ///
+    /// The library-wide default used to decide every title: picking Hebrew once turned it on for
+    /// English films too.
+    func openingSubtitleChoice(_ prefs: TrackPreferenceStoring) -> TrackChoice {
+        if let own = prefs.ownSubtitle(forTitle: item.id) { return own }
+        switch PlayPolicy(originalLanguage: titleLanguage) {
+        case .foreign: return .language("he")
+        case .understood: return .automatic
+        case .unknownLanguage: return prefs.preferredSubtitle
         }
     }
 

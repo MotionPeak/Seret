@@ -123,7 +123,7 @@ public final class DetailStore {
     }
 
     // Movies: ranked sources.
-    public var versions: [MediaSource] { ownedSources.bestFirst(subtitles: subtitles) }
+    public var versions: [MediaSource] { ownedSources.bestFirst(subtitles: subtitles, runtimeMinutes: runtime) }
 
     /// The versions still on Real-Debrid. `item` is an immutable snapshot taken when the screen
     /// opened, so a version deleted from here has to be filtered out locally — otherwise the row
@@ -137,7 +137,9 @@ public final class DetailStore {
     /// The version Play uses: the user's choice when it still resolves to an owned source,
     /// otherwise the quality ranker. A preference for a torrent since deleted from RD must fall
     /// back rather than leave Play permanently broken.
-    public var bestSource: MediaSource? { ownedSources.preferred(preferredSourceKey, subtitles: subtitles) }
+    public var bestSource: MediaSource? {
+        ownedSources.preferred(preferredSourceKey, subtitles: subtitles, runtimeMinutes: runtime)
+    }
 
     /// The hero's Hebrew chip: about the version Play will use when you own one, about the film
     /// otherwise. nil hides it.
@@ -576,7 +578,8 @@ public final class DetailStore {
         // `resume` is only a hint — the player re-resolves the saved position from the store at
         // load time (see PlayerModel.resolveResume). `fromStart` carries the explicit intent.
         return PlaybackRequest(item: item, source: source, resumeAt: resume, label: label,
-                               contentKey: key, episode: episode, fromStart: fromStart)
+                               contentKey: key, episode: episode, fromStart: fromStart,
+                               originalLanguage: originalLanguage)
     }
 
     /// Build a play request for an episode just downloaded from this page (its fresh `TorrentInfo`),

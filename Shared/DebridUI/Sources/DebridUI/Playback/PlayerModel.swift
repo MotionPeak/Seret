@@ -323,6 +323,13 @@ public final class PlayerModel {
     /// An `.off` preference has been pushed to the engine for this source at least once.
     var subtitleOffAsserted = false
     var subtitleFallbackTask: Task<Void, Never>?
+    /// The language the title is spoken in: from the request, or looked up when it had none.
+    /// Decides the subtitles the film opens with (`openingSubtitleChoice`).
+    var titleLanguage: String?
+    /// Finds a title's language when the screen that started playback did not know it — Home's
+    /// Resume and Up Next. Reads what the title page stored; never the network.
+    let lookupTitleLanguage: (@Sendable (String) async -> String?)?
+    var titleLanguageTask: Task<Void, Never>?
     /// Measures the film's audio so a downloaded subtitle can be lined up against it. Optional —
     /// nil simply means the auto-sync action is not offered.
     let audioProbe: AudioLoudnessProbing?
@@ -680,6 +687,7 @@ public final class PlayerModel {
          nowPlaying: NowPlayingControlling? = nil,
          streamProxy: StreamProxying? = nil,
          recordTracks: (@Sendable (MediaSource, [MediaTrack]) async -> Void)? = nil,
+         lookupTitleLanguage: (@Sendable (String) async -> String?)? = nil,
          autoHideDelay: Double = 4,
          loadTimeout: Double = 30,
          seekCoalesceWindow: Double = 0.35,
@@ -737,6 +745,8 @@ public final class PlayerModel {
         self.readIndex = readIndex
         self.nowPlaying = nowPlaying
         self.recordTracks = recordTracks
+        self.titleLanguage = request.originalLanguage
+        self.lookupTitleLanguage = lookupTitleLanguage
         self.subtitleRows = Self.freshSubtitleRows(hasAccount: subtitles != nil)
     }
 
@@ -1110,6 +1120,12 @@ public final class PlayerModel {
             try? await Task.sleep(nanoseconds: 1_000_000)
             if condition() { return }
         }
+    }
+
+    /// Test seam: the title-language lookup `start()` began, if any.
+    public func waitForTitleLanguageForTesting() async {
+        await titleLanguageTask?.value
+        await waitForIdleForTesting()
     }
 
     /// Test seam: the one-shot subtitle download fallback is deliberately deferred, so it is a real

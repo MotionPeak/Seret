@@ -3,6 +3,8 @@ import Foundation
 import DebridCore
 @testable import DebridUI
 
+/// The Hebrew boost belongs to FOREIGN films (`PlayPolicy`), so these play a Japanese one; an
+/// English film ignores Hebrew when choosing a version.
 @MainActor
 @Suite struct HomeStoreHebrewTests {
     private struct Watch: WatchProgressProviding {
@@ -32,7 +34,7 @@ import DebridCore
 
     @Test func resumePlaysTheCopyTheTitlePageWould() async {
         let stored = SubtitleEvidenceSet(byVersion: [WatchKey.source(hd): SubtitleEvidence(hebrew: .builtIn)],
-                                         originalLanguage: "en")
+                                         originalLanguage: "ja")
         let store = await home(evidence: FakeSubtitleEvidence(stored: stored))
         #expect(store.continueWatching.first?.source == hd)
     }

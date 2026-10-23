@@ -1,5 +1,5 @@
-/// Quality ranking for picking the default ("best") source and ordering the Versions list.
-/// Pure and deterministic; the tier formula lives in the shared free function `qualityRank(for:)`.
+/// The order Play takes a title's own versions in, which is also the Versions list's order.
+/// Pure and deterministic; the rules live in `PlayOrder.swift`.
 public extension MediaSource {
     /// Higher is better. Resolution dominates, then source tier, then video codec.
     var qualityRank: Int { releaseQualityRank(for: parsed) }
@@ -10,40 +10,36 @@ public extension MediaSource {
 }
 
 public extension Array where Element == MediaSource {
-    /// Sources best-first. Deterministic: ties break by torrentID, then fileID.
+    /// Sources in the order Play takes them — see `PlayPolicy` for the owner's rules and
+    /// `PlayOrderKey` for the comparison. Deterministic: ties break by torrentID, then fileID.
     ///
-    /// Playable audio outranks everything, then resolution, then size fit, then source tier. That
-    /// middle placement of size is the whole point: `REMUX` is the top source tier and 60–90 GB by
-    /// construction, so a size term that merely broke ties would never be reached — the bloat would
-    /// already have won.
+    /// The film's language comes from `subtitles.originalLanguage`. `runtimeMinutes` (a film's,
+    /// from TMDB) lets "too thin to be real" be judged as a bitrate; without it, by size.
     ///
-    /// The audio test has to be its own first comparison, not a term inside `qualityRank`. The
-    /// penalty there is deliberately larger than any positive rank so a release that will play
-    /// silently loses "regardless of resolution" — but once resolution became the first comparison,
-    /// `qualityRank` was only ever consulted between two releases of the SAME resolution, and the
-    /// penalty stopped applying across resolutions entirely. A 2160p TrueHD version won by default
-    /// and played with no sound.
-    func bestFirst(subtitles: SubtitleEvidenceSet = .empty) -> [MediaSource] {
-        sorted { a, b in
-            let aMute = isUnplayableAudio(a.parsed.audioCodec)
-            let bMute = isUnplayableAudio(b.parsed.audioCodec)
-            if aMute != bMute { return bMute }
-            // Hebrew subtitles, above resolution — see `hebrewBoostTier` for the guards.
-            let ah = hebrewBoostTier(subtitles[version: WatchKey.source(a)], parsed: a.parsed,
-                                     originalLanguage: subtitles.originalLanguage)
-            let bh = hebrewBoostTier(subtitles[version: WatchKey.source(b)], parsed: b.parsed,
-                                     originalLanguage: subtitles.originalLanguage)
-            if ah != bh { return ah < bh }
-            let ar = resolutionTier(a.parsed.resolution), br = resolutionTier(b.parsed.resolution)
-            if ar != br { return ar > br }
-            if a.fit != b.fit { return a.fit > b.fit }
-            if a.qualityRank != b.qualityRank { return a.qualityRank > b.qualityRank }
-            // Within one fit band, bigger means a higher bitrate at the same size class.
-            let asz = a.sizeBytes ?? 0, bsz = b.sizeBytes ?? 0
-            if asz != bsz { return asz > bsz }
-            if a.torrentID != b.torrentID { return a.torrentID < b.torrentID }
-            return (a.fileID ?? -1) < (b.fileID ?? -1)   // nil fileID (non-pack torrent) sorts before any real fileID
+    /// The audio test is the first comparison, not a term inside `qualityRank`: a 2160p TrueHD
+    /// version once won on resolution and played with no sound.
+    func bestFirst(subtitles: SubtitleEvidenceSet = .empty, runtimeMinutes: Int? = nil) -> [MediaSource] {
+        let policy = PlayPolicy(originalLanguage: subtitles.originalLanguage)
+        let keyed = map { source -> (MediaSource, PlayOrderKey) in
+            let evidence = subtitles[version: WatchKey.source(source)]
+            let shape = ReleaseShape.of(source.parsed)
+            return (source, PlayOrderKey(
+                audioTier: 0,
+                mute: isUnplayableAudio(source.parsed.audioCodec),
+                suspect: isSuspectPicture(source.parsed, bytes: source.sizeBytes, shape: shape,
+                                          runtimeMinutes: runtimeMinutes,
+                                          theatreCopy: evidence?.isTheatreCopy ?? false),
+                hebrew: policy.hebrewTier(evidence, parsed: source.parsed,
+                                          originalLanguage: subtitles.originalLanguage),
+                resolution: resolutionTier(source.parsed.resolution),
+                weight: bytesPerFile(source.sizeBytes, shape: shape),
+                quality: source.qualityRank))
         }
+        return keyed.sorted { a, b in
+            if let order = a.1.precedes(b.1) { return order }
+            if a.0.torrentID != b.0.torrentID { return a.0.torrentID < b.0.torrentID }
+            return (a.0.fileID ?? -1) < (b.0.fileID ?? -1)   // nil fileID (non-pack torrent) sorts before any real fileID
+        }.map(\.0)
     }
 
     /// The single best source, or nil when empty.
@@ -61,8 +57,9 @@ public extension Array where Element == MediaSource {
     /// degrade to the ranker rather than leave Play permanently broken.
     ///
     /// The ranker's pick includes Hebrew subtitles when evidence is passed.
-    func preferred(_ sourceKey: String?, subtitles: SubtitleEvidenceSet = .empty) -> MediaSource? {
+    func preferred(_ sourceKey: String?, subtitles: SubtitleEvidenceSet = .empty,
+                   runtimeMinutes: Int? = nil) -> MediaSource? {
         if let sourceKey, let chosen = first(where: { WatchKey.source($0) == sourceKey }) { return chosen }
-        return bestFirst(subtitles: subtitles).first
+        return bestFirst(subtitles: subtitles, runtimeMinutes: runtimeMinutes).first
     }
 }

@@ -9,6 +9,9 @@ public struct ParsedRelease: Sendable, Equatable, Hashable, Codable {
     public var videoCodec: String?
     public var audioCodec: String?
     public var releaseGroup: String?
+    /// The name says the picture is not what its resolution claims: an AI upscale, a
+    /// frame-interpolated film, a faked HDR grade. Such a version is never Play's pick.
+    public var isUpscaled: Bool = false
 
     public init(title: String, year: Int? = nil, season: Int? = nil, episode: Int? = nil,
                 resolution: String? = nil, source: String? = nil, videoCodec: String? = nil,
@@ -19,6 +22,25 @@ public struct ParsedRelease: Sendable, Equatable, Hashable, Codable {
     }
 
     public var isTV: Bool { season != nil || episode != nil }
+
+    private enum CodingKeys: String, CodingKey {
+        case title, year, season, episode, resolution, source, videoCodec, audioCodec, releaseGroup, isUpscaled
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        title = try c.decode(String.self, forKey: .title)
+        year = try c.decodeIfPresent(Int.self, forKey: .year)
+        season = try c.decodeIfPresent(Int.self, forKey: .season)
+        episode = try c.decodeIfPresent(Int.self, forKey: .episode)
+        resolution = try c.decodeIfPresent(String.self, forKey: .resolution)
+        source = try c.decodeIfPresent(String.self, forKey: .source)
+        videoCodec = try c.decodeIfPresent(String.self, forKey: .videoCodec)
+        audioCodec = try c.decodeIfPresent(String.self, forKey: .audioCodec)
+        releaseGroup = try c.decodeIfPresent(String.self, forKey: .releaseGroup)
+        // Absent from every parse stored before the flag existed.
+        isUpscaled = try c.decodeIfPresent(Bool.self, forKey: .isUpscaled) ?? false
+    }
 }
 
 public extension ParsedRelease {
@@ -29,7 +51,7 @@ public extension ParsedRelease {
     /// the torrent. Season, episode and title stay this parse's own: those are what make the file
     /// the episode it is.
     func completed(from fallback: ParsedRelease) -> ParsedRelease {
-        ParsedRelease(title: title,
+        var completed = ParsedRelease(title: title,
                       year: year ?? fallback.year,
                       season: season,
                       episode: episode,
@@ -38,5 +60,8 @@ public extension ParsedRelease {
                       videoCodec: videoCodec ?? fallback.videoCodec,
                       audioCodec: audioCodec ?? fallback.audioCodec,
                       releaseGroup: releaseGroup ?? fallback.releaseGroup)
+        // A pack named as an upscale holds upscaled episodes, however plainly each file is named.
+        completed.isUpscaled = isUpscaled || fallback.isUpscaled
+        return completed
     }
 }

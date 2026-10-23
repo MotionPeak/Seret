@@ -29,6 +29,8 @@ public protocol TrackPreferenceStoring: AnyObject {
     /// all of its episodes instead of forgetting between them.
     func resolvedAudio(forTitle titleID: String) -> TrackChoice
     func resolvedSubtitle(forTitle titleID: String) -> TrackChoice
+    /// This title's own subtitle pick, nil when the viewer never made one for it.
+    func ownSubtitle(forTitle titleID: String) -> TrackChoice?
     /// Record a manual AUDIO pick against this title only. It is not made the library-wide default:
     /// an audio pick is nearly always the original language of one foreign film, and letting it
     /// carry made every English title afterwards load asking for that language.
@@ -67,6 +69,7 @@ public protocol TrackPreferenceStoring: AnyObject {
 public extension TrackPreferenceStoring {
     func resolvedAudio(forTitle titleID: String) -> TrackChoice { preferredAudio }
     func resolvedSubtitle(forTitle titleID: String) -> TrackChoice { preferredSubtitle }
+    func ownSubtitle(forTitle titleID: String) -> TrackChoice? { nil }
     func record(audio: TrackChoice, forTitle titleID: String) { preferredAudio = audio }
     func record(subtitle: TrackChoice, forTitle titleID: String) { preferredSubtitle = subtitle }
     func audioTrackID(forSource sourceKey: String) -> String? { nil }
@@ -107,7 +110,11 @@ public final class TrackPreferences: TrackPreferenceStoring {
     }
 
     public func resolvedSubtitle(forTitle titleID: String) -> TrackChoice {
-        Self.decode(map(Self.titleSubtitleKey)[titleID]) ?? preferredSubtitle
+        ownSubtitle(forTitle: titleID) ?? preferredSubtitle
+    }
+
+    public func ownSubtitle(forTitle titleID: String) -> TrackChoice? {
+        Self.decode(map(Self.titleSubtitleKey)[titleID])
     }
 
     /// This title only. It used to move `preferredAudio` too ("the next unseen title inherits

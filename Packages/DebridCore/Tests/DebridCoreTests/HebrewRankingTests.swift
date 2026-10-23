@@ -1,6 +1,8 @@
 import Testing
 @testable import DebridCore
 
+/// The Hebrew boost belongs to FOREIGN films (see `PlayPolicy`), so these exercise it on a
+/// Japanese one; an English film ignores Hebrew entirely (`PlayOrderTests`).
 @Suite struct HebrewRankingTests {
     // MARK: search results
 
@@ -12,7 +14,7 @@ import Testing
     }
 
     private func evidence(_ levels: [String: HebrewSubtitles], audio: [String: [String]] = [:],
-                          original: String? = "en") -> SubtitleEvidenceSet {
+                          original: String? = "ja") -> SubtitleEvidenceSet {
         SubtitleEvidenceSet(
             byVersion: levels.reduce(into: [:]) { set, pair in
                 set[pair.key] = SubtitleEvidence(hebrew: pair.value, audioLanguages: audio[pair.key])
@@ -22,13 +24,13 @@ import Testing
 
     @Test func aHebrewVersionOutranksEveryOtherEven720pOver2160p() {
         let uhd = stream("uhd", "2160p"), sd = stream("sd", "720p")
-        let ranked = [uhd, sd].rankedFor(originalLanguage: "en", subtitles: evidence(["sd": .matched]))
+        let ranked = [uhd, sd].rankedFor(originalLanguage: "ja", subtitles: evidence(["sd": .matched]))
         #expect(ranked.map(\.infoHash) == ["sd", "uhd"])
     }
 
     @Test func builtInBeatsPicturesBeatsMatched() {
         let a = stream("a", "2160p"), b = stream("b", "2160p"), c = stream("c", "2160p")
-        let ranked = [a, b, c].rankedFor(originalLanguage: "en",
+        let ranked = [a, b, c].rankedFor(originalLanguage: "ja",
                                           subtitles: evidence(["a": .matched, "b": .builtIn, "c": .builtInImage]))
         #expect(ranked.map(\.infoHash) == ["b", "c", "a"])
     }
@@ -36,20 +38,20 @@ import Testing
     @Test func withNothingKnownTheOrderIsTodays() {
         let list = [stream("a", "720p"), stream("b", "2160p", langs: ["fr"]), stream("c", "1080p")]
         let none = evidence(["a": .none, "b": .none, "c": .none])
-        #expect(list.rankedFor(originalLanguage: "en", subtitles: none).map(\.infoHash)
-                == list.rankedFor(originalLanguage: "en").map(\.infoHash))
-        #expect(list.rankedFor(originalLanguage: "en").map(\.infoHash) == ["c", "a", "b"])
+        #expect(list.rankedFor(originalLanguage: "ja", subtitles: none).map(\.infoHash)
+                == list.rankedFor(originalLanguage: "ja").map(\.infoHash))
+        #expect(list.rankedFor(originalLanguage: "ja").map(\.infoHash) == ["c", "a", "b"])
     }
 
     @Test func aDubStaysBelowTheOriginalWhateverItsSubtitles() {
-        let dub = stream("dub", "2160p", langs: ["fr"]), original = stream("orig", "720p", langs: ["en"])
-        let ranked = [dub, original].rankedFor(originalLanguage: "en", subtitles: evidence(["dub": .builtIn]))
+        let dub = stream("dub", "2160p", langs: ["fr"]), original = stream("orig", "720p", langs: ["ja"])
+        let ranked = [dub, original].rankedFor(originalLanguage: "ja", subtitles: evidence(["dub": .builtIn]))
         #expect(ranked.first?.infoHash == "orig")
     }
 
     @Test func aSilentFileStaysBelowOneThatPlaysWhateverItsSubtitles() {
         let silent = stream("mute", "1080p", audio: "TrueHD"), playable = stream("ok", "720p")
-        let ranked = [silent, playable].rankedFor(originalLanguage: "en", subtitles: evidence(["mute": .builtIn]))
+        let ranked = [silent, playable].rankedFor(originalLanguage: "ja", subtitles: evidence(["mute": .builtIn]))
         #expect(ranked.first?.infoHash == "ok")
     }
 
@@ -65,7 +67,7 @@ import Testing
 
     @Test func aTheatreRecordingNeverJumps() {
         let cam = stream("cam", "720p", source: "HDCAM"), web = stream("web", "1080p", source: "WEB-DL")
-        let ranked = [cam, web].rankedFor(originalLanguage: "en", subtitles: evidence(["cam": .builtIn]))
+        let ranked = [cam, web].rankedFor(originalLanguage: "ja", subtitles: evidence(["cam": .builtIn]))
         #expect(ranked.first?.infoHash == "web")
     }
 
@@ -78,7 +80,7 @@ import Testing
 
     @Test func getBestTakesTheHebrewVersion() {
         let uhd = stream("uhd", "2160p"), sd = stream("sd", "720p")
-        let match = [uhd, sd].bestMatch(originalLanguage: "en", subtitles: evidence(["sd": .builtIn]))
+        let match = [uhd, sd].bestMatch(originalLanguage: "ja", subtitles: evidence(["sd": .builtIn]))
         #expect(match?.stream.infoHash == "sd")
         #expect(match?.isFallback == false)
     }
@@ -92,7 +94,7 @@ import Testing
 
     private func ownedEvidence(_ levels: [MediaSource: HebrewSubtitles],
                                audio: [MediaSource: [String]] = [:],
-                               original: String? = "en") -> SubtitleEvidenceSet {
+                               original: String? = "ja") -> SubtitleEvidenceSet {
         var byVersion: [String: SubtitleEvidence] = [:]
         for (source, level) in levels {
             byVersion[WatchKey.source(source)] = SubtitleEvidence(hebrew: level, audioLanguages: audio[source])
@@ -114,13 +116,13 @@ import Testing
 
     @Test func anOwnedDubGetsNoBoost() {
         let dub = owned("A", "720p"), original = owned("B", "1080p")
-        let subtitles = ownedEvidence([dub: .builtIn], audio: [dub: ["fr"], original: ["en"]])
+        let subtitles = ownedEvidence([dub: .builtIn], audio: [dub: ["fr"], original: ["ja"]])
         #expect([dub, original].bestFirst(subtitles: subtitles).first == original)
     }
 
     @Test func aDualAudioCopyKeepsItsBoost() {
         let dual = owned("A", "720p"), plain = owned("B", "1080p")
-        let subtitles = ownedEvidence([dual: .matched], audio: [dual: ["en", "fr"]])
+        let subtitles = ownedEvidence([dual: .matched], audio: [dual: ["ja", "fr"]])
         #expect([dual, plain].bestFirst(subtitles: subtitles).first == dual)
     }
 

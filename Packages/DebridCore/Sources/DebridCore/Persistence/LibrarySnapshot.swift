@@ -30,7 +30,11 @@ public struct LibrarySnapshot: Sendable, Equatable, Codable {
     /// and a year-pinned TMDB search accepts a title whose words all appear in order ("Star Wars
     /// Episode VII The Force Awakens" → "Star Wars: The Force Awakens"). Both change the key and
     /// the match a cached item already carries, and an unchanged library is never re-enriched.
-    public static let currentSchemaVersion = 6
+    ///
+    /// 7: a parse records whether the name says the picture was manufactured (`isUpscaled` — an AI
+    /// upscale, an interpolated film). Play never picks such a version, and a cached parse would
+    /// otherwise read as genuine for good.
+    public static let currentSchemaVersion = 7
 
     public let schemaVersion: Int
     public let builtAt: Date

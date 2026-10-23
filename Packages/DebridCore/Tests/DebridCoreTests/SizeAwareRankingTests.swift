@@ -1,11 +1,12 @@
 import Testing
 @testable import DebridCore
 
-/// Size fit must sit ABOVE source tier in the ordering.
+/// Size sits ABOVE source tier in the ordering.
 ///
 /// It cannot merely break ties: `REMUX` is the top source tier and is 60–90 GB by construction,
 /// so a tie-breaking size term is consulted only after the bloat has already won. That is why the
-/// default 4K pick was always an 80 GB remux.
+/// default 4K pick was always an 80 GB remux. Since 2026-10-23 the owner's rule goes further: the
+/// LIGHTEST real version of the best resolution wins (see `PlayPolicy`).
 struct SizeAwareRankingTests {
     private func gb(_ n: Double) -> Int { Int(n * 1_000_000_000) }
 
@@ -24,12 +25,11 @@ struct SizeAwareRankingTests {
         #expect([remux, webdl].rankedFor(originalLanguage: "en").first?.infoHash == "webdl")
     }
 
-    /// Quality is not sacrificed: inside one band, source tier still decides. A right-sized REMUX
-    /// is the best of both and must win.
-    @Test func insideTheBandSourceTierStillDecides() {
+    /// Inside one band the lighter real version wins: it starts and skips faster.
+    @Test func insideTheBandTheLighterVersionWins() {
         let remux = stream("remux", res: "2160p", source: "REMUX", size: gb(30))
         let webdl = stream("webdl", res: "2160p", source: "WEB-DL", size: gb(24))
-        #expect([webdl, remux].rankedFor(originalLanguage: "en").first?.infoHash == "remux")
+        #expect([remux, webdl].rankedFor(originalLanguage: "en").first?.infoHash == "webdl")
     }
 
     /// Resolution still dominates size — a right-sized 1080p must not beat a right-sized 2160p.
@@ -39,20 +39,19 @@ struct SizeAwareRankingTests {
         #expect([hd, uhd].rankedFor(originalLanguage: "en").first?.infoHash == "uhd")
     }
 
-    /// When everything on offer is oversized they tie on fit, and the old quality ordering still
-    /// picks one. Nothing becomes unplayable — the policy removes a default, not a capability.
-    @Test func whenEverythingIsBloatedTheBestQualityStillWins() {
+    /// When everything on offer is oversized the lighter one still wins. Nothing becomes
+    /// unplayable — the policy removes a default, not a capability.
+    @Test func whenEverythingIsBloatedTheLighterStillWins() {
         let remux = stream("remux", res: "2160p", source: "REMUX", size: gb(85))
         let bluray = stream("bluray", res: "2160p", source: "BluRay", size: gb(75))
-        #expect([bluray, remux].rankedFor(originalLanguage: "en").first?.infoHash == "remux")
+        #expect([remux, bluray].rankedFor(originalLanguage: "en").first?.infoHash == "bluray")
     }
 
-    /// Within one fit band, bigger is still better — it means a higher bitrate at the same size
-    /// class. The old preference survives, just scoped to sensible files.
-    @Test func withinABandBiggerStillWins() {
+    /// Within one band the lighter file wins — the owner's "lowest bitrate above the floor".
+    @Test func withinABandTheLighterWins() {
         let small = stream("small", res: "2160p", source: "WEB-DL", size: gb(15))
         let large = stream("large", res: "2160p", source: "WEB-DL", size: gb(30))
-        #expect([small, large].rankedFor(originalLanguage: "en").first?.infoHash == "large")
+        #expect([large, small].rankedFor(originalLanguage: "en").first?.infoHash == "small")
     }
 
     /// Original-language audio still dominates everything, including fit.
@@ -104,10 +103,10 @@ struct OwnedSourceSizeRankingTests {
         #expect([remux, webdl].best?.torrentID == "webdl")
     }
 
-    @Test func insideTheBandSourceTierStillDecides() {
+    @Test func insideTheBandTheLighterOwnedVersionWins() {
         let remux = source("remux", res: "2160p", source: "REMUX", size: gb(30))
         let webdl = source("webdl", res: "2160p", source: "WEB-DL", size: gb(24))
-        #expect([webdl, remux].best?.torrentID == "remux")
+        #expect([remux, webdl].best?.torrentID == "webdl")
     }
 
     /// Old cached snapshots carry no size. Those must stay orderable and deterministic rather

@@ -38,45 +38,30 @@ public extension CachedStream {
 }
 
 public extension Array where Element == CachedStream {
-    /// Best-first. **Audio tier dominates** (clean original → dual-audio dub → foreign), then
-    /// quality, then size, then infoHash (deterministic tiebreak). Quality decides *within* a
-    /// tier, so a 2160p REMUX never loses to a 720p rip that merely shares the tier. When
-    /// `originalLanguage` is nil, ranks by quality/size only. With `subtitles`, a version with
-    /// Hebrew subtitles ranks above every other (see `hebrewBoostTier` for the guards).
+    /// In the order Play takes them: original-language audio first (clean original → dual-audio
+    /// dub → foreign), then the rules every version list follows — see `PlayPolicy` and
+    /// `PlayOrderKey`. A season pack is weighed per episode when `episodesInSeason` is known.
+    /// `runtimeMinutes` (a film's) lets "too thin to be real" be judged as a bitrate. Ties break by
+    /// infoHash.
     func rankedFor(originalLanguage: String?, episodesInSeason: Int? = nil,
-                   subtitles: SubtitleEvidenceSet = .empty) -> [CachedStream] {
-        sorted { a, b in
-            let at = a.audioTier(relativeTo: originalLanguage)
-            let bt = b.audioTier(relativeTo: originalLanguage)
-            if at != bt { return at < bt }
-            // Below language, but above resolution: `qualityRank`'s unplayable-audio penalty is
-            // sized to lose "regardless of resolution", and it cannot do that from below the
-            // resolution comparison — it would only ever be consulted between two releases of the
-            // same resolution. Without this, "Get best" adds a 2160p TrueHD release that plays
-            // silently in preference to a 1080p one that works.
-            let aMute = isUnplayableAudio(a.parsed.audioCodec)
-            let bMute = isUnplayableAudio(b.parsed.audioCodec)
-            if aMute != bMute { return bMute }
-            // Hebrew subtitles, above resolution: the owner's "always on top". A Hebrew version
-            // outranks every other, a 720p one included. Below the two terms above, so it never
-            // lifts a dub over the original or a silent file over one that plays; the rest of the
-            // guards live in `hebrewBoostTier`.
-            let ah = hebrewBoostTier(subtitles[version: a.infoHash], parsed: a.parsed,
-                                     originalLanguage: originalLanguage)
-            let bh = hebrewBoostTier(subtitles[version: b.infoHash], parsed: b.parsed,
-                                     originalLanguage: originalLanguage)
-            if ah != bh { return ah < bh }
-            let ar = resolutionTier(a.parsed.resolution), br = resolutionTier(b.parsed.resolution)
-            if ar != br { return ar > br }
-            let af = a.fit(episodesInSeason: episodesInSeason)
-            let bf = b.fit(episodesInSeason: episodesInSeason)
-            if af != bf { return af > bf }
-            if a.qualityRank != b.qualityRank { return a.qualityRank > b.qualityRank }
-            // Within one fit band, bigger means a higher bitrate at the same size class.
-            let asz = a.sizeBytes ?? 0, bsz = b.sizeBytes ?? 0
-            if asz != bsz { return asz > bsz }
-            return a.infoHash < b.infoHash
+                   subtitles: SubtitleEvidenceSet = .empty, runtimeMinutes: Int? = nil) -> [CachedStream] {
+        let policy = PlayPolicy(originalLanguage: originalLanguage)
+        let keyed = map { stream -> (CachedStream, PlayOrderKey) in
+            let shape = ReleaseShape.of(stream.parsed, episodes: episodesInSeason)
+            return (stream, PlayOrderKey(
+                audioTier: stream.audioTier(relativeTo: originalLanguage),
+                mute: isUnplayableAudio(stream.parsed.audioCodec),
+                suspect: isSuspectPicture(stream.parsed, bytes: stream.sizeBytes, shape: shape,
+                                          runtimeMinutes: runtimeMinutes, theatreCopy: stream.isTheatreCopy),
+                hebrew: policy.hebrewTier(subtitles[version: stream.infoHash], parsed: stream.parsed,
+                                          originalLanguage: originalLanguage),
+                resolution: resolutionTier(stream.parsed.resolution),
+                weight: bytesPerFile(stream.sizeBytes, shape: shape),
+                quality: stream.qualityRank))
         }
+        return keyed.sorted { a, b in
+            a.1.precedes(b.1) ?? (a.0.infoHash < b.0.infoHash)
+        }.map(\.0)
     }
 
     /// The top pick plus whether it's a genuine language fallback — a foreign release with no

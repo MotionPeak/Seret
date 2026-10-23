@@ -13,7 +13,8 @@ extension AppSession {
             makeAcquisition: { [weak self] in
                 guard let self else { return nil }
                 return self.makeAcquisition(for: store.item, imdbID: store.imdbID,
-                                            originalLanguage: store.originalLanguage)
+                                            originalLanguage: store.originalLanguage,
+                                            runtimeMinutes: store.runtime)
             },
             makeSeasonPack: { [weak self] season in
                 guard let self, let imdbID = store.imdbID else { return nil }
