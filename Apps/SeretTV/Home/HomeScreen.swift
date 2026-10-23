@@ -257,6 +257,17 @@ struct HomeScreen: View {
         // anywhere, the header still describing the gone title) until the next press, so focus
         // is handed to its neighbour here.
         .onChange(of: keys) { old, new in rehomeFocus(old: old, new: new) }
+        // A first run: the day's picks land about a minute after Home opened on "Both of You Want
+        // to See", and the Picked rail is inserted ABOVE the focused row — out of view, under the
+        // header, with nothing to say it is there (owner, on the real Apple TV: "I see only Both
+        // of you want to see"). If the viewer is still where Home put them, take them up to it.
+        .onChange(of: picks?.picked.first?.id) { old, new in
+            guard old == nil, let new, home.continueWatching.isEmpty, downloads.isEmpty,
+                  isVisiblePage, !sideMenuFocus.holdsFocus else { return }
+            let landing = picks?.both.first.map { Self.focusID(Rail.both, $0.id) }
+            guard focusHandle.focused == nil || focusHandle.focused == landing else { return }
+            focusHandle.move(to: Self.focusID(Rail.picked, new))
+        }
         // A focused film's details landed after it was focused (a first run): complete its header
         // in place — same title, so nothing fades. Per publish batch, never per press.
         .onChange(of: watchlistDetails?.generation) { _, _ in

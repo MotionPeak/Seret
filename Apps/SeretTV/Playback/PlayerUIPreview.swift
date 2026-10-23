@@ -148,6 +148,7 @@ struct PlayerUIPreview: View {
         case "homepicksonly":       HomeScreenPreview(picks: true, picksOnly: true)
         case "homepicksslow":       HomeScreenPreview(picks: true, slowDetails: true)
         case "homepicksfirstrun":   HomeScreenPreview(picks: true, picksOnly: true, firstRun: true)
+        case "homepicksarrive":     HomeScreenPreview(picks: true, picksOnly: true, arrive: true)
         case "downloadstrip":       DownloadStripPreview()
         case "watchlist":           WatchlistScreenPreview()
         case "watchlistremove":     WatchlistScreenPreview(removeFocusedAfter: .seconds(20))
@@ -1576,13 +1577,19 @@ private struct HomeScreenPreview: View {
     var picksOnly = false
     /// `homepicksfirstrun`: the rows empty while the first list is made.
     var firstRun = false
+    /// `homepicksarrive`: a first run as it really goes — Both at once (it needs no crawl), the
+    /// day's picks 10s later, inserted above the row Home opened on.
+    var arrive = false
+    @State private var picksArrived = false
     /// No file, so Home's own fetch is what fills it — the way a first run goes.
     @State private var watchlistDetails: WatchlistDetailsStore
 
     init(failure: String? = nil, downloading: Bool = false, downloadsOnly: Bool = false,
-         picks: Bool = false, picksOnly: Bool = false, slowDetails: Bool = false, firstRun: Bool = false) {
+         picks: Bool = false, picksOnly: Bool = false, slowDetails: Bool = false, firstRun: Bool = false,
+         arrive: Bool = false) {
         self.failure = failure
         self.firstRun = firstRun
+        self.arrive = arrive
         self.downloading = downloading
         self.downloadsOnly = downloadsOnly
         self.picks = picks
@@ -1614,7 +1621,8 @@ private struct HomeScreenPreview: View {
                                previewDownloads: [DownloadPreviewFixture.dune])
                 } else if picksOnly {
                     HomeScreen(previewHome: emptyHome, previewArt: art,
-                               previewPicks: firstRun ? HomeWatchlistRows(isRefreshing: true) : Self.watchlistRows,
+                               previewPicks: firstRun ? HomeWatchlistRows(isRefreshing: true)
+                                   : arrive && !picksArrived ? Self.bothOnlyRows : Self.watchlistRows,
                                previewWatchlistDetails: watchlistDetails)
                 } else if ready {
                     HomeScreen(previewHome: home, previewArt: art,
@@ -1636,6 +1644,18 @@ private struct HomeScreenPreview: View {
             await home.rebuild(movies: Self.movies, shows: Self.shows)
             ready = true
         }
+        .task {
+            guard arrive else { return }
+            try? await Task.sleep(for: .seconds(10))
+            picksArrived = true
+        }
+    }
+
+    /// `homepicksarrive` before the day's list: Both alone, as a first run opens.
+    private static var bothOnlyRows: HomeWatchlistRows {
+        var rows = watchlistRows
+        rows.picked = []
+        return rows
     }
 
     /// Picked: a run of films from both lists, Noga's only and the unmatched one among them (it
