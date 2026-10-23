@@ -41,10 +41,9 @@ public extension Array where Element == CachedStream {
     /// In the order Play takes them: original-language audio first (clean original → dual-audio
     /// dub → foreign), then the rules every version list follows — see `PlayPolicy` and
     /// `PlayOrderKey`. A season pack is weighed per episode when `episodesInSeason` is known.
-    /// `runtimeMinutes` (a film's) lets "too thin to be real" be judged as a bitrate. Ties break by
-    /// infoHash.
+    /// Ties break by infoHash.
     func rankedFor(originalLanguage: String?, episodesInSeason: Int? = nil,
-                   subtitles: SubtitleEvidenceSet = .empty, runtimeMinutes: Int? = nil) -> [CachedStream] {
+                   subtitles: SubtitleEvidenceSet = .empty) -> [CachedStream] {
         let policy = PlayPolicy(originalLanguage: originalLanguage)
         let keyed = map { stream -> (CachedStream, PlayOrderKey) in
             let shape = ReleaseShape.of(stream.parsed, episodes: episodesInSeason)
@@ -52,7 +51,7 @@ public extension Array where Element == CachedStream {
                 audioTier: stream.audioTier(relativeTo: originalLanguage),
                 mute: isUnplayableAudio(stream.parsed.audioCodec),
                 suspect: isSuspectPicture(stream.parsed, bytes: stream.sizeBytes, shape: shape,
-                                          runtimeMinutes: runtimeMinutes, theatreCopy: stream.isTheatreCopy),
+                                          theatreCopy: stream.isTheatreCopy),
                 hebrew: policy.hebrewTier(subtitles[version: stream.infoHash], parsed: stream.parsed,
                                           originalLanguage: originalLanguage),
                 resolution: resolutionTier(stream.parsed.resolution),

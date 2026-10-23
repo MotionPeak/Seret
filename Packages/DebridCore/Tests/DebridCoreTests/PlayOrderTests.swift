@@ -42,34 +42,34 @@ import DebridCore
         let web = film("web", "2160p", gb: 16)
         let encode = film("encode", "2160p", gb: 11, source: "BluRay")
         let hd = film("hd", "1080p", gb: 8)
-        let order = [remux, hd, web, encode].bestFirst(subtitles: evidence("en"), runtimeMinutes: 120)
+        let order = [remux, hd, web, encode].bestFirst(subtitles: evidence("en"))
         #expect(order.map(\.torrentID) == ["encode", "web", "remux", "hd"])
     }
 
     @Test func englishFallsBackTo1080pWhenNo2160pIsReal() {
-        let thin = film("thin", "2160p", gb: 3)                 // 3.3 Mbps over 2h: not a real 4K
+        let thin = film("thin", "2160p", gb: 3)                 // 4 Mbps over a typical 100 min: not a real 4K
         let ai = film("ai", "2160p", gb: 20, upscaled: true)
         let hd = film("hd", "1080p", gb: 6)
-        let order = [thin, ai, hd].bestFirst(subtitles: evidence("en"), runtimeMinutes: 120)
+        let order = [thin, ai, hd].bestFirst(subtitles: evidence("en"))
         #expect(order.first?.torrentID == "hd")
     }
 
     @Test func englishIgnoresHebrewSubtitles() {
         let uhd = film("uhd", "2160p", gb: 15)
         let hebrew = film("hebrew", "1080p", gb: 6)
-        let order = [uhd, hebrew].bestFirst(subtitles: evidence("en", hebrew: [hebrew: .builtIn]),
-                                            runtimeMinutes: 120)
+        let order = [uhd, hebrew].bestFirst(subtitles: evidence("en", hebrew: [hebrew: .builtIn]))
         #expect(order.first?.torrentID == "uhd")
     }
 
     @Test func aThin1080pIsNotPickedOverARealOne() {
-        let thin = film("thin", "1080p", gb: 1)                 // 1.1 Mbps over 2h
+        let thin = film("thin", "1080p", gb: 1)                 // 1.3 Mbps over 100 min
         let real = film("real", "1080p", gb: 5)
-        #expect([thin, real].bestFirst(subtitles: evidence("en"), runtimeMinutes: 120).first?.torrentID == "real")
+        #expect([thin, real].bestFirst(subtitles: evidence("en")).first?.torrentID == "real")
     }
 
-    /// No runtime known: the bitrate is judged over a typical 100-minute film.
-    @Test func withoutARuntimeATypicalLengthIsAssumed() {
+    /// The bitrate is judged over a typical 100-minute film, never the title's own runtime, so
+    /// every screen (Home's Resume included) picks the same file.
+    @Test func thinnessIsJudgedOverATypicalLength() {
         let thin = film("thin", "2160p", gb: 4)                 // 5.3 Mbps over 100 min
         let hd = film("hd", "1080p", gb: 6)
         let real = film("real", "2160p", gb: 9)
@@ -81,27 +81,26 @@ import DebridCore
     @Test func aSmall1080pEncodeIsStillReal1080p() {
         let small = film("small", "1080p", gb: 1.7)
         let sd = film("sd", "720p", gb: 9.1)
-        #expect([sd, small].bestFirst(subtitles: evidence("en"), runtimeMinutes: 98).first?.torrentID == "small")
         #expect([sd, small].bestFirst(subtitles: evidence("en")).first?.torrentID == "small")
     }
 
     @Test func anUnknownSizeRanksAfterKnownOnesAtItsResolution() {
         let unknown = film("unknown", "2160p", gb: nil)
         let known = film("known", "2160p", gb: 20)
-        #expect([unknown, known].bestFirst(subtitles: evidence("en"), runtimeMinutes: 120)
+        #expect([unknown, known].bestFirst(subtitles: evidence("en"))
             .map(\.torrentID) == ["known", "unknown"])
     }
 
     @Test func playableAudioStillComesFirst() {
         let silent = film("silent", "2160p", gb: 14, audio: "TrueHD")
         let sound = film("sound", "2160p", gb: 30)
-        #expect([silent, sound].bestFirst(subtitles: evidence("en"), runtimeMinutes: 120).first?.torrentID == "sound")
+        #expect([silent, sound].bestFirst(subtitles: evidence("en")).first?.torrentID == "sound")
     }
 
     @Test func theatreCopiesAreNeverTheRealPicture() {
         let cam = film("cam", "2160p", gb: 15, source: "CAM")
         let hd = film("hd", "1080p", gb: 6)
-        #expect([cam, hd].bestFirst(subtitles: evidence("en"), runtimeMinutes: 120).first?.torrentID == "hd")
+        #expect([cam, hd].bestFirst(subtitles: evidence("en")).first?.torrentID == "hd")
     }
 
     // MARK: - Foreign films
@@ -111,7 +110,7 @@ import DebridCore
         let matched = film("matched", "1080p", gb: 6)
         let inFile = film("inFile", "1080p", gb: 9)
         let order = [uhd, matched, inFile].bestFirst(
-            subtitles: evidence("ko", hebrew: [matched: .matched, inFile: .builtIn]), runtimeMinutes: 120)
+            subtitles: evidence("ko", hebrew: [matched: .matched, inFile: .builtIn]))
         #expect(order.map(\.torrentID) == ["inFile", "matched", "uhd"])
     }
 
@@ -120,14 +119,14 @@ import DebridCore
         let web = film("web", "2160p", gb: 14)
         let hd = film("hd", "1080p", gb: 6)
         let order = [remux, hd, web].bestFirst(
-            subtitles: evidence("ja", hebrew: [remux: .matched, web: .matched, hd: .matched]), runtimeMinutes: 120)
+            subtitles: evidence("ja", hebrew: [remux: .matched, web: .matched, hd: .matched]))
         #expect(order.map(\.torrentID) == ["web", "remux", "hd"])
     }
 
     @Test func anUpscaleNeverWinsOnItsHebrew() {
         let fake = film("fake", "2160p", gb: 20, upscaled: true)
         let real = film("real", "1080p", gb: 6)
-        let order = [fake, real].bestFirst(subtitles: evidence("fr", hebrew: [fake: .builtIn]), runtimeMinutes: 120)
+        let order = [fake, real].bestFirst(subtitles: evidence("fr", hebrew: [fake: .builtIn]))
         #expect(order.first?.torrentID == "real")
     }
 
@@ -135,8 +134,7 @@ import DebridCore
     @Test func aHebrewFilmIsRankedLikeAnEnglishOne() {
         let uhd = film("uhd", "2160p", gb: 15)
         let subs = film("subs", "1080p", gb: 6)
-        #expect([uhd, subs].bestFirst(subtitles: evidence("he", hebrew: [subs: .builtIn]),
-                                      runtimeMinutes: 120).first?.torrentID == "uhd")
+        #expect([uhd, subs].bestFirst(subtitles: evidence("he", hebrew: [subs: .builtIn])).first?.torrentID == "uhd")
     }
 
     // MARK: - Search results (not yet added)
@@ -155,14 +153,14 @@ import DebridCore
         let web = stream("web", "2160p", gb: 15)
         let upscale = stream("upscale", "2160p", gb: 12, name: "Film.2020.2160p.AI.Upscale.x265-GRP")
         let hd = stream("hd", "1080p", gb: 7)
-        let order = [remux, hd, upscale, web].rankedFor(originalLanguage: "en", runtimeMinutes: 120)
+        let order = [remux, hd, upscale, web].rankedFor(originalLanguage: "en")
         #expect(order.map(\.infoHash) == ["web", "remux", "hd", "upscale"])
     }
 
     @Test func searchResultsKeepTheOriginalAudioFirst() {
         let dub = stream("dub", "2160p", gb: 14, langs: ["it"])
         let original = stream("orig", "1080p", gb: 6, langs: ["en"])
-        #expect([dub, original].rankedFor(originalLanguage: "en", runtimeMinutes: 120).first?.infoHash == "orig")
+        #expect([dub, original].rankedFor(originalLanguage: "en").first?.infoHash == "orig")
     }
 
     @Test func aSeasonPackIsJudgedPerEpisode() {
@@ -185,7 +183,7 @@ import DebridCore
         #expect(upscaled("Heat.1995.2160p.AI-Upscale.HDR.x265"))
         #expect(upscaled("Heat.1995.2160p.AI.Enhanced.x265"))
         #expect(upscaled("Heat.1995.2160p.Topaz.x265"))
-        #expect(upscaled("Heat.1995.2160p.HEVC.AI.mkv"))
+        #expect(upscaled("Heat.AI.Upscale.2160p.x265"))                 // no year: the whole name
     }
 
     @Test func interpolatedFilmsAreFlagged() {
@@ -203,6 +201,9 @@ import DebridCore
         #expect(!upscaled("AI.2024.1080p.WEB-DL.x264"))              // a film called "AI"
         #expect(!upscaled("Ai.No.Kusabi.1992.1080p.x264"))
         #expect(!upscaled("Upscale.Living.2019.1080p.WEB.x264"))      // the title, before the year
+        #expect(!upscaled("Waltz.with.Bashir.2008.1080p.BluRay.AI.HebSubs"))   // AI-translated subtitles
+        #expect(!upscaled("Gemini.Man.2019.2160p.HFR.120fps.x265"))   // genuine high frame rate
+        #expect(!upscaled("The.Hobbit.2012.1080p.HFR.48fps.x264"))
     }
 
     /// 50 or 60 frames a second is real broadcast television; on a film it is interpolation.

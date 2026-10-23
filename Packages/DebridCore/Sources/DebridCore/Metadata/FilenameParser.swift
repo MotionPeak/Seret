@@ -59,16 +59,15 @@ public struct FilenameParser: Sendable {
     /// Whether the name says the picture was manufactured: an AI upscale, a frame interpolation,
     /// a faked HDR grade.
     ///
-    /// Only what follows the year is read (or the resolution, when there is no year), so films
-    /// called "AI" or "Upscale Living" are not flagged by their own titles; a name with neither
-    /// is left alone rather than guessed at. A bare `AI` must be upper-case, as scene names write
-    /// it. 50 or 60 frames a second is real broadcast television, so it only flags a film.
+    /// Only what follows the year is read, so a film called "Upscale Living" is not flagged by its
+    /// own title; a name with no year is read whole. `AI` alone is NOT a tag: Israeli releases
+    /// write it for AI-translated subtitles (`AI.HebSubs`), the very copies a foreign film wants.
+    /// 50 or 60 frames a second is real broadcast television, so it only flags a film — and 48 or
+    /// 120 is a genuine high-frame-rate release (The Hobbit, Gemini Man), never flagged.
     static func namesUpscale(_ stem: String, isTV: Bool) -> Bool {
         let ns = stem as NSString
         let whole = NSRange(location: 0, length: ns.length)
-        let anchor = reYear.firstMatch(in: stem, range: whole).map { $0.range.location + $0.range.length }
-            ?? reResolution.firstMatch(in: stem, range: whole)?.range.location
-        guard let start = anchor else { return false }
+        let start = reYear.firstMatch(in: stem, range: whole).map { $0.range.location + $0.range.length } ?? 0
         let rest = NSRange(location: start, length: ns.length - start)
         if reUpscaleTag.firstMatch(in: stem, range: rest) != nil { return true }
         return !isTV && reInterpolatedRate.firstMatch(in: stem, range: rest) != nil
@@ -164,8 +163,8 @@ public struct FilenameParser: Sendable {
     private static let reSeasonBare = make(#"(?i)\bS(\d{1,2})\b"#)
     private static let reExtension = make(#"\.[A-Za-z0-9]{2,4}$"#)
     private static let reUpscaleTag = make(
-        #"(?i)(?<![A-Za-z0-9])(?:ai[ ._-]?(?:upscal[a-z]*|enhanced|remaster[a-z]*)|upscal[a-z]*|upscl|topaz|veai|rife|interpolat[a-z]*|fake[ ._-]?(?:hdr|dv|4k|uhd)|(?-i:AI))(?![A-Za-z0-9])"#)
-    private static let reInterpolatedRate = make(#"(?i)(?<![0-9])(?:48|50|60|120)[ ._-]?fps(?![A-Za-z0-9])"#)
+        #"(?i)(?<![A-Za-z0-9])(?:ai[ ._-]?(?:upscal[a-z]*|enhanced|remaster[a-z]*)|upscal[a-z]*|upscl|topaz|veai|rife|interpolat[a-z]*|fake[ ._-]?(?:hdr|dv|4k|uhd))(?![A-Za-z0-9])"#)
+    private static let reInterpolatedRate = make(#"(?i)(?<![0-9])(?:50|60)[ ._-]?fps(?![A-Za-z0-9])"#)
 
     /// Token patterns that mark the end of the title (compiled once). Includes audio/HDR
     /// tokens so a name like `Some.Film.FLAC.1080p…` stops the title at `FLAC`.

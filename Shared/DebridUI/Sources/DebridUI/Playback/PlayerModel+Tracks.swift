@@ -196,7 +196,7 @@ extension PlayerModel {
     /// quota — so it is deferred to `arrangeSubtitleFallback` rather than fired the instant no
     /// match is found among tracks that may not all have arrived.
     func applySubtitlePreference(_ prefs: TrackPreferenceStoring) {
-        guard !subtitlePickedByUser else { return }
+        guard !subtitlePickedByUser, !titleLanguagePending else { return }
 
         switch openingSubtitleChoice(prefs) {
         case .automatic:

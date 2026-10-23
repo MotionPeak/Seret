@@ -25,19 +25,25 @@ extension PlayerModel {
         reload()
     }
 
-    /// Learn the title's language when the request did not carry it. A local read that lands long
-    /// before the stream's tracks do; should it ever lose that race, the choice is re-applied.
+    /// Learn the title's language when the request did not carry it. The automatic subtitle choice
+    /// waits for the answer (`titleLanguagePending`); tracks that arrived meanwhile are decided
+    /// the moment it lands.
     func lookUpTitleLanguageIfNeeded() {
         guard titleLanguage == nil, let lookupTitleLanguage else { return }
         // A film's language is kept under the film; a show's under each episode its page opened.
         let keys = [item.id, contentKey]
+        titleLanguagePending = true
         titleLanguageTask = Task { [weak self] in
             var language: String?
             for key in keys where language == nil { language = await lookupTitleLanguage(key) }
-            guard let self, let language, self.titleLanguage == nil else { return }
-            self.titleLanguage = language
-            self.subtitleSelectionSignature = []
-            self.applyTrackPreferencesIfNeeded()
+            guard let self else { return }
+            if self.titleLanguage == nil { self.titleLanguage = language }
+            self.titleLanguagePending = false
+            // Any track reported means the media is open — a file with no subtitles at all still
+            // needs its Hebrew download armed.
+            if !(self.audioTracks.isEmpty && self.subtitleTracks.isEmpty), let prefs = self.trackPreferences {
+                self.applySubtitlePreference(prefs)
+            }
         }
     }
 

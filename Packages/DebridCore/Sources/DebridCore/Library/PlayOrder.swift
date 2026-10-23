@@ -36,9 +36,12 @@ func genuineFloorMbps(resolution: String?) -> Double? {
     }
 }
 
-/// A length to judge a bitrate by when the real one is not known — an episode, or a film before
-/// TMDB answered.
-private func assumedMinutes(for shape: ReleaseShape) -> Int {
+/// The length a bitrate is judged over: a typical film or episode, never the title's own runtime.
+///
+/// Deliberately not the real runtime. Home's Resume, the player's fallback order and the web rank
+/// without one, and Resume must open the same file the title page's Play would — a long film's
+/// lean 4K version read as genuine on Home and as too thin on the title page.
+private func judgedMinutes(for shape: ReleaseShape) -> Int {
     shape == .movie ? 100 : 40
 }
 
@@ -57,17 +60,15 @@ func bytesPerFile(_ bytes: Int?, shape: ReleaseShape) -> Int? {
 /// Whether a version cannot be trusted to be the picture it claims: its name says it was
 /// manufactured, it is a cinema recording, or it is too thin for its resolution.
 ///
-/// Thinness is a bitrate, over the film's runtime when that is known and a typical length when it
-/// is not. Unknown size or resolution: nothing to judge, so not suspect.
+/// Thinness is a bitrate over a typical length (`judgedMinutes`). Unknown size or resolution:
+/// nothing to judge, so not suspect.
 func isSuspectPicture(_ parsed: ParsedRelease, bytes: Int?, shape: ReleaseShape,
-                      runtimeMinutes: Int?, theatreCopy: Bool) -> Bool {
+                      theatreCopy: Bool) -> Bool {
     if parsed.isUpscaled || theatreCopy { return true }
     if !parsed.isTV && isTheatreSource(parsed.source) { return true }
     guard let perFile = bytesPerFile(bytes, shape: shape),
           let floor = genuineFloorMbps(resolution: parsed.resolution) else { return false }
-    let known = shape == .movie ? runtimeMinutes.flatMap { $0 > 0 ? $0 : nil } : nil
-    let minutes = known ?? assumedMinutes(for: shape)
-    return Double(perFile) * 8 / (Double(minutes) * 60) / 1_000_000 < floor
+    return Double(perFile) * 8 / (Double(judgedMinutes(for: shape)) * 60) / 1_000_000 < floor
 }
 
 /// One version, reduced to what Play's order compares. Built by `MediaSource` and `CachedStream`

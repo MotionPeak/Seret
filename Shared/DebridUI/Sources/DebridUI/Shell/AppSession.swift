@@ -937,13 +937,11 @@ public final class AppSession {
     /// on demand rather than held on the session like `searchStore`.
     public func makeAddStore(imdbID: String, kind: StreamQuery.Kind,
                              originalLanguage: String?,
-                             subtitleTarget: SubtitleTarget? = nil,
-                             runtimeMinutes: Int? = nil) -> AddStore? {
+                             subtitleTarget: SubtitleTarget? = nil) -> AddStore? {
         guard let streamSource, let addService else { return nil }
         return AddStore(imdbID: imdbID, kind: kind, originalLanguage: originalLanguage,
                         streamSource: streamSource, add: addService,
-                        subtitleEvidence: subtitleEvidence, subtitleTarget: subtitleTarget,
-                        runtimeMinutes: runtimeMinutes)
+                        subtitleEvidence: subtitleEvidence, subtitleTarget: subtitleTarget)
     }
 
     /// Vend a whole-season download engine (nil while signed out / Stage 2 unavailable). Used by the
@@ -968,13 +966,12 @@ public final class AppSession {
     /// added. `imdbID` comes from the page's resolved TMDB details, so it is nil until those land;
     /// the engine reports "not signed in" until then rather than silently doing nothing.
     public func makeAcquisition(for item: MediaItem, imdbID: String?,
-                                originalLanguage: String?, runtimeMinutes: Int? = nil) -> AcquisitionStore {
+                                originalLanguage: String?) -> AcquisitionStore {
         AcquisitionStore(item: item, originalLanguage: originalLanguage) { [weak self] kind in
             guard let self, let imdbID else { return nil }
             return self.makeAddStore(
                 imdbID: imdbID, kind: kind, originalLanguage: originalLanguage,
-                subtitleTarget: item.tmdbID.map { .forKind(kind, tmdbID: $0, title: item.title, year: item.year) },
-                runtimeMinutes: kind == .movie ? runtimeMinutes : nil)
+                subtitleTarget: item.tmdbID.map { .forKind(kind, tmdbID: $0, title: item.title, year: item.year) })
         }
     }
 

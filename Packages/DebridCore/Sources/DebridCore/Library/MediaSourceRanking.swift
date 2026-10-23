@@ -13,12 +13,11 @@ public extension Array where Element == MediaSource {
     /// Sources in the order Play takes them — see `PlayPolicy` for the owner's rules and
     /// `PlayOrderKey` for the comparison. Deterministic: ties break by torrentID, then fileID.
     ///
-    /// The film's language comes from `subtitles.originalLanguage`. `runtimeMinutes` (a film's,
-    /// from TMDB) lets "too thin to be real" be judged as a bitrate; without it, by size.
+    /// The film's language comes from `subtitles.originalLanguage`.
     ///
     /// The audio test is the first comparison, not a term inside `qualityRank`: a 2160p TrueHD
     /// version once won on resolution and played with no sound.
-    func bestFirst(subtitles: SubtitleEvidenceSet = .empty, runtimeMinutes: Int? = nil) -> [MediaSource] {
+    func bestFirst(subtitles: SubtitleEvidenceSet = .empty) -> [MediaSource] {
         let policy = PlayPolicy(originalLanguage: subtitles.originalLanguage)
         let keyed = map { source -> (MediaSource, PlayOrderKey) in
             let evidence = subtitles[version: WatchKey.source(source)]
@@ -27,7 +26,6 @@ public extension Array where Element == MediaSource {
                 audioTier: 0,
                 mute: isUnplayableAudio(source.parsed.audioCodec),
                 suspect: isSuspectPicture(source.parsed, bytes: source.sizeBytes, shape: shape,
-                                          runtimeMinutes: runtimeMinutes,
                                           theatreCopy: evidence?.isTheatreCopy ?? false),
                 hebrew: policy.hebrewTier(evidence, parsed: source.parsed,
                                           originalLanguage: subtitles.originalLanguage),
@@ -57,9 +55,8 @@ public extension Array where Element == MediaSource {
     /// degrade to the ranker rather than leave Play permanently broken.
     ///
     /// The ranker's pick includes Hebrew subtitles when evidence is passed.
-    func preferred(_ sourceKey: String?, subtitles: SubtitleEvidenceSet = .empty,
-                   runtimeMinutes: Int? = nil) -> MediaSource? {
+    func preferred(_ sourceKey: String?, subtitles: SubtitleEvidenceSet = .empty) -> MediaSource? {
         if let sourceKey, let chosen = first(where: { WatchKey.source($0) == sourceKey }) { return chosen }
-        return bestFirst(subtitles: subtitles, runtimeMinutes: runtimeMinutes).first
+        return bestFirst(subtitles: subtitles).first
     }
 }

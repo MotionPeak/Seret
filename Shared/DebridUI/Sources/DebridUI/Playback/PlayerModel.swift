@@ -330,6 +330,10 @@ public final class PlayerModel {
     /// Resume and Up Next. Reads what the title page stored; never the network.
     let lookupTitleLanguage: (@Sendable (String) async -> String?)?
     var titleLanguageTask: Task<Void, Never>?
+    /// The lookup has not answered yet. The automatic subtitle choice waits for it: chosen before,
+    /// the library default could switch Hebrew on for a film the answer says is English, and the
+    /// download timer could start before the file's own tracks were known.
+    var titleLanguagePending = false
     /// Measures the film's audio so a downloaded subtitle can be lined up against it. Optional —
     /// nil simply means the auto-sync action is not offered.
     let audioProbe: AudioLoudnessProbing?

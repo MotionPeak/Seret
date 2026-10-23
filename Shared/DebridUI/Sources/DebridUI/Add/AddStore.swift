@@ -25,8 +25,6 @@ public final class AddStore {
     private let imdbID: String
     private let kind: StreamQuery.Kind
     private let originalLanguage: String?
-    /// The film's runtime from TMDB, so "too thin to be real" is judged as a bitrate.
-    private let runtimeMinutes: Int?
     private let title: String
     private let year: Int?
     private let streamSource: StreamSource
@@ -56,9 +54,8 @@ public final class AddStore {
                 title: String = "", year: Int? = nil, maxAddAttempts: Int = 6,
                 subtitleEvidence: SubtitleEvidenceProviding? = nil,
                 subtitleTarget: SubtitleTarget? = nil,
-                hebrewWait: Duration = .seconds(3), runtimeMinutes: Int? = nil) {
+                hebrewWait: Duration = .seconds(3)) {
         self.imdbID = imdbID; self.kind = kind; self.originalLanguage = originalLanguage
-        self.runtimeMinutes = runtimeMinutes
         self.streamSource = streamSource; self.addService = add; self.seasonPack = seasonPack
         self.title = title; self.year = year; self.maxAddAttempts = maxAddAttempts
         self.subtitleEvidence = subtitleEvidence; self.subtitleTarget = subtitleTarget
@@ -187,8 +184,7 @@ public final class AddStore {
         let evidence = SubtitleEvidenceSet.candidates(candidates, hebrewResults: results,
                                                       originalLanguage: originalLanguage)
         subtitles = subtitles.merging(evidence)
-        return candidates.rankedFor(originalLanguage: originalLanguage, subtitles: evidence,
-                                    runtimeMinutes: runtimeMinutes)
+        return candidates.rankedFor(originalLanguage: originalLanguage, subtitles: evidence)
     }
 
     /// What is left of this store's one wait; nil once it has passed.

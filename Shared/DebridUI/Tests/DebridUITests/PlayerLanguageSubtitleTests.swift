@@ -98,6 +98,80 @@ import DebridCore
         #expect(engine.selectedSubtitleID == .some("spu/1"))
     }
 
+    /// The lookup lands long before the stream does. It must not start the download timer then:
+    /// with no tracks known, the timer would read the file's own Hebrew as missing and spend the
+    /// OpenSubtitles quota on a copy that then outranks it.
+    @Test func aLookedUpLanguageWaitsForTheFilesTracks() async {
+        let engine = FakeVideoPlayerEngine()
+        let subs = FakeSubtitleProvider()
+        subs.searchResults = [SubtitleResult(fileID: 1, language: "he")]
+        let m = model(request(language: nil), engine, prefs: FakeTrackPreferences(), subtitles: subs,
+                      lookup: { _ in "ko" })
+        m.start(); await m.waitForIdleForTesting()
+        await m.waitForTitleLanguageForTesting()
+        await m.waitForSubtitleFallbackForTesting()
+        #expect(subs.searchedLanguages.isEmpty)
+        await discover(engine, m, subtitles: embedded)
+        await m.waitForSubtitleFallbackForTesting()
+        #expect(engine.selectedSubtitleID == .some("spu/1"))
+        #expect(subs.searchedLanguages.isEmpty)
+    }
+
+    /// Tracks can arrive before the lookup answers. The library-wide Hebrew must not be switched
+    /// on in that gap for a film the lookup then says is English.
+    @Test func noSubtitleIsChosenWhileTheLanguageIsStillBeingLookedUp() async {
+        let engine = FakeVideoPlayerEngine()
+        let (gate, open) = AsyncStream<Void>.makeStream()
+        let m = model(request(language: nil), engine, prefs: FakeTrackPreferences(subtitle: .language("he")),
+                      lookup: { _ in
+                          for await _ in gate { break }
+                          return "en"
+                      })
+        m.start(); await m.waitForIdleForTesting()
+        await discover(engine, m, subtitles: embedded)
+        #expect(m.selectedSubtitleID == nil)
+        open.yield(); open.finish()
+        await m.waitForTitleLanguageForTesting()
+        #expect(m.selectedSubtitleID == nil)
+        #expect(engine.selectedSubtitleID != .some("spu/1"))
+    }
+
+    /// …and a foreign answer arriving after the tracks still turns Hebrew on.
+    @Test func aLateForeignAnswerStillTurnsHebrewOn() async {
+        let engine = FakeVideoPlayerEngine()
+        let (gate, open) = AsyncStream<Void>.makeStream()
+        let m = model(request(language: nil), engine, prefs: FakeTrackPreferences(),
+                      lookup: { _ in
+                          for await _ in gate { break }
+                          return "ja"
+                      })
+        m.start(); await m.waitForIdleForTesting()
+        await discover(engine, m, subtitles: embedded)
+        open.yield(); open.finish()
+        await m.waitForTitleLanguageForTesting()
+        #expect(engine.selectedSubtitleID == .some("spu/1"))
+    }
+
+    /// A file with no subtitles at all reports audio only; a late foreign answer must still arm
+    /// the Hebrew download.
+    @Test func aLateForeignAnswerFetchesHebrewForAFileWithNone() async {
+        let engine = FakeVideoPlayerEngine()
+        let subs = FakeSubtitleProvider()
+        subs.searchResults = [SubtitleResult(fileID: 1, language: "he")]
+        let (gate, open) = AsyncStream<Void>.makeStream()
+        let m = model(request(language: nil), engine, prefs: FakeTrackPreferences(), subtitles: subs,
+                      lookup: { _ in
+                          for await _ in gate { break }
+                          return "ja"
+                      })
+        m.start(); await m.waitForIdleForTesting()
+        await discover(engine, m, subtitles: [])
+        open.yield(); open.finish()
+        await m.waitForTitleLanguageForTesting()
+        await m.waitForSubtitleFallbackForTesting()
+        #expect(subs.searchedLanguages.contains(["he"]))
+    }
+
     @Test func withNoLanguageTheLibraryDefaultStillApplies() async {
         let engine = FakeVideoPlayerEngine()
         let m = model(request(language: nil), engine, prefs: FakeTrackPreferences(subtitle: .language("he")))

@@ -85,8 +85,7 @@ struct MovieDetailView: View {
         // Rebuilt when the imdbID resolves — the engine cannot query the indexers without it.
         .task(id: store.imdbID) {
             acquisition = session.makeAcquisition(for: store.item, imdbID: store.imdbID,
-                                                  originalLanguage: store.originalLanguage,
-                                                  runtimeMinutes: store.runtime)
+                                                  originalLanguage: store.originalLanguage)
         }
         .onChange(of: acquisition?.phase) { _, phase in
             guard case let .ready(request) = phase else { return }
