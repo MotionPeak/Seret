@@ -30,7 +30,7 @@ struct ScreensUIPreview: View {
             SignInContent(phase: .failed("Real‑Debrid is busy right now. Wait a minute, then try again."),
                           onRetry: {}, onSubmitToken: { _ in })
         case "splash":
-            SplashView(onFinished: {})
+            LaunchIntroView(onFinished: {})
         case "profiles":
             WhoIsWatchingScreen(previewRoster: Self.roster).environment(session)
         case "addprofile":

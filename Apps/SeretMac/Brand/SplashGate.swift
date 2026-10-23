@@ -1,8 +1,9 @@
 import DebridUI
 import Foundation
 
-/// When the splash may come down. Pure so the launch race (animation vs. sign-in vs. the first
-/// library load, all running concurrently) is testable without booting the app.
+/// When the launch intro may dive into the app. Pure so the launch race (animation vs. sign-in vs.
+/// the first library load, all running concurrently) is testable without booting the app.
+/// `animationFinished` means the intro has reached its hold frame, the last one before the dive.
 ///
 /// The splash used to hold for a fixed 1.6 s regardless of what was happening underneath — long
 /// enough on a fast connection, and not nearly long enough on a slow one, where the shell appeared

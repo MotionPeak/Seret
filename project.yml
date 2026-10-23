@@ -25,6 +25,7 @@ targets:
       - path: Apps/SeretTV
       - path: Shared/SeretPlayer
       - path: Shared/Fonts
+      - path: Shared/Intro
     dependencies:
       - package: DebridCore
       - package: DebridUI
@@ -133,6 +134,7 @@ targets:
       - path: Apps/SeretMobile
       - path: Shared/SeretPlayer
       - path: Shared/Fonts
+      - path: Shared/Intro
     dependencies:
       - package: DebridCore
       - package: DebridUI
@@ -165,7 +167,9 @@ targets:
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
         NSLocalNetworkUsageDescription: Seret uses your local network to reach your Seret server.
-        UILaunchScreen: {}
+        # Launch on the intro's navy, so the first frame of the launch intro never follows a white flash.
+        UILaunchScreen:
+          UIColorName: LaunchBackground
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
@@ -220,6 +224,7 @@ targets:
       - path: Apps/SeretMac
       - path: Shared/SeretPlayer
       - path: Shared/Fonts
+      - path: Shared/Intro
     dependencies:
       - package: DebridCore
       - package: DebridUI

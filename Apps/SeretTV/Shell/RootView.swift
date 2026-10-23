@@ -2,7 +2,7 @@ import SwiftUI
 import DebridUI
 
 /// Resolves launch state, then routes between sign-in and the library shell.
-/// A branded splash overlays everything on first launch while `resolve()` runs,
+/// The launch intro overlays everything on first launch while `resolve()` runs,
 /// then fades out — so launch never shows a bare spinner.
 struct RootView: View {
     @Environment(AppSession.self) private var session
@@ -33,7 +33,7 @@ struct RootView: View {
                 }
             }
             if !splashDone {
-                SplashView { splashDone = true }
+                LaunchIntroView { splashDone = true }
                     .transition(.opacity)
             }
         }
