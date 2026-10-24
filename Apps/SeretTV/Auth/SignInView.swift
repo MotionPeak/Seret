@@ -40,6 +40,7 @@ struct SignInContent: View {
 
     private enum Focus: Hashable {
         case provider(DebridProvider)
+        case useToken
         case tokenField
         case retry
     }
@@ -84,6 +85,14 @@ struct SignInContent: View {
         // happens to sit first. Without the choice above, the code screen's one button is the
         // system's pick anyway.
         .defaultFocus($focus, defaultFocus)
+        // The code arriving removes nothing that was focused — the RD pill stays — so
+        // `defaultFocus` alone never reaches "Use a token". Move there once, from the RD pill only,
+        // so a viewer browsing the pills is never yanked.
+        .onChange(of: phase) { _, new in
+            guard provider == .realDebrid, case .awaitingAuthorization = new,
+                  focus == nil || focus == .provider(.realDebrid) else { return }
+            focus = .useToken
+        }
         // A key typed for one provider must never be submitted to the other.
         .onChange(of: provider) { _, _ in
             tokenText = ""
@@ -94,6 +103,9 @@ struct SignInContent: View {
     private var defaultFocus: Focus {
         if showingTokenEntry { return .tokenField }
         if case .failed = phase { return .retry }
+        // A pasted token is the recommended sign-in on a real Apple TV: its tvOS fingerprint gets a
+        // persistent 403 from RD's device-code endpoint. The RD pill is a no-op here.
+        if provider == .realDebrid, case .awaitingAuthorization = phase { return .useToken }
         return .provider(provider)
     }
 
@@ -151,6 +163,7 @@ struct SignInContent: View {
                     .calloutText().foregroundStyle(Theme.Palette.textSecondary)
                 Button(copy.useToken) { showingTokenEntry = true }
                     .buttonStyle(SeretActionButtonStyle())
+                    .focused($focus, equals: .useToken)
             }
         }
         .padding(80)
