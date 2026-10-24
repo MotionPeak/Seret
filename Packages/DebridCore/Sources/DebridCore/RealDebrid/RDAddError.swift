@@ -1,6 +1,7 @@
 import Foundation
 
-/// Errors from the high-level RD add flow (`TorrentsClient.add`).
+/// The add-error vocabulary for every provider: errors from the high-level add flow
+/// (`DebridClient.add` / `addForDownload`; Real-Debrid's `TorrentsClient` is the reference).
 public enum RDAddError: Error, Equatable, Sendable {
     /// Added + selected, but it did not reach `downloaded` within the poll budget —
     /// it wasn't actually instantly cached. `torrentID` lets the caller remove it.

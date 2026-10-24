@@ -1,6 +1,11 @@
 import Foundation
 
-/// A torrent in the user's Real-Debrid library (`GET /torrents` item).
+// These models are provider-neutral: Real-Debrid defines them, and every `DebridClient` (TorBox
+// included) maps its own API into them. RD's status strings (`downloaded`, `downloading`,
+// `waiting_files_selection`, `error`, ...) are the shared vocabulary.
+
+/// A torrent in the user's debrid library (Real-Debrid `GET /torrents` item; other providers map
+/// into the same shape).
 public struct Torrent: Decodable, Sendable, Equatable, Identifiable {
     public let id: String
     public let filename: String
