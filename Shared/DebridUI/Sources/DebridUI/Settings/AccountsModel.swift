@@ -67,8 +67,9 @@ public final class AccountsModel {
         set { session.addTarget = newValue }
     }
 
-    /// Fetches the TorBox account's plan when TorBox is signed in. A failure that says nothing about
-    /// the account (offline, rate-limited, a 5xx) leaves the row as it was, with no detail.
+    /// Fetches the TorBox account's plan when TorBox is signed in. A failure clears the row's
+    /// detail (it may be stale) and shows a warning only when the error says something about the
+    /// account; one that says nothing (offline, rate-limited, a 5xx) leaves no detail and no warning.
     public func load() async {
         guard session.accounts[.torBox] == .signedIn else {
             clearTorBox()
