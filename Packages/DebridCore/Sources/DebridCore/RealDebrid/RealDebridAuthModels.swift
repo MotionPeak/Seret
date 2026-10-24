@@ -7,6 +7,14 @@ public struct RDDeviceCode: Decodable, Sendable, Equatable {
     public let expiresIn: Int
     public let verificationURL: String
 
+    public init(deviceCode: String, userCode: String, interval: Int, expiresIn: Int, verificationURL: String) {
+        self.deviceCode = deviceCode
+        self.userCode = userCode
+        self.interval = interval
+        self.expiresIn = expiresIn
+        self.verificationURL = verificationURL
+    }
+
     enum CodingKeys: String, CodingKey {
         case deviceCode = "device_code"
         case userCode = "user_code"

@@ -135,26 +135,27 @@ public struct TorBoxClient: DebridClient {
     func get<T: Decodable>(_ path: String, query: [URLQueryItem]) async throws -> T? {
         let url = Self.url("api/\(path)", query: query)
         let headers = try await authHeaders()
-        return try await run { try await http.data(url, headers: headers) }
+        return try await Self.run { try await http.data(url, headers: headers) }
     }
 
     func post<T: Decodable, Body: Encodable>(_ path: String, query: [URLQueryItem] = [],
                                              body: Body) async throws -> T? {
         let url = Self.url("api/\(path)", query: query)
         let headers = try await authHeaders()
-        return try await run { try await http.postJSONData(url, json: body, headers: headers) }
+        return try await Self.run { try await http.postJSONData(url, json: body, headers: headers) }
     }
 
     /// TorBox's `createtorrent` takes a URL-encoded form.
     func postForm<T: Decodable>(_ path: String, form: [String: String]) async throws -> T? {
         let url = Self.url("api/\(path)", query: [])
         let headers = try await authHeaders()
-        return try await run { try await http.postFormData(url, form: form, headers: headers) }
+        return try await Self.run { try await http.postFormData(url, form: form, headers: headers) }
     }
 
     /// The one decode path: every TorBox response is read with `.convertFromSnakeCase`, then
     /// unwrapped from its envelope; non-2xx answers are mapped to `TorBoxError`.
-    private func run<T: Decodable>(_ fetch: () async throws -> Data) async throws -> T? {
+    /// Static and internal so `TorBoxAuthClient` (no key yet) reuses the same envelope + error mapping.
+    static func run<T: Decodable>(_ fetch: () async throws -> Data) async throws -> T? {
         let data: Data
         do {
             data = try await fetch()
@@ -164,7 +165,7 @@ public struct TorBoxClient: DebridClient {
         return try Self.unwrap(data)
     }
 
-    private static func url(_ path: String, query: [URLQueryItem]) -> URL {
+    static func url(_ path: String, query: [URLQueryItem]) -> URL {
         var comps = URLComponents(url: base.appending(path: path), resolvingAgainstBaseURL: false)!
         if !query.isEmpty { comps.queryItems = query }
         return comps.url!
