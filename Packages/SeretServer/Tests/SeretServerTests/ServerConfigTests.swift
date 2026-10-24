@@ -1,4 +1,5 @@
 import XCTest
+import DebridCore
 @testable import SeretServer
 
 final class ServerConfigTests: XCTestCase {
@@ -16,10 +17,45 @@ final class ServerConfigTests: XCTestCase {
         XCTAssertEqual(cfg.webPassword, "", "empty password disables the gate by design")
     }
 
-    func testMissingRDTokenThrows() {
+    func testConfigRequiresAtLeastOneProvider() {
         XCTAssertThrowsError(try ServerConfig.fromEnvironment(["TMDB_API_KEY": "k"])) { error in
-            XCTAssertEqual(error as? ServerConfig.ConfigError, .missing("RD_TOKEN"))
+            XCTAssertEqual(error as? ServerConfig.ConfigError, .missing("RD_TOKEN or TORBOX_API_KEY"))
         }
+        // Set-but-empty is how a compose file leaves a variable unset; it is not a key.
+        XCTAssertThrowsError(try ServerConfig.fromEnvironment(
+            ["TMDB_API_KEY": "k", "RD_TOKEN": "", "TORBOX_API_KEY": ""])) { error in
+            XCTAssertEqual(error as? ServerConfig.ConfigError, .missing("RD_TOKEN or TORBOX_API_KEY"))
+        }
+    }
+
+    func testConfigAcceptsTorBoxOnly() throws {
+        let cfg = try ServerConfig.fromEnvironment(["TMDB_API_KEY": "k", "TORBOX_API_KEY": "tb-key"])
+        XCTAssertEqual(cfg.torBoxAPIKey, "tb-key")
+        XCTAssertNil(cfg.rdToken)
+        XCTAssertNil(cfg.addTarget)
+    }
+
+    func testConfigAcceptsRealDebridOnly() throws {
+        let cfg = try ServerConfig.fromEnvironment(required)
+        XCTAssertEqual(cfg.rdToken, "abc")
+        XCTAssertNil(cfg.torBoxAPIKey)
+    }
+
+    func testConfigReadsAddTarget() throws {
+        let both = required.merging(["TORBOX_API_KEY": "tb"]) { _, new in new }
+        XCTAssertEqual(try ServerConfig.fromEnvironment(
+            both.merging(["DEBRID_ADD_TARGET": "torBox"]) { _, new in new }).addTarget, .torBox)
+        XCTAssertEqual(try ServerConfig.fromEnvironment(
+            both.merging(["DEBRID_ADD_TARGET": "realDebrid"]) { _, new in new }).addTarget, .realDebrid)
+        XCTAssertNil(try ServerConfig.fromEnvironment(both).addTarget)
+    }
+
+    /// A typo must not crash-loop the container (`--restart unless-stopped`); it falls back to
+    /// "no preference", which the composite client resolves to the first signed-in account.
+    func testUnrecognisedAddTargetIsIgnored() throws {
+        let cfg = try ServerConfig.fromEnvironment(
+            required.merging(["DEBRID_ADD_TARGET": "TorBoks"]) { _, new in new })
+        XCTAssertNil(cfg.addTarget)
     }
 
     func testMissingTMDBKeyThrows() {

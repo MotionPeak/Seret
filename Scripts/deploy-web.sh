@@ -9,6 +9,8 @@
 #   SERET_WEB_PASSWORD=…      the web page's password
 #   OMDB_API_KEY=…            the detail page's IMDb / Rotten Tomatoes / Metacritic row
 #   OPENSUBTITLES_API_KEY=…   "Hebrew · Matched" on versions (built-in detection runs without it)
+#   TORBOX_API_KEY=…          a TorBox account, merged with Real-Debrid (or alone, with no RD_TOKEN)
+#   DEBRID_ADD_TARGET=…       realDebrid | torBox — where a pasted magnet is added when both are set
 #   OPENSUBTITLES_API_KEY=xxxx sudo -E bash Scripts/deploy-web.sh
 set -euo pipefail
 
@@ -52,22 +54,30 @@ if ! curl -fsS -m 15 "https://api.themoviedb.org/3/configuration?api_key=$TMDB_K
 fi
 echo "==> TMDB accepted the key"
 
-# --- recover the RD token from the existing container -----------------------------------------
+# --- recover the debrid credentials from the existing container --------------------------------
+# At least one of RD_TOKEN / TORBOX_API_KEY is needed; a TorBox-only server has no RD token.
 RD="${RD_TOKEN:-}"
 if [ -z "$RD" ]; then
   RD="$(from_container RD_TOKEN)"
 fi
-if [ -z "$RD" ] || [ "$RD" = "PASTE_YOUR_TOKEN" ]; then
-  echo "!! Could not recover a usable RD_TOKEN from the running 'seret-web' container." >&2
+[ "$RD" = "PASTE_YOUR_TOKEN" ] && RD=""
+TORBOX="${TORBOX_API_KEY:-}"
+if [ -z "$TORBOX" ]; then
+  TORBOX="$(from_container TORBOX_API_KEY)"
+fi
+if [ -z "$RD" ] && [ -z "$TORBOX" ]; then
+  echo "!! Could not recover a usable RD_TOKEN or TORBOX_API_KEY from the running 'seret-web' container." >&2
   echo "   Re-run as: RD_TOKEN='<your-rd-token>' sudo -E bash Scripts/deploy-web.sh <TMDB_API_KEY>" >&2
+  echo "   (or TORBOX_API_KEY='<your-torbox-key>' for a TorBox account)" >&2
   exit 1
 fi
-echo "==> recovered RD_TOKEN from the existing container (${#RD} chars)"
+if [ -n "$RD" ]; then echo "==> RD_TOKEN: set (${#RD} chars)"; else echo "==> RD_TOKEN: not set"; fi
+if [ -n "$TORBOX" ]; then echo "==> TORBOX_API_KEY: set (${#TORBOX} chars)"; else echo "==> TORBOX_API_KEY: not set"; fi
 
 # --- optional settings: passed now, else kept from the existing container ------------------------
 # Only passed-in values used to count, so a redeploy without `sudo -E` quietly dropped the ratings
 # row and the web password.
-for name in SERET_WEB_PASSWORD OMDB_API_KEY OPENSUBTITLES_API_KEY; do
+for name in SERET_WEB_PASSWORD OMDB_API_KEY OPENSUBTITLES_API_KEY DEBRID_ADD_TARGET; do
   if [ -z "${!name:-}" ]; then
     value="$(from_container "$name")"
     if [ -n "$value" ]; then printf -v "$name" '%s' "$value"; fi
@@ -93,7 +103,9 @@ docker run -d --name seret-web --restart unless-stopped \
   --network letterboxd-net \
   --device /dev/dri -p 8080:8080 \
   -v seret-web-data:/root/.local/share \
-  -e RD_TOKEN="$RD" \
+  ${RD:+-e RD_TOKEN="$RD"} \
+  ${TORBOX:+-e TORBOX_API_KEY="$TORBOX"} \
+  ${DEBRID_ADD_TARGET:+-e DEBRID_ADD_TARGET="$DEBRID_ADD_TARGET"} \
   -e TMDB_API_KEY="$TMDB_KEY" \
   ${OMDB_API_KEY:+-e OMDB_API_KEY="$OMDB_API_KEY"} \
   ${SERET_WEB_PASSWORD:+-e SERET_WEB_PASSWORD="$SERET_WEB_PASSWORD"} \

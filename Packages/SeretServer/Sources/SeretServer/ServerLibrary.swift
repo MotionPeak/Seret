@@ -7,12 +7,12 @@ import DebridCore
 /// `LibraryService` (the apps' cache-first, SwiftData-backed one). The server keeps its
 /// library purely in memory — no snapshot store on Linux.
 actor ServerLibrary {
-    private let torrents: TorrentsClient
+    private let torrents: any DebridClient
     private let enricher: MetadataEnricher
     private let builder = LibraryBuilder()
     private var cache: [MediaItem] = []
 
-    init(torrents: TorrentsClient, enricher: MetadataEnricher) {
+    init(torrents: any DebridClient, enricher: MetadataEnricher) {
         self.torrents = torrents
         self.enricher = enricher
     }
@@ -32,7 +32,11 @@ actor ServerLibrary {
     /// for a serial pass once is irrelevant.
     @discardableResult
     func refresh() async throws -> [MediaItem] {
-        let infos = try await torrents.allTorrentInfos(maxConcurrent: 1)
+        // `listTorrents()`, not `allTorrents()`: an account that failed to answer must read as
+        // "could not ask", never as "deleted everything" (it throws only if EVERY account failed,
+        // and then the previous cache simply stays).
+        let listing = try await torrents.listTorrents()
+        let infos = try await torrents.allTorrentInfos(from: listing.torrents)
         let grouped = builder.group(infos)
 
         var enriched: [MediaItem] = []
@@ -42,8 +46,28 @@ actor ServerLibrary {
             enriched.append((try? await enricher.enrich(item)) ?? item)
         }
 
-        cache = Self.mergeDuplicates(enriched)
+        cache = Self.mergeDuplicates(
+            Self.carryOver(previous: cache, fresh: Self.mergeDuplicates(enriched),
+                           unavailable: listing.unavailable))
         return cache
+    }
+
+    /// The fresh build only knows the accounts that answered. Every previous title that draws on an
+    /// UNAVAILABLE account is kept exactly as it was ("frozen" — rebuilding it from the answering
+    /// account alone would drop the other account's version until it answers again), and replaces
+    /// the fresh item with the same id. Everything else comes from the fresh build, so new titles
+    /// from the account that answered appear, and a signed-out or deleted account's titles leave
+    /// (an account that is not signed in is not "unavailable").
+    static func carryOver(previous: [MediaItem], fresh: [MediaItem],
+                          unavailable: Set<DebridProvider>) -> [MediaItem] {
+        guard !unavailable.isEmpty else { return fresh }
+        let frozen = previous.filter { item in
+            let torrentIDs = item.sources.map(\.torrentID)
+                + item.seasons.flatMap(\.episodes).flatMap { ep in ([ep.source] + ep.alternates).map(\.torrentID) }
+            return torrentIDs.contains { unavailable.contains(DebridProvider.of(torrentID: $0)) }
+        }
+        let frozenIDs = Set(frozen.map(\.id))
+        return fresh.filter { !frozenIDs.contains($0.id) } + frozen
     }
 
     /// Enrichment rekeys each movie to its TMDB id, but one torrent produces one item — so the

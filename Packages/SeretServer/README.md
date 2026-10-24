@@ -19,7 +19,9 @@ Plan: `docs/superpowers/plans/2026-07-23-seret-web-plan1-portability-skeleton.md
 ## Config (env vars)
 | Var | Required | Default | |
 |---|---|---|---|
-| `RD_TOKEN` | ✅ | — | real-debrid.com/apitoken |
+| `RD_TOKEN` | one of the two | — | Real-Debrid token, real-debrid.com/apitoken |
+| `TORBOX_API_KEY` | one of the two | — | TorBox key, torbox.app/settings. Needs a paid plan (the Free plan has no API access). Set both keys to merge the two accounts into one library |
+| `DEBRID_ADD_TARGET` | | first account | `realDebrid` or `torBox`: where a pasted magnet is added when both keys are set. Any other value is ignored |
 | `SERET_PORT` | | 8080 | |
 | `SERET_TRANSCODE_MAX_HEIGHT` | | 1080 | transcode cap |
 | `SERET_MAX_SESSIONS` | | 2 | concurrent transcodes |
@@ -29,7 +31,7 @@ Plan: `docs/superpowers/plans/2026-07-23-seret-web-plan1-portability-skeleton.md
 
 ## Run locally (macOS, no transcode HW)
 ```bash
-RD_TOKEN=xxxx swift run --package-path Packages/SeretServer SeretServer
+RD_TOKEN=xxxx TMDB_API_KEY=yyyy swift run --package-path Packages/SeretServer SeretServer
 # open http://localhost:8080/ — the list works; playback needs ffmpeg+VAAPI (the container/NAS)
 ```
 
@@ -53,7 +55,7 @@ docker save seret-server:latest -o /tmp/seret-server.tar   # import this tar in 
 1. **Image → Add → Add from file** → the `seret-server.tar` (or build on the NAS).
 2. **Container → Create** from `seret-server:latest`:
    - Port: host `8080` → container `8080`
-   - Environment: `RD_TOKEN=<token>` (+ optional caps)
+   - Environment: `RD_TOKEN=<token>` and/or `TORBOX_API_KEY=<key>` (+ optional caps)
    - **Device: add `/dev/dri`** (so ffmpeg can reach QuickSync)
    - Volume (optional): a folder → `/tmp/seret-hls`
 3. Start it. Confirm QuickSync inside the container: `vainfo` should init the **iHD** driver and list

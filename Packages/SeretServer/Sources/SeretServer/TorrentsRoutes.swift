@@ -14,14 +14,14 @@ struct MagnetResponse: Content { let torrentID: String; let infoHash: String }
 
 func registerTorrentsRoutes(_ app: Application) {
     app.get("api", "torrents") { req async throws -> [TorrentDTO] in
-        let list = try await req.application.torrents.allTorrents()
+        let list = try await req.application.debrid.allTorrents()
         return list.map { TorrentDTO(id: $0.id, filename: $0.filename) }
     }
     registerMagnetRoute(app)
 }
 
-/// `POST /api/magnet` — accepts a pasted magnet link or bare infohash and hands it to RD.
-/// Split out from `registerTorrentsRoutes` so a test can register it without the RD wiring
+/// `POST /api/magnet` — accepts a pasted magnet link or bare infohash and hands it to the add-target debrid account.
+/// Split out from `registerTorrentsRoutes` so a test can register it without the debrid wiring
 /// that `configure()` requires.
 func registerMagnetRoute(_ app: Application) {
     app.post("api", "magnet") { req async throws -> MagnetResponse in
@@ -31,7 +31,7 @@ func registerMagnetRoute(_ app: Application) {
         guard let link = MagnetLink.parse(body.magnet) else {
             throw Abort(.badRequest, reason: "That isn't a magnet link or infohash.")
         }
-        let info = try await req.application.torrents.addForDownload(magnetHash: link.infoHash)
+        let info = try await req.application.debrid.addForDownload(magnetHash: link.infoHash)
         return MagnetResponse(torrentID: info.id, infoHash: link.infoHash)
     }
 }

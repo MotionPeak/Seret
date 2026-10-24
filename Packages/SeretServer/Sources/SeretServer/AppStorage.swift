@@ -1,17 +1,18 @@
 import Vapor
 import DebridCore
 
-private struct TorrentsClientKey: StorageKey { typealias Value = TorrentsClient }
+private struct DebridClientKey: StorageKey { typealias Value = CompositeDebridClient }
 
 extension Application {
-    var torrents: TorrentsClient {
+    /// Every configured debrid account (Real-Debrid and/or TorBox) behind one client.
+    var debrid: CompositeDebridClient {
         get {
-            guard let c = storage[TorrentsClientKey.self] else {
-                fatalError("TorrentsClient not configured")
+            guard let c = storage[DebridClientKey.self] else {
+                fatalError("CompositeDebridClient not configured")
             }
             return c
         }
-        set { storage[TorrentsClientKey.self] = newValue }
+        set { storage[DebridClientKey.self] = newValue }
     }
 }
 

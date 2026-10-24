@@ -1,11 +1,12 @@
 import Vapor
 import DebridCore
 
-/// Wires the Vapor application: server binding, RD client, library, transcoder, and routes.
+/// Wires the Vapor application: server binding, debrid clients, library, transcoder, and routes.
 func configure(_ app: Application, config: ServerConfig) async throws {
     app.http.server.configuration.port = config.port
     app.http.server.configuration.hostname = "0.0.0.0"
-    app.torrents = try await makeTorrentsClient(rdToken: config.rdToken)
+    app.debrid = try await makeDebridClient(config)
+    app.logger.notice("Debrid accounts: \(app.debrid.providers.map(\.displayName).joined(separator: ", ")); adds go to \(app.debrid.provider.displayName).")
     app.transcoder = TranscodeManager(root: config.hlsRoot,
                                       maxHeight: config.maxHeight,
                                       maxSessions: config.maxSessions)
@@ -15,13 +16,13 @@ func configure(_ app: Application, config: ServerConfig) async throws {
     if config.omdbAPIKey.isEmpty {
         app.logger.notice("OMDB_API_KEY is empty — the detail page ratings row is disabled.")
     }
-    app.subtitleEvidence = SubtitleEvidenceService.live(torrents: app.torrents,
+    app.subtitleEvidence = SubtitleEvidenceService.live(torrents: app.debrid,
                                                         openSubtitlesKey: config.openSubtitlesAPIKey)
     if config.openSubtitlesAPIKey.isEmpty {
         app.logger.notice("OPENSUBTITLES_API_KEY is empty — Hebrew subtitle matching is off (built-in detection still runs).")
     }
     app.library = ServerLibrary(
-        torrents: app.torrents,
+        torrents: app.debrid,
         enricher: MetadataEnricher(tmdb: tmdb))
 
     let sessions = SessionStore()
