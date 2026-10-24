@@ -5,7 +5,8 @@ import SwiftUI
 @main
 struct SeretMacApp: App {
     private let launch = LaunchOptions.current
-    @State private var session = AppSession(realDebrid: RealDebridSession(store: KeychainTokenStore()))
+    @State private var session = AppSession(realDebrid: RealDebridSession(store: KeychainTokenStore()),
+                                            torBox: TorBoxSession.keychain())
     // The delegate property on `UNUserNotificationCenter` is weak — this keeps it alive.
     private static let notifications = NotificationPresenter()
 

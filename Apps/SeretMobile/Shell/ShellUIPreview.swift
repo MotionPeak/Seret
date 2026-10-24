@@ -18,7 +18,8 @@ import SwiftUI
 /// Nothing here fires a network request: the session is never resolved, so it has no stores.
 struct ShellUIPreview: View {
     let target: String
-    @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()))
+    @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()),
+                                            torBox: TorBoxSession(store: InMemorySecretStore()))
     @State private var router: AppRouter = {
         let router = AppRouter()
         router.selectedSection = ShellUIPreview.argument("-shellSection").flatMap(MainShell.Section.init) ?? .home

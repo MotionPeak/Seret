@@ -5,7 +5,8 @@ import SwiftUI
 @main
 struct SeretTVApp: App {
     @State private var session = AppSession(
-        realDebrid: RealDebridSession(store: KeychainTokenStore()))
+        realDebrid: RealDebridSession(store: KeychainTokenStore()),
+        torBox: TorBoxSession.keychain())
 
     init() {
         #if DEBUG

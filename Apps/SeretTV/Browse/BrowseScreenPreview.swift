@@ -28,7 +28,8 @@ struct BrowseScreenPreview: View {
     /// below it close up.
     var trendingFails = false
 
-    @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()))
+    @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()),
+                                            torBox: TorBoxSession(store: InMemorySecretStore()))
     @State private var seeds = BrowsePreviewFixture.Seeds()
     @State private var store: DiscoverStore?
     @State private var art = TitleArtStore(details: TMDBDetailsService(

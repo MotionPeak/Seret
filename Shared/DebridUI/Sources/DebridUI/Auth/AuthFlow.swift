@@ -37,3 +37,13 @@ struct LiveAuthFlow: AuthFlow {
         try await session.establishStaticToken(token)
     }
 }
+
+/// PLACEHOLDER — Task 9 replaces this with the real `TorBoxAuthFlow` (device code + pasted key).
+/// Until then a TorBox sign-in started from `AppSession.makeSignInModel(for: .torBox)` fails
+/// cleanly instead of running Real-Debrid's flow against the TorBox session.
+@MainActor
+struct TorBoxAuthFlowPlaceholder: AuthFlow {
+    func begin() async throws -> RDDeviceCode { throw TorBoxSessionError.notSignedIn }
+    func awaitSignIn(_ code: RDDeviceCode) async throws { throw TorBoxSessionError.notSignedIn }
+    func signIn(token: String) async throws { throw TorBoxSessionError.notSignedIn }
+}

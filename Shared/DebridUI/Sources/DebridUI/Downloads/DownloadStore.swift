@@ -14,7 +14,8 @@ public protocol DownloadPolling: Sendable {
     func poll() async throws -> [DownloadStatus]
 }
 
-/// Deletes an RD torrent — used to cancel a download (DebridCore's `TorrentsClient` conforms).
+/// Deletes a debrid torrent — used to cancel a download. `TorrentsClient` conforms, and so does the
+/// composite, which routes the id to the account that holds it.
 public protocol DownloadDeleting: Sendable {
     func deleteTorrent(id: String) async throws
 }
@@ -22,6 +23,7 @@ public protocol DownloadDeleting: Sendable {
 extension DownloadsStore: DownloadRecording {}
 extension DownloadMonitor: DownloadPolling {}
 extension TorrentsClient: DownloadDeleting {}
+extension CompositeDebridClient: DownloadDeleting {}
 
 /// App-wide view-model for downloads: starts uncached downloads on the RD seam, persists a record,
 /// and surfaces live per-title progress that drives the Home rail, the library strip and the
@@ -36,7 +38,7 @@ public final class DownloadStore {
     /// Active download status per content key. Absent = nothing in flight (or already in library).
     public private(set) var statuses: [String: DownloadStatus] = [:]
 
-    private let service: DownloadRequesting
+    private var service: DownloadRequesting
     private let records: DownloadRecording
     private let poller: DownloadPolling
     private let deleter: DownloadDeleting
@@ -70,6 +72,13 @@ public final class DownloadStore {
         self.service = service; self.records = records; self.poller = poller; self.deleter = deleter
         self.onReady = onReady; self.pollInterval = pollInterval; self.now = now
         self.maxAttempts = maxAttempts
+    }
+
+    /// Sends later requests through `service` — the add target changed. The copyright refusals
+    /// learned so far were the previous account's verdicts, so the new account is asked afresh.
+    func useService(_ service: DownloadRequesting) {
+        self.service = service
+        blockedHashes = []
     }
 
     /// Cancel an in-flight (or stalled) download: delete the RD torrent, drop the persisted record,

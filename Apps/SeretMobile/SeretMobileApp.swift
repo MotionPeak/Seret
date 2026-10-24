@@ -6,7 +6,8 @@ import SwiftUI
 struct SeretMobileApp: App {
     @UIApplicationDelegateAdaptor(SeretAppDelegate.self) private var appDelegate
     @State private var session = AppSession(
-        realDebrid: RealDebridSession(store: KeychainTokenStore()))
+        realDebrid: RealDebridSession(store: KeychainTokenStore()),
+        torBox: TorBoxSession.keychain())
 
     init() {
         // The stream cache's lines go into vlc.log beside libvlc's own (see DiagnosticsLog).

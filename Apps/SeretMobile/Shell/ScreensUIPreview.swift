@@ -17,7 +17,8 @@ import SwiftUI
 /// - `profiles` / `addprofile` — Who's Watching and the profile editor.
 struct ScreensUIPreview: View {
     let target: String
-    @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()))
+    @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()),
+                                            torBox: TorBoxSession(store: InMemorySecretStore()))
     @State private var router = AppRouter()
     @State private var token = ""
 

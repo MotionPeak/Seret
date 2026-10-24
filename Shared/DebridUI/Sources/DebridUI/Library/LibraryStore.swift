@@ -383,6 +383,14 @@ public final class LibraryStore {
         if error is RealDebridSessionError {
             return "You're signed out of Real‑Debrid. Sign in again in Settings."
         }
+        // TorBox writes its own user-readable reason (its envelope's `detail`), and the Free-plan
+        // refusal needs naming — a valid key that only fails here is otherwise a mystery. This only
+        // reaches the library when TorBox is the sole account: with another one answering, the
+        // composite keeps the titles it has and Settings → Accounts names the problem.
+        if let torBox = error as? TorBoxError { return torBox.userMessage }
+        if error is TorBoxSessionError {
+            return "You're signed out of TorBox. Sign in again in Settings."
+        }
         return "Couldn't load your library. Check your connection and try again."
     }
 }

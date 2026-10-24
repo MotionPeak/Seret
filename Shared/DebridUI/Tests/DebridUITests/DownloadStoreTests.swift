@@ -317,6 +317,23 @@ private final class SteppingLibrary: LibraryProviding, @unchecked Sendable {
         #expect(s.status(forContentKey: key)?.torrentID == "T2")
     }
 
+    /// Changing the add target swaps the service. The next request goes to the new account, and a
+    /// copyright refusal is the OLD account's verdict, so the new one is asked about that hash too.
+    @Test func aSwappedServiceTakesTheNextRequestAndForgetsTheOldRefusals() async {
+        let old = ScriptedReq(["h1": [.failure(RDAddError.blocked)]])
+        let new = ScriptedReq(["h1": [.success(tv("queued", id: "TB1"))]])
+        let s = make(req: old)
+        let key = DownloadKey.movie(tmdbID: 7)
+        await s.request(contentKey: key, tmdbID: 7, title: "X", kind: .movie, candidates: [stream("h1")])
+
+        s.useService(new)
+        await s.request(contentKey: key, tmdbID: 7, title: "X", kind: .movie, candidates: [stream("h1")])
+
+        #expect(old.calls == ["h1"])
+        #expect(new.calls == ["h1"])
+        #expect(s.status(forContentKey: key)?.torrentID == "TB1")
+    }
+
     @Test func refreshUpdatesProgress() async {
         let poller = FakePoller([[DownloadStatus(torrentID: "TID", contentKey: DownloadKey.movie(tmdbID: 9), tmdbID: 9, phase: .downloading, fraction: 0.4)]])
         let s = make(poller: poller)

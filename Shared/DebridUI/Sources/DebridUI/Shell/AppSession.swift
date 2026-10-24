@@ -6,8 +6,8 @@ import SwiftData
 import UIKit
 #endif
 
-/// Owns the one shared `RealDebridSession` and the app's coarse auth state. It is the
-/// `AccessTokenProviding` source that 7b's library + 7c's playback will consume.
+/// Owns the debrid sessions (Real-Debrid and TorBox), which of them are signed in, and the app's
+/// coarse auth state, and composes the signed-in stack over every signed-in account.
 @MainActor
 @Observable
 public final class AppSession {
@@ -121,7 +121,12 @@ public final class AppSession {
     public var activeProfileID: String? { activeProfiles?.activeProfileID }
     /// True when the Who's-Watching gate should show (more than one profile, none chosen here).
     public var needsProfileSelection: Bool { activeProfiles?.needsSelection ?? false }
-    private var torrents: TorrentsClient?
+    /// Every signed-in debrid account behind one client (nil while signed out). Reads route to the
+    /// account that issued the id or link; adds go to `addTarget`.
+    public private(set) var debrid: CompositeDebridClient?
+    /// The signed-in accounts' clients, in `DebridProvider.allCases` order — kept so an add-target
+    /// change can recompose `debrid` without rebuilding the rest of the stack.
+    private var debridClients: [any DebridClient] = []
     /// Short-TTL, one-shot cache of unrestricted URLs so Detail can warm the RD `unrestrict`
     /// call before Play is tapped (and the player can warm the next episode at Up Next).
     private var linkCache: PlayableLinkCache?
@@ -148,7 +153,7 @@ public final class AppSession {
 
     /// Stage 2 Add-flow seams, composed at sign-in and consumed by the per-title `AddStore`
     /// the `makeAddStore(...)` factory vends (nil while signed out).
-    private var streamSource: StreamSource?
+    private(set) var streamSource: StreamSource?
     private var addService: AddProviding?
 
     /// Resolves a YouTube key → direct stream URL (YouTubeKit), composed at sign-in.
@@ -168,6 +173,46 @@ public final class AppSession {
     public let downloadNotifier = DownloadNotifier()
 
     public let realDebrid: RealDebridSession
+    public let torBox: TorBoxSession
+
+    /// Which debrid accounts this device is signed in to. Every provider has an entry.
+    public private(set) var accounts: [DebridProvider: AccountState]
+
+    /// The signed-in providers, in `DebridProvider.allCases` order.
+    public var signedInProviders: [DebridProvider] {
+        DebridProvider.allCases.filter { accounts[$0] == .signedIn }
+    }
+
+    /// Where new titles go — search's Instant add and Request Download.
+    ///
+    /// Reads back the stored choice while that account is signed in, and otherwise falls back
+    /// (Real-Debrid first) without overwriting the stored choice, so signing back in to the chosen
+    /// account restores it. Setting it persists the choice and recomposes only what depends on it:
+    /// the stream source and the add and download services.
+    public var addTarget: DebridProvider {
+        get {
+            DebridAccounts.effectiveAddTarget(stored: storedAddTarget, signedIn: signedInProviders)
+                ?? storedAddTarget ?? .realDebrid
+        }
+        set {
+            storedAddTarget = newValue
+            defaults.set(newValue.rawValue, forKey: Self.addTargetKey)
+            if state == .signedIn { composeAddStack() }
+        }
+    }
+    private var storedAddTarget: DebridProvider?
+    private static let addTargetKey = "debrid.addTarget"
+    let defaults: UserDefaults
+
+    /// Test seam. False composes only the debrid layer (clients, composite, link cache, stream
+    /// source, add and download services) and skips the SwiftData containers, notification
+    /// permission and TMDB stack, which a unit test cannot build safely.
+    private let composesFullStack: Bool
+
+    /// The profile, My List, version-preference and watch stores, which all share ONE CloudKit-
+    /// backed container. Held so a rebuild after an account change reuses them instead of opening
+    /// a second container over the same file (see `tearDownSignedInStack`).
+    private var profileStores: ProfileStores?
 
     #if DEBUG
     /// Preview harnesses only: put fake-backed stores where the screens look for them, so a flow
@@ -180,57 +225,124 @@ public final class AppSession {
     }
     #endif
 
-    public init(realDebrid: RealDebridSession) {
-        self.realDebrid = realDebrid
+    public convenience init(realDebrid: RealDebridSession, torBox: TorBoxSession) {
+        self.init(realDebrid: realDebrid, torBox: torBox, defaults: .standard, composesFullStack: true)
     }
 
-    /// Resolve launch state from persisted credentials. `validAccessToken()` throws
-    /// `.notSignedIn` ONLY when there are no stored credentials, which lets us treat
-    /// offline-with-credentials as optimistically signed in (spec §143) while a server
-    /// rejection of the refresh token routes back to sign-in (spec §165).
+    init(realDebrid: RealDebridSession, torBox: TorBoxSession, defaults: UserDefaults,
+         composesFullStack: Bool) {
+        self.realDebrid = realDebrid
+        self.torBox = torBox
+        self.defaults = defaults
+        self.composesFullStack = composesFullStack
+        self.storedAddTarget = defaults.string(forKey: Self.addTargetKey).flatMap(DebridProvider.init(rawValue:))
+        self.accounts = Self.accountStates(signedIn: [])
+    }
+
+    private static func accountStates(signedIn: [DebridProvider]) -> [DebridProvider: AccountState] {
+        Dictionary(uniqueKeysWithValues: DebridProvider.allCases.map {
+            ($0, signedIn.contains($0) ? AccountState.signedIn : .signedOut)
+        })
+    }
+
+    /// Resolve launch state from each account's persisted credentials.
+    ///
+    /// Each session's `validAccessToken()` throws its `.notSignedIn` ONLY when nothing is stored,
+    /// so an account that is offline, rate-limited or down still counts as signed in
+    /// (optimistically — later calls retry). The app is signed out only when no account counts;
+    /// see `DebridAccounts.launchDecision` and `mustReauthenticate`.
     public func resolve() async {
-        do {
-            _ = try await realDebrid.validAccessToken()
+        let realDebrid = self.realDebrid, torBox = self.torBox
+        let probes: [DebridProvider: Result<Void, any Error>] = [
+            .realDebrid: await Self.probe { _ = try await realDebrid.validAccessToken() },
+            .torBox: await Self.probe { _ = try await torBox.validAccessToken() },
+        ]
+        switch DebridAccounts.launchDecision(probes) {
+        case .signedIn(let providers):
+            accounts = Self.accountStates(signedIn: providers)
             enterSignedIn()
-        } catch {
-            if Self.mustReauthenticate(after: error) { enterSignedOut() } else { enterSignedIn() }
+        case .signedOut:
+            accounts = Self.accountStates(signedIn: [])
+            enterSignedOut()
         }
     }
 
-    /// Whether a failed launch-time token check means the credentials are actually no good.
-    ///
-    /// Only two things do: there being none stored, and Real-Debrid rejecting the ones there are
-    /// with a `401`. Everything else is Real-Debrid having a bad moment, and the stored credentials
-    /// are still perfectly valid — so the launch stays optimistically signed in and later calls
-    /// retry, exactly as it does when the device is offline.
-    ///
-    /// This used to treat ANY HTTP status as a rejection, which is wrong in the two ways that
-    /// matter most in practice. Real-Debrid answers a rate limit with a bare `403` — this repo's
-    /// own notes record that a tvOS client can get a PERSISTENT one — and it answers an outage with
-    /// a `5xx`. Both signed the viewer out and made them sign in again, with nothing wrong with
-    /// their account, and on an Apple TV that could repeat on every launch.
-    nonisolated static func mustReauthenticate(after error: any Error) -> Bool {
-        if error is RealDebridSessionError { return true }        // no stored credentials
-        if case HTTPError.status(let code, _) = error { return code == 401 }
-        return false                                              // transport, offline, decode
+    private static func probe(_ check: () async throws -> Void) async -> Result<Void, any Error> {
+        do {
+            try await check()
+            return .success(())
+        } catch {
+            return .failure(error)
+        }
     }
 
-    func markSignedIn() {
-        enterSignedIn()
+    /// A sign-in flow for `provider` finished: add it to the signed-in accounts.
+    func markSignedIn(_ provider: DebridProvider) {
+        accounts[provider] = .signedIn
+        if state == .signedIn { rebuildSignedIn() } else { enterSignedIn() }
         signInModel = nil
     }
 
+    /// A sign-in flow for one more account while signed in — Settings → Accounts' "Sign in".
+    /// On success the signed-in stack is rebuilt with that account in it.
+    public func beginSignIn(to provider: DebridProvider) -> SignInModel {
+        makeSignInModel(for: provider)
+    }
+
+    /// The one place a `SignInModel` is built, so every provider's flow lands in `markSignedIn`.
+    func makeSignInModel(for provider: DebridProvider) -> SignInModel {
+        let flow: AuthFlow
+        switch provider {
+        case .realDebrid: flow = LiveAuthFlow(auth: RealDebridAuthClient(), session: realDebrid)
+        case .torBox: flow = TorBoxAuthFlowPlaceholder()
+        }
+        return SignInModel(flow: flow, onSignedIn: { [weak self] in self?.markSignedIn(provider) })
+    }
+
+    /// Signs out of every account.
     public func signOut() async {
         try? await realDebrid.signOut()
+        try? await torBox.signOut()
+        accounts = Self.accountStates(signedIn: [])
         enterSignedOut()
+    }
+
+    /// Signs out of one account. With another still signed in, the stack is rebuilt without it —
+    /// its titles leave on the next refresh, watch history stays, and the add target falls back to
+    /// the remaining account. With none left, back to the sign-in screen.
+    public func signOut(of provider: DebridProvider) async {
+        switch provider {
+        case .realDebrid: try? await realDebrid.signOut()
+        case .torBox: try? await torBox.signOut()
+        }
+        accounts[provider] = .signedOut
+        guard state == .signedIn else { return }
+        if signedInProviders.isEmpty { enterSignedOut() } else { rebuildSignedIn() }
     }
 
     /// Enter `.signedOut` with a fresh sign-in model for the new episode.
     private func enterSignedOut() {
         guard state != .signedOut else { return }
-        signInModel = SignInModel(
-            flow: LiveAuthFlow(auth: RealDebridAuthClient(), session: realDebrid),
-            onSignedIn: { [weak self] in self?.markSignedIn() })
+        signInModel = makeSignInModel(for: .realDebrid)
+        tearDownSignedInStack(keepingProfiles: false)
+        state = .signedOut
+    }
+
+    /// The signed-in accounts changed while signed in: compose the stack again over the accounts
+    /// there are now. State stays `.signedIn` throughout, so the screens never see a sign-in flash.
+    private func rebuildSignedIn() {
+        tearDownSignedInStack(keepingProfiles: true)
+        composeSignedIn()
+    }
+
+    /// Drops everything the signed-in stack built.
+    ///
+    /// - Parameter keepingProfiles: keep the profile / My List / version / watch stores. They hold
+    ///   no account state, and every one of them shares the same CloudKit-mirrored
+    ///   `ModelContainer`: rebuilding them for an account change would open a second container over
+    ///   the same store file while views may still hold the first, each registering its own CloudKit
+    ///   sync. Sign-out drops them (sign-in builds a fresh container).
+    private func tearDownSignedInStack(keepingProfiles: Bool) {
         libraryStore = nil
         searchStore = nil
         personCredits = nil
@@ -243,13 +355,13 @@ public final class AppSession {
         watchlistDetails = nil
         ratingsProvider = nil
         letterboxdRatingProvider = nil
-        watchStore = nil
         home = nil
         homePicks?.cancel()
         homePicks = nil
         homePicksUsername = nil
         watchlistSynced = nil
-        torrents = nil
+        debrid = nil
+        debridClients = []
         linkCache = nil
         streamProxy = nil
         trailerResolver = nil
@@ -261,11 +373,14 @@ public final class AppSession {
         downloadStore = nil
         subtitlesProvider = nil
         subtitleEvidence = nil
+        guard !keepingProfiles else { return }
         // The SwiftData-backed stores too. Every one of these holds the same CloudKit-mirrored
         // `ModelContainer`, and sign-in unconditionally builds a NEW one — so leaving them alive
         // meant signing out and back in left two containers open over the same store file, each
         // registering its own CloudKit sync. That is the hazard `purgeLegacyDefaultStore` was
         // written for, arrived at from the other direction.
+        watchStore = nil
+        profileStores = nil
         profileStore = nil
         myListStore = nil
         versionPreferences = nil
@@ -273,7 +388,6 @@ public final class AppSession {
         localWatch = nil
         localWatchStore = nil
         profileStoreMode = "none"
-        state = .signedOut
     }
 
     /// The shared CloudKit container both Seret apps sync through (one private DB per Apple ID).
@@ -439,18 +553,70 @@ public final class AppSession {
         await rebuildHome()
     }
 
-    /// Enter `.signedIn`, composing the DebridCore library pipeline once. Thin glue: the app
-    /// assembles brain objects and reads a config value; no RD/TMDB logic lives here.
+    /// Enter `.signedIn`, composing the DebridCore library pipeline once.
     private func enterSignedIn() {
         guard state != .signedIn else { return }
-        let tmdb = TMDBClient(apiKey: Secrets.tmdbAPIKey)
-        let torrents = TorrentsClient(tokens: realDebrid)
-        self.torrents = torrents
+        composeSignedIn()
+    }
+
+    /// One client per signed-in account, in `DebridProvider.allCases` order.
+    private func makeDebridClients() -> [any DebridClient] {
+        signedInProviders.map { provider -> any DebridClient in
+            switch provider {
+            case .realDebrid: return TorrentsClient(tokens: realDebrid)
+            case .torBox: return TorBoxClient(tokens: torBox)
+            }
+        }
+    }
+
+    /// What depends on the add target: the composite (whose `provider` IS the target), the stream
+    /// source search uses, and the add and download services. Re-run alone when the target changes;
+    /// the rest of the stack keeps its composite, whose routing does not depend on the target.
+    private func composeAddStack() {
+        guard !debridClients.isEmpty else { return }
+        let composite = CompositeDebridClient(clients: debridClients, addTarget: addTarget)
+        debrid = composite
+        streamSource = makeStreamSource(for: composite)
+        addService = DebridAddService(client: composite)
+        let downloads = DebridDownloadService(client: composite)
+        downloadService = downloads
+        downloadStore?.useService(downloads)
+    }
+
+    /// Search's stream source for the add target. Each answers "is this cached?" for the account
+    /// the add will land on.
+    private func makeStreamSource(for composite: CompositeDebridClient) -> StreamSource {
+        if composite.provider == .torBox,
+           let checker = composite.client(for: .torBox) as? any CachedHashChecking {
+            return TorBoxCachedStreamSource(base: TorrentioStreamSource(), checker: checker)
+        }
+        // Comet = accurate instant-cache flags; Torrentio = broad index incl. brand-new CAMs.
+        return AggregateStreamSource([CometStreamSource(tokens: realDebrid), TorrentioStreamSource()])
+    }
+
+    /// Composes the signed-in stack over the accounts signed in now. Re-runnable: an account change
+    /// tears the stack down and runs this again (`rebuildSignedIn`). Thin glue: the app assembles
+    /// brain objects and reads a config value; no RD/TorBox/TMDB logic lives here.
+    private func composeSignedIn() {
+        debridClients = makeDebridClients()
+        composeAddStack()
+        guard let debrid else {
+            // No account to compose over — nothing calls this so, but a composite needs one.
+            enterSignedOut()
+            return
+        }
+        // Every link is resolved by the account that issued it, so a `torbox://` handle goes to
+        // TorBox's `requestdl` and an RD link to RD's `unrestrict`.
         linkCache = PlayableLinkCache { link in
-            let unrestricted = try await torrents.unrestrict(link: link)
+            let unrestricted = try await debrid.unrestrict(link: link)
             guard let url = URL(string: unrestricted.download) else { throw URLError(.badURL) }
             return url
         }
+        guard composesFullStack else {
+            state = .signedIn
+            return
+        }
+        let tmdb = TMDBClient(apiKey: Secrets.tmdbAPIKey)
         let diagnostics = Self.streamDiagnostics
         let proxyLog: @Sendable (String) -> Void = { line in diagnostics?("[proxy] \(line)") }
         streamProxy = StreamProxy(
@@ -481,25 +647,31 @@ public final class AppSession {
             }
         }
         #endif
-        subtitleEvidence = Self.makeSubtitleEvidence(torrents: torrents, linkCache: linkCache)
+        subtitleEvidence = Self.makeSubtitleEvidence(torrents: debrid, linkCache: linkCache)
         let service = LibraryService(
-            torrents: torrents,
+            torrents: debrid,
             builder: LibraryBuilder(),
             enricher: MetadataEnricher(tmdb: tmdb),
             store: LibrarySnapshotStore(directory: Self.dataDirectory))
-        // Remove the orphaned legacy `default.store` (old builds shared it across containers + had
-        // CloudKit metadata) BEFORE opening any store, so it can't double-register CloudKit sync.
-        Self.purgeLegacyDefaultStore()
-        // Build the watch + profile + My-List stores from one dedicated container.
-        let stores = Self.makeProfileStores()
-        profileStore = stores?.profiles
-        myListStore = stores?.myList
-        versionPreferences = stores?.versions
-        profileStoreMode = stores?.mode ?? "none"
-        // Local watch state is the source of truth and vends `watchStore` through the mirror, so
-        // LibraryStore / HomeStore / DetailStore / the seed service consume the same seam
-        // unchanged. Must come AFTER the stores above — it needs the local one.
-        makeWatchStack(local: stores?.watch)
+        // A rebuild after an account change keeps the stores it already has (see
+        // `tearDownSignedInStack`); only a sign-in opens the container.
+        let rebuildingWithProfiles = profileStores != nil
+        if !rebuildingWithProfiles {
+            // Remove the orphaned legacy `default.store` (old builds shared it across containers +
+            // had CloudKit metadata) BEFORE opening any store, so it can't double-register CloudKit.
+            Self.purgeLegacyDefaultStore()
+            // Build the watch + profile + My-List stores from one dedicated container.
+            let stores = Self.makeProfileStores()
+            profileStores = stores
+            profileStore = stores?.profiles
+            myListStore = stores?.myList
+            versionPreferences = stores?.versions
+            profileStoreMode = stores?.mode ?? "none"
+            // Local watch state is the source of truth and vends `watchStore` through the mirror,
+            // so LibraryStore / HomeStore / DetailStore / the seed service consume the same seam
+            // unchanged. Must come AFTER the stores above — it needs the local one.
+            makeWatchStack(local: stores?.watch)
+        }
         libraryStore = LibraryStore(library: service, watch: watchStore,
                                     profileID: { [weak self] in self?.activeProfileID })
         searchStore = SearchStore(search: TMDBSearchService(client: tmdb))
@@ -515,12 +687,6 @@ public final class AppSession {
         // extraction evaluates YouTube's player JS, and JavaScriptCore aborts the process outright
         // when its heap runs out. See `CachingTrailerStreamResolver`.
         trailerResolver = CachingTrailerStreamResolver(base: YouTubeKitStreamResolver())
-        // Comet = accurate instant-cache flags; Torrentio = broad index incl. brand-new CAMs.
-        streamSource = AggregateStreamSource([CometStreamSource(tokens: realDebrid),
-                                              TorrentioStreamSource()])
-        addService = RealDebridAddService(torrents: torrents)
-        let dlService = RealDebridDownloadService(torrents: torrents)
-        downloadService = dlService
         // Downloads get their OWN dedicated store file — never `default.store`, so they can't
         // collide with the profile/watch store (the bug that kept dropping the profile tables).
         let downloadsContainer: ModelContainer? = {
@@ -533,9 +699,9 @@ public final class AppSession {
                                        configurations: ModelConfiguration(schema: Schema([DownloadRequest.self]),
                                                                           isStoredInMemoryOnly: true))
         }()
-        if let container = downloadsContainer {
+        if let container = downloadsContainer, let dlService = downloadService {
             let dStore = DownloadsStore(modelContainer: container)
-            let dMonitor = DownloadMonitor(lister: torrents, store: dStore,
+            let dMonitor = DownloadMonitor(lister: debrid, store: dStore,
                                            resolver: TMDBDownloadIdentityResolver(search: tmdb))
             downloadsStore = dStore
             downloadMonitor = dMonitor
@@ -543,7 +709,7 @@ public final class AppSession {
             // up — and fires a "ready" notification. The status carries its own title, so this
             // works for a download started on another device as well as one of ours.
             let store = DownloadStore(service: dlService, records: dStore, poller: dMonitor,
-                                      deleter: torrents,
+                                      deleter: debrid,
                                       onReady: { [weak self] status in
                                           guard let self else { return }
                                           let name = status.title.isEmpty ? "Your download" : status.title
@@ -592,7 +758,11 @@ public final class AppSession {
         }
         // Profiles: ensure an owner profile exists (migrating Phase-1 progress), resolve this
         // device's selection (solo → auto-select; multiple → Who's-Watching gate), and scope Home.
-        if let profileStore {
+        if rebuildingWithProfiles {
+            // The same profile store, already resolved: scope the rebuilt Home at once.
+            home?.activeProfileID = activeProfileID
+            Task { @MainActor in await self.rebuildHome() }
+        } else if let profileStore {
             let profiles = ActiveProfileStore(provider: profileStore)
             activeProfiles = profiles
             Task { @MainActor in
@@ -809,7 +979,7 @@ public final class AppSession {
     public func makePlayer(for request: PlaybackRequest,
                            engine: VideoPlayerEngine,
                            audioProbe: AudioLoudnessProbing? = nil) -> PlayerModel? {
-        guard let torrents else { return nil }
+        guard let debrid else { return nil }
         let watch = watchStore
         // Captured once: a player outlives a profile switch, and its progress must keep landing
         // under the profile that started the playback.
@@ -840,7 +1010,7 @@ public final class AppSession {
             // resolves directly (consume is one-shot, so a retry always re-unrestricts fresh).
             unrestrict: { link in
                 if let cache { return try await cache.consume(link) }
-                let unrestricted = try await torrents.unrestrict(link: link)
+                let unrestricted = try await debrid.unrestrict(link: link)
                 guard let url = URL(string: unrestricted.download) else { throw URLError(.badURL) }
                 return url
             },
@@ -898,7 +1068,7 @@ public final class AppSession {
     /// The Hebrew-subtitle evidence service. Search needs only the API key, so badges work before
     /// an OpenSubtitles account is added; with no key, matching is off and built-in detection
     /// still runs.
-    private static func makeSubtitleEvidence(torrents: TorrentsClient,
+    private static func makeSubtitleEvidence(torrents: any DebridClient,
                                              linkCache: PlayableLinkCache?) -> SubtitleEvidenceService {
         // Play would unrestrict the same links the header reads do. Hand it their answers instead.
         .live(torrents: torrents, openSubtitlesKey: Secrets.openSubtitlesAPIKey,

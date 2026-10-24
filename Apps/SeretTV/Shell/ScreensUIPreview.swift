@@ -17,7 +17,8 @@ import SwiftUI
 ///   - `watchlistchange` — the title page's watchlist toast, a success above a failure
 struct ScreensUIPreview: View {
     let target: String
-    @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()))
+    @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()),
+                                            torBox: TorBoxSession(store: InMemorySecretStore()))
 
     var body: some View {
         switch target {

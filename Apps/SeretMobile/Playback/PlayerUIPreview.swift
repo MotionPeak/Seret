@@ -200,7 +200,8 @@ final class MobilePreviewEngine: VideoPlayerEngine {
 /// message fits a narrow phone, the whole question. Only a screenshot settles either.
 /// The real `ShowDetail` over fixed details and watch state — no session, no network.
 private struct MobileShowDetailPreview: View {
-    @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()))
+    @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()),
+                                            torBox: TorBoxSession(store: InMemorySecretStore()))
     @State private var store: DetailStore = {
         let source = { (id: String) in
             MediaSource(torrentID: id, fileID: 1, restrictedLink: "rd://\(id)",

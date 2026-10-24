@@ -10,34 +10,34 @@ import DebridCore
     private enum Transport: Error { case offline }
 
     @Test func noStoredCredentialsMeansSignIn() {
-        #expect(AppSession.mustReauthenticate(after: RealDebridSessionError.notSignedIn))
+        #expect(DebridAccounts.mustReauthenticate(after: RealDebridSessionError.notSignedIn))
     }
 
     /// The one status that genuinely says "these credentials are no good".
     @Test func aRejectedTokenMeansSignIn() {
-        #expect(AppSession.mustReauthenticate(after: HTTPError.status(code: 401, body: "")))
+        #expect(DebridAccounts.mustReauthenticate(after: HTTPError.status(code: 401, body: "")))
     }
 
     /// Real-Debrid answers a rate limit with a bare 403 — this repo's own notes record that a tvOS
     /// client can get a PERSISTENT one. Treating it as a rejection made the viewer sign in again
     /// with nothing wrong with their account.
     @Test func beingRateLimitedDoesNotSignTheViewerOut() {
-        #expect(!AppSession.mustReauthenticate(after: HTTPError.status(code: 403, body: "")))
-        #expect(!AppSession.mustReauthenticate(after: HTTPError.status(code: 429, body: "")))
+        #expect(!DebridAccounts.mustReauthenticate(after: HTTPError.status(code: 403, body: "")))
+        #expect(!DebridAccounts.mustReauthenticate(after: HTTPError.status(code: 429, body: "")))
     }
 
     /// Nor does Real-Debrid being down.
     @Test func realDebridBeingDownDoesNotSignTheViewerOut() {
         for code in [500, 502, 503, 504] {
-            #expect(!AppSession.mustReauthenticate(after: HTTPError.status(code: code, body: "")),
+            #expect(!DebridAccounts.mustReauthenticate(after: HTTPError.status(code: code, body: "")),
                     "status \(code) must not sign out")
         }
     }
 
     /// Offline with stored credentials was always meant to stay optimistically signed in.
     @Test func beingOfflineDoesNotSignTheViewerOut() {
-        #expect(!AppSession.mustReauthenticate(after: Transport.offline))
-        #expect(!AppSession.mustReauthenticate(after: URLError(.notConnectedToInternet)))
+        #expect(!DebridAccounts.mustReauthenticate(after: Transport.offline))
+        #expect(!DebridAccounts.mustReauthenticate(after: URLError(.notConnectedToInternet)))
     }
 }
 
@@ -60,6 +60,17 @@ import DebridCore
     @Test func beingSignedOutSaysSo() {
         let message = LibraryStore.message(for: RealDebridSessionError.notSignedIn)
         #expect(message.lowercased().contains("signed out"))
+    }
+
+    /// TorBox signed in alone: the composite throws TorBox's own error, and its message is the one
+    /// TorBox wrote — above all the Free-plan one, which is otherwise a mystery failure.
+    @Test func aTorBoxFailureSaysWhatTorBoxSaid() {
+        let freePlan = TorBoxError.api(code: "PLAN_RESTRICTED_FEATURE", detail: "Upgrade.", status: 403)
+        #expect(LibraryStore.message(for: freePlan) == "TorBox's API needs a paid plan.")
+        let limited = TorBoxError.rateLimited(retryAfter: 300)
+        #expect(LibraryStore.message(for: limited) == limited.userMessage)
+        #expect(LibraryStore.message(for: TorBoxSessionError.notSignedIn).lowercased()
+                .contains("signed out of torbox"))
     }
 
     /// Everything else is still the ordinary connection message — a 5xx or a dropped Wi-Fi is not

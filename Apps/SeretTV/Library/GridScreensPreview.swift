@@ -21,7 +21,8 @@ struct MyLibraryScreenPreview: View {
     enum DownloadChange { case ends, starts, focusedEnds }
     var downloadChange: DownloadChange?
 
-    @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()))
+    @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()),
+                                            torBox: TorBoxSession(store: InMemorySecretStore()))
     @State private var downloads: [DownloadTile] = []
     @State private var library: LibraryStore?
     @State private var art = TitleArtStore(details: TMDBDetailsService(
@@ -66,7 +67,8 @@ struct MyLibraryScreenPreview: View {
 /// `-uiPreview search`: the real `SearchScreen` with "dune" already typed, answered by a fixture
 /// search (real TMDB titles and posters) and real art for the backdrop.
 struct SearchScreenPreview: View {
-    @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()))
+    @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()),
+                                            torBox: TorBoxSession(store: InMemorySecretStore()))
     @State private var search = SearchStore(search: GridPreviewFixture.Search())
     @State private var art = TitleArtStore(details: TMDBDetailsService(
         client: TMDBClient(apiKey: Secrets.tmdbAPIKey)))

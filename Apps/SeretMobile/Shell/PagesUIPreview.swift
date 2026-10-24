@@ -37,7 +37,8 @@ import SwiftUI
 /// touches Real-Debrid. Add `-glassFallback` for the iOS 18 glass look.
 struct PagesUIPreview: View {
     let target: String
-    @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()))
+    @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()),
+                                            torBox: TorBoxSession(store: InMemorySecretStore()))
     @State private var router = AppRouter()
     @State private var stores: UIPreviewStores?
     @State private var started = Date()

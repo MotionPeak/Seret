@@ -255,7 +255,8 @@ private struct VersionListPreview: View {
 private struct PersonScreenPreview: View {
     private static let ref = TMDBPersonRef(id: 1234, name: "Denis Villeneuve")
 
-    @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()))
+    @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()),
+                                            torBox: TorBoxSession(store: InMemorySecretStore()))
     @State private var art = TitleArtStore(details: TMDBDetailsService(
         client: TMDBClient(apiKey: Secrets.tmdbAPIKey)))
 
@@ -526,7 +527,8 @@ private struct EpisodeVersionsPreview: View {
                              tmdbID: 19885)
         return DetailStore(item: item, details: PreviewDetails(), watch: PreviewWatchRating())
     }()
-    @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()))
+    @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()),
+                                            torBox: TorBoxSession(store: InMemorySecretStore()))
 
     var body: some View {
         let rows = store.episodes(forSeason: 1)
@@ -573,7 +575,8 @@ private struct MovieDetailPreview: View {
         return DetailStore(item: item, details: PreviewDetails(), watch: PreviewWatchRating(),
                            ratings: PreviewRatings(), letterboxd: PreviewLetterboxdRating())
     }()
-    @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()))
+    @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()),
+                                            torBox: TorBoxSession(store: InMemorySecretStore()))
 
     @State private var watchlist: WatchlistMarks?
 
@@ -622,7 +625,8 @@ private struct MovieDetailArtPreview: View {
         item: MovieDetailArtPreview.item, details: Details(),
         watch: PreviewWatchStates([WatchKey.content(forMovie: MovieDetailArtPreview.item): (2472, 6420, false)]),
         ratings: PreviewRatings(), letterboxd: PreviewLetterboxdRating())
-    @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()))
+    @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()),
+                                            torBox: TorBoxSession(store: InMemorySecretStore()))
     @State private var watchlist: WatchlistMarks?
 
     var body: some View {
@@ -704,7 +708,8 @@ private struct ShowDetailArtPreview: View {
             WatchKey.content(forShow: ShowDetailArtPreview.item, season: 1, number: 2): (1300, 3000, false),
         ]),
         ratings: PreviewRatings())
-    @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()))
+    @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()),
+                                            torBox: TorBoxSession(store: InMemorySecretStore()))
 
     var body: some View {
         NavigationStack { ShowDetailView(store: store) }
@@ -788,7 +793,8 @@ private struct PreviewWatchStates: WatchProgressProviding, WatchRatingProviding 
 
 /// The real `DetailView` for a show you do not own whose every listed episode airs in 2099.
 private struct UnpremieredShowPreview: View {
-    @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()))
+    @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()),
+                                            torBox: TorBoxSession(store: InMemorySecretStore()))
     private static let show = MediaItem(id: "show:tmdb:999001", kind: .show, title: "The Long Way Home",
                                         year: 2099, sources: [], seasons: [], tmdbID: 999_001,
                                         overview: "A family saga that has not aired yet.")
@@ -828,7 +834,8 @@ private struct DownloadFinishPreview: View {
     nonisolated static let torrentID = "T-preview"
     static let readyAfter: TimeInterval = 25
 
-    @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()))
+    @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()),
+                                            torBox: TorBoxSession(store: InMemorySecretStore()))
     @State private var ready = false
 
     private static let placeholder = MediaItem(id: "movie:tmdb:1242011", kind: .movie,
@@ -1603,7 +1610,8 @@ private struct HomeScreenPreview: View {
             }
             : WatchlistDetailsStore(fileURL: nil, details: service))
     }
-    @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()))
+    @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()),
+                                            torBox: TorBoxSession(store: InMemorySecretStore()))
     @State private var home = HomeStore(watch: PreviewWatch())
     /// The failed state's store: empty, so nothing but the failure is on screen.
     @State private var emptyHome = HomeStore(watch: PreviewWatch())
@@ -1863,7 +1871,8 @@ private struct DownloadStripPreview: View {
 /// TMDB API (no file, so it fetches each run), so the genre, rating and runtime rows fill in the
 /// way they do on a first visit.
 private struct WatchlistScreenPreview: View {
-    @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()))
+    @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()),
+                                            torBox: TorBoxSession(store: InMemorySecretStore()))
     @State private var model: WatchlistModel
 
     private var removeFocusedAfter: Duration?
@@ -2063,7 +2072,8 @@ private struct AlwaysSignedOutRelay: LetterboxdRelaying {
 /// and see where focus ends up.
 private struct LetterboxdCardPreview: View {
     @State private var help = SettingsHelp()
-    @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()))
+    @State private var session = AppSession(realDebrid: RealDebridSession(store: InMemoryTokenStore()),
+                                            torBox: TorBoxSession(store: InMemorySecretStore()))
     @State private var model = LetterboxdImportModel(
         settingsStore: InMemoryLetterboxdSettingsStore(
             LetterboxdSettings(username: "thebigshin", isEnabled: false,
