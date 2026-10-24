@@ -21,6 +21,9 @@ struct UIPreviewStores {
     var searchQuery: String?
     /// `-uiPreview settings`: the Letterboxd section's model (the harness session has no library).
     var letterboxdImport: LetterboxdImportModel?
+    /// `-uiPreview accounts…`: Settings → Accounts' rows, as the harness session (signed in to
+    /// nothing) can't have them.
+    var accounts: AccountsPreview?
     /// `-uiPreview library`: the library page's store, over `PagesFixture`'s titles.
     var library: LibraryStore?
     /// `-uiPreview homescript`: drives Home's stack and scroll on a timer.
@@ -34,6 +37,12 @@ struct UIPreviewStores {
     var watchlistArt: MediaDetailsProviding?
     /// `watchlistremove` / `watchlistremoved` / `spin`: what the page does by itself once shown.
     var watchlistScript: WatchlistPreviewScript?
+}
+
+/// The Accounts section's rows and add target for a harness.
+struct AccountsPreview {
+    var rows: [AccountRowFace]
+    var addTarget: DebridProvider = .realDebrid
 }
 
 /// What a Watchlist harness does without a finger (the iPad simulator cannot be tapped here):

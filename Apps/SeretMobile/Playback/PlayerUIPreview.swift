@@ -29,6 +29,10 @@ import SwiftUI
 ///     the season list, the episode rows (long-press one for its menu)
 ///   - `letterboxdrating` / `letterboxdrerating` — the post-credits rating prompt, unrated and
 ///     already rated 7. Prints what the tap produced, so a screenshot answers it
+///   - `failover` — a film whose Real‑Debrid version can't be reached (every unrestrict fails for
+///     now) failing over to its TorBox version by itself: the notice over the "Preparing…" overlay,
+///     held there because the TorBox link never answers. `failoverplaying`: the TorBox version
+///     plays, paused with the controls up — the notice holds 5 s past the first frame, then goes
 ///
 ///     xcrun simctl launch <udid> com.solomons.seret.mobile -uiPreview playbacksheet
 ///
@@ -51,6 +55,8 @@ struct PlayerUIPreview: View {
             case "playerchrome":    MobilePlayerChromePreview()
             case "playerplaying":   MobilePlayerChromePreview(pauses: false)
             case "upnext":          MobileUpNextPreview()
+            case "failover":        MobileFailoverPreview(plays: false)
+            case "failoverplaying": MobileFailoverPreview(plays: true)
             case "playerchromesettings": MobilePlayerChromePreview(settings: .subtitles)
             case "subtitlebrowser":
                 // Tinted here because in the app the browser is pushed INSIDE the settings sheet,
@@ -364,6 +370,59 @@ private struct MobilePlayerChromePreview: View {
             }
             driver.engine.emit(.state(.paused))
             driver.model.showControls()
+        }
+    }
+}
+
+/// A film on both accounts whose Real‑Debrid version is unreachable: the REAL failover path (the
+/// unrestrict's retries, then `failOverToOtherProvider`) on a stub engine, so the notice on screen
+/// is the one the model wrote.
+private struct MobileFailoverPreview: View {
+    let plays: Bool
+    @State private var engine = MobilePreviewEngine()
+    @State private var surface = VLCKitVideoPlayerEngine()
+    @State private var model: PlayerModel?
+
+    var body: some View {
+        Group {
+            if let model {
+                PlayerView(model: model, engine: surface, backdropURL: nil, onExit: {})
+            } else {
+                Color.black
+            }
+        }
+        .task {
+            let parsed = ParsedRelease(title: "Dune Part Two", year: 2024, resolution: "2160p",
+                                       source: "WEB-DL", videoCodec: "H265")
+            let realDebrid = MediaSource(torrentID: "rd1", fileID: nil,
+                                         restrictedLink: "https://real-debrid.com/d/PREVIEW", parsed: parsed)
+            let torBox = MediaSource(torrentID: "tb:11", fileID: 2, restrictedLink: "torbox://11/2",
+                                     parsed: parsed)
+            let item = MediaItem(id: "m", kind: .movie, title: "Dune: Part Two", year: 2024,
+                                 sources: [realDebrid, torBox], seasons: [], tmdbID: 693134)
+            let request = PlaybackRequest(item: item, source: realDebrid, resumeAt: nil,
+                                          label: "Dune: Part Two", contentKey: "m")
+            let plays = self.plays
+            let built = PlayerModel(
+                request: request, engine: engine,
+                unrestrict: { link in
+                    guard DebridProvider.of(link: link) == .torBox else {
+                        throw URLError(.notConnectedToInternet)      // Real-Debrid: down for now
+                    }
+                    if !plays { try await Task.sleep(for: .seconds(3_600)) }   // hold on "Preparing…"
+                    return URL(string: "https://cdn.example/x.mkv")!
+                },
+                recordProgress: { _, _, _, _, _ in }, subtitles: nil,
+                unrestrictRetryDelays: [0.1])
+            model = built
+            guard plays else { return }
+            // The TorBox version's first frame, then paused with the controls up.
+            try? await Task.sleep(for: .milliseconds(900))
+            engine.emit(.state(.playing))
+            engine.emit(.time(.init(position: 12, duration: 9_960)))
+            try? await Task.sleep(for: .milliseconds(200))
+            engine.emit(.state(.paused))
+            built.showControls()
         }
     }
 }

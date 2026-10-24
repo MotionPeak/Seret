@@ -53,6 +53,8 @@ enum Theme {
 
         /// Destructive intent (Remove, Disconnect, Sign Out).
         static let destructive = SeretPalette.destructive
+        /// Needs the viewer's attention, but nothing is broken (an account on a plan that can't be used).
+        static let warning = Color(hex: 0xFF9F0A)
         /// Critic-score bands — the chips keep their own colours.
         static let ratingGood  = SeretPalette.ratingGood
         static let ratingMid   = SeretPalette.ratingMid

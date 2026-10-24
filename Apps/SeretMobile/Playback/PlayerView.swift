@@ -101,12 +101,22 @@ struct PlayerView: View {
         // A sync runs for minutes while the film keeps playing, so it reports from up here rather
         // than from the sheet that started it. Below the transport's own top row when the controls
         // are up, at the top of the picture when they are not.
+        //
+        // The failover notice ("Real-Debrid isn't responding — playing from TorBox") shares the slot,
+        // above the sync bar: it arrives while the new version LOADS, so it must clear the load
+        // overlay's close circle as well as the transport's top row.
         .overlay(alignment: .top) {
-            if let banner = model.autoSyncBanner {
-                AutoSyncBar(banner: banner)
-                    .padding(.top, model.controlsVisible ? 74 : 14)
-                    .transition(.move(edge: .top).combined(with: .opacity))
+            VStack(spacing: 8) {
+                if let notice = model.failoverNotice {
+                    FailoverBanner(text: notice)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+                if let banner = model.autoSyncBanner {
+                    AutoSyncBar(banner: banner)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
             }
+            .padding(.top, topRowShowing ? 74 : 14)
         }
         // Below the sync banner's slot, so the two can never sit on top of each other.
         .letterboxdDiaryBar(signal: pushSignal, contentKey: model.contentKey) { state in
@@ -140,6 +150,7 @@ struct PlayerView: View {
         .animation(.easeInOut(duration: 0.2), value: model.controlsVisible)
         .animation(.easeInOut(duration: 0.25), value: model.upNextVisible)
         .animation(.easeInOut(duration: 0.2), value: model.autoSyncBanner)
+        .animation(.easeInOut(duration: 0.25), value: model.failoverNotice)
         .onAppear { model.start(); OrientationGate.setPlayerActive(true) }
         .task(id: model.currentEpisode?.season) {
             if model.isEpisode { await model.loadSeasonEpisodes() }
@@ -188,6 +199,17 @@ struct PlayerView: View {
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 16)
+    }
+
+    /// Something sits in the top corner: the transport's row, or the load overlay's close circle.
+    /// A banner up there goes below it.
+    private var topRowShowing: Bool {
+        if model.controlsVisible { return true }
+        switch model.phase {
+        case .preparing: return true
+        case .buffering where model.isColdOpen: return true
+        default: return false
+        }
     }
 
     private func setHold(_ hold: ControlHold, _ on: Bool) {
@@ -651,6 +673,32 @@ struct AutoSyncBar: View {
         case .synced:    .green
         case .failed:    .orange
         }
+    }
+}
+
+/// "Real-Debrid isn't responding — playing from TorBox": the player moved to the other account's
+/// version by itself. Styled as the sync bar — a dark capsule over the picture that never takes a tap.
+struct FailoverBanner: View {
+    let text: String
+
+    var body: some View {
+        HStack(spacing: 9) {
+            Image(systemName: "arrow.triangle.swap")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(Theme.Palette.textPrimary)
+            Text(text)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white)
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 14).padding(.vertical, 10)
+        .background(.black.opacity(0.74), in: Capsule())
+        .overlay(Capsule().strokeBorder(Theme.Palette.hairline))
+        .padding(.horizontal, 20)
+        .allowsHitTesting(false)
+        .accessibilityElement(children: .combine)
     }
 }
 

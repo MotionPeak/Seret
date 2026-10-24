@@ -21,14 +21,8 @@ struct SettingsView: View {
 
     var body: some View {
         GlassFormPage {
-            GlassSection(title: "Account") {
-                GlassLabelRow(title: "Signed in to Real\u{2011}Debrid", systemImage: "checkmark.seal.fill",
-                              iconTint: Theme.Palette.textPrimary)
-                GlassButtonRow(title: "Sign Out", systemImage: "rectangle.portrait.and.arrow.right",
-                               destructive: true) {
-                    Task { await session.signOut() }
-                }
-            }
+            // Each debrid account on its own: sign in to the other, sign out of one, where adds go.
+            AccountsSection()
 
             // Profiles are switched off — nothing to manage here. See `ProfilesFeature`.
             if ProfilesFeature.isEnabled {

@@ -29,7 +29,7 @@ struct SeretMobileApp: App {
                             || preview.hasPrefix("search") || preview.hasPrefix("homepicks") {
                     PagesUIPreview(target: preview)    // -uiPreview home|movies|shows|genregrid
                 } else if ["settings", "settingsletterboxd", "opensubs", "profiles", "addprofile"].contains(preview)
-                            || preview.hasPrefix("signin") {
+                            || preview.hasPrefix("signin") || preview.hasPrefix("accounts") {
                     ScreensUIPreview(target: preview)  // -uiPreview settings|signincode|profiles|…
                 } else if preview == "moviedetail" {
                     DetailUIPreview()                  // -uiPreview moviedetail
