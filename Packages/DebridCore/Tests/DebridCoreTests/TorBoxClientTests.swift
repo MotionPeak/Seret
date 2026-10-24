@@ -135,7 +135,12 @@ extension MockTests {
 
         @Test func infoForARealDebridIDIsABadID() async throws {
             MockURLProtocol.handler = { r in Self.respond(r, json: Self.ok("null")) }
-            await #expect(throws: TorBoxError.self) { _ = try await client().info(id: "ABC") }
+            do {
+                _ = try await client().info(id: "ABC")
+                Issue.record("expected BAD_ID")
+            } catch let TorBoxError.api(code, _, _) {
+                #expect(code == "BAD_ID")
+            }
         }
 
         @Test func allTorrentInfosMakesOneListCall() async throws {
@@ -153,6 +158,14 @@ extension MockTests {
             #expect(infos.map(\.id) == ["tb:1", "tb:2", "tb:3"])
             #expect(infos[0].added == "2024-03-02T12:00:00Z")
             #expect(infos[0].links == ["torbox://tb:1/3"])
+        }
+
+        @Test func allTorrentInfosForAnEmptyListMakesNoRequest() async throws {
+            let rec = Recorder()
+            MockURLProtocol.handler = { r in rec.record(r); return Self.respond(r, json: Self.ok("[]")) }
+            let infos = try await client().allTorrentInfos(from: [])
+            #expect(infos.isEmpty)
+            #expect(rec.requests.isEmpty)
         }
 
         @Test func unrestrictCallsRequestdlWithIDs() async throws {
@@ -265,6 +278,7 @@ extension MockTests {
                 _ = try await client().allTorrents()
                 Issue.record("expected a throw")
             } catch let error as TorBoxError {
+                // retryAfter is expected nil until HTTPError carries response headers.
                 guard case .rateLimited = error else { Issue.record("got \(error)"); return }
             }
             #expect(rec.requests.count == 1)

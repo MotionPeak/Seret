@@ -56,6 +56,7 @@ public struct TorBoxClient: DebridClient {
     /// ONE paged list call, filtered to the requested ids. A torrent that is no longer on the
     /// account is skipped, matching the Real-Debrid client's "a failed fetch is dropped".
     public func allTorrentInfos(from list: [Torrent]) async throws -> [TorrentInfo] {
+        guard !list.isEmpty else { return [] }
         let all = try await allMyList(pageSize: Self.defaultPageSize)
         let byID = Dictionary(all.map { (TorBoxMapping.torrentID($0.id), $0) }, uniquingKeysWith: { first, _ in first })
         // List order, like the RD client's callers expect; `added` rides on `createdAt` in the mapping.
@@ -105,19 +106,9 @@ public struct TorBoxClient: DebridClient {
         return user
     }
 
-    // MARK: - Adding (Task 4)
-
-    public func add(magnetHash: String) async throws -> TorrentInfo {
-        throw TorBoxError.api(code: "NOT_IMPLEMENTED", detail: "", status: 0)
-    }
-
-    public func addForDownload(magnetHash: String) async throws -> TorrentInfo {
-        throw TorBoxError.api(code: "NOT_IMPLEMENTED", detail: "", status: 0)
-    }
-
     // MARK: - Listing helpers
 
-    private func myList(page: Int, limit: Int) async throws -> [TorBoxTorrent] {
+    func myList(page: Int, limit: Int) async throws -> [TorBoxTorrent] {
         let list: OneOrMany<TorBoxTorrent>? = try await get(
             "torrents/mylist",
             query: [.init(name: "bypass_cache", value: "true"),
@@ -126,7 +117,7 @@ public struct TorBoxClient: DebridClient {
         return list?.items ?? []
     }
 
-    private func allMyList(pageSize: Int) async throws -> [TorBoxTorrent] {
+    func allMyList(pageSize: Int) async throws -> [TorBoxTorrent] {
         precondition(pageSize > 0, "pageSize must be positive")
         var all: [TorBoxTorrent] = []
         var page = 1
@@ -141,34 +132,45 @@ public struct TorBoxClient: DebridClient {
 
     // MARK: - Transport + envelope (the only place either lives)
 
-    private func get<T: Decodable>(_ path: String, query: [URLQueryItem]) async throws -> T? {
-        var comps = URLComponents(url: Self.base.appending(path: "api/\(path)"), resolvingAgainstBaseURL: false)!
-        comps.queryItems = query
+    func get<T: Decodable>(_ path: String, query: [URLQueryItem]) async throws -> T? {
+        let url = Self.url("api/\(path)", query: query)
         let headers = try await authHeaders()
+        return try await run { try await http.data(url, headers: headers) }
+    }
+
+    func post<T: Decodable, Body: Encodable>(_ path: String, query: [URLQueryItem] = [],
+                                             body: Body) async throws -> T? {
+        let url = Self.url("api/\(path)", query: query)
+        let headers = try await authHeaders()
+        return try await run { try await http.postJSONData(url, json: body, headers: headers) }
+    }
+
+    /// TorBox's `createtorrent` takes a URL-encoded form.
+    func postForm<T: Decodable>(_ path: String, form: [String: String]) async throws -> T? {
+        let url = Self.url("api/\(path)", query: [])
+        let headers = try await authHeaders()
+        return try await run { try await http.postFormData(url, form: form, headers: headers) }
+    }
+
+    /// The one decode path: every TorBox response is read with `.convertFromSnakeCase`, then
+    /// unwrapped from its envelope; non-2xx answers are mapped to `TorBoxError`.
+    private func run<T: Decodable>(_ fetch: () async throws -> Data) async throws -> T? {
         let data: Data
         do {
-            data = try await http.data(comps.url!, headers: headers)
+            data = try await fetch()
         } catch let HTTPError.status(code, body) {
             throw Self.error(status: code, body: body)
         }
         return try Self.unwrap(data)
     }
 
-    private func post<T: Decodable, Body: Encodable>(_ path: String, body: Body) async throws -> T? {
-        let url = Self.base.appending(path: "api/\(path)")
-        let headers = try await authHeaders()
-        let envelope: TorBoxEnvelope<T>
-        do {
-            // The envelope's own keys are single words, so the client's default decoder reads
-            // them; the payloads this is used for are `Ignored`.
-            envelope = try await http.post(url, json: body, headers: headers)
-        } catch let HTTPError.status(code, bodyText) {
-            throw Self.error(status: code, body: bodyText)
-        }
-        return try Self.unwrap(envelope)
+    private static func url(_ path: String, query: [URLQueryItem]) -> URL {
+        var comps = URLComponents(url: base.appending(path: path), resolvingAgainstBaseURL: false)!
+        if !query.isEmpty { comps.queryItems = query }
+        return comps.url!
     }
 
-    private func authHeaders() async throws -> [String: String] {
+    func authHeaders() async throws -> [String: String] {
         ["Authorization": "Bearer \(try await tokens.validAccessToken())"]
     }
 
@@ -189,7 +191,7 @@ public struct TorBoxClient: DebridClient {
     }
 
     /// A 200 with `success == false` is still a failure.
-    private static func unwrap<T>(_ envelope: TorBoxEnvelope<T>) throws -> T? {
+    static func unwrap<T>(_ envelope: TorBoxEnvelope<T>) throws -> T? {
         guard envelope.success else {
             throw TorBoxError.api(code: envelope.error ?? "UNKNOWN", detail: envelope.detail ?? "", status: 200)
         }
@@ -199,7 +201,7 @@ public struct TorBoxClient: DebridClient {
     /// Maps a non-2xx answer. A 429 means the key is locked out for about five minutes: report it
     /// and let the caller back off — never retry. `HTTPError.status` carries no headers, so the
     /// `Retry-After` value is not available here.
-    private static func error(status: Int, body: String) -> TorBoxError {
+    static func error(status: Int, body: String) -> TorBoxError {
         if status == 429 { return .rateLimited(retryAfter: nil) }
         let envelope = try? decoder().decode(TorBoxEnvelope<Ignored>.self, from: Data(body.utf8))
         return .api(code: envelope?.error ?? "HTTP_\(status)", detail: envelope?.detail ?? "", status: status)
@@ -209,7 +211,7 @@ public struct TorBoxClient: DebridClient {
 // MARK: - Wire helpers
 
 /// `mylist?id=` answers a single object; the unfiltered list answers an array.
-private struct OneOrMany<T: Decodable>: Decodable {
+struct OneOrMany<T: Decodable>: Decodable {
     let items: [T]
 
     init(from decoder: Decoder) throws {
@@ -223,7 +225,7 @@ private struct OneOrMany<T: Decodable>: Decodable {
 }
 
 /// A payload nobody reads (`controltorrent` answers `data: null`).
-private struct Ignored: Decodable {}
+struct Ignored: Decodable {}
 
 private struct ControlTorrent: Encodable {
     let torrentID: Int

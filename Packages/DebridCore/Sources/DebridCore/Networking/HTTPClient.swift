@@ -111,6 +111,51 @@ public struct HTTPClient: Sendable {
         return data
     }
 
+    /// POST a form and return the raw response bytes, for callers that own their decoding
+    /// (TorBox needs `.convertFromSnakeCase`, which this client's decoder does not apply).
+    public func postFormData(_ url: URL, form: [String: String], headers: [String: String] = [:]) async throws -> Data {
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        for (k, v) in headers { request.setValue(v, forHTTPHeaderField: k) }
+        request.httpBody = Data(Self.encodeForm(form).utf8)
+        return try await rawResponse(request)
+    }
+
+    /// POST a JSON body and return the raw response bytes (see `postFormData`).
+    public func postJSONData<Body: Encodable>(_ url: URL, json body: Body,
+                                              headers: [String: String] = [:]) async throws -> Data {
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        for (k, v) in headers { request.setValue(v, forHTTPHeaderField: k) }
+        do {
+            request.httpBody = try JSONEncoder().encode(body)
+        } catch {
+            throw HTTPError.decoding(String(describing: error))
+        }
+        return try await rawResponse(request)
+    }
+
+    private func rawResponse(_ request: URLRequest) async throws -> Data {
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch {
+            if error is CancellationError { throw error }
+            if (error as? URLError)?.code == .cancelled { throw CancellationError() }
+            throw HTTPError.transport(String(describing: error))
+        }
+        guard let http = response as? HTTPURLResponse else {
+            throw HTTPError.transport("Non-HTTP response")
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            throw HTTPError.status(code: http.statusCode, body: String(decoding: data, as: UTF8.self))
+        }
+        return data
+    }
+
     /// POSTs a JSON body and validates the status, discarding the response body.
     ///
     /// `post(_:json:)` decodes a reply; an endpoint that answers 200 with nothing would fail to
