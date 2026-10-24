@@ -136,6 +136,31 @@ struct AutoSyncBar: View {
     }
 }
 
+/// "Real-Debrid isn't responding — playing from TorBox": the player moved to the other account's
+/// version by itself. Styled as the sync bar — a glass capsule over the picture that never takes a
+/// click. It hides itself: `PlayerModel` clears `failoverNotice` a few seconds after the new version
+/// plays.
+struct FailoverBanner: View {
+    let text: String
+
+    var body: some View {
+        HStack(spacing: 9) {
+            Image(systemName: "arrow.triangle.swap")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(Theme.Palette.gold)
+            Text(text)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.white)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 14).padding(.vertical, 9)
+        .glassEffect(.regular, in: Capsule())
+        .allowsHitTesting(false)
+        .accessibilityElement(children: .combine)
+    }
+}
+
 /// The accumulating skip badge (spec §7.3): 10 s → 20 s → 1:10, on the side it went.
 struct SkipBadge: View {
     let feedback: PlayerModel.SkipFeedback

@@ -680,7 +680,21 @@ final class PlayerPreviewDriver {
     /// `episode` plays the fixture show instead of the fixture film — what `playerupnext` needs, so
     /// `hasNextEpisode` is real and `maybeShowUpNext()` (internal to `PlayerModel`) sets
     /// `upNextVisible` for real rather than the harness faking a setter that does not exist.
-    init(item: MediaItem = Fixture.films[0], episode: Episode? = nil, failing: Bool = false, hangs: Bool = false) {
+    /// `failsOver`: the film is on both accounts and its Real-Debrid version can't be reached (every
+    /// unrestrict fails), so the REAL failover path (the unrestrict's retries, then the switch to the
+    /// TorBox version) runs and the notice on screen is the one the model wrote. With `hangs`, the
+    /// TorBox link never answers either, which holds the notice over "Preparing…".
+    init(item: MediaItem = Fixture.films[0], episode: Episode? = nil, failing: Bool = false, hangs: Bool = false,
+         failsOver: Bool = false) {
+        var item = item
+        if failsOver {
+            let realDebrid = item.sources[0]
+            let torBox = MediaSource(torrentID: "tb:11", fileID: 2, restrictedLink: "torbox://11/2",
+                                     parsed: realDebrid.parsed)
+            item = MediaItem(id: item.id, kind: item.kind, title: item.title, year: item.year,
+                             sources: [realDebrid, torBox], seasons: [], tmdbID: item.tmdbID,
+                             posterPath: item.posterPath, backdropPath: item.backdropPath, overview: item.overview)
+        }
         let source = episode?.source ?? item.sources[0]
         let label = episode.map { DetailStore.episodeLabel(showTitle: item.title, season: $0.season, number: $0.number) }
             ?? item.title
@@ -688,7 +702,13 @@ final class PlayerPreviewDriver {
         let request = PlaybackRequest(item: item, source: source, resumeAt: nil,
                                       label: label, contentKey: contentKey, episode: episode)
         let unrestrict: (String) async throws -> URL
-        if hangs {
+        if failsOver {
+            unrestrict = { link in
+                guard DebridProvider.of(link: link) == .torBox else { throw URLError(.notConnectedToInternet) }
+                if hangs { try await Task.sleep(for: .seconds(3600)) }
+                return URL(string: "https://example.invalid/film.mkv")!
+            }
+        } else if hangs {
             unrestrict = { _ in try await Task.sleep(for: .seconds(3600)); return URL(string: "https://example.invalid/film.mkv")! }
         } else if failing {
             unrestrict = { _ in throw URLError(.timedOut) }
@@ -696,7 +716,8 @@ final class PlayerPreviewDriver {
             unrestrict = { _ in URL(string: "https://example.invalid/film.mkv")! }
         }
         model = PlayerModel(request: request, engine: engine, unrestrict: unrestrict,
-                            recordProgress: { _, _, _, _, _ in }, subtitles: nil, loadTimeout: 3600)
+                            recordProgress: { _, _, _, _, _ in }, subtitles: nil, loadTimeout: 3600,
+                            unrestrictRetryDelays: failsOver ? [0.1] : [0.5, 1.5])
     }
 
     /// `start()`, then the sequence a real play makes: tracks discovered, `.playing`, and a moving

@@ -1,56 +1,111 @@
 import AppKit
+import DebridCore
 import DebridUI
 import SwiftUI
 
 /// The sign-in card over the poster mosaic (approved mockup 6). Pure: it renders a
-/// `SignInScreenState` and reports intents, so every state is previewable without Real-Debrid.
+/// `SignInScreenState` and reports intents, so every state is previewable without a debrid account.
+///
+/// Two styles: `.window` is the signed-out main window (mosaic, brand, and — given
+/// `switchProvider` — the Real-Debrid / TorBox choice); `.sheet` is Settings → Accounts' "Sign In…"
+/// for one more account: the same panels, on the sheet's own background, with Cancel.
 struct SignInScreen: View {
+    enum Style { case window, sheet }
+
     let state: SignInScreenState
     @Binding var mode: SignInMode
     @Binding var token: String
     var posters: [URL] = []
+    var style: Style = .window
+    /// Draws the provider choice above the card when set (the signed-out screen only).
+    var switchProvider: ((DebridProvider) -> Void)?
     var onRetry: () -> Void = {}
     var onSubmitToken: () -> Void = {}
+    var onCancel: () -> Void = {}
 
     @Environment(\.openURL) private var openURL
     @Namespace private var modeSpace
     @State private var copied = false
     @State private var clock = SignInScreenState.CodeClock()
 
+    private var copy: SignInScreenState.Copy { state.copy }
+
     var body: some View {
-        ZStack {
-            PosterMosaic(urls: posters).ignoresSafeArea()
-            RadialGradient(colors: [Theme.Palette.gold.opacity(0.16), .clear], center: .init(x: 0.5, y: 0.06),
-                           startRadius: 0, endRadius: 520).ignoresSafeArea()
-            card
+        Group {
+            switch style {
+            case .window:
+                ZStack {
+                    PosterMosaic(urls: posters).ignoresSafeArea()
+                    RadialGradient(colors: [Theme.Palette.gold.opacity(0.16), .clear], center: .init(x: 0.5, y: 0.06),
+                                   startRadius: 0, endRadius: 520).ignoresSafeArea()
+                    card
+                        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 30, style: .continuous))
+                        .shadow(color: .black.opacity(0.6), radius: 50, y: 24)
+                }
+                .frame(minWidth: 1000, minHeight: 650)
+            case .sheet:
+                card
+            }
         }
-        .frame(minWidth: 1000, minHeight: 650)
         .animation(Theme.Motion.standard, value: state)
         .animation(Theme.Motion.standard, value: mode)
     }
 
     private var card: some View {
         VStack(spacing: 0) {
+            header
+            if let switchProvider { providerPicker(switchProvider).padding(.bottom, 16) }
+            if !isFailure { modePicker.padding(.bottom, 22) }
+            panel.transition(.opacity.combined(with: .offset(y: 8)))
+            if style == .sheet {
+                Button("Cancel", action: onCancel)
+                    .buttonStyle(GlassButtonStyle())
+                    .keyboardShortcut(.cancelAction)
+                    .padding(.top, 24)
+            }
+        }
+        .padding(.horizontal, 38).padding(.vertical, 34)
+        .frame(width: 480)
+    }
+
+    @ViewBuilder private var header: some View {
+        switch style {
+        case .window:
             SeretMark().frame(width: 58).padding(.bottom, 12)
             Wordmark(hebrewSize: 46)
             Text("Your debrid library, everywhere.")
                 .font(.system(size: 14)).foregroundStyle(Color(hex: 0xC9C9CE))
                 .padding(.top, 10).padding(.bottom, 22)
-            if !isFailure { modePicker.padding(.bottom, 22) }
-            panel.transition(.opacity.combined(with: .offset(y: 8)))
+        case .sheet:
+            SeretMark().frame(width: 40).padding(.bottom, 12)
+            Text("Sign in to \(state.provider.displayName)")
+                .font(.system(size: 22, weight: .bold)).foregroundStyle(Theme.Palette.textPrimary)
+            Text("Its titles join your library next to the ones you already have.")
+                .font(.system(size: 13)).foregroundStyle(Color(hex: 0xC9C9CE))
+                .multilineTextAlignment(.center)
+                .padding(.top, 6).padding(.bottom, 22)
         }
-        .padding(.horizontal, 38).padding(.vertical, 34)
-        .frame(width: 480)
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 30, style: .continuous))
-        .shadow(color: .black.opacity(0.6), radius: 50, y: 24)
     }
 
     private var isFailure: Bool { if case .failed = state.panel { true } else { false } }
 
+    /// Which account to sign in to. The selection IS the model on screen: a pick asks the session
+    /// for that provider's model, and the picker follows the one it hands back.
+    private func providerPicker(_ switchProvider: @escaping (DebridProvider) -> Void) -> some View {
+        Picker("Service", selection: Binding(get: { state.provider }, set: { switchProvider($0) })) {
+            ForEach(DebridProvider.allCases, id: \.self) { Text($0.displayName).tag($0) }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .controlSize(.large)
+        .frame(width: 260)
+        .accessibilityLabel("Debrid service")
+    }
+
     private var modePicker: some View {
         HStack(spacing: 0) {
             modeButton("Sign in with a code", .code)
-            modeButton("Use a token", .token)
+            modeButton(copy.tokenMode, .token)
         }
         .padding(4)
         .background(Color.white.opacity(0.07), in: Capsule())
@@ -92,9 +147,10 @@ struct SignInScreen: View {
     private static let codeActionFont = Font.system(size: 13, weight: .bold)
 
     private func codePanel(userCode: String, url: URL?, expiresIn: Int) -> some View {
-        VStack(spacing: 0) {
+        let page = copy.codePage(for: url)
+        return VStack(spacing: 0) {
             // Interpolated, not `Text + Text`: that operator is deprecated in the macOS 26 SDK.
-            Text("Enter this code at \(Text("real-debrid.com/device").bold().foregroundStyle(Theme.Palette.textPrimary))")
+            Text("Enter this code at \(Text(page).bold().foregroundStyle(Theme.Palette.textPrimary))")
                 .font(.system(size: 13.5)).foregroundStyle(Color(hex: 0xC9C9CE))
             Text(SignInScreenState.formatUserCode(userCode))
                 .font(.system(size: 42, weight: .heavy, design: .monospaced)).tracking(4)
@@ -105,7 +161,7 @@ struct SignInScreen: View {
                 // One line each, at the mockup's smaller size: at the style's headline size the pair
                 // is wider than the card and the gold button wrapped onto two lines.
                 Button { if let url { openURL(url) } } label: {
-                    Label("Open real-debrid.com/device", systemImage: "arrow.up.right.square")
+                    Label("Open \(page)", systemImage: "arrow.up.right.square")
                         .font(Self.codeActionFont).lineLimit(1).fixedSize()
                 }
                 .buttonStyle(GoldButtonStyle())
@@ -143,7 +199,7 @@ struct SignInScreen: View {
     private func tokenPanel(checking: Bool, error: String?) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
-                SecureField("Paste your Real-Debrid API token", text: $token)
+                SecureField(copy.tokenPlaceholder, text: $token)
                     .textFieldStyle(.plain)
                     .font(.system(size: 14, design: .monospaced))
                     .onSubmit(onSubmitToken)
@@ -163,7 +219,7 @@ struct SignInScreen: View {
             }
             HStack(spacing: 4) {
                 Text("Find it at").foregroundStyle(Theme.Palette.textSecondary)
-                Link("real-debrid.com/apitoken", destination: URL(string: "https://real-debrid.com/apitoken")!)
+                Link(copy.tokenPage, destination: copy.tokenPageURL)
                     .foregroundStyle(Theme.Palette.gold)
                 Text("· it skips the code step entirely.").foregroundStyle(Theme.Palette.textSecondary)
             }
@@ -188,7 +244,7 @@ struct SignInScreen: View {
                 .multilineTextAlignment(.center)
             HStack(spacing: 10) {
                 Button("Try Again", action: onRetry).buttonStyle(GoldButtonStyle())
-                Button("Use a Token") { withAnimation(Theme.Motion.standard) { mode = .token } }
+                Button(copy.tokenFailureAction) { withAnimation(Theme.Motion.standard) { mode = .token } }
                     .buttonStyle(GlassButtonStyle())
             }
         }

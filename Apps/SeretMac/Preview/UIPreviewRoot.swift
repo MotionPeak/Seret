@@ -147,6 +147,10 @@ struct UIPreviewRoot: View {
             case "playerfailed":
                 // Likewise: `.onAppear` alone drives the (failing) load to `.failed`.
                 PlayerPreviewHost(driver: PlayerPreviewDriver(failing: true), action: .none)
+            case "playerfailover":
+                // The Real-Debrid version can't be reached; the model fails over to TorBox by itself
+                // and the TorBox link hangs, so the notice holds over "Preparing…".
+                PlayerPreviewHost(driver: PlayerPreviewDriver(hangs: true, failsOver: true), action: .none)
             case "player":
                 PlayerPreviewHost(driver: PlayerPreviewDriver(), action: .prime)
             case "playerpaused":
@@ -179,6 +183,35 @@ struct UIPreviewRoot: View {
                 signIn(.failed("Real-Debrid is busy right now. Wait a minute and try again."), mode: .code)
             case "signinpreparing":
                 signIn(.preparing("Preparing sign-in…"), mode: .code)
+            case "signintorbox":
+                signIn(.code(userCode: "AB12CD", verificationURL: URL(string: "https://tor.box/link"), expiresIn: 600),
+                       mode: .code, provider: .torBox)
+            case "signintorboxkey":
+                signIn(.token(checking: false, error: nil), mode: .token, provider: .torBox)
+            case "signintorboxkeyerror":
+                signIn(.token(checking: false, error: "That TorBox API key wasn't accepted."), mode: .token,
+                       provider: .torBox)
+            case "signinsheet":
+                // Settings → Accounts' "Sign In…" for TorBox, over the Accounts tab as the app shows it.
+                AccountsPreviewHost(rows: [AccountRowFace(provider: .realDebrid, signedIn: true),
+                                           AccountRowFace(provider: .torBox, signedIn: false)],
+                                    sheet: SignInScreenState(provider: .torBox, panel: .code(
+                                        userCode: "AB12CD", verificationURL: URL(string: "https://tor.box/link"),
+                                        expiresIn: 600)))
+            case "accounts":
+                AccountsPreviewHost(rows: [
+                    AccountRowFace(provider: .realDebrid, signedIn: true),
+                    AccountRowFace(provider: .torBox, signedIn: true, detail: "viewer@example.com · Pro"),
+                ])
+            case "accountsfree":
+                AccountsPreviewHost(rows: [
+                    AccountRowFace(provider: .realDebrid, signedIn: true),
+                    AccountRowFace(provider: .torBox, signedIn: true, detail: "viewer@example.com · Free",
+                                   warning: "TorBox's API needs a paid plan."),
+                ])
+            case "accountsone":
+                AccountsPreviewHost(rows: [AccountRowFace(provider: .realDebrid, signedIn: true),
+                                           AccountRowFace(provider: .torBox, signedIn: false)])
             default:
                 Text("Unknown -uiPreview case: \(target)")
                     .font(.system(size: 15, weight: .semibold))
@@ -195,8 +228,9 @@ struct UIPreviewRoot: View {
         .preferredColorScheme(.dark)
     }
 
-    private func signIn(_ panel: SignInScreenState.Panel, mode: SignInMode) -> some View {
-        SignInPreviewHost(state: SignInScreenState(panel: panel), mode: mode)
+    private func signIn(_ panel: SignInScreenState.Panel, mode: SignInMode,
+                        provider: DebridProvider = .realDebrid) -> some View {
+        SignInPreviewHost(state: SignInScreenState(provider: provider, panel: panel), mode: mode)
     }
 
     /// Mounts `MainShell` on `.library` with a fixture `LibraryStore` injected into the
@@ -915,7 +949,8 @@ private struct HomePreviewHost: View {
     }
 }
 
-/// Holds the bindings a static sign-in state needs, and loads the real poster mosaic.
+/// Holds the bindings a static sign-in state needs, and loads the real poster mosaic. The provider
+/// choice is drawn as the signed-out window draws it (picking does nothing here).
 private struct SignInPreviewHost: View {
     let state: SignInScreenState
     @State var mode: SignInMode
@@ -923,8 +958,41 @@ private struct SignInPreviewHost: View {
     @State private var posters: [URL] = []
 
     var body: some View {
-        SignInScreen(state: state, mode: $mode, token: $token, posters: posters)
+        SignInScreen(state: state, mode: $mode, token: $token, posters: posters, switchProvider: { _ in })
             .task { posters = await PosterMosaic.loadPopularPosters() }
+    }
+}
+
+/// `-uiPreview accounts*` / `signinsheet`: the Accounts tab's debrid sections over fixture rows, at
+/// the Settings window's own size — and, given `sheet`, the add-account sheet open over it.
+private struct AccountsPreviewHost: View {
+    let rows: [AccountRowFace]
+    var sheet: SignInScreenState?
+    @State private var addTarget: DebridProvider = .realDebrid
+    @State private var showingSheet = false
+    @State private var mode: SignInMode = .code
+    @State private var token = ""
+
+    var body: some View {
+        Form {
+            DebridAccountsSections(rows: rows, canAddAccounts: true, addTarget: $addTarget,
+                                   signIn: { _ in }, signOut: { _ in })
+        }
+        .formStyle(.grouped)
+        .frame(width: 620, height: 520)
+        .tint(Theme.Palette.gold)
+        .sheet(isPresented: $showingSheet) {
+            if let sheet {
+                SignInScreen(state: sheet, mode: $mode, token: $token, style: .sheet,
+                             onCancel: { showingSheet = false })
+                    .preferredColorScheme(.dark)
+                    .tint(Theme.Palette.gold)
+            }
+        }
+        .task {
+            try? await Task.sleep(for: .milliseconds(300))
+            showingSheet = sheet != nil
+        }
     }
 }
 #endif

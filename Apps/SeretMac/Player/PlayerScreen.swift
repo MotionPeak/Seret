@@ -158,6 +158,12 @@ struct PlayerScreen<Surface: View>: View {
 
     private var banners: some View {
         VStack(spacing: 8) {
+            // "Real-Debrid isn't responding — playing from TorBox": the model shows it while the
+            // other account's version loads and clears it a few seconds after that one plays.
+            if let notice = model.failoverNotice {
+                FailoverBanner(text: notice)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
             if let banner = model.autoSyncBanner {
                 AutoSyncBar(banner: banner)
                     .transition(.move(edge: .top).combined(with: .opacity))
@@ -181,6 +187,7 @@ struct PlayerScreen<Surface: View>: View {
         }
         .padding(.top, hud.isVisible ? (windowRef.isFullScreen ? 64 : 84) : 18)
         .animation(Theme.Motion.fade, value: model.autoSyncBanner)
+        .animation(Theme.Motion.fade, value: model.failoverNotice)
         .animation(Theme.Motion.fade, value: hud.isVisible)
     }
 

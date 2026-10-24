@@ -2,7 +2,7 @@ import DebridCore
 import DebridUI
 import SwiftUI
 
-/// The Settings window (⌘,), spec §6: Accounts (Real-Debrid, OpenSubtitles), Letterboxd (username,
+/// The Settings window (⌘,), spec §6: Accounts (Real-Debrid, TorBox, OpenSubtitles), Letterboxd (username,
 /// ratings import, the Seret server + Test Connection, the send queue), Playback (subtitle size,
 /// font and colour with a live preview in the approved style; autoplay trailers) and About.
 /// Profiles stay hidden while `ProfilesFeature.isEnabled` is false, as on the other apps.
@@ -24,7 +24,13 @@ struct SettingsRoot: View {
 
 private struct AccountsSettings: View {
     @Environment(AppSession.self) private var session
-    @State private var confirmingSignOut = false
+    /// Built from the session once the tab is on screen, and held so TorBox's email and plan survive
+    /// redraws. `load()` runs on every visit and again after a sign-in from here.
+    @State private var accounts: AccountsModel?
+    /// The sign-in the sheet is showing. Kept apart from the sheet's flag so `onDismiss` still has it.
+    @State private var addingModel: SignInModel?
+    @State private var showingSignIn = false
+    @State private var confirmingSignOut: DebridProvider?
     @State private var openSubtitles = SettingsModel(
         secretStore: KeychainSecretStore(service: "com.solomons.seret.opensubtitles"))
 
@@ -34,18 +40,12 @@ private struct AccountsSettings: View {
 
     var body: some View {
         Form {
-            Section("Real-Debrid") {
-                LabeledContent("Account") {
-                    if session.state == .signedIn {
-                        Label("Signed in", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
-                    } else {
-                        Text("Not signed in").foregroundStyle(.secondary)
-                    }
-                }
-                if session.state == .signedIn {
-                    Button("Sign Out…", role: .destructive) { confirmingSignOut = true }
-                }
-            }
+            DebridAccountsSections(
+                rows: accounts?.rows.map(AccountRowFace.init) ?? fallbackRows,
+                canAddAccounts: session.state == .signedIn,
+                addTarget: Binding(get: { session.addTarget }, set: { session.addTarget = $0 }),
+                signIn: beginSignIn,
+                signOut: { confirmingSignOut = $0 })
 
             Section {
                 if openSubtitles.isConnected {
@@ -85,10 +85,59 @@ private struct AccountsSettings: View {
             }
         }
         .formStyle(.grouped)
-        .confirmationDialog("Sign out of Real-Debrid on this Mac?", isPresented: $confirmingSignOut) {
-            Button("Sign Out", role: .destructive) { Task { await session.signOut() } }
-        } message: {
-            Text("Your library and watch history stay; you'll sign in again with a code or a token.")
+        .task {
+            if accounts == nil { accounts = AccountsModel(session: session) }
+            await accounts?.load()
+        }
+        .sheet(isPresented: $showingSignIn, onDismiss: finishSignIn) {
+            if let addingModel {
+                AddAccountSheet(model: addingModel) { showingSignIn = false }
+            }
+        }
+        .confirmationDialog(signOutTitle, isPresented: signOutDialog, presenting: confirmingSignOut) { provider in
+            Button("Sign Out", role: .destructive) { Task { await accounts?.signOut(provider) } }
+        } message: { provider in
+            Text(signOutMessage(provider))
+        }
+    }
+
+    /// Both accounts as the session has them — drawn before `accounts` exists, so the sections never
+    /// pop in late.
+    private var fallbackRows: [AccountRowFace] {
+        DebridProvider.allCases.map { AccountRowFace(provider: $0, signedIn: session.accounts[$0] == .signedIn) }
+    }
+
+    private func beginSignIn(_ provider: DebridProvider) {
+        guard let accounts else { return }
+        addingModel = accounts.signIn(provider)
+        showingSignIn = true
+    }
+
+    /// The sheet is gone, however it went. Unfinished, its model stops — a code approved later must
+    /// not add the account behind the viewer's back. Either way the rows are read again (a new TorBox
+    /// account brings its email and plan).
+    private func finishSignIn() {
+        if let addingModel, addingModel.phase != .signedIn { addingModel.cancel() }
+        addingModel = nil
+        Task { await accounts?.load() }
+    }
+
+    private var signOutDialog: Binding<Bool> {
+        Binding(get: { confirmingSignOut != nil }, set: { if !$0 { confirmingSignOut = nil } })
+    }
+
+    private var signOutTitle: String {
+        guard let provider = confirmingSignOut else { return "" }
+        return "Sign out of \(provider.displayName) on this Mac?"
+    }
+
+    private func signOutMessage(_ provider: DebridProvider) -> String {
+        if session.signedInProviders.contains(where: { $0 != provider }) {
+            return "Its titles leave your library on the next refresh. Your watch history stays."
+        }
+        switch provider {
+        case .realDebrid: return "Your library and watch history stay; you'll sign in again with a code or a token."
+        case .torBox: return "Your library and watch history stay; you'll sign in again with a code or an API key."
         }
     }
 }
@@ -104,7 +153,7 @@ private struct LetterboxdSettings: View {
             if let model {
                 LetterboxdForm(model: model, profileID: session.activeProfileID, push: session.letterboxdPush)
             } else {
-                ContentUnavailableView("Sign in to Real-Debrid first", systemImage: "star.circle",
+                ContentUnavailableView("Sign in to Real-Debrid or TorBox first", systemImage: "star.circle",
                                        description: Text("Letterboxd matches your ratings against your library."))
             }
         }
