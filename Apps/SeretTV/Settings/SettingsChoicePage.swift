@@ -4,7 +4,7 @@ import SwiftUI
 /// The pages a settings row can open. Pushed on the shell's stack — never a cover — so Menu pops
 /// back to the row that opened it, the way every other page in the app goes back.
 enum SettingsPage: Hashable {
-    case subtitleSize, subtitleFont, subtitleColor, openSubtitles
+    case subtitleSize, subtitleFont, subtitleColor, openSubtitles, accounts
 }
 
 /// One choice out of a short list — the subtitle size, font or colour.

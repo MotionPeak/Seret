@@ -167,6 +167,15 @@ struct PlayerView: View {
                     .allowsHitTesting(false)      // the input surface underneath stays live
             }
 
+            // The player moved to the other debrid provider by itself. Above the loading overlay —
+            // a failover usually lands during the cold open — and hidden by the same panels as the
+            // sync bar. A sync bar, when there is one, keeps the slot: the notice is the briefer.
+            if let notice = model.failoverNotice, model.autoSyncBanner == nil,
+               !showSettings, !showSubtitleBrowser, !showManualSync {
+                FailoverNoticeBar(text: notice)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+
             // A sync runs for minutes while the film keeps playing, so it reports from up here
             // rather than from inside the sheet that started it. Hidden while the sheet, the
             // browser or the sync pad is up — each of those says it itself.
@@ -263,6 +272,7 @@ struct PlayerView: View {
         // animate anything else in the stack.
         .animation(Theme.Anim.pageFade, value: model.phase)
         .animation(Theme.Anim.pageFade, value: model.autoSyncBanner)
+        .animation(Theme.Anim.pageFade, value: model.failoverNotice)
         // ONLY for the overlays. While watching, the play/pause press is handled by
         // `PlayerInputSurface` — this modifier depends on SwiftUI's focus system owning the focused
         // view, and the input surface is a focusable UIKit one. Guarding on the same condition

@@ -29,6 +29,11 @@ import DebridCore
 ///     above the error) must close, leaving Retry focused
 ///   - `playerupnextbuffering` — Up Next up, then playback stalls: the small spinner rides in the
 ///     Up Next bar; the scrub bar stays down and Up Next does not move
+///   - `failover` — a film whose Real-Debrid version can't be reached (every unrestrict a
+///     transient network failure) and which has a TorBox version too: the REAL player fails over
+///     by itself (~2 s, after the unrestrict retries) and shows "Real-Debrid isn't responding —
+///     playing from TorBox" over the cold-open overlay; frames start 8 s in, and the model takes the
+///     notice down 5 s after that (≈15 s). See `FailoverPreview`
 ///   - `subtitles` — the full subtitle browser with ranked, badged results
 ///   - `subtitlesfailed` — the same browser after a pick that could not be honoured
 ///   - `detail`    — the Movie Detail page with a rating-capable stub store (no art: the title
@@ -115,6 +120,7 @@ struct PlayerUIPreview: View {
         case "playererrorbrowser":  PlayerChromePreview(overlay: .subtitleBrowser, stage: .failed)
         case "playerupnextbuffering": PlayerChromePreview(overlay: .none, show: true, nearEnd: true,
                                                           bufferingAtEnd: true)
+        case "failover":   FailoverPreview()
         case "subtitles":  SubtitleBrowserPreview()
         case "subtitlesfailed": SubtitleBrowserPreview(failing: true)
         case "inputprobe": InputProbePreview()
@@ -1407,6 +1413,55 @@ private struct PlayerChromePreview: View {
                 await PreviewSkipLoop.run(model: driver.model, engine: driver.engine)
             }
         }
+    }
+}
+
+// MARK: - Provider failover
+
+/// The real `PlayerView` over a still, on a model that really fails over: the film has a
+/// Real-Debrid version (tried first) whose unrestrict always fails as the network does, and a
+/// TorBox version that resolves. Nothing here sets the notice — it appears only if the model's
+/// failover runs, so the screenshot tests the path as well as the banner.
+private struct FailoverPreview: View {
+    @State private var engine = PreviewEngine()
+    @State private var model: PlayerModel?
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            if let model {
+                PlayerView(previewModel: model, frame: PlayerChromePreview.frame, opening: .none)
+            }
+        }
+        .task {
+            let model = Self.makeModel(engine: engine)
+            self.model = model
+            // Wait for the failover to land, hold the cold open so the notice can be seen over it,
+            // then let frames move — the model clears the notice 5 s after the first one.
+            while model.failoverNotice == nil { try? await Task.sleep(for: .milliseconds(100)) }
+            try? await Task.sleep(for: .seconds(6))
+            engine.emit(.time(.init(position: 1, duration: 7784)))
+            engine.emit(.state(.playing))
+        }
+    }
+
+    private static func makeModel(engine: PreviewEngine) -> PlayerModel {
+        let parsed = ParsedRelease(title: "Dune Part Two", year: 2024, resolution: "2160p",
+                                   source: "WEB-DL", videoCodec: "H265", releaseGroup: "FLUX")
+        let realDebrid = MediaSource(torrentID: "rd", fileID: nil,
+                                     restrictedLink: "https://real-debrid.com/d/PREVIEW", parsed: parsed)
+        let torBox = MediaSource(torrentID: "tb", fileID: nil, restrictedLink: "torbox://1/2", parsed: parsed)
+        let item = MediaItem(id: "m", kind: .movie, title: "Dune: Part Two", year: 2024,
+                             sources: [realDebrid, torBox], seasons: [], tmdbID: 693134)
+        let request = PlaybackRequest(item: item, source: realDebrid, resumeAt: nil,
+                                      label: "Dune: Part Two", contentKey: "m")
+        return PlayerModel(request: request, engine: engine,
+                           unrestrict: { link in
+                               guard link.hasPrefix("torbox://") else { throw URLError(.notConnectedToInternet) }
+                               return URL(string: "https://cdn.example/preview.mkv")!
+                           },
+                           recordProgress: { _, _, _, _, _ in },
+                           subtitles: nil)
     }
 }
 

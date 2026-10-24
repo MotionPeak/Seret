@@ -21,7 +21,7 @@ struct RootView: View {
                     .task { await session.resolve() }
             case .signedOut:
                 if let model = session.signInModel {
-                    SignInView(model: model)
+                    SignInView(model: model, onSwitchProvider: { session.switchSignIn(to: $0) })
                 }
             case .signedIn:
                 if session.needsProfileSelection {

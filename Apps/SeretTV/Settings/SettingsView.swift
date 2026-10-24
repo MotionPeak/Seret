@@ -9,7 +9,8 @@ import DebridCore
 /// is where every caption the old cards carried now lives.
 ///
 /// Sections, in the order they are touched: Subtitles (how they look, where they come from),
-/// Playback, Letterboxd, Profile (hidden while [`ProfilesFeature`] is off) and Account.
+/// Playback, Letterboxd, Profile (hidden while [`ProfilesFeature`] is off) and Account (the
+/// debrid accounts, on their own page — see `AccountsPage`).
 struct SettingsView: View {
     @Environment(AppSession.self) private var session
     @State private var model = SettingsModel(
@@ -108,18 +109,23 @@ struct SettingsView: View {
     private var account: some View {
         Group {
             SettingsSectionHeader(title: "Account")
-            // Not a control — there to say which account this is. Pressing it does nothing.
-            SettingsRow(title: "Real‑Debrid", value: "Signed in",
+            SettingsLinkRow(title: "Accounts", value: signedInSummary, page: .accounts,
+                            help: SettingsHelpContent(
+                                icon: "person.badge.key.fill", title: "Accounts",
+                                text: "Seret streams directly from your Real‑Debrid and TorBox accounts. "
+                                    + "Sign in or out of each, and choose where new titles go."))
+            SettingsRow(title: "Sign Out of All Accounts", destructive: true,
                         help: SettingsHelpContent(
-                            icon: "person.badge.key.fill", title: "Real‑Debrid",
-                            text: "Seret streams directly from your Real‑Debrid account.")) {}
-            SettingsRow(title: "Sign Out", destructive: true,
-                        help: SettingsHelpContent(
-                            icon: "rectangle.portrait.and.arrow.right", title: "Sign out",
-                            text: "Clears the Real‑Debrid token from this Apple TV. You'll need to sign in again to watch.")) {
+                            icon: "rectangle.portrait.and.arrow.right", title: "Sign out of all accounts",
+                            text: "Clears every Real‑Debrid and TorBox sign-in from this Apple TV. You'll need to sign in again to watch.")) {
                 Task { await session.signOut() }
             }
         }
+    }
+
+    /// "Real-Debrid · TorBox" — the accounts this Apple TV is signed in to.
+    private var signedInSummary: String {
+        session.signedInProviders.map(\.displayName).joined(separator: " · ")
     }
 
     // MARK: - Pages
@@ -144,6 +150,8 @@ struct SettingsView: View {
                                sample: { var p = preferences; p.color = $0; return p })
         case .openSubtitles:
             OpenSubtitlesPage(model: model)
+        case .accounts:
+            AccountsPage(session: session)
         }
     }
 

@@ -266,6 +266,31 @@ struct AutoSyncBar: View {
     }
 }
 
+/// "Real-Debrid isn't responding — playing from TorBox": the player moved to the other debrid
+/// provider's version by itself (`PlayerModel.failoverNotice`). In the top slot the sync bar uses,
+/// on the same surface; it never takes focus, and the model takes it down a few seconds after the
+/// new version's first frame.
+struct FailoverNoticeBar: View {
+    let text: String
+
+    var body: some View {
+        HStack(spacing: 22) {
+            Image(systemName: "arrow.triangle.swap")
+                .font(.system(size: 26, weight: .semibold))
+            Text(text)
+                .font(.seret(24, .semibold))
+                .lineLimit(1)
+        }
+        .foregroundStyle(Theme.Palette.textPrimary)
+        .padding(.horizontal, 34).padding(.vertical, 20)
+        .playerOverlaySurface(Capsule())
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .padding(.top, PlayerLayout.topSlotInset)
+        .allowsHitTesting(false)
+        .accessibilityElement(children: .combine)
+    }
+}
+
 /// The surface every small player overlay sits on: the side sheet's dark panel gradient with a
 /// hairline, so a bar over a bright frame reads like the rest of the chrome.
 extension View {
