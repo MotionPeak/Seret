@@ -109,6 +109,79 @@ import DebridCore
         await m.teardown()
     }
 
+    /// TorBox's client reports a 5xx as `TorBoxError.api`, not `HTTPError` — and that is TorBox
+    /// failing for now, the same as RD's 503: retried, then the other provider's version.
+    @Test func torBoxDownFailsOverToRealDebrid() async {
+        let engine = FakeVideoPlayerEngine(), calls = Calls()
+        let m = model(engine, links: [Self.tb, Self.rd], calls: calls, unrestrict: { link in
+            if DebridProvider.of(link: link) == .torBox {
+                throw TorBoxError.api(code: "HTTP_503", detail: "", status: 503)
+            }
+            return URL(string: "https://cdn/rd.mkv")!
+        })
+        m.start(); await m.waitForIdleForTesting()
+
+        #expect(!m.phase.isFailed, "the TorBox outage was shown as \(m.phase)")
+        #expect(m.currentSource.restrictedLink == Self.rd)
+        #expect(engine.loadedURL == URL(string: "https://cdn/rd.mkv"))
+        #expect(calls.links == [Self.tb, Self.tb, Self.tb, Self.rd], "TorBox's 503 was not retried")
+        #expect(m.failoverNotice == "TorBox isn't responding — playing from Real-Debrid")
+        await m.teardown()
+    }
+
+    /// With no other version, a TorBox 5xx says TorBox isn't responding — not "the link could not
+    /// be opened", which reads as something wrong with the file.
+    @Test func torBoxDownWithNoOtherVersionSaysSo() async {
+        let engine = FakeVideoPlayerEngine()
+        let m = model(engine, links: [Self.tb], unrestrict: { _ in
+            throw TorBoxError.api(code: "NO_LINK", detail: "TorBox returned no stream URL.", status: 502)
+        })
+        m.start(); await m.waitForIdleForTesting()
+
+        #expect(m.phase == .failed(PlayerModel.unreachableMessage(.torBox)))
+        await m.teardown()
+    }
+
+    /// A 429 locks the TorBox key out for minutes: asking again would only extend it, so no
+    /// retry — but the Real-Debrid version can play meanwhile.
+    @Test func torBoxRateLimitFailsOverWithoutRetry() async {
+        let engine = FakeVideoPlayerEngine(), calls = Calls()
+        let m = model(engine, links: [Self.tb, Self.rd], calls: calls, unrestrict: { link in
+            if DebridProvider.of(link: link) == .torBox { throw TorBoxError.rateLimited(retryAfter: nil) }
+            return URL(string: "https://cdn/rd.mkv")!
+        })
+        m.start(); await m.waitForIdleForTesting()
+
+        #expect(!m.phase.isFailed, "the rate limit was shown as \(m.phase)")
+        #expect(m.currentSource.restrictedLink == Self.rd)
+        #expect(calls.links == [Self.tb, Self.rd], "a rate-limited TorBox key was asked again")
+        #expect(m.failoverNotice == "TorBox isn't responding — playing from Real-Debrid")
+        await m.teardown()
+    }
+
+    @Test func torBoxRateLimitWithNoOtherVersionSaysBusy() async {
+        let engine = FakeVideoPlayerEngine(), calls = Calls()
+        let m = model(engine, links: [Self.tb], calls: calls, unrestrict: { _ in
+            throw TorBoxError.rateLimited(retryAfter: nil)
+        })
+        m.start(); await m.waitForIdleForTesting()
+
+        #expect(calls.links == [Self.tb])
+        #expect(m.phase == .failed(TorBoxError.rateLimited(retryAfter: nil).userMessage))
+        await m.teardown()
+    }
+
+    @Test func torBoxErrorClassification() {
+        #expect(PlayerModel.isTransient(TorBoxError.api(code: "HTTP_503", detail: "", status: 503)))
+        #expect(PlayerModel.isTransient(TorBoxError.api(code: "NO_LINK", detail: "", status: 502)))
+        #expect(!PlayerModel.isTransient(TorBoxError.api(code: "BAD_TOKEN", detail: "", status: 403)))
+        #expect(!PlayerModel.isTransient(TorBoxError.api(code: "DATABASE_ERROR", detail: "", status: 200)))
+        #expect(!PlayerModel.isTransient(TorBoxError.rateLimited(retryAfter: nil)))
+        #expect(PlayerModel.isProviderUnavailable(TorBoxError.rateLimited(retryAfter: nil)))
+        #expect(PlayerModel.isProviderUnavailable(TorBoxError.api(code: "HTTP_500", detail: "", status: 500)))
+        #expect(!PlayerModel.isProviderUnavailable(TorBoxError.notSignedIn))
+    }
+
     /// The viewer's Retry is a fresh attempt, with its own failover.
     @Test func retryEarnsItsOwnFailover() async {
         let engine = FakeVideoPlayerEngine(), calls = Calls()

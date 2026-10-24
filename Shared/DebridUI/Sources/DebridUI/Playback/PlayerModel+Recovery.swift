@@ -177,9 +177,23 @@ extension PlayerModel {
             }
         case let error as URLError:
             return ![.badURL, .unsupportedURL, .cancelled, .userAuthenticationRequired].contains(error.code)
+        case TorBoxError.api(_, _, let status):
+            // TorBox's client maps a non-2xx to `.api` with its status, never `HTTPError` — so a
+            // 5xx (or its own NO_LINK 502) is TorBox failing for now, exactly as RD's 503 is.
+            return (500...599).contains(status)
         default:
+            // `.rateLimited` included: TorBox locks the key out for minutes after a 429, and
+            // asking again would only extend it (see `isProviderUnavailable`).
             return false
         }
+    }
+
+    /// The provider can't serve this version right now — worth playing another provider's version
+    /// instead. Wider than `isTransient`: a rate-limited TorBox key must not be asked again, but
+    /// the Real-Debrid version can play meanwhile.
+    static func isProviderUnavailable(_ error: Error) -> Bool {
+        if case TorBoxError.rateLimited = error { return true }
+        return isTransient(error)
     }
 
     /// For the log: never the URL (an unrestricted RD link carries its token).

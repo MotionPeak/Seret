@@ -434,11 +434,15 @@ extension PlayerModel {
             guard !Task.isCancelled, !isTornDown, !isClosing else { return }
             // Retried already when it was the provider or the network failing for now. The other
             // provider's version, when there is one — and otherwise say so plainly.
-            let transient = Self.isTransient(error)
-            if transient, failOverToOtherProvider() { return }
+            let unavailable = Self.isProviderUnavailable(error)
+            if unavailable, failOverToOtherProvider() { return }
             let provider = currentProvider
-            phase = .failed(transient ? Self.unreachableMessage(provider)
-                                      : "The \(provider.displayName) link could not be opened.")
+            if let busy = error as? TorBoxError, case .rateLimited = busy {
+                phase = .failed(busy.userMessage)
+            } else {
+                phase = .failed(unavailable ? Self.unreachableMessage(provider)
+                                            : "The \(provider.displayName) link could not be opened.")
+            }
         }
     }
 
