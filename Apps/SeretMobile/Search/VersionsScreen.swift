@@ -29,7 +29,7 @@ struct VersionsScreen: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: Theme.Space.md) {
-                    Text("Instant versions play right away; the rest download to Real\u{2011}Debrid first.")
+                    Text("Instant versions play right away; the rest download to \(session.addTarget.displayName) first.")
                         .font(Theme.Typo.caption()).foregroundStyle(Theme.Palette.textTertiary)
                     downloadStatus
                     content
@@ -81,7 +81,7 @@ struct VersionsScreen: View {
                 .font(Theme.Typo.body()).foregroundStyle(Theme.Palette.textSecondary)
         case .ready:
             VersionList(groups: model?.groups ?? [], picking: model?.picking, onPick: pick,
-                        hebrew: { model?.hebrew(for: $0) ?? .none })
+                        hebrew: { model?.hebrew(for: $0) ?? .none }, addTarget: session.addTarget)
         }
     }
 
@@ -93,7 +93,7 @@ struct VersionsScreen: View {
                 ProgressView("Starting download…").tint(Theme.Palette.focus)
             case .downloading:
                 VStack(alignment: .leading, spacing: 6) {
-                    Label("Downloading \(Int(status.fraction * 100))% to Real\u{2011}Debrid…",
+                    Label("Downloading \(Int(status.fraction * 100))% to \(status.provider(orElse: session.addTarget).displayName)…",
                           systemImage: "arrow.down.circle.fill")
                         .font(Theme.Typo.body()).foregroundStyle(Theme.Palette.textPrimary)
                     ProgressView(value: status.fraction).tint(Theme.Palette.focus)

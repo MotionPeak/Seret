@@ -54,7 +54,7 @@ struct DebridAccountsSections: View {
                 Text(row.provider.displayName)
             } footer: {
                 if row.provider == rows.last?.provider, signedIn.count == 1, canAddAccounts {
-                    Text("Sign in to both Real-Debrid and TorBox to see titles from each in one library.")
+                    Text(DebridCopy.addAccountHint(signedIn: signedIn))
                         .font(.footnote).foregroundStyle(.secondary)
                 }
             }

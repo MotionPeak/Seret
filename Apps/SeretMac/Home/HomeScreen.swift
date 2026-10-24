@@ -239,7 +239,7 @@ struct HomeScreen: View {
             Text("Nothing here yet")
                 .font(Theme.Typo.headline())
                 .foregroundStyle(Theme.Palette.textPrimary)
-            Text("Add something to your Real\u{2011}Debrid account, or play something, and it shows up here.")
+            Text("Add something to \(DebridCopy.accounts(session?.signedInProviders ?? [])), or play something, and it shows up here.")
                 .font(Theme.Typo.body())
                 .foregroundStyle(Theme.Palette.textSecondary)
                 .multilineTextAlignment(.center)

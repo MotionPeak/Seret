@@ -11,8 +11,10 @@ import SwiftUI
 /// presenting it as a real `.sheet`.
 struct VersionsSheet: View {
     let model: VersionsModel
+    /// Where a download goes — the account the copy names. Passed in like the model.
+    var addTarget: DebridProvider = .realDebrid
     /// A pick that turned out instantly playable. The caller dismisses, presents playback and
-    /// shows the "Added to Real‑Debrid" toast — this view only reports the outcome.
+    /// shows the "Added to …" toast — this view only reports the outcome.
     let onPlay: (PlaybackRequest) -> Void
     let onClose: () -> Void
 
@@ -22,7 +24,7 @@ struct VersionsSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             header
-            Text("Instant versions play right away; the rest download to Real\u{2011}Debrid first.")
+            Text("Instant versions play right away; the rest download to \(addTarget.displayName) first.")
                 .font(.system(size: 12))
                 .foregroundStyle(Theme.Palette.textSecondary)
             if let localError {
@@ -68,7 +70,7 @@ struct VersionsSheet: View {
                     .font(.system(size: 13)).foregroundStyle(Theme.Palette.gold)
             case .downloading:
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Downloading \(Int(status.fraction * 100))% to Real\u{2011}Debrid\u{2026}")
+                    Text("Downloading \(Int(status.fraction * 100))% to \(status.provider(orElse: addTarget).displayName)\u{2026}")
                         .font(.system(size: 13)).foregroundStyle(Theme.Palette.gold)
                     GoldProgressBar(fraction: status.fraction)
                 }
@@ -125,7 +127,7 @@ struct VersionsSheet: View {
                 .foregroundStyle(availability == .instant ? Theme.Palette.gold : Theme.Palette.textPrimary)
             Text(availability.title)
                 .foregroundStyle(Theme.Palette.textPrimary)
-            Text(availability.caption)
+            Text(availability.caption(downloadsTo: addTarget))
                 .font(.system(size: 12))
                 .foregroundStyle(Theme.Palette.textSecondary)
         }

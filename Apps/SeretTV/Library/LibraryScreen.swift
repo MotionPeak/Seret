@@ -107,7 +107,7 @@ struct LibraryScreen: View {
         case .failed(let msg):
             message(msg, systemImage: "exclamationmark.triangle", action: ("Try Again", onRetry))
         case .empty:
-            message("Nothing in your Real‑Debrid library yet.", systemImage: "tray", action: nil)
+            message("Nothing in \(DebridCopy.accounts(session.signedInProviders)) yet.", systemImage: "tray", action: nil)
         case .loaded:
             if items.isEmpty {
                 message("No \(title.lowercased()) yet.", systemImage: "tray", action: nil)

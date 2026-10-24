@@ -158,19 +158,20 @@ import Testing
     // MARK: - Season line
 
     @Test func idleSeasonHasNoLine() {
-        #expect(TitlePageText.seasonLine(.idle, season: 2) == nil)
+        #expect(TitlePageText.seasonLine(.idle, season: 2, addTarget: .realDebrid) == nil)
     }
 
     @Test func seasonLinesForEveryPhase() {
-        #expect(TitlePageText.seasonLine(.checking, season: 2) == "Checking for a full\u{2011}season version\u{2026}")
-        #expect(TitlePageText.seasonLine(.adding, season: 2) == "Adding to Real\u{2011}Debrid\u{2026}")
-        #expect(TitlePageText.seasonLine(.added, season: 2) == "Whole season added")
-        #expect(TitlePageText.seasonLine(.noFullSeason, season: 2) == "No full\u{2011}season version")
-        #expect(TitlePageText.seasonLine(.failed("No seeders."), season: 2) == "No seeders.")
+        #expect(TitlePageText.seasonLine(.checking, season: 2, addTarget: .realDebrid) == "Checking for a full\u{2011}season version\u{2026}")
+        #expect(TitlePageText.seasonLine(.adding, season: 2, addTarget: .torBox) == "Adding to TorBox\u{2026}")
+        #expect(TitlePageText.seasonLine(.adding, season: 2, addTarget: .realDebrid) == "Adding to Real-Debrid\u{2026}")
+        #expect(TitlePageText.seasonLine(.added, season: 2, addTarget: .realDebrid) == "Whole season added")
+        #expect(TitlePageText.seasonLine(.noFullSeason, season: 2, addTarget: .realDebrid) == "No full\u{2011}season version")
+        #expect(TitlePageText.seasonLine(.failed("No seeders."), season: 2, addTarget: .realDebrid) == "No seeders.")
 
         let status = DownloadStatus(torrentID: "t", contentKey: "show:tmdb:1396:season:2", tmdbID: 1396,
                                     phase: .downloading, fraction: 0.42, secondsRemaining: 360)
-        #expect(TitlePageText.seasonLine(.downloading(status), season: 2) == "Downloading season 2 \u{00B7} 42% \u{00B7} 6 min left")
+        #expect(TitlePageText.seasonLine(.downloading(status), season: 2, addTarget: .realDebrid) == "Downloading season 2 \u{00B7} 42% \u{00B7} 6 min left")
     }
 
     // MARK: - Episode badge

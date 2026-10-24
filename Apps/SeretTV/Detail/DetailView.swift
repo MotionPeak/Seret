@@ -103,7 +103,7 @@ struct DetailView: View {
             Button("Remove", role: .destructive) { performRemove() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This deletes it from your Real\u{2011}Debrid account. You can re\u{2011}add it later by searching.")
+            Text("This deletes it from \(DebridCopy.accounts(DebridCopy.providers(of: store.item))). You can re\u{2011}add it later by searching.")
         }
         .alert("Delete this version?", isPresented: Binding(
             get: { pendingVersionRemoval != nil },
@@ -112,7 +112,7 @@ struct DetailView: View {
             Button("Cancel", role: .cancel) { pendingVersionRemoval = nil }
         } message: { source in
             Text(store.versions.count > 1
-                 ? "\(source.versionSummary) is deleted from your Real\u{2011}Debrid account. Your other versions of \u{201C}\(store.item.title)\u{201D} stay."
+                 ? "\(source.versionSummary) is deleted from \(DebridCopy.accounts([DebridCopy.provider(of: source)])). Your other versions of \u{201C}\(store.item.title)\u{201D} stay."
                  : "\(source.versionSummary) is the only version you have, so \u{201C}\(store.item.title)\u{201D} leaves your library.")
         }
         .alert("Couldn\u{2019}t Remove", isPresented: Binding(

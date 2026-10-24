@@ -38,6 +38,7 @@ struct MovieDownloadSection: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(ShellModel.self) private var shell: ShellModel?
+    @Environment(AppSession.self) private var session: AppSession?
     @State private var requesting = false
 
     private var phase: DownloadSectionPhase {
@@ -61,7 +62,7 @@ struct MovieDownloadSection: View {
         switch phase {
         case .idle:
             VStack(alignment: .leading, spacing: 10) {
-                Text("Not in your library yet. Play finds an instant version; if Real\u{2011}Debrid has none, request a download.")
+                Text("Not in your library yet. Play finds an instant version; if \((session?.addTarget ?? .realDebrid).displayName) has none, request a download.")
                     .font(.system(size: 13))
                     .foregroundStyle(Color.white.opacity(0.7))
                     .frame(maxWidth: 520, alignment: .leading)

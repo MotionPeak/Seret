@@ -559,7 +559,9 @@ private struct MovieDownloadSection: View {
 
     private func caption(_ status: DownloadStatus?) -> String {
         switch status?.phase {
-        case .queued, .downloading: return "Real\u{2011}Debrid is fetching it. It'll appear here when it's ready."
+        case .queued, .downloading:
+            let account = status?.provider(orElse: session.addTarget) ?? session.addTarget
+            return "\(account.displayName) is fetching it. It'll appear here when it's ready."
         case .ready: return "It's in your library."
         case .failed(let reason): return reason
         case nil: return "Nothing can start instantly. Request a download and it'll appear here when it's ready."

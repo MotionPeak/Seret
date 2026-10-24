@@ -102,30 +102,15 @@ struct TitlePage: View {
             else { return }
             magnetSheet = MagnetSheetPresentation(model: MagnetAddModel(target: target, downloads: downloads))
         }
-        .sheet(item: $versionsSheet) { presented in
-            VersionsSheet(model: presented.model, onPlay: { request in
-                versionsSheet = nil
-                shell?.present(request)
-                shell?.showToast("Added to Real\u{2011}Debrid")
-            }, onClose: { versionsSheet = nil })
-            .frame(minWidth: 680, minHeight: 560)
-        }
-        .sheet(item: $magnetSheet) { presented in
-            MagnetSheet(model: presented.model, title: store.item.title, onDone: {
-                magnetSheet = nil
-                shell?.showToast("Sent to Real\u{2011}Debrid \u{2014} progress shows on this page")
-            })
-            .frame(minWidth: 560, minHeight: 320)
-        }
+        .sheet(item: $versionsSheet) { presented in versionsSheetContent(presented) }
+        .sheet(item: $magnetSheet) { presented in magnetSheetContent(presented) }
         .alert("Delete this version?", isPresented: Binding(
             get: { pendingVersionRemoval != nil },
             set: { if !$0 { pendingVersionRemoval = nil } }), presenting: pendingVersionRemoval) { source in
             Button("Delete", role: .destructive) { performVersionRemove(source) }
             Button("Cancel", role: .cancel) { pendingVersionRemoval = nil }
         } message: { source in
-            Text(store.versions.count > 1
-                 ? "\(source.versionSummary) is deleted from your Real\u{2011}Debrid account. Your other versions of \u{201C}\(store.item.title)\u{201D} stay."
-                 : "\(source.versionSummary) is the only version you have, so \u{201C}\(store.item.title)\u{201D} leaves your library.")
+            Text(versionRemovalMessage(source))
         }
     }
 
@@ -135,6 +120,44 @@ struct TitlePage: View {
         case .movie: return DownloadTarget.movie(store.item)?.magnet
         case .show: return DownloadTarget.season(of: store.item, store.selectedSeason)?.magnet
         }
+    }
+
+    private func versionsSheetContent(_ presented: VersionsSheetPresentation) -> some View {
+        VersionsSheet(model: presented.model, addTarget: addTarget, onPlay: { request in
+            versionsSheet = nil
+            shell?.present(request)
+            shell?.showToast(Self.addedToast(request))
+        }, onClose: { versionsSheet = nil })
+        .frame(minWidth: 680, minHeight: 560)
+    }
+
+    private func magnetSheetContent(_ presented: MagnetSheetPresentation) -> some View {
+        MagnetSheet(model: presented.model, title: store.item.title, addTarget: addTarget, onDone: {
+            magnetSheet = nil
+            shell?.showToast(sentToast)
+        })
+        .frame(minWidth: 560, minHeight: 320)
+    }
+
+    /// Where adds and downloads go — the account the sheets and toasts name.
+    private var addTarget: DebridProvider { session?.addTarget ?? .realDebrid }
+
+    private var sentToast: String {
+        "Sent to \(addTarget.displayName) \u{2014} progress shows on this page"
+    }
+
+    /// The instant pick's torrent says which account it landed on.
+    private static func addedToast(_ request: PlaybackRequest) -> String {
+        "Added to \(DebridCopy.provider(of: request.source).displayName)"
+    }
+
+    private func versionRemovalMessage(_ source: MediaSource) -> String {
+        let title = "\u{201C}\(store.item.title)\u{201D}"
+        guard store.versions.count > 1 else {
+            return "\(source.versionSummary) is the only version you have, so \(title) leaves your library."
+        }
+        let account = DebridCopy.accounts([DebridCopy.provider(of: source)])
+        return "\(source.versionSummary) is deleted from \(account). Your other versions of \(title) stay."
     }
 
     private func openVersionsSheet(target: AcquisitionStore.Target = .movie) {

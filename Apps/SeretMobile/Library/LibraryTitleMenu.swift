@@ -103,7 +103,7 @@ struct LibraryRemovalConfirmation: ViewModifier {
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("This deletes it from your Real\u{2011}Debrid account.")
+                Text("This deletes it from \(DebridCopy.accounts(pending.map(DebridCopy.providers(of:)) ?? [])).")
             }
             .alert("Couldn\u{2019}t Remove", isPresented: Binding(
                 get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {

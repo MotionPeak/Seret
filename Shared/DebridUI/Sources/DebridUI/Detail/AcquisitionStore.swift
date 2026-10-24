@@ -57,7 +57,7 @@ public final class AcquisitionStore {
     public func playBest(_ target: Target) async {
         phase = .finding
         guard let add = makeAdd(target.streamKind) else {
-            phase = .failed("Not signed in to Real-Debrid.")
+            phase = .failed(DebridCopy.notSignedIn)
             return
         }
         await add.loadStreams()

@@ -12,6 +12,7 @@ struct SeasonActions: View {
     let onMagnet: () -> Void
 
     @Environment(ShellModel.self) private var shell: ShellModel?
+    @Environment(AppSession.self) private var session: AppSession?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var season: Int { store.selectedSeason }
@@ -59,7 +60,7 @@ struct SeasonActions: View {
             }
         case .checking, .adding:
             Label {
-                Text(TitlePageText.seasonLine(phase, season: season) ?? "")
+                Text(TitlePageText.seasonLine(phase, season: season, addTarget: session?.addTarget ?? .realDebrid) ?? "")
             } icon: {
                 Image(systemName: "ellipsis")
                     .symbolEffect(.pulse, isActive: !reduceMotion)
@@ -68,7 +69,7 @@ struct SeasonActions: View {
             .foregroundStyle(Color.white.opacity(0.85))
         case .downloading(let status):
             HStack(spacing: 10) {
-                Text(TitlePageText.seasonLine(phase, season: season) ?? "")
+                Text(TitlePageText.seasonLine(phase, season: season, addTarget: session?.addTarget ?? .realDebrid) ?? "")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(Color.white.opacity(0.85))
                 GoldProgressBar(fraction: status.fraction).frame(width: 160)

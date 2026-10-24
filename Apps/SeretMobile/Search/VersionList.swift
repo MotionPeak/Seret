@@ -18,6 +18,8 @@ struct VersionList: View {
     let onPick: (CachedStream) -> Void
     /// Each release's Hebrew subtitles, for its marks. The order already reflects them.
     var hebrew: (CachedStream) -> HebrewSubtitles = { _ in .none }
+    /// Where a download goes — the account the Download block's caption names.
+    var addTarget: DebridProvider = .realDebrid
 
     var body: some View {
         // Lazy so the (often 30+) rows realise as they scroll in — building every chip and badge
@@ -51,7 +53,7 @@ struct VersionList: View {
                 .foregroundStyle(availability == .instant ? Theme.Palette.textPrimary : Theme.Palette.textSecondary)
             VStack(alignment: .leading, spacing: 1) {
                 Text(availability.title)
-                Text(availability.caption).font(Theme.Typo.caption())
+                Text(availability.caption(downloadsTo: addTarget)).font(Theme.Typo.caption())
                     .foregroundStyle(Theme.Palette.textSecondary)
             }
         }

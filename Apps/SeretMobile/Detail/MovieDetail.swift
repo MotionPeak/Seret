@@ -90,8 +90,8 @@ struct MovieDetail: View {
                     pendingVersionRemoval = nil
                 }
                 Button("Cancel", role: .cancel) {}
-            } message: { _ in
-                Text("This deletes just this version from your Real\u{2011}Debrid account.")
+            } message: { src in
+                Text("This deletes just this version from \(DebridCopy.accounts([DebridCopy.provider(of: src)])).")
             }
     }
 
@@ -438,7 +438,8 @@ private struct MovieDownloadSection: View {
                 ProgressView("Starting download…").tint(Theme.Palette.focus)
             } else if case .downloading = status?.phase {
                 let pct = Int((status?.fraction ?? 0) * 100)
-                Label("Downloading \(pct)% to Real‑Debrid…", systemImage: "arrow.down.circle.fill")
+                let account = status?.provider(orElse: session.addTarget) ?? session.addTarget
+                Label("Downloading \(pct)% to \(account.displayName)…", systemImage: "arrow.down.circle.fill")
                     .font(Theme.Typo.body()).foregroundStyle(Theme.Palette.textPrimary)
                 ProgressView(value: status?.fraction ?? 0).tint(Theme.Palette.focus)
                 Text("It'll appear here when it's ready.")

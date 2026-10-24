@@ -66,7 +66,7 @@ struct VersionsScreen: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title).screenTitle()
-            Text("Instant versions play right away; the rest download to Real‑Debrid first.")
+            Text("Instant versions play right away; the rest download to \(session.addTarget.displayName) first.")
                 .calloutText().foregroundStyle(Theme.Palette.textSecondary)
         }
     }
@@ -90,7 +90,7 @@ struct VersionsScreen: View {
             // Lazy so the (often 30+) rows realise as they scroll in — building every chip and
             // badge up front made the list stutter on the Add screen.
             VersionList(groups: model?.groups ?? [], picking: model?.picking, onPick: pick,
-                        hebrew: { model?.hebrew(for: $0) ?? .none })
+                        hebrew: { model?.hebrew(for: $0) ?? .none }, addTarget: session.addTarget)
                 .frame(maxWidth: 1400, alignment: .leading)
         }
     }
@@ -104,7 +104,7 @@ struct VersionsScreen: View {
                     .font(.seretTitle3).foregroundStyle(Theme.Palette.textSecondary)
             case .downloading:
                 VStack(alignment: .leading, spacing: 10) {
-                    Label("Downloading \(Int(status.fraction * 100))% to Real‑Debrid…",
+                    Label("Downloading \(Int(status.fraction * 100))% to \(status.provider(orElse: session.addTarget).displayName)…",
                           systemImage: "icloud.and.arrow.down")
                         .font(.seretTitle3).foregroundStyle(Theme.Palette.textSecondary)
                     ProgressLine(fraction: status.fraction, height: 8).frame(maxWidth: 700)

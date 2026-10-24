@@ -48,7 +48,7 @@ struct VersionsUIPreview: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: Theme.Space.md) {
-                    Text("Instant versions play right away; the rest download to Real\u{2011}Debrid first.")
+                    Text("Instant versions play right away; the rest download to Real-Debrid first.")
                         .font(Theme.Typo.caption()).foregroundStyle(Theme.Palette.textTertiary)
                     VersionList(groups: groups, picking: nil, onPick: { _ in },
                                 hebrew: { Self.evidence.hebrew(forVersion: $0.infoHash) })

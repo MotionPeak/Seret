@@ -186,7 +186,7 @@ struct AccountsSectionContent: View {
     private var footer: String {
         signedIn.count > 1
             ? "Titles from both accounts appear together. New titles you add go to the account chosen above."
-            : "Sign in to Real\u{2011}Debrid and TorBox to see titles from both in one library."
+            : DebridCopy.addAccountHint(signedIn: signedIn)
     }
 }
 

@@ -38,8 +38,16 @@ import Testing
     }
 
     @Test func helpTextCountsSingularAndPlural() {
-        #expect(DownloadsSummary(tiles: [tile("A", fraction: 0.1)]).helpText == "1 downloading to Real\u{2011}Debrid")
+        #expect(DownloadsSummary(tiles: [tile("A", fraction: 0.1)]).helpText == "1 downloading to Real-Debrid")
         #expect(DownloadsSummary(tiles: [tile("A", fraction: 0.1), tile("B", fraction: 0.2)]).helpText
-                == "2 downloading to Real\u{2011}Debrid")
+                == "2 downloading to Real-Debrid")
+    }
+
+    /// With both accounts signed in, downloads can run on TorBox: the help text names the
+    /// accounts the downloads are really on.
+    @Test func helpTextNamesEachDownloadsAccount() {
+        #expect(DownloadsSummary(tiles: [tile("tb:1", fraction: 0.1)]).helpText == "1 downloading to TorBox")
+        #expect(DownloadsSummary(tiles: [tile("tb:1", fraction: 0.1), tile("R1", fraction: 0.2)]).helpText
+                == "2 downloading to Real-Debrid and TorBox")
     }
 }

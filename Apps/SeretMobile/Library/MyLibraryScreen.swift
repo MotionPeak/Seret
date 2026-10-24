@@ -116,7 +116,7 @@ struct MyLibraryScreen: View {
             }
         case .empty:
             GlassMessageCard(systemImage: "tray", title: "Nothing in your library yet",
-                             text: "Add something from Search, or to your Real\u{2011}Debrid account, and it appears here.",
+                             text: "Add something from Search, or to \(DebridCopy.accounts(session.signedInProviders)), and it appears here.",
                              topPadding: 40) {
                 EmptyView()
             }

@@ -41,6 +41,7 @@ private struct EpisodeCard: View {
     let onPlay: (PlaybackRequest) -> Void
 
     @Environment(ShellModel.self) private var shell: ShellModel?
+    @Environment(AppSession.self) private var session: AppSession?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var hovering = false
 
@@ -214,7 +215,7 @@ private struct EpisodeCard: View {
         case .play(let request):
             onPlay(request)
         case .downloadStarted:
-            shell?.showToast("Downloading S\(row.season)\u{00B7}E\(row.number) to Real\u{2011}Debrid")
+            shell?.showToast("Downloading S\(row.season)\u{00B7}E\(row.number) to \((session?.addTarget ?? .realDebrid).displayName)")
         case .failed(let message) where !message.isEmpty:
             shell?.showToast(message, isFailure: true)
         case .noneInstant, .failed:

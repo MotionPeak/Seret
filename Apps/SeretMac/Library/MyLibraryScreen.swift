@@ -63,7 +63,8 @@ struct MyLibraryScreen: View {
     }
 
     private var items: [MediaItem] { kind == .movie ? store.movies : store.shows }
-    private var content: LibraryPageContent { LibraryPageContent.make(state: store.state, items: items, kind: kind) }
+    private var content: LibraryPageContent { LibraryPageContent.make(state: store.state, items: items, kind: kind,
+                                                                           accounts: session?.signedInProviders ?? []) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {

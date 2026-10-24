@@ -212,10 +212,12 @@ public final class AddStore {
         do {
             let info = try await addService.add(infoHash: stream.infoHash)
             state = .added(info)
-        } catch let RDAddError.notInstant(torrentID) {
-            state = .addFailed("That version isn't instantly available (RD id \(torrentID)).")
+        } catch RDAddError.notInstant {
+            let name = DebridCopy.names(await addService.target().map { [$0] } ?? [])
+            state = .addFailed("That version isn't instantly available on \(name).")
         } catch {
-            state = .addFailed("Couldn't add this to Real-Debrid. Try another version.")
+            let name = DebridCopy.names(await addService.target().map { [$0] } ?? [])
+            state = .addFailed("Couldn't add this to \(name). Try another version.")
         }
     }
 }

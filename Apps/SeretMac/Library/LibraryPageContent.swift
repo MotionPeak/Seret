@@ -10,7 +10,9 @@ enum LibraryPageContent: Equatable {
     case empty(title: String, detail: String?)
     case failed(String)
 
-    static func make(state: LibraryStore.State, items: [MediaItem], kind: MediaKind) -> LibraryPageContent {
+    /// - Parameter accounts: the signed-in debrid accounts, which the empty state names.
+    static func make(state: LibraryStore.State, items: [MediaItem], kind: MediaKind,
+                     accounts: [DebridProvider]) -> LibraryPageContent {
         switch state {
         case .loading:
             return .skeleton
@@ -18,7 +20,7 @@ enum LibraryPageContent: Equatable {
             return .failed(message)
         case .empty:
             return .empty(title: "Nothing in your library yet",
-                         detail: "Add something to your Real\u{2011}Debrid account and it appears here.")
+                         detail: "Add something to \(DebridCopy.accounts(accounts)) and it appears here.")
         case .loaded:
             guard !items.isEmpty else {
                 return .empty(title: kind == .movie ? "No movies yet" : "No shows yet", detail: nil)

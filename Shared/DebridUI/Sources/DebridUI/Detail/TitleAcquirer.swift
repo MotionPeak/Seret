@@ -79,7 +79,7 @@ public final class TitleAcquirer {
         defer { finding.remove(target) }
 
         guard let acquisition = makeAcquisition() else {
-            return .failed("Not signed in to Real\u{2011}Debrid.")
+            return .failed(DebridCopy.notSignedIn)
         }
         await acquisition.playBest(target)
         let outcome: Outcome
@@ -114,7 +114,7 @@ public final class TitleAcquirer {
         defer { requesting.remove(target) }
 
         guard let acquisition = makeAcquisition() else {
-            return .failed("Not signed in to Real\u{2011}Debrid.")
+            return .failed(DebridCopy.notSignedIn)
         }
         let candidates = await acquisition.uncachedCandidates(target)
         return await startTrackedDownload(target, candidates: candidates)
@@ -123,12 +123,12 @@ public final class TitleAcquirer {
     private func startTrackedDownload(_ target: AcquisitionStore.Target,
                                       candidates: [CachedStream]) async -> Outcome {
         guard let downloadTarget = downloadTarget(target) else {
-            return .failed("Not signed in to Real\u{2011}Debrid.")
+            return .failed(DebridCopy.notSignedIn)
         }
         if case .episode = target, candidates.isEmpty {
             return .failed("No version of this episode is available to download.")
         }
-        guard let downloads else { return .failed("Not signed in to Real\u{2011}Debrid.") }
+        guard let downloads else { return .failed(DebridCopy.notSignedIn) }
         await downloads.request(downloadTarget, candidates: candidates)
         if case let .failed(message)? = downloads.status(for: downloadTarget)?.phase {
             return .failed(message)
@@ -188,7 +188,7 @@ public final class TitleAcquirer {
         }
         seasonPhases[season] = .checking
         guard let pack = makeSeasonPack(season) else {
-            seasonPhases[season] = .failed("Not signed in to Real\u{2011}Debrid.")
+            seasonPhases[season] = .failed(DebridCopy.notSignedIn)
             return
         }
         await pack.loadStreams()

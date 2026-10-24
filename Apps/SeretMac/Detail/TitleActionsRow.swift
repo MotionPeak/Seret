@@ -93,7 +93,7 @@ struct TitleActionsRow: View {
         case .noneInstant:
             shell?.showToast("No instant version \u{2014} request a download below", isFailure: false)
         case .downloadStarted:
-            shell?.showToast("Downloading \(acquireDownloadLabel) to Real\u{2011}Debrid")
+            shell?.showToast("Downloading \(acquireDownloadLabel) to \((session?.addTarget ?? .realDebrid).displayName)")
         case .failed(let message) where !message.isEmpty:
             shell?.showToast(message, isFailure: true)
         case .failed:

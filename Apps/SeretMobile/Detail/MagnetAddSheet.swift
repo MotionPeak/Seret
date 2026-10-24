@@ -23,7 +23,8 @@ struct MagnetAddSheet: View {
         NavigationStack {
             Group {
                 if let model {
-                    MagnetAddForm(model: model, onSubmitted: { dismiss() })
+                    MagnetAddForm(model: model, addTarget: session?.addTarget ?? .realDebrid,
+                                  onSubmitted: { dismiss() })
                 } else {
                     // No download store means no signed-in session; say so rather than
                     // presenting a form whose Download button could never work.
@@ -50,6 +51,8 @@ struct MagnetAddSheet: View {
 /// The paste form itself. Session-free by design — see `MagnetAddSheet`.
 struct MagnetAddForm: View {
     let model: MagnetAddModel
+    /// Where the download goes — the account the copy names.
+    var addTarget: DebridProvider = .realDebrid
     var onSubmitted: () -> Void = {}
 
     @State private var text = ""
@@ -108,7 +111,7 @@ struct MagnetAddForm: View {
         case .failed(let reason):
             Label(reason, systemImage: "xmark.circle").foregroundStyle(.orange)
         default:
-            Text("Paste a magnet link. Real‑Debrid downloads it and it appears under this title.")
+            Text("Paste a magnet link. \(addTarget.displayName) downloads it and it appears under this title.")
         }
     }
 }

@@ -411,7 +411,7 @@ private func acquisitionFactory(streams: FakeStreamSource,
 
         await a.downloadSeason(1)
 
-        #expect(a.seasonPhase(1) == .failed("Not signed in to Real\u{2011}Debrid."))
+        #expect(a.seasonPhase(1) == .failed("Sign in to Real-Debrid or TorBox first."))
     }
 
     // MARK: cancel

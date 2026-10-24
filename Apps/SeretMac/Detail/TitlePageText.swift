@@ -105,14 +105,15 @@ enum TitlePageText {
 
     /// `SeasonActions`' line, replacing the Download Whole Season button once a `TitleAcquirer`
     /// attempt is under way. `nil` for `.idle` — the button itself is the only thing shown then.
-    static func seasonLine(_ phase: TitleAcquirer.SeasonPhase, season: Int) -> String? {
+    static func seasonLine(_ phase: TitleAcquirer.SeasonPhase, season: Int,
+                           addTarget: DebridProvider) -> String? {
         switch phase {
         case .idle:
             return nil
         case .checking:
             return "Checking for a full\u{2011}season version\u{2026}"
         case .adding:
-            return "Adding to Real\u{2011}Debrid\u{2026}"
+            return "Adding to \(addTarget.displayName)\u{2026}"
         case .downloading(let status):
             var line = "Downloading season \(season) \u{00B7} \(DownloadProgressText.percent(status.fraction))"
             if let remaining = DownloadProgressText.remaining(status.secondsRemaining) {

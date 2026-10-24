@@ -15,6 +15,8 @@ struct SessionAddService: AddProviding {
         guard let service = await current() else { throw SessionServiceError.signedOut }
         return try await service.add(infoHash: infoHash)
     }
+
+    func target() async -> DebridProvider? { await current()?.target() }
 }
 
 /// The session's stream source, resolved on every call — so search asks the cache of the account

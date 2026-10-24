@@ -152,7 +152,7 @@ struct DetailScreen: View {
                 Button("Remove", role: .destructive) { performRemove() }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("This deletes it from your Real\u{2011}Debrid account. You can re\u{2011}add it later by searching.")
+                Text("This deletes it from \(DebridCopy.accounts(DebridCopy.providers(of: store.item))). You can re\u{2011}add it later by searching.")
             }
             .alert("Couldn\u{2019}t Remove", isPresented: Binding(
                 get: { removeError != nil }, set: { if !$0 { removeError = nil } })) {

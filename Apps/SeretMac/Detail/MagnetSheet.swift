@@ -12,6 +12,8 @@ import SwiftUI
 struct MagnetSheet: View {
     let model: MagnetAddModel
     let title: String
+    /// Where the download goes — the account the copy names. Passed in like the model.
+    let addTarget: DebridProvider
     /// Called once `submit()` lands in `.submitted` — the caller dismisses and shows the toast.
     let onDone: () -> Void
     /// Harness-only: seeds the text field (and validates it) so a screenshot doesn't have to type.
@@ -21,15 +23,17 @@ struct MagnetSheet: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var text: String
 
-    init(model: MagnetAddModel, title: String, onDone: @escaping () -> Void, initialText: String = "") {
-        self.model = model; self.title = title; self.onDone = onDone; self.initialText = initialText
+    init(model: MagnetAddModel, title: String, addTarget: DebridProvider = .realDebrid,
+         onDone: @escaping () -> Void, initialText: String = "") {
+        self.model = model; self.title = title; self.addTarget = addTarget
+        self.onDone = onDone; self.initialText = initialText
         _text = State(initialValue: initialText)
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             header
-            Text("Paste a magnet link or an info\u{2011}hash. Real\u{2011}Debrid downloads it and it joins this title.")
+            Text("Paste a magnet link or an info\u{2011}hash. \(addTarget.displayName) downloads it and it joins this title.")
                 .font(.system(size: 12))
                 .foregroundStyle(Theme.Palette.textSecondary)
             editor

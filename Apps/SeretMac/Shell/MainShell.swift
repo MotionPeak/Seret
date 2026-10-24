@@ -217,8 +217,8 @@ private extension View {
                    presenting: model.pendingRemoval) { item in
                 Button("Remove", role: .destructive) { confirmRemoval(item) }
                 Button("Cancel", role: .cancel) { model.pendingRemoval = nil }
-            } message: { _ in
-                Text("This deletes it from your Real\u{2011}Debrid account.")
+            } message: { item in
+                Text("This deletes it from \(DebridCopy.accounts(DebridCopy.providers(of: item))).")
             }
             .alert("Couldn\u{2019}t Remove",
                    isPresented: Binding(get: { model.removalError != nil },

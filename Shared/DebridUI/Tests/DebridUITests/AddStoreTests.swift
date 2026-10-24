@@ -55,6 +55,15 @@ private final class SlowAdd: AddProviding, @unchecked Sendable {
     }
 }
 
+/// An add that fails, going to a named account.
+private final class TargetedAdd: AddProviding, @unchecked Sendable {
+    let provider: DebridProvider
+    let error: Error
+    init(_ provider: DebridProvider, error: Error) { self.provider = provider; self.error = error }
+    func add(infoHash: String) async throws -> TorrentInfo { throw error }
+    func target() async -> DebridProvider? { provider }
+}
+
 private func cachedStream(_ hash: String, res: String, langs: [String], size: Int) -> CachedStream {
     CachedStream(infoHash: hash, fileIdx: nil, rawTitle: "t",
                  parsed: ParsedRelease(title: "t", resolution: res),
@@ -172,6 +181,23 @@ private func cachedStream(_ hash: String, res: String, langs: [String], size: In
         await s.loadStreams()
         await s.addBest()
         if case .addFailed = s.state {} else { Issue.record("expected addFailed") }
+    }
+
+    /// Adds go to the add target, which may be TorBox: the failure names it, and never shows a
+    /// raw torrent id.
+    @Test func addFailureNamesTheAddTarget() async {
+        let stream = cachedStream("b", res: "1080p", langs: ["fr"], size: 50)
+        let failing = AddStore(imdbID: "tt1", kind: .movie, originalLanguage: "fr",
+                               streamSource: FakeStreamSource(.success([stream])),
+                               add: TargetedAdd(.torBox, error: FakeError.boom))
+        await failing.add(stream: stream)
+        #expect(failing.state == .addFailed("Couldn't add this to TorBox. Try another version."))
+
+        let notInstant = AddStore(imdbID: "tt1", kind: .movie, originalLanguage: "fr",
+                                  streamSource: FakeStreamSource(.success([stream])),
+                                  add: TargetedAdd(.torBox, error: RDAddError.notInstant(torrentID: "tb:7")))
+        await notInstant.add(stream: stream)
+        #expect(notInstant.state == .addFailed("That version isn't instantly available on TorBox."))
     }
 
     // MARK: - Uncached candidates (input to a request-download)

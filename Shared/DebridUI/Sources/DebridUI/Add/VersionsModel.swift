@@ -94,7 +94,7 @@ public final class VersionsModel {
             return .play(request)
         }
         guard let downloadTarget, let downloads else {
-            return .failed("Not signed in to Real\u{2011}Debrid.")
+            return .failed(DebridCopy.notSignedIn)
         }
         await downloads.request(downloadTarget, candidates: [stream])
         if case let .failed(message)? = downloads.status(for: downloadTarget)?.phase {
