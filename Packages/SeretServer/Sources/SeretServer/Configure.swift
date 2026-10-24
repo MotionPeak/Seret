@@ -25,6 +25,9 @@ func configure(_ app: Application, config: ServerConfig) async throws {
         torrents: app.debrid,
         enricher: MetadataEnricher(tmdb: tmdb))
 
+    // Before anything that can throw: a non-Abort error's description must never reach the
+    // browser or the log (it can carry a URL with a key in it).
+    app.middleware.use(InternalErrorRedactingMiddleware())
     let sessions = SessionStore()
     app.middleware.use(AuthMiddleware(password: config.webPassword, sessions: sessions))
     if config.webPassword.isEmpty {

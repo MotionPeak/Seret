@@ -51,7 +51,7 @@ public struct HTTPClient: Sendable {
             // and latched screens into an error or half-loaded state they could not leave.
             if error is CancellationError { throw error }
             if (error as? URLError)?.code == .cancelled { throw CancellationError() }
-            throw HTTPError.transport(String(describing: error))
+            throw HTTPError.transport(Self.transportDescription(error))
         }
         guard let http = response as? HTTPURLResponse else {
             throw HTTPError.transport("Non-HTTP response")
@@ -100,7 +100,7 @@ public struct HTTPClient: Sendable {
             // and latched screens into an error or half-loaded state they could not leave.
             if error is CancellationError { throw error }
             if (error as? URLError)?.code == .cancelled { throw CancellationError() }
-            throw HTTPError.transport(String(describing: error))
+            throw HTTPError.transport(Self.transportDescription(error))
         }
         guard let http = response as? HTTPURLResponse else {
             throw HTTPError.transport("Non-HTTP response")
@@ -145,7 +145,7 @@ public struct HTTPClient: Sendable {
         } catch {
             if error is CancellationError { throw error }
             if (error as? URLError)?.code == .cancelled { throw CancellationError() }
-            throw HTTPError.transport(String(describing: error))
+            throw HTTPError.transport(Self.transportDescription(error))
         }
         guard let http = response as? HTTPURLResponse else {
             throw HTTPError.transport("Non-HTTP response")
@@ -180,7 +180,7 @@ public struct HTTPClient: Sendable {
         } catch {
             if error is CancellationError { throw error }
             if (error as? URLError)?.code == .cancelled { throw CancellationError() }
-            throw HTTPError.transport(String(describing: error))
+            throw HTTPError.transport(Self.transportDescription(error))
         }
         guard let http = response as? HTTPURLResponse else {
             throw HTTPError.transport("Non-HTTP response")
@@ -210,7 +210,7 @@ public struct HTTPClient: Sendable {
             // and latched screens into an error or half-loaded state they could not leave.
             if error is CancellationError { throw error }
             if (error as? URLError)?.code == .cancelled { throw CancellationError() }
-            throw HTTPError.transport(String(describing: error))
+            throw HTTPError.transport(Self.transportDescription(error))
         }
         guard let http = response as? HTTPURLResponse else {
             throw HTTPError.transport("Non-HTTP response")
@@ -239,7 +239,7 @@ public struct HTTPClient: Sendable {
             // Cancellation is not a transport failure and must stay recognisable as one.
             if error is CancellationError { throw error }
             if (error as? URLError)?.code == .cancelled { throw CancellationError() }
-            throw HTTPError.transport(String(describing: error))
+            throw HTTPError.transport(Self.transportDescription(error))
         }
         guard let http = response as? HTTPURLResponse else {
             throw HTTPError.transport("Non-HTTP response")
@@ -265,7 +265,7 @@ public struct HTTPClient: Sendable {
             // and latched screens into an error or half-loaded state they could not leave.
             if error is CancellationError { throw error }
             if (error as? URLError)?.code == .cancelled { throw CancellationError() }
-            throw HTTPError.transport(String(describing: error))
+            throw HTTPError.transport(Self.transportDescription(error))
         }
         guard let http = response as? HTTPURLResponse else {
             throw HTTPError.transport("Non-HTTP response")
@@ -274,6 +274,34 @@ public struct HTTPClient: Sendable {
             throw HTTPError.status(code: http.statusCode, body: String(decoding: data, as: UTF8.self))
         }
     }
+
+    /// What a transport failure says about itself, with no URL in it.
+    ///
+    /// `String(describing:)` of a `URLError` carries the failing URL (`NSErrorFailingURLStringKey`),
+    /// and some of our URLs hold a secret in the query: TorBox's `requestdl` takes the account key
+    /// as `token=`, TMDB takes `api_key=`, and an unrestricted link is itself a credential. These
+    /// descriptions reach the stream proxy's always-on log and the server's error responses, so the
+    /// error is reduced to its code and a URL-stripped message here, once, for every caller.
+    static func transportDescription(_ error: any Error) -> String {
+        if let urlError = error as? URLError {
+            var text = "URLError(\(urlError.code.rawValue)): \(redactingURLs(urlError.localizedDescription))"
+            // The network path's state is what tells a denied local-network permission from being
+            // offline (both are -1009); the Letterboxd relay's messages read it. It holds no URL.
+            if let path = urlError.userInfo["_NSURLErrorNWPathKey"] {
+                text += " [\(redactingURLs(String(describing: path)))]"
+            }
+            return text
+        }
+        let ns = error as NSError
+        return "\(ns.domain)(\(ns.code)): \(redactingURLs(ns.localizedDescription))"
+    }
+
+    /// `text` with every `scheme://…` run replaced, so no URL — and no query secret — survives.
+    static func redactingURLs(_ text: String) -> String {
+        text.replacing(urlPattern, with: "<url>")
+    }
+
+    nonisolated(unsafe) private static let urlPattern = #/[A-Za-z][A-Za-z0-9+.\-]*://[^\s"'<>()\[\]{},;]+/#
 
     /// `application/x-www-form-urlencoded` body builder. Percent-encodes keys and values.
     public static func encodeForm(_ form: [String: String]) -> String {

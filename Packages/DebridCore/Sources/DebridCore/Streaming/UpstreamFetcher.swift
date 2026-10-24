@@ -81,7 +81,8 @@ final class UpstreamFetcher: NSObject, URLSessionDataDelegate, @unchecked Sendab
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         lock.lock(); let wasCancelled = cancelled; lock.unlock()
         let failure: StreamError? = (error == nil || wasCancelled) ? nil
-            : .transport((error as NSError?)?.localizedDescription ?? "unknown")
+            // The stream URL is a credential; the proxy logs this, so it never names the URL.
+            : .transport(error.map(HTTPClient.transportDescription) ?? "unknown")
         continuation.yield(.finished(failure))
         continuation.finish()
         session.finishTasksAndInvalidate()
