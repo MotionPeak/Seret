@@ -292,5 +292,135 @@ extension MockTests {
             }
             #expect(Set(try await svc.refresh().compactMap(\.tmdbID)) == [111, 222, 333])
         }
+
+
+        // MARK: - Two accounts: one answering, one not
+
+        private func service(_ client: any DebridClient, directory: URL) -> LibraryService {
+            let http = HTTPClient(session: .mock)
+            return LibraryService(
+                torrents: client,
+                builder: LibraryBuilder(),
+                enricher: MetadataEnricher(tmdb: TMDBClient(apiKey: "K", http: http)),
+                store: LibrarySnapshotStore(directory: directory))
+        }
+
+        /// TMDB answers by title: Alpha 111, Beta 222, Gamma 333.
+        private static func installTMDB() {
+            MockURLProtocol.handler = { req in
+                let url = req.url!.absoluteString
+                if url.contains("query=Beta") { return Self.resp(req, 200, Self.tmdbJSON(id: 222, title: "Beta")) }
+                if url.contains("query=Gamma") { return Self.resp(req, 200, Self.tmdbJSON(id: 333, title: "Gamma")) }
+                if url.contains("/search/movie") { return Self.resp(req, 200, Self.tmdbJSON(id: 111, title: "Alpha")) }
+                return Self.resp(req, 200, #"{"results":[]}"#)
+            }
+        }
+
+        private static let rdAlpha = FakeDebridClient.torrent("R1", provider: .realDebrid, filename: "Alpha.2024.1080p.mkv")
+        private static let tbBeta = FakeDebridClient.torrent("tb:1", provider: .torBox, filename: "Beta.2024.1080p.mkv")
+        private static let tbGamma = FakeDebridClient.torrent("tb:2", provider: .torBox, filename: "Gamma.2024.1080p.mkv")
+
+        private func both(rd: [Torrent], rdFailing: Bool = false, tb: [Torrent],
+                          log: FakeDebridCallLog = FakeDebridCallLog()) -> CompositeDebridClient {
+            CompositeDebridClient(
+                clients: [FakeDebridClient(provider: .realDebrid, listed: rd, failing: rdFailing, log: log),
+                          FakeDebridClient(provider: .torBox, listed: tb, log: log)],
+                addTarget: .realDebrid)
+        }
+
+        /// The whole reason `listTorrents` names unavailable accounts: an RD blip during a refresh
+        /// must not delete every RD title while TorBox's stay — and TorBox's new title still lands.
+        @Test func refreshKeepsUnavailableProvidersTitles() async throws {
+            Self.installTMDB()
+            let dir = tempDir()
+            let first = try await service(both(rd: [Self.rdAlpha], tb: [Self.tbBeta]), directory: dir).refresh()
+            #expect(Set(first.compactMap(\.tmdbID)) == [111, 222])
+
+            // RD is down; TorBox answers with its movie plus a new one.
+            let log = FakeDebridCallLog()
+            let duringOutage = try await service(
+                both(rd: [Self.rdAlpha], rdFailing: true, tb: [Self.tbBeta, Self.tbGamma], log: log),
+                directory: dir).refresh()
+            #expect(Set(duringOutage.compactMap(\.tmdbID)) == [111, 222, 333])
+            let snapshot = try #require(LibrarySnapshotStore(directory: dir).load())
+            #expect(snapshot.seenTorrentIDs.contains("R1"))
+            #expect(snapshot.seenTorrentStates?.contains("R1:downloaded") == true)
+            // Only listed torrents are ever looked up: the down account is never asked for infos.
+            #expect(!log.all.contains { $0.hasPrefix("realDebrid.allTorrentInfos") })
+
+            // RD is back and nothing changed: the cheap path, no lookups at all.
+            let recoveredLog = FakeDebridCallLog()
+            let recovered = try await service(
+                both(rd: [Self.rdAlpha], tb: [Self.tbBeta, Self.tbGamma], log: recoveredLog),
+                directory: dir).refresh()
+            #expect(Set(recovered.compactMap(\.tmdbID)) == [111, 222, 333])
+            #expect(!recoveredLog.all.contains { $0.contains("allTorrentInfos") })
+        }
+
+        /// Signing out is not an outage: an account that is simply not in the composite is not
+        /// "unavailable", so its titles leave the library the way deleted torrents do.
+        @Test func refreshDropsSignedOutProvidersTitles() async throws {
+            Self.installTMDB()
+            let dir = tempDir()
+            _ = try await service(both(rd: [Self.rdAlpha], tb: [Self.tbBeta]), directory: dir).refresh()
+
+            let torBoxOnly = CompositeDebridClient(
+                clients: [FakeDebridClient(provider: .torBox, listed: [Self.tbBeta])], addTarget: .torBox)
+            let after = try await service(torBoxOnly, directory: dir).refresh()
+            #expect(after.compactMap(\.tmdbID) == [222])
+            let snapshot = try #require(LibrarySnapshotStore(directory: dir).load())
+            #expect(!snapshot.seenTorrentIDs.contains("R1"))
+        }
+
+        /// One film with a version on each account. Deleting the TorBox version while RD is down
+        /// must not rebuild the film from TorBox alone: that dropped the RD version, and because
+        /// RD's ids were carried as unchanged, no later refresh ever brought it back.
+        @Test func refreshKeepsATitleSplitAcrossProvidersWhileOneIsUnavailable() async throws {
+            Self.installTMDB()
+            let dir = tempDir()
+            let tbAlpha4K = FakeDebridClient.torrent("tb:9", provider: .torBox, filename: "Alpha.2024.2160p.mkv")
+            let first = try await service(both(rd: [Self.rdAlpha], tb: [tbAlpha4K]), directory: dir).refresh()
+            #expect(first.count == 1)
+            #expect(Set(first[0].sources.map(\.torrentID)) == ["R1", "tb:9"])
+
+            // RD down, and the TorBox version deleted meanwhile: the film stays whole for now.
+            let duringOutage = try await service(both(rd: [Self.rdAlpha], rdFailing: true, tb: []),
+                                                 directory: dir).refresh()
+            #expect(duringOutage.count == 1)
+            #expect(Set(duringOutage.first?.sources.map(\.torrentID) ?? []) == ["R1", "tb:9"])
+
+            // Still down, and TorBox gains a title: that refresh does real work, and the film must
+            // survive it too (its deleted TorBox version still has to register as gone).
+            let stillDown = try await service(both(rd: [Self.rdAlpha], rdFailing: true, tb: [Self.tbGamma]),
+                                              directory: dir).refresh()
+            #expect(Set(stillDown.compactMap(\.tmdbID)) == [111, 333])
+            let film = stillDown.first { $0.tmdbID == 111 }
+            #expect(Set(film?.sources.map(\.torrentID) ?? []) == ["R1", "tb:9"])
+
+            // RD back: now the deletion is applied, and the RD version is still there.
+            let recovered = try await service(both(rd: [Self.rdAlpha], tb: []), directory: dir).refresh()
+            #expect(recovered.count == 1)
+            #expect(recovered.first?.tmdbID == 111)
+            #expect(recovered.first?.sources.map(\.torrentID) == ["R1"])
+        }
+
+        /// A recorded state is `id:status`, and a TorBox id has a colon of its own (`tb:1`).
+        /// Removing a TorBox title must drop its state, not just its id.
+        @Test func removingATorBoxTitleDropsItsRecordedState() async throws {
+            Self.installTMDB()
+            let dir = tempDir()
+            let torBox = CompositeDebridClient(
+                clients: [FakeDebridClient(provider: .torBox, listed: [Self.tbBeta, Self.tbGamma])],
+                addTarget: .torBox)
+            let svc = service(torBox, directory: dir)
+            let library = try await svc.refresh()
+            let beta = try #require(library.first { $0.tmdbID == 222 })
+
+            try await svc.remove(beta)
+
+            let snapshot = try #require(LibrarySnapshotStore(directory: dir).load())
+            #expect(snapshot.seenTorrentIDs.sorted() == ["tb:2"])
+            #expect(snapshot.seenTorrentStates?.sorted() == ["tb:2:downloaded"])
+        }
     }
 }

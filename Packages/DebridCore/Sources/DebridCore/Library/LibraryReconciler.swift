@@ -54,6 +54,14 @@ public struct LibraryReconciler: Sendable {
     /// pending download into a playable title.
     public static func state(of torrent: Torrent) -> String { "\(torrent.id):\(torrent.status)" }
 
+    /// The torrent id a recorded `id:status` belongs to. Split at the LAST colon: a status never
+    /// holds one, but a TorBox id does (`tb:42`), so splitting at the first colon read every TorBox
+    /// state as belonging to a torrent called `tb`.
+    static func torrentID(ofState state: String) -> String {
+        guard let colon = state.lastIndex(of: ":") else { return state }
+        return String(state[..<colon])
+    }
+
     /// Every torrent's `id:status`, as a set.
     public static func states(of torrents: [Torrent]) -> Set<String> {
         Set(torrents.map(state(of:)))

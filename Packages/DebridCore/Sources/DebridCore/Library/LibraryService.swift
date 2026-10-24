@@ -3,14 +3,14 @@ import Foundation
 /// The brain's top-level library API: load the cached library instantly (offline-capable),
 /// and refresh it against Real-Debrid incrementally — only genuinely-new content costs a TMDB call.
 public struct LibraryService: Sendable {
-    private let torrents: TorrentsClient
+    private let torrents: any DebridClient
     private let builder: LibraryBuilder
     private let enricher: MetadataEnricher
     private let store: LibrarySnapshotStore
     private let reconciler: LibraryReconciler
     private let merger = LibraryMerger()
 
-    public init(torrents: TorrentsClient, builder: LibraryBuilder,
+    public init(torrents: any DebridClient, builder: LibraryBuilder,
                 enricher: MetadataEnricher, store: LibrarySnapshotStore,
                 reconciler: LibraryReconciler = LibraryReconciler()) {
         self.torrents = torrents
@@ -28,16 +28,36 @@ public struct LibraryService: Sendable {
         return merger.merge(items)
     }
 
-    /// Reconcile the cache against RD. Cheap when nothing changed (one torrent-list call); on a
-    /// delta, re-groups and enriches only new items, then persists. Throws on RD/network failure
-    /// (the caller keeps showing `loadCached()`).
+    /// Reconcile the cache against the debrid account(s). Cheap when nothing changed (one
+    /// torrent-list call); on a delta, re-groups and enriches only new items, then persists. Throws
+    /// on a network failure of every account (the caller keeps showing `loadCached()`).
+    ///
+    /// When some accounts answer and others don't (`TorrentListing.unavailable`), the torrents last
+    /// recorded for an unavailable account count as still there and unchanged: their titles stay,
+    /// their ids stay recorded, and nothing of theirs is looked up. Without that an RD blip would
+    /// delete every RD title while TorBox's stayed. An account that is simply not signed in is not
+    /// "unavailable" — its torrents are gone, and so are its titles.
     @discardableResult
     public func refresh() async throws -> [MediaItem] {
         let snapshot = store.load()
         let cached = snapshot?.items ?? []
         let seen = snapshot?.seenTorrentStates.map(Set.init)
-        let rdTorrents = try await torrents.allTorrents()
-        let rdTorrentStates = LibraryReconciler.states(of: rdTorrents)
+        let seenIDs = Set(snapshot?.seenTorrentIDs ?? [])
+        let listing = try await torrents.listTorrents()
+        let rdTorrents = listing.torrents
+        let listedIDs = Set(rdTorrents.map(\.id))
+
+        // What an unavailable account last had, carried as if it had just answered with it.
+        let carriedIDs = listing.unavailable.isEmpty ? [] : seenIDs
+            .filter { listing.unavailable.contains(DebridProvider.of(torrentID: $0)) }
+            .subtracting(listedIDs)
+        let carriedStates = (seen ?? []).filter {
+            carriedIDs.contains(LibraryReconciler.torrentID(ofState: $0))
+        }
+        // Every torrent the library may draw from this round: the listed ones and the carried ones.
+        let rdTorrentIDs = listedIDs.union(carriedIDs)
+        let rdTorrentStates = LibraryReconciler.states(of: rdTorrents).union(carriedStates)
+
         // Compare against the persisted seen set (exact), NOT ids derived from items — otherwise a
         // non-video torrent looks "new" forever and re-runs the whole info fan-out every launch.
         // The set is keyed by `id:status`, not id alone: a torrent keeps its id from the moment RD
@@ -48,8 +68,6 @@ public struct LibraryService: Sendable {
         // recorded membership too meant that once RD stopped listing it, the two state sets matched
         // again and this cheap path returned the cache verbatim. The rescued title then sat on the
         // grid indefinitely, and pressing Play unrestricted a link for a torrent RD no longer had.
-        let seenIDs = Set(snapshot?.seenTorrentIDs ?? [])
-        let rdTorrentIDs = Set(rdTorrents.map(\.id))
         guard reconciler.hasDelta(seenTorrentStates: seen, rdTorrentStates: rdTorrentStates)
                 || seenIDs != rdTorrentIDs else {
             return cached
@@ -64,7 +82,8 @@ public struct LibraryService: Sendable {
         // one has nothing left to tell us.
         let changedIDs: Set<String> = {
             // No recorded states means the snapshot predates them: nothing is known to be settled.
-            guard let seen else { return rdTorrentIDs }
+            // A carried torrent is never "changed" — there is no fresh word on it to compare.
+            guard let seen else { return listedIDs }
             return Set(rdTorrents.filter { !seen.contains(LibraryReconciler.state(of: $0)) }.map(\.id))
         }()
         let goneIDs = seenIDs.subtracting(rdTorrentIDs)
@@ -76,9 +95,26 @@ public struct LibraryService: Sendable {
         let dirtyItems = cached.filter {
             !LibraryReconciler.torrentIDs(of: $0).isDisjoint(with: unsettled)
         }
+        // …which is impossible for an item that also draws on an unavailable account: its carried
+        // torrents can't be looked up, so a rebuild would come out without them. One film with a
+        // version on each account lost its RD version that way when the TorBox one was deleted
+        // during an RD outage — and since RD's torrents were carried as unchanged, no later refresh
+        // put it back. Such an item is FROZEN: kept exactly as cached, with none of its torrents
+        // looked up or recorded as settled, so the first refresh with every account answering
+        // rebuilds it properly.
+        let frozenItems = dirtyItems.filter {
+            !LibraryReconciler.torrentIDs(of: $0).isDisjoint(with: carriedIDs)
+        }
+        let frozenIDs = frozenItems.reduce(into: Set<String>()) {
+            $0.formUnion(LibraryReconciler.torrentIDs(of: $1))
+        }
+        let rebuiltItems = dirtyItems.filter {
+            LibraryReconciler.torrentIDs(of: $0).isDisjoint(with: carriedIDs)
+        }
         let dirtyIDs = changedIDs
-            .union(dirtyItems.flatMap { LibraryReconciler.torrentIDs(of: $0) })
-            .intersection(rdTorrentIDs)          // never ask about one RD no longer has
+            .union(rebuiltItems.flatMap { LibraryReconciler.torrentIDs(of: $0) })
+            .intersection(listedIDs)             // never ask about one no account lists
+            .subtracting(frozenIDs)
 
         let fetchList = rdTorrents.filter { dirtyIDs.contains($0.id) }
         let infos = try await torrents.allTorrentInfos(from: fetchList)
@@ -136,7 +172,7 @@ public struct LibraryService: Sendable {
         // would reconsider it: a transient 5xx erased a title permanently. Carry it over untouched.
         // Only when RD still lists every one of its torrents: a partly-deleted item must take the
         // rebuild, or the delete would be undone.
-        let rescued = dirtyItems.filter { item in
+        let rescued = rebuiltItems.filter { item in
             let ids = LibraryReconciler.torrentIDs(of: item)
             return !ids.isEmpty
                 && ids.allSatisfy(rdTorrentIDs.contains)
@@ -153,20 +189,25 @@ public struct LibraryService: Sendable {
         // Sorted the way `LibraryBuilder.group` sorts, because the grid shows this order directly.
         // Concatenating "the changed ones, then the rest" made a title jump to the front the moment
         // anything about it changed, and left the order drifting after every refresh.
-        let library = Self.inDisplayOrder(merger.merge(assembled + untouched + retried + rescued))
+        let library = Self.inDisplayOrder(merger.merge(assembled + untouched + retried + rescued + frozenItems))
 
         // A torrent counts as settled when we resolved it this round, or when we deliberately did
         // not ask about it because nothing had changed. An UNRESOLVED one is left out of the STATES,
         // so the next refresh sees a delta and retries it instead of recording a failure as a known
         // state — but it stays in the recorded membership, which is what lets its later
         // disappearance from RD register at all.
-        let settledIDs = resolved.union(rdTorrentIDs.subtracting(dirtyIDs))
+        //
+        // A carried torrent keeps the state it was last seen in, and a frozen item's torrents are
+        // left out of the states (retried next time) but kept in the membership — even one that is
+        // gone, so its deletion still registers once the item can be rebuilt.
+        let settledIDs = resolved.union(listedIDs.subtracting(dirtyIDs).subtracting(frozenIDs))
         let persistedStates = LibraryReconciler.states(of: rdTorrents.filter { settledIDs.contains($0.id) })
+            .union(carriedStates.filter { !frozenIDs.contains(LibraryReconciler.torrentID(ofState: $0)) })
 
         // Best-effort: a cache-write failure (e.g. a sandbox/storage hiccup) must NEVER fail the
         // refresh — the freshly-built library still displays, it just won't be cached this time.
         try? store.save(LibrarySnapshot(items: library,
-                                        seenTorrentIDs: Array(rdTorrentIDs),
+                                        seenTorrentIDs: Array(rdTorrentIDs.union(frozenIDs)),
                                         seenTorrentStates: Array(persistedStates)))
         return library
     }
@@ -249,7 +290,7 @@ public struct LibraryService: Sendable {
     /// older snapshot still forces exactly one delta rather than silently claiming a clean state.
     private static func droppingStates(_ deleted: Set<String>, from seen: [String]?) -> [String]? {
         seen.map { states in
-            states.filter { !deleted.contains($0.split(separator: ":").first.map(String.init) ?? $0) }
+            states.filter { !deleted.contains(LibraryReconciler.torrentID(ofState: $0)) }
         }
     }
 
