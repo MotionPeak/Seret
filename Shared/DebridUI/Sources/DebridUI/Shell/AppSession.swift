@@ -208,6 +208,12 @@ public final class AppSession {
     /// source, add and download services) and skips the SwiftData containers, notification
     /// permission and TMDB stack, which a unit test cannot build safely.
     private let composesFullStack: Bool
+    /// Test seam, used only when `composesFullStack` is false: builds the library over the
+    /// composite, so a test can see that a rebuilt stack's library is loaded.
+    private let libraryForTest: (@MainActor (any DebridClient) -> any LibraryProviding)?
+
+    /// The load a rebuild starts for its new library (see `rebuildSignedIn`). Exposed for tests.
+    private(set) var rebuildLoad: Task<Void, Never>?
 
     /// The profile, My List, version-preference and watch stores, which all share ONE CloudKit-
     /// backed container. Held so a rebuild after an account change reuses them instead of opening
@@ -230,11 +236,13 @@ public final class AppSession {
     }
 
     init(realDebrid: RealDebridSession, torBox: TorBoxSession, defaults: UserDefaults,
-         composesFullStack: Bool) {
+         composesFullStack: Bool,
+         libraryForTest: (@MainActor (any DebridClient) -> any LibraryProviding)? = nil) {
         self.realDebrid = realDebrid
         self.torBox = torBox
         self.defaults = defaults
         self.composesFullStack = composesFullStack
+        self.libraryForTest = libraryForTest
         self.storedAddTarget = defaults.string(forKey: Self.addTargetKey).flatMap(DebridProvider.init(rawValue:))
         self.accounts = Self.accountStates(signedIn: [])
     }
@@ -330,9 +338,19 @@ public final class AppSession {
 
     /// The signed-in accounts changed while signed in: compose the stack again over the accounts
     /// there are now. State stays `.signedIn` throughout, so the screens never see a sign-in flash.
+    ///
+    /// The session loads the new library itself. Nothing remounts — and every screen's load task is
+    /// keyed on something a fresh store repeats (`attempt` starts at 0 again) or not keyed at all —
+    /// so left to the views, the rebuilt library was never asked and showed skeletons forever.
+    /// Stores own loads; views only join them (`LibraryStore.load()` joins a running load).
     private func rebuildSignedIn() {
         tearDownSignedInStack(keepingProfiles: true)
         composeSignedIn()
+        let library = libraryStore
+        rebuildLoad = Task { @MainActor [weak self] in
+            await library?.load()
+            await self?.rebuildHome()
+        }
     }
 
     /// Drops everything the signed-in stack built.
@@ -360,6 +378,9 @@ public final class AppSession {
         homePicks = nil
         homePicksUsername = nil
         watchlistSynced = nil
+        // Retired before it is dropped: its poll loop holds it alive through the current interval,
+        // and one more poll of the old monitor would announce a download "ready" twice.
+        downloadStore?.stop()
         debrid = nil
         debridClients = []
         linkCache = nil
@@ -613,6 +634,7 @@ public final class AppSession {
             return url
         }
         guard composesFullStack else {
+            libraryStore = libraryForTest.map { LibraryStore(library: $0(debrid)) }
             state = .signedIn
             return
         }
@@ -759,9 +781,9 @@ public final class AppSession {
         // Profiles: ensure an owner profile exists (migrating Phase-1 progress), resolve this
         // device's selection (solo → auto-select; multiple → Who's-Watching gate), and scope Home.
         if rebuildingWithProfiles {
-            // The same profile store, already resolved: scope the rebuilt Home at once.
+            // The same profile store, already resolved: scope the rebuilt Home at once. Its rails
+            // are rebuilt once the new library has loaded (`rebuildSignedIn`).
             home?.activeProfileID = activeProfileID
-            Task { @MainActor in await self.rebuildHome() }
         } else if let profileStore {
             let profiles = ActiveProfileStore(provider: profileStore)
             activeProfiles = profiles
@@ -1108,28 +1130,40 @@ public final class AppSession {
     public func makeAddStore(imdbID: String, kind: StreamQuery.Kind,
                              originalLanguage: String?,
                              subtitleTarget: SubtitleTarget? = nil) -> AddStore? {
-        guard let streamSource, let addService else { return nil }
+        guard streamSource != nil, addService != nil else { return nil }
         return AddStore(imdbID: imdbID, kind: kind, originalLanguage: originalLanguage,
-                        streamSource: streamSource, add: addService,
+                        streamSource: vendedStreamSource, add: vendedAddService,
                         subtitleEvidence: subtitleEvidence, subtitleTarget: subtitleTarget)
     }
 
     /// Vend a whole-season download engine (nil while signed out / Stage 2 unavailable). Used by the
     /// library show page to grab the best full-season pack for `season`, caching every episode at once.
     public func makeSeasonDownload(imdbID: String, season: Int, originalLanguage: String?) -> AddStore? {
-        guard let streamSource, let addService else { return nil }
+        guard streamSource != nil, addService != nil else { return nil }
         return AddStore(imdbID: imdbID, kind: .series(season: season, episode: 1),
-                        originalLanguage: originalLanguage, streamSource: streamSource,
-                        add: addService, seasonPack: season)
+                        originalLanguage: originalLanguage, streamSource: vendedStreamSource,
+                        add: vendedAddService, seasonPack: season)
     }
 
     /// Vend the Add-flow orchestrator for a picked search hit (nil while signed out). It
     /// resolves the title's TMDB details, then drives the per-target `AddStore` itself.
     public func makeAddFlow(for hit: SearchHit) -> AddFlowStore? {
-        guard let detailsProvider, let streamSource, let addService else { return nil }
+        guard let detailsProvider, streamSource != nil, addService != nil else { return nil }
         return AddFlowStore(hit: hit, details: detailsProvider,
-                            streamSource: streamSource, add: addService,
+                            streamSource: vendedStreamSource, add: vendedAddService,
                             subtitleEvidence: subtitleEvidence)
+    }
+
+    /// The add service a vended Add screen holds: it resolves the session's CURRENT one on every
+    /// add, so a screen left open across an add-target change or `signOut(of:)` adds to the right
+    /// account (or fails as signed out) instead of the one it was opened with.
+    var vendedAddService: SessionAddService {
+        SessionAddService { [weak self] in await self?.addService }
+    }
+
+    /// The stream source a vended Add screen holds, resolved per search. See `vendedAddService`.
+    var vendedStreamSource: SessionStreamSource {
+        SessionStreamSource { [weak self] in await self?.streamSource }
     }
 
     /// The acquire-and-play engine for one title — what makes Play work on something you have not

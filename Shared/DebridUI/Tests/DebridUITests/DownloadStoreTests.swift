@@ -342,6 +342,20 @@ private final class SteppingLibrary: LibraryProviding, @unchecked Sendable {
         #expect(s.status(forContentKey: DownloadKey.movie(tmdbID: 9))?.phase == .downloading)
     }
 
+    /// An account change replaces the whole download stack. The old store must not answer one more
+    /// poll from the old monitor — that would announce a download "ready" a second time next to
+    /// the new store's announcement.
+    @Test func aStoppedStoreAppliesNoFurtherPolls() async {
+        var readyCount = 0
+        let poller = FakePoller([[DownloadStatus(torrentID: "TID", contentKey: DownloadKey.movie(tmdbID: 5),
+                                                 tmdbID: 5, phase: .ready, fraction: 1)]])
+        let s = make(poller: poller, onReady: { _ in readyCount += 1 })
+        s.stop()
+        await s.refresh()
+        #expect(readyCount == 0)
+        #expect(s.status(forContentKey: DownloadKey.movie(tmdbID: 5)) == nil)
+    }
+
     @Test func refreshReadyFiresOnReadyAndClearsBadge() async {
         var readyFor: Int?
         let poller = FakePoller([[DownloadStatus(torrentID: "TID", contentKey: DownloadKey.movie(tmdbID: 5), tmdbID: 5, phase: .ready, fraction: 1)]])

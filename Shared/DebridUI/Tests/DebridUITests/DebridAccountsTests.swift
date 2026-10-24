@@ -88,11 +88,20 @@ import DebridCore
 
 /// `AppSession`'s account bookkeeping, driven through the thin `composesFullStack: false` seam:
 /// the debrid composition (clients, composite, stream source, add + download services) is real,
-/// but the SwiftData containers, notification permission and TMDB stack that a full sign-in
-/// builds are skipped — they would write into the test runner's real Application Support and
-/// `UNUserNotificationCenter` traps outside an app bundle.
+/// and the library is a recording fake built over the real composite, but the SwiftData
+/// containers, notification permission and TMDB stack that a full sign-in builds are skipped —
+/// they would write into the test runner's real Application Support and `UNUserNotificationCenter`
+/// traps outside an app bundle.
+///
+/// A class so `deinit` can drop each test's throwaway `UserDefaults` domain.
 @MainActor
-@Suite struct AppSessionAccountsTests {
+@Suite final class AppSessionAccountsTests {
+    private let suiteName = "AppSessionAccountsTests.\(UUID().uuidString)"
+    /// Every library the session built, in order, with the providers its composite held.
+    private var libraries: [(library: RecordingLibrary, providers: [DebridProvider])] = []
+
+    deinit { UserDefaults().removePersistentDomain(forName: suiteName) }
+
     private func makeSession(rd rdToken: String?, torBox tbKey: String?,
                              storedTarget: DebridProvider? = nil) async throws
         -> (AppSession, RealDebridSession, TorBoxSession) {
@@ -100,10 +109,67 @@ import DebridCore
         if let rdToken { try await rd.establishStaticToken(rdToken) }
         let tb = TorBoxSession(store: InMemorySecretStore())
         if let tbKey { try await tb.establish(key: tbKey) }
-        let defaults = try #require(UserDefaults(suiteName: "AppSessionAccountsTests.\(UUID().uuidString)"))
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
         if let storedTarget { defaults.set(storedTarget.rawValue, forKey: "debrid.addTarget") }
-        let session = AppSession(realDebrid: rd, torBox: tb, defaults: defaults, composesFullStack: false)
+        let session = AppSession(realDebrid: rd, torBox: tb, defaults: defaults, composesFullStack: false,
+                                 libraryForTest: { [weak self] debrid in
+                                     let library = RecordingLibrary()
+                                     let providers = (debrid as? CompositeDebridClient)?.providers ?? []
+                                     self?.libraries.append((library, providers))
+                                     return library
+                                 })
         return (session, rd, tb)
+    }
+
+    /// Nothing remounts on a rebuild — state stays `.signedIn` and every screen's load task is keyed
+    /// on something that does not change — so the session must load the rebuilt library itself,
+    /// or the viewer is left looking at skeletons.
+    @Test func aRebuildLoadsTheNewLibrary() async throws {
+        let (session, _, _) = try await makeSession(rd: "rd-token", torBox: "tb-key")
+        await session.resolve()
+        #expect(libraries.count == 1)
+
+        await session.signOut(of: .realDebrid)
+        await session.rebuildLoad?.value
+
+        #expect(libraries.count == 2)
+        #expect(libraries.last?.providers == [.torBox])
+        #expect(libraries.last?.library.refreshes == 1)
+        #expect(session.libraryStore?.state == .empty)   // answered, not stuck on .loading
+    }
+
+    /// Adding a second account rebuilds too.
+    @Test func signingInToASecondAccountLoadsTheNewLibrary() async throws {
+        let (session, _, tb) = try await makeSession(rd: "rd-token", torBox: nil)
+        await session.resolve()
+        try await tb.establish(key: "tb-key")
+
+        session.markSignedIn(.torBox)
+        await session.rebuildLoad?.value
+
+        #expect(libraries.last?.providers == [.realDebrid, .torBox])
+        #expect(libraries.last?.library.refreshes == 1)
+    }
+
+    /// An Add page left open (tvOS keeps one alive in Find's stack) while Settings changes the
+    /// target must add to the NEW target, so the vended services resolve the session's current
+    /// ones on every call.
+    @Test func vendedAddServicesFollowTheCurrentTarget() async throws {
+        let (session, _, _) = try await makeSession(rd: "rd-token", torBox: "tb-key")
+        await session.resolve()
+        let add = session.vendedAddService
+        let search = session.vendedStreamSource
+        #expect((await add.current() as? DebridAddService)?.client.provider == .realDebrid)
+        #expect(await search.current() is AggregateStreamSource)
+
+        session.addTarget = .torBox
+
+        #expect((await add.current() as? DebridAddService)?.client.provider == .torBox)
+        #expect(await search.current() is TorBoxCachedStreamSource)
+
+        await session.signOut()
+        #expect(await add.current() == nil)
+        #expect(await search.current() == nil)
     }
 
     @Test func signOutOfOneKeepsTheOther() async throws {
@@ -183,4 +249,18 @@ import DebridCore
         #expect(await !tb.isSignedIn)
         await #expect(throws: RealDebridSessionError.self) { _ = try await rd.validAccessToken() }
     }
+}
+
+/// Records refreshes; answers with nothing.
+private final class RecordingLibrary: LibraryProviding, @unchecked Sendable {
+    private let lock = NSLock()
+    private var _refreshes = 0
+    var refreshes: Int { lock.withLock { _refreshes } }
+    func loadCached() -> [MediaItem]? { nil }
+    func refresh() async throws -> [MediaItem] {
+        lock.withLock { _refreshes += 1 }
+        return []
+    }
+    func remove(_ item: MediaItem) async throws {}
+    func removeVersion(_ item: MediaItem, source: MediaSource) async throws {}
 }

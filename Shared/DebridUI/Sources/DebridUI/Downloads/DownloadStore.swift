@@ -47,6 +47,8 @@ public final class DownloadStore {
     private let maxAttempts: Int
     private let pollInterval: Duration
     private var pollTask: Task<Void, Never>?
+    /// Set by `stop()`: this store has been replaced and must not apply another poll.
+    private var stopped = false
     /// Info-hashes Real-Debrid has refused as copyright-flagged (HTTP 451) this session.
     ///
     /// A 451 is a fact about the HASH, not about the moment, so nothing is learned by asking again.
@@ -72,6 +74,15 @@ public final class DownloadStore {
         self.service = service; self.records = records; self.poller = poller; self.deleter = deleter
         self.onReady = onReady; self.pollInterval = pollInterval; self.now = now
         self.maxAttempts = maxAttempts
+    }
+
+    /// Retires this store — the signed-in stack was rebuilt around a new one. Its poll loop is
+    /// cancelled, and a poll already in flight is dropped when it returns, so the old monitor
+    /// cannot announce a download "ready" beside the new store's announcement.
+    public func stop() {
+        stopped = true
+        pollTask?.cancel()
+        pollTask = nil
     }
 
     /// Sends later requests through `service` — the add target changed. The copyright refusals
@@ -233,6 +244,7 @@ public final class DownloadStore {
     public func refresh() async {
         do {
             let results = try await poller.poll()
+            guard !stopped else { return }
             pollBackoff = .zero          // one good poll clears the penalty
             for status in results { await apply(status) }
         } catch {
@@ -275,7 +287,7 @@ public final class DownloadStore {
     }
 
     private func startPolling() {
-        guard pollTask == nil else { return }
+        guard pollTask == nil, !stopped else { return }
         pollTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
