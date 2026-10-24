@@ -20,7 +20,7 @@ struct SignInView: View {
                    back: { showingTokenEntry = false },
                    submitToken: { Task { await model.signInWithToken(tokenText) } },
                    retry: { model.retry() })
-            .task(id: model.attempt) { await model.run() }
+            .task(id: model.taskKey) { await model.run() }
             .sheet(item: $presentedURL) { SafariSheet(url: $0.url) }
     }
 

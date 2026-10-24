@@ -19,6 +19,14 @@ public final class AppSession {
     /// unresolved). Built when *entering* `.signedOut` so the view never creates it
     /// during `body` evaluation.
     public private(set) var signInModel: SignInModel?
+    /// The signed-out screen's models, one per provider, so switching back to a provider finds its
+    /// model (and its cached device code — Real-Debrid throttles `device/code` hard) as it left it.
+    /// Dropped whenever the episode ends: a sign-in lands, or the app signs out.
+    private var signedOutModels: [DebridProvider: SignInModel] = [:]
+    /// The model `beginSignIn(to:)` last vended (Settings → Accounts). Only it can add an account.
+    private var addAccountModel: SignInModel?
+    /// Test seam: substitutes a provider's auth flow so sign-in runs without the network.
+    var signInFlowOverride: ((DebridProvider) -> AuthFlow)?
 
     /// The library store for the current signed-in episode (nil while signed out).
     public private(set) var libraryStore: LibraryStore?
@@ -287,31 +295,68 @@ public final class AppSession {
     /// A sign-in flow for `provider` finished: add it to the signed-in accounts.
     func markSignedIn(_ provider: DebridProvider) {
         accounts[provider] = .signedIn
+        endSignInEpisode(except: provider)
         if state == .signedIn { rebuildSignedIn() } else { enterSignedIn() }
         signInModel = nil
     }
 
+    /// Stops every sign-in model still waiting (the one that just finished is left alone) and
+    /// forgets them all.
+    private func endSignInEpisode(except finished: DebridProvider? = nil) {
+        for (provider, model) in signedOutModels where provider != finished { model.cancel() }
+        signedOutModels = [:]
+        if let addAccountModel, addAccountModel.provider != finished { addAccountModel.cancel() }
+        addAccountModel = nil
+    }
+
     /// A sign-in flow for one more account while signed in — Settings → Accounts' "Sign in".
-    /// On success the signed-in stack is rebuilt with that account in it.
+    /// On success the signed-in stack is rebuilt with that account in it. A newer call supersedes
+    /// the previous model, which stops.
     public func beginSignIn(to provider: DebridProvider) -> SignInModel {
-        makeSignInModel(for: provider)
+        addAccountModel?.cancel()
+        let model = makeSignInModel(for: provider)
+        addAccountModel = model
+        return model
     }
 
     /// The one place a `SignInModel` is built, so every provider's flow lands in `markSignedIn`.
+    /// Only the model on screen (the signed-out one, or the add-account one) may complete a sign-in.
     func makeSignInModel(for provider: DebridProvider) -> SignInModel {
         let flow: AuthFlow
-        switch provider {
-        case .realDebrid: flow = LiveAuthFlow(auth: RealDebridAuthClient(), session: realDebrid)
-        case .torBox: flow = TorBoxAuthFlow(auth: TorBoxAuthClient(), session: torBox)
+        if let override = signInFlowOverride {
+            flow = override(provider)
+        } else {
+            switch provider {
+            case .realDebrid: flow = LiveAuthFlow(auth: RealDebridAuthClient(), session: realDebrid)
+            case .torBox: flow = TorBoxAuthFlow(auth: TorBoxAuthClient(), session: torBox)
+            }
         }
-        return SignInModel(flow: flow, provider: provider, onSignedIn: { [weak self] in self?.markSignedIn(provider) })
+        let box = WeakModel()
+        let model = SignInModel(flow: flow, provider: provider, onSignedIn: { [weak self, box] in
+            guard let self, let model = box.model,
+                  model === self.signInModel || model === self.addAccountModel else { return }
+            self.markSignedIn(provider)
+        })
+        box.model = model
+        return model
     }
 
-    /// The sign-in screen's provider picker: swap the model for one that signs in to `provider`.
-    /// Only meaningful while signed out; a signed-in viewer adds an account through `beginSignIn(to:)`.
+    private final class WeakModel {
+        weak var model: SignInModel?
+    }
+
+    /// The sign-in screen's provider picker: show the model that signs in to `provider`. The model
+    /// on screen stops (its poll ends and it can no longer sign in); the new one is the provider's
+    /// own from this signed-out episode, so Real-Debrid's cached device code survives a look at
+    /// TorBox. Only meaningful while signed out; a signed-in viewer adds an account through
+    /// `beginSignIn(to:)`.
     public func switchSignIn(to provider: DebridProvider) {
-        guard state == .signedOut else { return }
-        signInModel = makeSignInModel(for: provider)
+        guard state == .signedOut, signInModel?.provider != provider else { return }
+        signInModel?.cancel()
+        let model = signedOutModels[provider] ?? makeSignInModel(for: provider)
+        model.activate()
+        signedOutModels[provider] = model
+        signInModel = model
     }
 
     /// Signs out of every account.
@@ -338,7 +383,10 @@ public final class AppSession {
     /// Enter `.signedOut` with a fresh sign-in model for the new episode.
     private func enterSignedOut() {
         guard state != .signedOut else { return }
-        signInModel = makeSignInModel(for: .realDebrid)
+        endSignInEpisode()
+        let model = makeSignInModel(for: .realDebrid)
+        signedOutModels = [.realDebrid: model]
+        signInModel = model
         tearDownSignedInStack(keepingProfiles: false)
         state = .signedOut
     }

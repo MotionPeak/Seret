@@ -222,6 +222,118 @@ import DebridCore
         #expect(session.signInModel?.provider == .realDebrid)
     }
 
+    /// One model per provider while signed out, so Real-Debrid's cached device code survives a
+    /// look at the TorBox screen (RD throttles `device/code` hard).
+    @Test func switchingBackReusesTheModelAndItsDeviceCode() async throws {
+        let (session, _, _) = try await makeSession(rd: nil, torBox: nil)
+        let rdFlow = GatedAuthFlow()
+        session.signInFlowOverride = { $0 == .realDebrid ? rdFlow : GatedAuthFlow() }
+        await session.resolve()
+        let rdModel = try #require(session.signInModel)
+
+        let firstRun = Task { await rdModel.run() }
+        while !rdFlow.waiting { await Task.yield() }
+        session.switchSignIn(to: .torBox)
+        rdFlow.release()                  // the abandoned wait winds down
+        await firstRun.value
+        session.switchSignIn(to: .realDebrid)
+
+        #expect(session.signInModel === rdModel)
+        let secondRun = Task { await session.signInModel?.run() }
+        while !rdFlow.waiting { await Task.yield() }
+        rdFlow.release()
+        await secondRun.value
+        #expect(rdFlow.beginCalls == 1)   // no second device/code request
+    }
+
+    @Test func switchingToTheProviderAlreadyShownIsANoOp() async throws {
+        let (session, _, _) = try await makeSession(rd: nil, torBox: nil)
+        let gate = GatedAuthFlow()
+        session.signInFlowOverride = { _ in gate }
+        await session.resolve()
+        let shown = try #require(session.signInModel)
+        let run = Task { await shown.run() }
+        while !gate.waiting { await Task.yield() }
+
+        session.switchSignIn(to: .realDebrid)       // already on screen
+
+        #expect(session.signInModel === shown)
+        #expect(shown.attempt == 0)
+        gate.release()                              // the wait was NOT cancelled: it still signs in
+        await run.value
+        #expect(shown.phase == .signedIn)
+        #expect(session.accounts[.realDebrid] == .signedIn)
+    }
+
+    @Test func aSupersededModelsLateSuccessDoesNotSignIn() async throws {
+        let (session, _, _) = try await makeSession(rd: nil, torBox: nil)
+        let rdFlow = GatedAuthFlow()
+        session.signInFlowOverride = { $0 == .realDebrid ? rdFlow : GatedAuthFlow() }
+        await session.resolve()
+        let rdModel = try #require(session.signInModel)
+        let run = Task { await rdModel.run() }
+        while !rdFlow.waiting { await Task.yield() }
+
+        session.switchSignIn(to: .torBox)          // the viewer moved to the TorBox screen
+        rdFlow.release()                           // ...then approved the RD code in a browser
+        await run.value
+
+        #expect(session.state == .signedOut)
+        #expect(session.accounts[.realDebrid] == .signedOut)
+        #expect(session.signInModel?.provider == .torBox)
+    }
+
+    /// The session's own guard, independent of the model's cancel: a model that is no longer the
+    /// one on screen cannot sign in even if something re-armed it.
+    @Test func onlyTheCurrentModelCanCompleteASignIn() async throws {
+        let (session, _, _) = try await makeSession(rd: nil, torBox: nil)
+        let rdFlow = GatedAuthFlow()
+        session.signInFlowOverride = { $0 == .realDebrid ? rdFlow : GatedAuthFlow() }
+        await session.resolve()
+        let stale = try #require(session.signInModel)
+        session.switchSignIn(to: .torBox)
+        stale.activate()                            // re-armed, but not on screen
+
+        let run = Task { await stale.run() }
+        while !rdFlow.waiting { await Task.yield() }
+        rdFlow.release()
+        await run.value
+
+        #expect(session.state == .signedOut)
+        #expect(session.accounts[.realDebrid] == .signedOut)
+    }
+
+    @Test func signingInClearsTheSignedOutModels() async throws {
+        let (session, _, tb) = try await makeSession(rd: nil, torBox: nil)
+        session.signInFlowOverride = { _ in FakeAuthFlow() }
+        await session.resolve()
+        let firstRD = try #require(session.signInModel)
+        session.switchSignIn(to: .torBox)
+        try await tb.establish(key: "tb-key")
+        session.markSignedIn(.torBox)
+        await session.rebuildLoad?.value
+        #expect(session.signInModel == nil)
+
+        await session.signOut()
+        #expect(session.state == .signedOut)
+        #expect(session.signInModel?.provider == .realDebrid)
+        #expect(session.signInModel !== firstRD)    // a fresh episode gets fresh models
+    }
+
+    @Test func aNewerAddAccountModelSupersedesTheOlder() async throws {
+        let (session, _, _) = try await makeSession(rd: "rd-token", torBox: nil)
+        let gate = GatedAuthFlow()
+        session.signInFlowOverride = { _ in gate }
+        await session.resolve()
+        let older = session.beginSignIn(to: .torBox)
+        let run = Task { await older.run() }
+        while !gate.waiting { await Task.yield() }
+        _ = session.beginSignIn(to: .torBox)       // the sheet was reopened
+        gate.release()
+        await run.value
+        #expect(session.accounts[.torBox] == .signedOut)
+    }
+
     @Test func switchSignInIsIgnoredWhileSignedIn() async throws {
         let (session, _, _) = try await makeSession(rd: "rd-token", torBox: nil)
         await session.resolve()

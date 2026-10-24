@@ -11,7 +11,7 @@ struct SignInView: View {
         SignInContent(phase: model.phase,
                       onRetry: { model.retry() },
                       onSubmitToken: { token in Task { await model.signInWithToken(token) } })
-            .task(id: model.attempt) { await model.run() }
+            .task(id: model.taskKey) { await model.run() }
     }
 }
 

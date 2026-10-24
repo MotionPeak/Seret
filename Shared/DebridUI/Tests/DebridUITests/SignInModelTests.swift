@@ -39,6 +39,29 @@ final class FakeAuthFlow: AuthFlow {
     }
 }
 
+/// An `AuthFlow` whose `awaitSignIn` waits until `release()`, ignoring cancellation, so a test can
+/// finish a "late" sign-in after the model was cancelled.
+@MainActor
+final class GatedAuthFlow: AuthFlow {
+    private var continuation: CheckedContinuation<Void, Never>?
+    private(set) var beginCalls = 0
+    private(set) var established = false
+    private(set) var waiting = false
+
+    func begin() async throws -> RDDeviceCode { beginCalls += 1; return makeDeviceCode() }
+    func awaitSignIn(_ code: RDDeviceCode) async throws {
+        waiting = true
+        await withCheckedContinuation { continuation = $0 }
+        waiting = false
+        established = true
+    }
+    func signIn(token: String) async throws {
+        await withCheckedContinuation { continuation = $0 }
+        established = true
+    }
+    func release() { continuation?.resume(); continuation = nil }
+}
+
 @MainActor
 @Suite struct SignInModelTests {
     @Test func happyPathReachesSignedIn() async {
@@ -181,5 +204,100 @@ final class FakeAuthFlow: AuthFlow {
         #expect(model.failureMessage(for: TokenSignInError.invalidToken) == "That TorBox API key wasn't accepted.")
         #expect(SignInModel(flow: FakeAuthFlow(), onSignedIn: {}).failureMessage(for: TokenSignInError.invalidToken)
                 == SignInModel.message(for: TokenSignInError.invalidToken))
+    }
+
+    // MARK: - Cancel
+
+    @Test func aCancelledModelNeverSignsInEvenIfTheFlowLateSucceeds() async {
+        var signedIn = 0
+        let gate = GatedAuthFlow()
+        let model = SignInModel(flow: gate, onSignedIn: { signedIn += 1 })
+        let run = Task { await model.run() }
+        while !gate.waiting { await Task.yield() }
+
+        model.cancel()
+        gate.release()          // the flow finishes anyway, as a throttled network call might
+        await run.value
+
+        #expect(signedIn == 0)
+        #expect(model.phase != .signedIn)
+    }
+
+    @Test func aCancelledTokenSignInNeverSignsIn() async {
+        var signedIn = 0
+        let gate = GatedAuthFlow()
+        let model = SignInModel(flow: gate, provider: .torBox, onSignedIn: { signedIn += 1 })
+        let submit = Task { await model.signInWithToken("KEY") }
+        while model.phase != .validatingToken { await Task.yield() }
+
+        model.cancel()
+        gate.release()
+        await submit.value
+
+        #expect(signedIn == 0)
+        #expect(model.phase == .idle)   // not stuck on a spinner when the model is shown again
+    }
+
+    @Test func aCancelledModelCanBeActivatedAndReusesItsCode() async {
+        let gate = GatedAuthFlow()
+        var signedIn = 0
+        let model = SignInModel(flow: gate, onSignedIn: { signedIn += 1 })
+        let first = Task { await model.run() }
+        while !gate.waiting { await Task.yield() }
+        model.cancel()
+        gate.release()
+        await first.value
+        #expect(gate.beginCalls == 1)
+
+        model.activate()
+        let second = Task { await model.run() }
+        while !gate.waiting { await Task.yield() }
+        gate.release()
+        await second.value
+
+        #expect(gate.beginCalls == 1)       // the still-valid code was reused
+        #expect(signedIn == 1)
+    }
+
+    @Test func aCancelledModelDoesNotRun() async {
+        let fake = FakeAuthFlow()
+        let model = SignInModel(flow: fake, onSignedIn: {})
+        model.cancel()
+        await model.run()
+        #expect(fake.beginCalls == 0)
+    }
+
+    // MARK: - Local storage failures
+
+    @Test func aTorBoxKeyThatCannotBeSavedSaysSo() async {
+        let fake = FakeAuthFlow()
+        fake.tokenSignInError = TorBoxSessionError.notSignedIn
+        let model = SignInModel(flow: fake, provider: .torBox, onSignedIn: {})
+        await model.signInWithToken("KEY")
+        #expect(model.phase == .failed("Couldn't save the TorBox key on this device."))
+
+        fake.tokenSignInError = KeychainError.unexpectedStatus(-25308)
+        await model.signInWithToken("KEY")
+        #expect(model.phase == .failed("Couldn't save the TorBox key on this device."))
+    }
+
+    @Test func aTorBoxNetworkFailureStillSaysCouldntReach() async {
+        let fake = FakeAuthFlow()
+        fake.tokenSignInError = HTTPError.transport("offline")
+        let model = SignInModel(flow: fake, provider: .torBox, onSignedIn: {})
+        await model.signInWithToken("KEY")
+        #expect(model.phase == .failed("Couldn't reach TorBox. Check your connection and try again."))
+    }
+
+    /// The views key their `.task` on this; attempt alone left a swapped-in model idle forever.
+    @Test func theTaskKeyDiffersPerModelAndPerAttempt() {
+        let a = SignInModel(flow: FakeAuthFlow(), onSignedIn: {})
+        let b = SignInModel(flow: FakeAuthFlow(), provider: .torBox, onSignedIn: {})
+        #expect(a.attempt == b.attempt)
+        #expect(a.taskKey != b.taskKey)
+        let before = a.taskKey
+        a.retry()
+        #expect(a.taskKey != before)
+        #expect(a.taskKey == a.taskKey)
     }
 }

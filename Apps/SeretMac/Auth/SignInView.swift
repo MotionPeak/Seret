@@ -25,7 +25,7 @@ struct SignInView: View {
                          Task { await model.signInWithToken(token) }
                      })
             .onChange(of: mode) { tokenSubmitted = false }
-            .task(id: model.attempt) { await model.run() }
+            .task(id: model.taskKey) { await model.run() }
             .task { posters = await PosterMosaic.loadPopularPosters() }
     }
 }
