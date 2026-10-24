@@ -1,7 +1,8 @@
 import Foundation
 
 /// The brain's top-level library API: load the cached library instantly (offline-capable),
-/// and refresh it against Real-Debrid incrementally — only genuinely-new content costs a TMDB call.
+/// and refresh it against the debrid account(s) incrementally — only genuinely-new content costs a
+/// TMDB call.
 public struct LibraryService: Sendable {
     private let torrents: any DebridClient
     private let builder: LibraryBuilder

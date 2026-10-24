@@ -4,12 +4,13 @@ import FoundationNetworking   // URLSession lives here on Linux
 #endif
 
 public extension SubtitleEvidenceService {
-    /// The service as the apps and the web build it. Real-Debrid resolves the links it reads;
-    /// OpenSubtitles matching runs only when a key is configured, and needs no account.
+    /// The service as the apps and the web build it. The debrid client resolves the links it reads
+    /// (the composite routes each link to the account that issued it); OpenSubtitles matching runs
+    /// only when a key is configured, and needs no account.
     ///
     /// - Parameter resolved: hears each link resolved for a read, with its playable URL, so Play
     ///   can reuse it instead of paying for a second `unrestrict`.
-    static func live(torrents: TorrentsClient, openSubtitlesKey: String,
+    static func live(torrents: any DebridClient, openSubtitlesKey: String,
                      directory: URL = SubtitleEvidenceService.defaultDirectory,
                      resolved: (@Sendable (String, URL) async -> Void)? = nil) -> SubtitleEvidenceService {
         var search: Search?

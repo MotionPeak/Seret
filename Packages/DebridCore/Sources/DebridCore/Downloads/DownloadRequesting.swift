@@ -1,15 +1,16 @@
 import Foundation
 
-/// Starts a Real-Debrid download for a torrent (by infohash) and returns its initial info.
-/// Unlike the instant-only add, this keeps the torrent so RD downloads it in the background.
+/// Starts a background download for a torrent (by infohash) and returns its initial info.
+/// Unlike the instant-only add, this keeps the torrent so the provider downloads it.
 public protocol DownloadRequesting: Sendable {
     func startDownload(infoHash: String) async throws -> TorrentInfo
 }
 
-public struct RealDebridDownloadService: DownloadRequesting {
-    private let torrents: TorrentsClient
-    public init(torrents: TorrentsClient) { self.torrents = torrents }
+/// Starts downloads on a debrid client — for the composite, on its add target.
+public struct DebridDownloadService: DownloadRequesting {
+    private let client: any DebridClient
+    public init(client: any DebridClient) { self.client = client }
     public func startDownload(infoHash: String) async throws -> TorrentInfo {
-        try await torrents.addForDownload(magnetHash: infoHash)
+        try await client.addForDownload(magnetHash: infoHash)
     }
 }
