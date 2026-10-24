@@ -46,12 +46,17 @@ extension TorBoxClient {
                     sleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
     ) async throws -> TorrentInfo {
         let hash = magnetHash.lowercased()
-        if let existing = try await existingTorrent(hash: hash), existing.status == "downloaded" {
+        let account = try await allTorrents()
+        if let existing = account.first(where: { $0.hash.lowercased() == hash }), existing.status == "downloaded" {
             return try await info(id: existing.id)
         }
 
         let numeric = try await create(hash: hash, onlyIfCached: true)
         let id = TorBoxMapping.torrentID(numeric)
+        // TorBox de-duplicates by hash, so creating can hand back a torrent the account already
+        // had (say, a background download the viewer started earlier). Only a torrent THIS call
+        // added is ours to remove if it never becomes playable.
+        let createdHere = !account.contains { $0.id == id }
         do {
             var current = try await info(id: id)
             var attempts = 0
@@ -67,7 +72,7 @@ extension TorBoxClient {
         } catch {
             // A torrent that never became playable would sit in the account (and in every later
             // refresh). Remove it so the caller can fall back to the next version.
-            try? await deleteTorrent(id: id)
+            if createdHere { try? await deleteTorrent(id: id) }
             throw error
         }
     }
@@ -114,7 +119,9 @@ extension TorBoxClient {
         } catch let TorBoxError.api(code, _, _) where code == "BOZO_TORRENT" || code == "DOWNLOAD_TOO_LARGE" {
             throw RDAddError.failed(status: code, torrentID: "")
         }
-        // A batch answer can list several torrents; take the one for this hash.
+        // A batch answer can list several torrents; take the one for this hash. A single entry is
+        // accepted without checking its hash: we sent exactly one magnet, and some answers omit
+        // `hash` or report it in a different form than we sent.
         let items = created?.items ?? []
         let match = items.count == 1 ? items.first : items.first { $0.hash?.lowercased() == hash }
         guard let id = match?.resolvedID else {

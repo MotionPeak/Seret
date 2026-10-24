@@ -108,7 +108,7 @@ public struct TorBoxClient: DebridClient {
 
     // MARK: - Listing helpers
 
-    func myList(page: Int, limit: Int) async throws -> [TorBoxTorrent] {
+    private func myList(page: Int, limit: Int) async throws -> [TorBoxTorrent] {
         let list: OneOrMany<TorBoxTorrent>? = try await get(
             "torrents/mylist",
             query: [.init(name: "bypass_cache", value: "true"),
@@ -117,7 +117,7 @@ public struct TorBoxClient: DebridClient {
         return list?.items ?? []
     }
 
-    func allMyList(pageSize: Int) async throws -> [TorBoxTorrent] {
+    private func allMyList(pageSize: Int) async throws -> [TorBoxTorrent] {
         precondition(pageSize > 0, "pageSize must be positive")
         var all: [TorBoxTorrent] = []
         var page = 1
@@ -132,7 +132,7 @@ public struct TorBoxClient: DebridClient {
 
     // MARK: - Transport + envelope (the only place either lives)
 
-    func get<T: Decodable>(_ path: String, query: [URLQueryItem]) async throws -> T? {
+    private func get<T: Decodable>(_ path: String, query: [URLQueryItem]) async throws -> T? {
         let url = Self.url("api/\(path)", query: query)
         let headers = try await authHeaders()
         return try await Self.run { try await http.data(url, headers: headers) }
@@ -171,7 +171,7 @@ public struct TorBoxClient: DebridClient {
         return comps.url!
     }
 
-    func authHeaders() async throws -> [String: String] {
+    private func authHeaders() async throws -> [String: String] {
         ["Authorization": "Bearer \(try await tokens.validAccessToken())"]
     }
 
@@ -192,7 +192,7 @@ public struct TorBoxClient: DebridClient {
     }
 
     /// A 200 with `success == false` is still a failure.
-    static func unwrap<T>(_ envelope: TorBoxEnvelope<T>) throws -> T? {
+    private static func unwrap<T>(_ envelope: TorBoxEnvelope<T>) throws -> T? {
         guard envelope.success else {
             throw TorBoxError.api(code: envelope.error ?? "UNKNOWN", detail: envelope.detail ?? "", status: 200)
         }
@@ -202,7 +202,7 @@ public struct TorBoxClient: DebridClient {
     /// Maps a non-2xx answer. A 429 means the key is locked out for about five minutes: report it
     /// and let the caller back off — never retry. `HTTPError.status` carries no headers, so the
     /// `Retry-After` value is not available here.
-    static func error(status: Int, body: String) -> TorBoxError {
+    private static func error(status: Int, body: String) -> TorBoxError {
         if status == 429 { return .rateLimited(retryAfter: nil) }
         let envelope = try? decoder().decode(TorBoxEnvelope<Ignored>.self, from: Data(body.utf8))
         return .api(code: envelope?.error ?? "HTTP_\(status)", detail: envelope?.detail ?? "", status: status)

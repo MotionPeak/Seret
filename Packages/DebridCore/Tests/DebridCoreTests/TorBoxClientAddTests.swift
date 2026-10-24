@@ -181,6 +181,36 @@ extension MockTests {
             #expect(body["operation"] as? String == "delete")
         }
 
+        @Test func addNeverDeletesATorrentTheAccountAlreadyHad() async throws {
+            // A background download the viewer started earlier: same hash, not ready. TorBox
+            // de-duplicates, so createtorrent hands back that very id.
+            let rec = Recorder()
+            let hash = Self.hash.lowercased()
+            let inProgress = Self.torrentJSON(5, hash: hash, ready: false)
+            install(rec: rec, existing: [inProgress], infoAfterCreate: inProgress,
+                    create: Self.ok(#"{"torrent_id":5,"hash":"\#(hash)"}"#))
+            await #expect(throws: RDAddError.notInstant(torrentID: "tb:5")) {
+                _ = try await client().add(magnetHash: Self.hash, maxPollAttempts: 3,
+                                           pollInterval: .zero, sleep: noSleep)
+            }
+            #expect(!rec.requests.contains { $0.url?.path == "/v1/api/torrents/controltorrent" })
+            #expect(creates(rec).count == 1)
+        }
+
+        @Test func addKeepsAnExistingTorrentThatErrors() async throws {
+            let rec = Recorder()
+            let hash = Self.hash.lowercased()
+            let existing = Self.torrentJSON(5, hash: hash, ready: false)
+            let errored = existing.replacingOccurrences(of: "\"downloading\"", with: "\"error\"")
+            install(rec: rec, existing: [existing], infoAfterCreate: errored,
+                    create: Self.ok(#"{"torrent_id":5}"#))
+            await #expect(throws: RDAddError.failed(status: "error", torrentID: "tb:5")) {
+                _ = try await client().add(magnetHash: Self.hash, maxPollAttempts: 3,
+                                           pollInterval: .zero, sleep: noSleep)
+            }
+            #expect(!rec.requests.contains { $0.url?.path == "/v1/api/torrents/controltorrent" })
+        }
+
         @Test func addTerminalErrorStatusDeletesAndFails() async throws {
             let rec = Recorder()
             let errored = Self.torrentJSON(7, ready: false)
