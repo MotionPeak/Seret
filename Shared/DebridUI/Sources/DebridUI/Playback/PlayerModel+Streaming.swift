@@ -61,23 +61,27 @@ extension PlayerModel {
     /// including when RD is only failing for now, which is a reason to reopen, not to give up.
     func streamRefusal() async -> String? {
         guard case .refused(let failure)? = await streamFailure() else { return nil }
-        return Self.refusalMessage(failure)
+        return Self.refusalMessage(failure, provider: currentProvider)
     }
 
-    static func refusalMessage(_ failure: StreamError) -> String {
+    /// In the terms of the provider the version came from.
+    static func refusalMessage(_ failure: StreamError, provider: DebridProvider) -> String {
+        let name = provider.displayName
         switch failure {
         case .upstreamStatus(let status) where status == 404 || status == 410:
-            return "Real-Debrid no longer has this file."
+            return "\(name) no longer has this file."
         case .upstreamStatus(let status):
-            return "Real-Debrid stopped sending this file (HTTP \(status))."
+            return "\(name) stopped sending this file (HTTP \(status))."
         default:
-            return "Real-Debrid stopped sending this file."
+            return "\(name) stopped sending this file."
         }
     }
 
-    /// RD (or the network) failing for longer than the app can wait it out — said plainly, since
-    /// nothing is wrong with the file and Retry is exactly the right next step.
-    static let unreachableMessage = "Real-Debrid isn't responding right now. Check your connection, then try again."
+    /// The provider (or the network) failing for longer than the app can wait it out — said
+    /// plainly, since nothing is wrong with the file and Retry is exactly the right next step.
+    static func unreachableMessage(_ provider: DebridProvider) -> String {
+        "\(provider.displayName) isn't responding right now. Check your connection, then try again."
+    }
 
     /// The first frame is on screen: what the session has read is what the next open will need.
     func markStreamPlaybackStarted() {

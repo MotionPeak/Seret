@@ -431,9 +431,14 @@ extension PlayerModel {
         } catch is CancellationError {
             return                                       // superseded; not a real failure
         } catch {
-            // Retried already when it was RD or the network failing for now — say so plainly.
-            phase = .failed(Self.isTransient(error) ? Self.unreachableMessage
-                                                    : "The Real-Debrid link could not be opened.")
+            guard !Task.isCancelled, !isTornDown, !isClosing else { return }
+            // Retried already when it was the provider or the network failing for now. The other
+            // provider's version, when there is one — and otherwise say so plainly.
+            let transient = Self.isTransient(error)
+            if transient, failOverToOtherProvider() { return }
+            let provider = currentProvider
+            phase = .failed(transient ? Self.unreachableMessage(provider)
+                                      : "The \(provider.displayName) link could not be opened.")
         }
     }
 
@@ -463,6 +468,7 @@ extension PlayerModel {
         if !hasRenderedFrame {
             hasRenderedFrame = true
             markStreamPlaybackStarted()
+            scheduleFailoverNoticeClear()    // the other provider's version is on screen
         }
         if isBuffering { isBuffering = false }
         if loadWatchdog != nil {
@@ -485,7 +491,12 @@ extension PlayerModel {
             try? await Task.sleep(for: .seconds(timeout))
             guard !Task.isCancelled, let self, !self.hasRenderedFrame else { return }
             if case .failed = self.phase { return }     // already failed for a better reason
-            self.fail("This stream didn't start. The Real-Debrid link may have expired.")
+            // The stream cache saw the provider failing for now: the other provider's version.
+            if case .unavailable? = await self.streamFailure() {
+                guard !Task.isCancelled, !self.hasRenderedFrame, !self.phase.isFailed else { return }
+                if self.failOverToOtherProvider() { return }
+            }
+            self.fail("This stream didn't start. The \(self.currentProvider.displayName) link may have expired.")
         }
     }
 
@@ -516,7 +527,7 @@ extension PlayerModel {
         if !hasRenderedFrame, position < 1 || resumeTarget > 0 {
             // One silent reopen first, on a fresh socket and link (see `beginSilentRecovery`).
             if beginSilentRecovery() { return }
-            fail("The stream stopped before it started. The Real-Debrid link may have expired.")
+            fail("The stream stopped before it started. The \(currentProvider.displayName) link may have expired.")
             return
         }
         // …and one the stream cache saw RD refuse did not end either. With the file's index on
@@ -525,7 +536,7 @@ extension PlayerModel {
         switch await streamFailure() {
         case .refused(let failure)?:
             guard mediaGeneration == generation else { return }
-            phase = .failed(Self.refusalMessage(failure))
+            phase = .failed(Self.refusalMessage(failure, provider: currentProvider))
             return
         case .unavailable? where !atTheVeryEnd:
             // RD failing FOR NOW — the network down, a link refresh that did not get through — is
@@ -545,7 +556,9 @@ extension PlayerModel {
                 reload()
                 return
             }
-            phase = .failed(Self.unreachableMessage)
+            // Still failing at the same place: the other provider's version, when there is one.
+            if failOverToOtherProvider() { return }
+            phase = .failed(Self.unreachableMessage(currentProvider))
             return
         case .unavailable?:
             // At the file's real end. The outage is stale — every byte to the end was already
@@ -616,6 +629,7 @@ extension PlayerModel {
     /// viewer asked for, aimed at that same place, could not get its own silent reopen. The cap
     /// (`claimAutomaticReopen`) still bounds any loop.
     public func retry() {
+        resetFailover()
         silentRecoveryArmed = true
         automaticReopens = []
         interruptedAt = nil
@@ -625,6 +639,7 @@ extension PlayerModel {
     public func tryAnotherVersion() {
         guard sourceIndex + 1 < sources.count else { return }
         sourceIndex += 1
+        resetFailover()
         silentRecoveryArmed = true
         automaticReopens = []
         interruptedAt = nil
@@ -674,6 +689,7 @@ extension PlayerModel {
         loadWatchdog?.cancel()
         recoveryTask?.cancel()
         failureWordingTask?.cancel()
+        failoverNoticeTask?.cancel()
         subtitleFallbackTask?.cancel()          // else it spends OpenSubtitles quota on a dead engine
         filmEndTask?.cancel()                   // …and so would this
         subtitleAttachTimeoutTask?.cancel()

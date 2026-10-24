@@ -83,25 +83,32 @@ extension PlayerModel {
         return true
     }
 
-    /// Show a failure — in RD's terms when the stream cache knows why. A reopen that failed
-    /// because RD is down said "Playback failed." or "the link may have expired", when the true
-    /// answer — and the useful one, since Retry is the next step — is that RD isn't responding.
+    /// Show a failure — in the provider's terms when the stream cache knows why. A reopen that
+    /// failed because RD is down said "Playback failed." or "the link may have expired", when the
+    /// true answer — and the useful one, since Retry is the next step — is that RD isn't
+    /// responding.
+    ///
+    /// And when the cache says the provider is failing for now, the other provider's version
+    /// instead, when the title has one (`failOverToOtherProvider`). This is where a cold open
+    /// during an outage — the open and its silent reopen both refused by a 503 — ends up.
     func fail(_ message: String) {
         phase = .failed(message)
         isBuffering = false     // it is not waiting on frames; it is over
         guard streamHandle != nil else { return }
         let generation = mediaGeneration
+        let provider = currentProvider
         failureWordingTask = Task { [weak self] in
             guard let self, let failure = await self.streamFailure() else { return }
             guard self.mediaGeneration == generation, self.phase == .failed(message) else { return }
-            self.phase = .failed(Self.message(for: failure))
+            if case .unavailable = failure, self.failOverToOtherProvider() { return }
+            self.phase = .failed(Self.message(for: failure, provider: provider))
         }
     }
 
-    static func message(for failure: UpstreamFailure) -> String {
+    static func message(for failure: UpstreamFailure, provider: DebridProvider) -> String {
         switch failure {
-        case .refused(let refusal): return refusalMessage(refusal)
-        case .unavailable: return unreachableMessage
+        case .refused(let refusal): return refusalMessage(refusal, provider: provider)
+        case .unavailable: return unreachableMessage(provider)
         }
     }
 

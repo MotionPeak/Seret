@@ -82,6 +82,8 @@ public final class PlayerModel {
             // buffering hint, so a link that died during a swap or a load left every spinner keyed
             // on `isBuffering` turning over the Retry screen.
             if isBuffering { isBuffering = false }
+            // "…playing from TorBox" over TorBox's own error would be a lie.
+            if failoverNotice != nil { clearFailoverNotice() }
             // A failure MID-FILM keeps its place for Retry and Try Another Version, as a recovered
             // drop does (`reopenAt`). Asked instead, the store — which then finished titles at its
             // own subtitle-blind line — answered "nowhere" late in a film whose dialogue ran past it:
@@ -551,6 +553,18 @@ public final class PlayerModel {
     var failureWordingTask: Task<Void, Never>?
     /// The silent reopen on its way — held so the test seam can wait for it.
     var recoveryTask: Task<Void, Never>?
+    /// "Real-Debrid isn't responding — playing from TorBox": the player moved to the other debrid
+    /// provider's version by itself (see `failOverToOtherProvider`). Held until a few seconds after
+    /// that version's first frame, and dropped the moment anything fails or the viewer asks again.
+    public internal(set) var failoverNotice: String?
+    /// This load has already moved to the other provider. One per load — the viewer asking again
+    /// (`retry`, `tryAnotherVersion`) or a new episode re-arms it — so two providers that are both
+    /// down end on the error screen instead of bouncing between each other.
+    var failoverUsed = false
+    var failoverNoticeTask: Task<Void, Never>?
+    /// How long the notice stays once the new version is on screen. Per instance so a test can
+    /// shorten it.
+    var failoverNoticeSeconds: Double = 5
     /// The longest one RD `unrestrict` may take before it is abandoned and asked again.
     let unrestrictAttemptTimeout: Double
     /// The pauses before each retry of an `unrestrict` that failed for now (see

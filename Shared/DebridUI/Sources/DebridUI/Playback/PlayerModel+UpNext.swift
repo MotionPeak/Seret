@@ -88,6 +88,7 @@ extension PlayerModel {
         reopenAt = nil                       // …and so did the place it would have reopened at
         automaticReopens = []                // a new file has its own reopens
         silentRecoveryArmed = true
+        resetFailover()                      // …and its own failover
         // The per-source subtitle state (rows, moviehash, browser results, selections) is reset
         // by `reload()` below, which every file change goes through.
         selectedAudioID = nil

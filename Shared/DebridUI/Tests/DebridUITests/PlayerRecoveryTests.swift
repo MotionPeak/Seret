@@ -253,7 +253,7 @@ import DebridCore
 
         engine.emit(.state(.failed("Playback failed."))); await m.waitForIdleForTesting()
 
-        #expect(m.phase == .failed(PlayerModel.unreachableMessage))
+        #expect(m.phase == .failed(PlayerModel.unreachableMessage(.realDebrid)))
         await m.teardown()
     }
 
@@ -268,7 +268,7 @@ import DebridCore
 
         engine.emit(.state(.ended)); await m.waitForIdleForTesting()
 
-        #expect(m.phase == .failed(PlayerModel.unreachableMessage))
+        #expect(m.phase == .failed(PlayerModel.unreachableMessage(.realDebrid)))
         await m.teardown()
     }
 
@@ -322,7 +322,7 @@ import DebridCore
         })
         m.start(); await m.waitForIdleForTesting()
         #expect(unrestricts.value == 3)                    // the attempt and two retries
-        #expect(m.phase == .failed(PlayerModel.unreachableMessage))
+        #expect(m.phase == .failed(PlayerModel.unreachableMessage(.realDebrid)))
         #expect(engine.loadCount == 0)
         await m.teardown()
     }
@@ -391,7 +391,7 @@ import DebridCore
 
         engine.emit(.state(.ended)); await m.waitForIdleForTesting()
 
-        #expect(m.phase == .failed(PlayerModel.unreachableMessage))
+        #expect(m.phase == .failed(PlayerModel.unreachableMessage(.realDebrid)))
         await m.teardown()
     }
 
