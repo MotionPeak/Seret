@@ -29,18 +29,17 @@ extension PlayerModel {
     ///   a failover already happened for this load, or the viewer is leaving.
     @discardableResult
     func failOverToOtherProvider() -> Bool {
-        guard !failoverUsed, !isTornDown, !isClosing, !sources.isEmpty else { return false }
+        guard !failoverUsed, !isTornDown, !isClosing, let candidate = failoverCandidate else { return false }
         let from = currentProvider
-        let count = sources.count
-        let candidate = (1..<max(count, 1)).lazy
-            .map { (self.sourceIndex + $0) % count }
-            .first { DebridProvider.of(link: self.sources[$0].restrictedLink) != from }
-        guard let candidate else { return false }
         let to = DebridProvider.of(link: sources[candidate].restrictedLink)
         failoverUsed = true
         // Mid-film the place to come back to is the playhead, not whatever the store last heard.
         if reopenAt == nil, playheadSettled, hasRenderedFrame, position > 0 { reopenAt = position }
         engine.note("failover: \(from.displayName) unavailable, loading the \(to.displayName) version")
+        // The failed load's watchdog must not call the new version a failure while it is still
+        // resolving its link — the new load arms its own once `engine.load` is issued.
+        loadWatchdog?.cancel()
+        loadWatchdog = nil
         sourceIndex = candidate
         // As `tryAnotherVersion` does: the new version's open gets its own recovery.
         silentRecoveryArmed = true
@@ -51,6 +50,18 @@ extension PlayerModel {
         failoverNoticeTask = nil
         failoverNotice = "\(from.displayName) isn't responding — playing from \(to.displayName)"
         return true
+    }
+
+    /// The version a failover would load: the first after the current one in `sources` (already
+    /// ranked) from another provider, wrapping round to the ones before it. Nil when every version
+    /// is on the current provider.
+    var failoverCandidate: Int? {
+        let count = sources.count
+        guard count > 1, sourceIndex < count else { return nil }
+        let from = currentProvider
+        return (1..<count).lazy
+            .map { (self.sourceIndex + $0) % count }
+            .first { DebridProvider.of(link: self.sources[$0].restrictedLink) != from }
     }
 
     /// The viewer asked again, or a new file is coming: a fresh load with its own failover, and no

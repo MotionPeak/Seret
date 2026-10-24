@@ -492,10 +492,11 @@ extension PlayerModel {
             guard !Task.isCancelled, let self, !self.hasRenderedFrame else { return }
             if case .failed = self.phase { return }     // already failed for a better reason
             // The stream cache saw the provider failing for now: the other provider's version.
-            if case .unavailable? = await self.streamFailure() {
-                guard !Task.isCancelled, !self.hasRenderedFrame, !self.phase.isFailed else { return }
-                if self.failOverToOtherProvider() { return }
-            }
+            let failure = await self.streamFailure()
+            // Whatever it answered: the first frame may have come — or something else failed the
+            // load — while the cache was asked.
+            guard !Task.isCancelled, !self.hasRenderedFrame, !self.phase.isFailed else { return }
+            if case .unavailable? = failure, self.failOverToOtherProvider() { return }
             self.fail("This stream didn't start. The \(self.currentProvider.displayName) link may have expired.")
         }
     }

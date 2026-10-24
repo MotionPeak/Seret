@@ -229,6 +229,140 @@ import DebridCore
         await m.teardown()
     }
 
+    // MARK: - Review fixes (round 1)
+
+    /// The realistic mid-film chain: RD drops (the cache saw it fail for now), the same-provider
+    /// reopen at the playhead fails to open, and the other provider's version opens at the
+    /// ORIGINAL playhead.
+    @Test func aMidFilmReopenThatFailsToOpenFailsOverAtTheOriginalPlayhead() async {
+        let engine = FakeVideoPlayerEngine(), proxy = FakeStreamProxy()
+        let m = model(engine, links: [Self.rd, Self.tb], proxy: proxy)
+        m.start(); await m.waitForIdleForTesting()
+        await playTo(3000, m, engine)
+        await proxy.outageWith(.upstreamStatus(503))
+        engine.emit(.state(.failed("Playback failed."))); await m.waitForIdleForTesting()
+        #expect(engine.loadCount == 2)                         // the silent reopen, at 3000
+        #expect(m.currentSource.restrictedLink == Self.rd)
+
+        engine.emit(.state(.failed("Playback failed."))); await m.waitForIdleForTesting()
+
+        #expect(!m.phase.isFailed, "the outage was shown as \(m.phase)")
+        #expect(m.currentSource.restrictedLink == Self.tb)
+        #expect(engine.loadCount == 3)
+        #expect(engine.seeks.last == 3000, "the TorBox load seeked to \(engine.seeks)")
+        await m.teardown()
+    }
+
+    /// …and the same when the drop reaches the player as an end of file (a closed connection).
+    @Test func aMidFilmEndWhoseReopenEndsUnstartedFailsOverAtTheOriginalPlayhead() async {
+        let engine = FakeVideoPlayerEngine(), proxy = FakeStreamProxy()
+        let m = model(engine, links: [Self.rd, Self.tb], proxy: proxy)
+        m.start(); await m.waitForIdleForTesting()
+        await playTo(3000, m, engine)
+        await proxy.outageWith(.upstreamStatus(503))
+        engine.emit(.state(.ended)); await m.waitForIdleForTesting()
+        #expect(engine.loadCount == 2)                         // finish()'s reopen, at 3000
+
+        engine.emit(.state(.ended)); await m.waitForIdleForTesting()
+
+        #expect(!m.phase.isFailed, "the outage was shown as \(m.phase)")
+        #expect(m.currentSource.restrictedLink == Self.tb)
+        #expect(engine.loadCount == 3)
+        #expect(engine.seeks.last == 3000, "the TorBox load seeked to \(engine.seeks)")
+        await m.teardown()
+    }
+
+    /// A failure that may yet fail over is not published while the cache is asked: on tvOS a
+    /// `.failed` that is pulled back a moment later still moves focus to Retry.
+    @Test func aFailureThatMayFailOverIsNotPublishedFirst() async {
+        let engine = FakeVideoPlayerEngine(), proxy = FakeStreamProxy()
+        let m = model(engine, links: [Self.rd, Self.tb], proxy: proxy)
+        m.start(); await m.waitForIdleForTesting()
+        await proxy.outageWith(.upstreamStatus(503))
+        engine.emit(.state(.failed("Playback failed."))); await m.waitForIdleForTesting()
+        #expect(engine.loadCount == 2)                         // the silent reopen
+
+        m.handle(state: .failed("Playback failed."))           // synchronously, as the event loop does
+        #expect(!m.phase.isFailed, "published \(m.phase) before the cache answered")
+        #expect(m.isBuffering)
+        await m.waitForIdleForTesting()
+
+        #expect(m.currentSource.restrictedLink == Self.tb)
+        #expect(!m.phase.isFailed)
+        await m.teardown()
+    }
+
+    /// When the cache's answer is not an outage, the held failure is still shown — reworded.
+    @Test func aHeldFailureIsShownWhenTheCacheSaysRefused() async {
+        let engine = FakeVideoPlayerEngine(), proxy = FakeStreamProxy()
+        let m = model(engine, links: [Self.rd, Self.tb], proxy: proxy)
+        m.start(); await m.waitForIdleForTesting()
+        engine.emit(.state(.failed("Playback failed."))); await m.waitForIdleForTesting()
+        #expect(engine.loadCount == 2)                         // the silent reopen
+        await proxy.failWith(.upstreamStatus(404))
+
+        engine.emit(.state(.failed("Playback failed."))); await m.waitForIdleForTesting()
+
+        #expect(m.phase == .failed("Real-Debrid no longer has this file."))
+        #expect(m.currentSource.restrictedLink == Self.rd)
+        #expect(!m.isBuffering)
+        await m.teardown()
+    }
+
+    /// The first frame arriving while the watchdog asks the cache why: the stream started, and
+    /// must not be marked failed when the answer comes back "nothing wrong".
+    @Test func aFrameDuringTheWatchdogsQuestionIsNotAFailure() async {
+        let engine = FakeVideoPlayerEngine(), proxy = FakeStreamProxy()
+        let m = model(engine, links: [Self.rd, Self.tb], proxy: proxy, loadTimeout: 0.05)
+        let release = await proxy.holdFailureAnswers()
+        m.start(); await m.waitForIdleForTesting()
+        let watchdog = m.loadWatchdog
+        var asked = false
+        let deadline = Date().addingTimeInterval(5)
+        while !asked, Date() < deadline {
+            asked = await proxy.failureQueries > 0
+            if !asked { try? await Task.sleep(for: .milliseconds(5)) }
+        }
+        #expect(asked, "the watchdog never asked the cache")
+
+        await playTo(10, m, engine)                            // the first frame, mid-question
+        release.finish()
+        await watchdog?.value
+
+        #expect(!m.phase.isFailed, "a stream that started was marked \(m.phase)")
+        await m.teardown()
+    }
+
+    /// The failed reopen's watchdog must not fail the other provider's version while that one is
+    /// still resolving its link.
+    @Test func theFailedLoadsWatchdogDoesNotFailTheFailover() async {
+        let engine = FakeVideoPlayerEngine(), proxy = FakeStreamProxy()
+        let held = LinkGate()
+        let m = PlayerModel(request: Fixture.request(sources: [Fixture.movieSource(Self.rd),
+                                                               Fixture.movieSource(Self.tb)]),
+                            engine: engine,
+                            unrestrict: { link in
+                                if DebridProvider.of(link: link) == .torBox { await held.wait() }
+                                return URL(string: "https://cdn/x.mkv")!
+                            },
+                            recordProgress: { _, _, _, _, _ in }, subtitles: nil, streamProxy: proxy,
+                            loadTimeout: 0.3)
+        m.start(); await m.waitForIdleForTesting()
+        await proxy.outageWith(.upstreamStatus(503))
+        engine.emit(.state(.failed("Playback failed."))); await m.waitForIdleForTesting()
+        engine.emit(.state(.failed("Playback failed.")))       // → the TorBox load, held in unrestrict
+        await m.waitForIdleWhileLoadIsHeldForTesting()
+        #expect(m.currentSource.restrictedLink == Self.tb)
+
+        try? await Task.sleep(for: .milliseconds(700))         // past the old load's watchdog
+
+        #expect(!m.phase.isFailed, "the old watchdog failed the TorBox load: \(m.phase)")
+        await held.open()
+        await m.waitForIdleForTesting()
+        #expect(engine.loadCount == 3)
+        await m.teardown()
+    }
+
     // MARK: - The notice
 
     @Test func theNoticeLeavesSoonAfterTheFirstFrame() async {
@@ -244,5 +378,20 @@ import DebridCore
 
         #expect(m.failoverNotice == nil)
         await m.teardown()
+    }
+}
+
+/// Holds a TorBox unrestrict until the test opens it.
+private actor LinkGate {
+    private var isOpen = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+    func wait() async {
+        if isOpen { return }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+    func open() {
+        isOpen = true
+        waiters.forEach { $0.resume() }
+        waiters = []
     }
 }

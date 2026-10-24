@@ -91,12 +91,31 @@ extension PlayerModel {
     /// And when the cache says the provider is failing for now, the other provider's version
     /// instead, when the title has one (`failOverToOtherProvider`). This is where a cold open
     /// during an outage — the open and its silent reopen both refused by a 503 — ends up.
+    ///
+    /// When that is still possible — a cache to ask, another provider's version, no failover yet —
+    /// the failure is held, not published, until the cache answers: a `.failed` pulled back a
+    /// moment later still flashed the error and, on tvOS, moved focus to Retry. Held as
+    /// `beginSilentRecovery` holds a reopen: the dying media's trailing events are disowned and the
+    /// viewer sees a wait.
     func fail(_ message: String) {
+        let provider = currentProvider
+        let generation = mediaGeneration
+        if !failoverUsed, streamHandle != nil, failoverCandidate != nil, !phase.isFailed {
+            engineHoldsCurrentMedia = false
+            isBuffering = true
+            failureWordingTask = Task { [weak self] in
+                guard let self else { return }
+                let failure = await self.streamFailure()
+                guard self.mediaGeneration == generation, !self.isTornDown, !self.phase.isFailed else { return }
+                if case .unavailable? = failure, self.failOverToOtherProvider() { return }
+                self.phase = .failed(failure.map { Self.message(for: $0, provider: provider) } ?? message)
+                self.isBuffering = false
+            }
+            return
+        }
         phase = .failed(message)
         isBuffering = false     // it is not waiting on frames; it is over
         guard streamHandle != nil else { return }
-        let generation = mediaGeneration
-        let provider = currentProvider
         failureWordingTask = Task { [weak self] in
             guard let self, let failure = await self.streamFailure() else { return }
             guard self.mediaGeneration == generation, self.phase == .failed(message) else { return }
