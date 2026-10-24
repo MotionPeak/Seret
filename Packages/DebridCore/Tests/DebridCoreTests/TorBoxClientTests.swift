@@ -284,6 +284,53 @@ extension MockTests {
             #expect(rec.requests.count == 1)
         }
 
+        /// A settable clock for the cooldown; the mock handler and the client read it off-task.
+        final class TestClock: @unchecked Sendable {
+            private let lock = NSLock()
+            private var _now = Date(timeIntervalSince1970: 1_000_000)
+            var now: Date { lock.lock(); defer { lock.unlock() }; return _now }
+            func advance(_ seconds: TimeInterval) { lock.lock(); _now += seconds; lock.unlock() }
+        }
+
+        /// After a 429 TorBox keeps the key locked out for about 300 s. Asking again inside that
+        /// window only extends it, so every call — from any copy of the client — throws without a
+        /// request until the cooldown passes. Polls of the other account keep going meanwhile.
+        @Test func rateLimitCoolsDownWithoutRequests() async throws {
+            let rec = Recorder()
+            let clock = TestClock()
+            let limited = LockedFlag(true)
+            MockURLProtocol.handler = { r in
+                rec.record(r)
+                if limited.value {
+                    return Self.respond(r, status: 429, json: #"{"success":false,"error":"RATE_LIMITED","detail":"slow","data":null}"#)
+                }
+                return Self.respond(r, json: Self.ok("[\(Self.torrentJSON(1))]"))
+            }
+            let cooldown = TorBoxCooldown(now: { clock.now })
+            let client = TorBoxClient(http: HTTPClient(session: .mock), tokens: StubKey(), cooldown: cooldown)
+            let copy = client
+
+            await #expect(throws: TorBoxError.rateLimited(retryAfter: nil)) { _ = try await client.allTorrents() }
+            #expect(rec.requests.count == 1)
+
+            clock.advance(100)
+            do {
+                _ = try await copy.torrents(page: 1, limit: 10)
+                Issue.record("expected a throw")
+            } catch let error as TorBoxError {
+                guard case .rateLimited(let after) = error else { Issue.record("got \(error)"); return }
+                #expect(after == 200)
+            }
+            _ = try? await copy.unrestrict(link: TorBoxMapping.link(torrentID: 1, fileID: 3))
+            _ = try? await copy.user()
+            #expect(rec.requests.count == 1, "a request went out during the cooldown")
+
+            limited.value = false
+            clock.advance(201)
+            #expect(try await client.allTorrents().map(\.id) == ["tb:1"])
+            #expect(rec.requests.count == 2)
+        }
+
         @Test func successFalseWith200Throws() async throws {
             MockURLProtocol.handler = { r in
                 Self.respond(r, json: #"{"success":false,"error":"DATABASE_ERROR","detail":"oops","data":null}"#)
@@ -304,6 +351,16 @@ extension MockTests {
             } catch let error as TorBoxError {
                 guard case .api(_, _, let status) = error else { Issue.record("got \(error)"); return }
                 #expect(status == 502)
+            }
+        }
+
+        final class LockedFlag: @unchecked Sendable {
+            private let lock = NSLock()
+            private var _value: Bool
+            init(_ value: Bool) { _value = value }
+            var value: Bool {
+                get { lock.lock(); defer { lock.unlock() }; return _value }
+                set { lock.lock(); _value = newValue; lock.unlock() }
             }
         }
     }

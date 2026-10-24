@@ -16,10 +16,15 @@ public struct TorBoxClient: DebridClient {
 
     private let http: HTTPClient
     private let tokens: any AccessTokenProviding
+    private let cooldown: TorBoxCooldown
 
-    public init(http: HTTPClient = HTTPClient(), tokens: any AccessTokenProviding) {
+    /// - Parameter cooldown: the 429 lockout window. A reference shared by every copy of this
+    ///   client, so the composite, the stream source and the download service all honour it.
+    public init(http: HTTPClient = HTTPClient(), tokens: any AccessTokenProviding,
+                cooldown: TorBoxCooldown = TorBoxCooldown()) {
         self.http = http
         self.tokens = tokens
+        self.cooldown = cooldown
     }
 
     public var provider: DebridProvider { .torBox }
@@ -135,21 +140,33 @@ public struct TorBoxClient: DebridClient {
     private func get<T: Decodable>(_ path: String, query: [URLQueryItem]) async throws -> T? {
         let url = Self.url("api/\(path)", query: query)
         let headers = try await authHeaders()
-        return try await Self.run { try await http.data(url, headers: headers) }
+        return try await throttled { try await http.data(url, headers: headers) }
     }
 
     func post<T: Decodable, Body: Encodable>(_ path: String, query: [URLQueryItem] = [],
                                              body: Body) async throws -> T? {
         let url = Self.url("api/\(path)", query: query)
         let headers = try await authHeaders()
-        return try await Self.run { try await http.postJSONData(url, json: body, headers: headers) }
+        return try await throttled { try await http.postJSONData(url, json: body, headers: headers) }
     }
 
     /// TorBox's `createtorrent` takes a URL-encoded form.
     func postForm<T: Decodable>(_ path: String, form: [String: String]) async throws -> T? {
         let url = Self.url("api/\(path)", query: [])
         let headers = try await authHeaders()
-        return try await Self.run { try await http.postFormData(url, form: form, headers: headers) }
+        return try await throttled { try await http.postFormData(url, form: form, headers: headers) }
+    }
+
+    /// `run` behind the 429 cooldown: no request while the key is locked out, and a 429 opens the
+    /// window. Every instance call goes through here; `TorBoxAuthClient` (no key yet) does not.
+    private func throttled<T: Decodable>(_ fetch: () async throws -> Data) async throws -> T? {
+        try cooldown.check()
+        do {
+            return try await Self.run(fetch)
+        } catch TorBoxError.rateLimited(let retryAfter) {
+            cooldown.lockOut(retryAfter: retryAfter)
+            throw TorBoxError.rateLimited(retryAfter: retryAfter)
+        }
     }
 
     /// The one decode path: every TorBox response is read with `.convertFromSnakeCase`, then
