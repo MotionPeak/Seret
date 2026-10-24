@@ -40,6 +40,11 @@ extension TorBoxClient {
     ///
     /// `add_only_if_cached` makes TorBox refuse an uncached torrent up front
     /// (`DOWNLOAD_NOT_CACHED` -> `RDAddError.notInstant`) rather than start downloading it.
+    ///
+    /// A torrent with that hash already on the account but not ready — a background download the
+    /// viewer started earlier, say — is polled where it is, with the same rules. `createtorrent`
+    /// for a hash the account already holds can hang for ~30 s, and it would only hand back the
+    /// same id anyway.
     public func add(magnetHash: String,
                     maxPollAttempts: Int = 10,
                     pollInterval: Duration = .seconds(1),
@@ -47,15 +52,16 @@ extension TorBoxClient {
     ) async throws -> TorrentInfo {
         let hash = magnetHash.lowercased()
         let account = try await allTorrents()
-        if let existing = account.first(where: { $0.hash.lowercased() == hash }), existing.status == "downloaded" {
-            return try await info(id: existing.id)
+        let id: String
+        if let existing = account.first(where: { $0.hash.lowercased() == hash }) {
+            if existing.status == "downloaded" { return try await info(id: existing.id) }
+            id = existing.id
+        } else {
+            id = TorBoxMapping.torrentID(try await create(hash: hash, onlyIfCached: true))
         }
-
-        let numeric = try await create(hash: hash, onlyIfCached: true)
-        let id = TorBoxMapping.torrentID(numeric)
-        // TorBox de-duplicates by hash, so creating can hand back a torrent the account already
-        // had (say, a background download the viewer started earlier). Only a torrent THIS call
-        // added is ours to remove if it never becomes playable.
+        // TorBox de-duplicates by hash, so creating can still hand back a torrent the account
+        // already had (one added between the list and the create). Only a torrent THIS call added
+        // is ours to remove if it never becomes playable — never a pre-existing one.
         let createdHere = !account.contains { $0.id == id }
         do {
             var current = try await info(id: id)

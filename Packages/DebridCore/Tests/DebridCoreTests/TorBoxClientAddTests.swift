@@ -182,8 +182,9 @@ extension MockTests {
         }
 
         @Test func addNeverDeletesATorrentTheAccountAlreadyHad() async throws {
-            // A background download the viewer started earlier: same hash, not ready. TorBox
-            // de-duplicates, so createtorrent hands back that very id.
+            // A background download the viewer started earlier: same hash, not ready. It is
+            // polled where it is — createtorrent for a hash already on the account can hang
+            // ~30 s — and never removed when it does not become ready in time.
             let rec = Recorder()
             let hash = Self.hash.lowercased()
             let inProgress = Self.torrentJSON(5, hash: hash, ready: false)
@@ -194,7 +195,33 @@ extension MockTests {
                                            pollInterval: .zero, sleep: noSleep)
             }
             #expect(!rec.requests.contains { $0.url?.path == "/v1/api/torrents/controltorrent" })
-            #expect(creates(rec).count == 1)
+            #expect(creates(rec).isEmpty, "createtorrent was sent for a hash the account already had")
+        }
+
+        /// The existing torrent finishing while it is polled is the add succeeding — no create.
+        @Test func addPollsAnExistingTorrentUntilReady() async throws {
+            let rec = Recorder()
+            let hash = Self.hash.lowercased()
+            let polls = Counter()
+            MockURLProtocol.handler = { r in
+                rec.record(r)
+                let q = Self.query(r)
+                switch r.url?.path ?? "" {
+                case "/v1/api/torrents/mylist" where q["id"] != nil:
+                    let ready = polls.next() >= 3
+                    return Self.respond(r, json: Self.ok(Self.torrentJSON(5, hash: hash, ready: ready)))
+                case "/v1/api/torrents/mylist":
+                    return Self.respond(r, json: Self.ok("[\(Self.torrentJSON(5, hash: hash, ready: false))]"))
+                default:
+                    return Self.respond(r, status: 500, json: #"{"success":false,"error":"UNEXPECTED","detail":"x","data":null}"#)
+                }
+            }
+            let info = try await client().add(magnetHash: Self.hash, maxPollAttempts: 5,
+                                              pollInterval: .zero, sleep: noSleep)
+            #expect(info.id == "tb:5")
+            #expect(info.status == "downloaded")
+            #expect(creates(rec).isEmpty)
+            #expect(!rec.requests.contains { $0.url?.path == "/v1/api/torrents/controltorrent" })
         }
 
         @Test func addKeepsAnExistingTorrentThatErrors() async throws {
@@ -209,6 +236,7 @@ extension MockTests {
                                            pollInterval: .zero, sleep: noSleep)
             }
             #expect(!rec.requests.contains { $0.url?.path == "/v1/api/torrents/controltorrent" })
+            #expect(creates(rec).isEmpty)
         }
 
         @Test func addTerminalErrorStatusDeletesAndFails() async throws {
