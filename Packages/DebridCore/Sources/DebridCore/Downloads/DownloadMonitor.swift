@@ -1,7 +1,7 @@
 #if canImport(SwiftData)
 import Foundation
 
-/// Minimal seam over RD torrent info, so the monitor is testable without the network.
+/// Minimal seam over torrent info, so the monitor is testable without the network.
 public protocol DownloadInfoProviding: Sendable {
     func info(id: String) async throws -> TorrentInfo
 }
@@ -9,10 +9,21 @@ public protocol DownloadInfoProviding: Sendable {
 /// Lists the account's torrents — the source of truth for what is downloading.
 public protocol DownloadListing: Sendable {
     func torrents(page: Int, limit: Int) async throws -> [Torrent]
+    /// One page plus the accounts that could not answer. A single account either answers or
+    /// throws, so the default names nothing unavailable.
+    func listing(page: Int, limit: Int) async throws -> TorrentListing
+}
+
+extension DownloadListing {
+    public func listing(page: Int, limit: Int) async throws -> TorrentListing {
+        TorrentListing(torrents: try await torrents(page: page, limit: limit))
+    }
 }
 
 extension TorrentsClient: DownloadInfoProviding {}
 extension TorrentsClient: DownloadListing {}
+extension CompositeDebridClient: DownloadInfoProviding {}
+extension CompositeDebridClient: DownloadListing {}
 
 /// Reports what Real-Debrid is currently downloading.
 ///
@@ -56,9 +67,19 @@ public actor DownloadMonitor {
 
     /// One pass. Returns a status for every torrent RD is currently working on, plus a one-shot
     /// terminal status for anything that stopped being active since the last poll.
+    ///
+    /// A torrent of an account that could not answer this time (`TorrentListing.unavailable`) is
+    /// left exactly as it was: no status, its record kept, still counted as active. Reading its
+    /// absence as "deleted" reported every in-flight download of that account as removed and threw
+    /// away the records that name them. An account that is not signed in at all is not
+    /// unavailable — its records are swept like any deleted torrent's.
     @discardableResult
     public func poll() async throws -> [DownloadStatus] {
-        let list = try await lister.torrents(page: 1, limit: pageLimit)
+        let listing = try await lister.listing(page: 1, limit: pageLimit)
+        let list = listing.torrents
+        let unanswered: (String) -> Bool = { id in
+            listing.unavailable.contains(DebridProvider.of(torrentID: id))
+        }
         let byID = Dictionary(list.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let records = Dictionary((try await store.all()).map { ($0.torrentID, $0) },
                                  uniquingKeysWith: { first, _ in first })
@@ -86,6 +107,7 @@ public actor DownloadMonitor {
         // elsewhere cannot leak its record forever.
         let settled = previouslyActive.subtracting(active)
             .union(records.keys.filter { !active.contains($0) })
+            .filter { !unanswered($0) }
         for id in settled.sorted() {
             let record = records[id]
             let listed = byID[id]
@@ -116,7 +138,7 @@ public actor DownloadMonitor {
             if record != nil { try? await store.delete(torrentID: id) }
         }
 
-        previouslyActive = active
+        previouslyActive = active.union(previouslyActive.filter(unanswered))
         return statuses
     }
 

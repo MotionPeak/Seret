@@ -225,5 +225,81 @@ extension SwiftDataSuite {
 
             #expect(try await m.poll().isEmpty)   // announced once only
         }
+
+
+        // MARK: - Two accounts: one answering, one not
+
+        /// A lister that reports which accounts could not answer, as the composite does.
+        private final class FakeListing: DownloadListing, @unchecked Sendable {
+            var page: TorrentListing
+            init(_ page: TorrentListing) { self.page = page }
+            func torrents(page: Int, limit: Int) async throws -> [Torrent] { self.page.torrents }
+            func listing(page: Int, limit: Int) async throws -> TorrentListing { self.page }
+        }
+
+        /// An RD blip must not read as every RD download having been deleted: no `.failed("removed")`
+        /// and the record — the only place the exact title lives — survives. When RD answers again
+        /// the download carries on as active.
+        @Test func monitorKeepsUnavailableProvidersDownloads() async throws {
+            let s = try await store(seed: [record("A", "movie:tmdb:7")])
+            let lister = FakeListing(TorrentListing(torrents: [torrent("A", "downloading", 30)]))
+            let m = DownloadMonitor(lister: lister, store: s, resolver: NoResolver())
+            #expect(try await m.poll().map(\.phase) == [.downloading])
+
+            lister.page = TorrentListing(torrents: [], unavailable: [.realDebrid])
+            let duringOutage = try await m.poll()
+            #expect(duringOutage.isEmpty)
+            #expect(try await s.all().map(\.torrentID) == ["A"])
+
+            lister.page = TorrentListing(torrents: [torrent("A", "downloading", 60)])
+            let recovered = try await m.poll()
+            #expect(recovered.map(\.torrentID) == ["A"])
+            #expect(recovered.first?.phase == .downloading)
+            #expect(recovered.first?.contentKey == "movie:tmdb:7")
+        }
+
+        /// Kept as previously active through the outage, so a download that finished meanwhile is
+        /// still announced ready — the library refresh hangs off that announcement. A download
+        /// started elsewhere has no record to fall back on, so only that bookkeeping notices.
+        @Test func aDownloadThatFinishedDuringAnOutageIsStillAnnouncedReady() async throws {
+            let s = try await store(seed: [])
+            let lister = FakeListing(TorrentListing(torrents: [torrent("A", "downloading", 30)]))
+            let m = DownloadMonitor(lister: lister, store: s, resolver: NoResolver())
+            _ = try await m.poll()
+
+            lister.page = TorrentListing(torrents: [], unavailable: [.realDebrid])
+            _ = try await m.poll()
+
+            lister.page = TorrentListing(torrents: [torrent("A", "downloaded", 100)])
+            let after = try await m.poll()
+            #expect(after.map(\.torrentID) == ["A"])
+            #expect(after.map(\.phase) == [.ready])
+        }
+
+        /// Only the account that failed is held back: the other's vanished download is still
+        /// reported removed, and its record swept.
+        @Test func onlyTheUnavailableAccountsDownloadsAreHeldBack() async throws {
+            let s = try await store(seed: [record("A", "movie:tmdb:7"), record("tb:5", "movie:tmdb:8")])
+            let lister = FakeListing(TorrentListing(torrents: [torrent("A", "downloading", 30),
+                                                               torrent("tb:5", "downloading", 30)]))
+            let m = DownloadMonitor(lister: lister, store: s, resolver: NoResolver())
+            _ = try await m.poll()
+
+            lister.page = TorrentListing(torrents: [], unavailable: [.realDebrid])
+            let statuses = try await m.poll()
+            #expect(statuses.map(\.torrentID) == ["tb:5"])
+            #expect(statuses.first?.phase == .failed("removed"))
+            #expect(try await s.all().map(\.torrentID) == ["A"])
+        }
+
+        /// A record of an account that is simply not signed in is not held back: signing out is
+        /// not an outage.
+        @Test func aSignedOutAccountsRecordIsStillSwept() async throws {
+            let s = try await store(seed: [record("A", "movie:tmdb:7")])
+            let m = DownloadMonitor(lister: FakeListing(TorrentListing(torrents: [])), store: s,
+                                    resolver: NoResolver())
+            #expect(try await m.poll().map(\.phase) == [.failed("removed")])
+            #expect(try await s.all().isEmpty)
+        }
     }
 }
