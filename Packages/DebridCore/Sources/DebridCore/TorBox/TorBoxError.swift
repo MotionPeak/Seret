@@ -26,8 +26,19 @@ public enum TorBoxError: Error, Equatable, Sendable {
             return "TorBox is busy — try again in a few minutes."
         case .notSignedIn:
             return "Sign in to TorBox first."
-        case .api(_, let detail, _):
-            return isPlanRestricted ? "TorBox's API needs a paid plan." : detail
+        case .api(let code, let detail, let status):
+            if isPlanRestricted { return "TorBox's API needs a paid plan." }
+            let trimmed = detail.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty { return trimmed }
+            // No detail: a Cloudflare 502/503 answers HTML rather than TorBox's envelope. A blank
+            // message left the library error and the sign-in failure empty.
+            if (500...599).contains(status) {
+                return "TorBox isn't responding right now (HTTP \(status)). Try again in a few minutes."
+            }
+            // A 200 with `success: false` has no HTTP status worth naming; its code says more.
+            return (200..<300).contains(status)
+                ? "TorBox returned an error (\(code))."
+                : "TorBox returned an error (HTTP \(status))."
         }
     }
 }
