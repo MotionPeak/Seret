@@ -71,8 +71,16 @@ public struct CompositeDebridClient: DebridClient {
 
     /// One page of every account, naming the accounts that failed — what the download monitor polls.
     /// Throws only when every account failed.
+    ///
+    /// The monitor reads a recorded download missing from page 1 as removed, which is sound for
+    /// Real-Debrid (newest first) but not for TorBox, whose `mylist` order is undocumented. So
+    /// TorBox answers its WHOLE list on page 1 — one call, since `mylist` carries everything and
+    /// costs nothing per torrent — and nothing on later pages.
     public func listing(page: Int, limit: Int) async throws -> TorrentListing {
-        try Self.partial(await eachClient { try await $0.torrents(page: page, limit: limit) }) {
+        try Self.partial(await eachClient { client in
+            guard client.provider == .torBox else { return try await client.torrents(page: page, limit: limit) }
+            return page <= 1 ? try await client.allTorrents() : []
+        }) {
             TorrentListing(torrents: $0)
         }
     }

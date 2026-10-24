@@ -129,6 +129,29 @@ import Foundation
         await #expect(throws: FakeDebridError.self) { _ = try await down.listing(page: 1, limit: 100) }
     }
 
+    /// The download monitor reads a recorded download missing from page 1 as removed. TorBox's
+    /// `mylist` order is not documented, so page 1 of TorBox is its WHOLE list (one call — TorBox
+    /// has no per-torrent cost); Real-Debrid keeps its newest-first page.
+    @Test func listingPageOneHoldsTorBoxsWholeList() async throws {
+        let log = FakeDebridCallLog()
+        let rdMany = (1...150).map { FakeDebridClient.torrent("R\($0)", provider: .realDebrid, filename: "r\($0).mkv") }
+        let tbMany = (1...150).map { FakeDebridClient.torrent("tb:\($0)", provider: .torBox, filename: "t\($0).mkv") }
+        let rd = FakeDebridClient(provider: .realDebrid, listed: rdMany, log: log)
+        let tb = FakeDebridClient(provider: .torBox, listed: tbMany, log: log)
+        let composite = CompositeDebridClient(clients: [rd, tb], addTarget: .realDebrid)
+
+        let first = try await composite.listing(page: 1, limit: 100)
+        #expect(first.torrents.filter { $0.id.hasPrefix("R") }.count == 100)
+        #expect(first.torrents.filter { $0.id.hasPrefix("tb:") }.map(\.id) == tbMany.map(\.id))
+        #expect(log.all.contains("torBox.allTorrents"))
+        #expect(!log.all.contains("torBox.torrents"))
+
+        let second = try await composite.listing(page: 2, limit: 100)
+        #expect(second.torrents.map(\.id) == rdMany.dropFirst(100).map(\.id))
+        #expect(second.unavailable.isEmpty)
+        #expect(log.all.filter { $0.hasPrefix("torBox.") } == ["torBox.allTorrents"], "page 2 asked TorBox again")
+    }
+
     /// A plain `[Torrent]` page has no way to say an account was missing, so it never quietly
     /// drops one: a caller would read those torrents as deleted.
     @Test func torrentsPageConcatenatesAndFailsWhenAnyAccountFails() async throws {
