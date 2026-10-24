@@ -21,14 +21,19 @@ public final class SignInModel {
     /// Bumped by `retry()`; drives the view's `.task(id:)` so a retry restarts the run.
     public private(set) var attempt = 0
 
+    /// Which debrid account this run signs in. Picks the wording of the messages; the flow does the work.
+    public let provider: DebridProvider
+
     private let flow: AuthFlow
     private let onSignedIn: () -> Void
     private let now: () -> Date
     private var cachedCode: RDDeviceCode?
     private var codeObtainedAt: Date?
 
-    init(flow: AuthFlow, onSignedIn: @escaping () -> Void, now: @escaping () -> Date = { Date() }) {
+    init(flow: AuthFlow, provider: DebridProvider = .realDebrid, onSignedIn: @escaping () -> Void,
+         now: @escaping () -> Date = { Date() }) {
         self.flow = flow
+        self.provider = provider
         self.onSignedIn = onSignedIn
         self.now = now
     }
@@ -45,7 +50,7 @@ public final class SignInModel {
         } catch is CancellationError {
             // View disappeared mid-wait — leave state untouched, no dangling work.
         } catch {
-            phase = .failed(Self.message(for: error))
+            phase = .failed(failureMessage(for: error))
         }
     }
 
@@ -78,8 +83,26 @@ public final class SignInModel {
         } catch is CancellationError {
             // View disappeared mid-validation — leave state untouched.
         } catch {
-            phase = .failed(Self.message(for: error))
+            phase = .failed(failureMessage(for: error))
         }
+    }
+
+    /// The message for a failure of THIS model's provider.
+    func failureMessage(for error: Error) -> String {
+        switch (provider, error) {
+        case (.torBox, TokenSignInError.invalidToken):
+            return Self.message(for: TorBoxAuthError.invalidKey)
+        case (.torBox, _) where Self.isTorBoxError(error):
+            return Self.message(for: error)
+        case (.torBox, _):
+            return "Couldn't reach TorBox. Check your connection and try again."
+        default:
+            return Self.message(for: error)
+        }
+    }
+
+    private static func isTorBoxError(_ error: Error) -> Bool {
+        error is TorBoxAuthError || error is TorBoxError
     }
 
     /// User-facing message. Never interpolates the raw error (no token/secret leakage).
@@ -87,6 +110,12 @@ public final class SignInModel {
         switch error {
         case TokenSignInError.invalidToken:
             return "That token wasn't accepted by Real\u{2011}Debrid. Check it and try again."
+        case TorBoxAuthError.invalidKey:
+            return "That TorBox API key wasn't accepted."
+        case TorBoxAuthError.expired:
+            return "The code expired. Try again."
+        case let error as TorBoxError:
+            return error.userMessage
         case RealDebridAuthError.deviceCodeExpired:
             return "That code expired before you signed in. Try again to get a new one."
         case HTTPError.status(let code, _) where code == 403 || code == 429:

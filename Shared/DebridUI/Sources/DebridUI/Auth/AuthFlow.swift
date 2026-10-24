@@ -1,3 +1,4 @@
+import Foundation
 import DebridCore
 
 /// Thrown when a pasted personal API token is rejected by Real-Debrid.
@@ -38,12 +39,46 @@ struct LiveAuthFlow: AuthFlow {
     }
 }
 
-/// PLACEHOLDER — Task 9 replaces this with the real `TorBoxAuthFlow` (device code + pasted key).
-/// Until then a TorBox sign-in started from `AppSession.makeSignInModel(for: .torBox)` fails
-/// cleanly instead of running Real-Debrid's flow against the TorBox session.
+/// TorBox sign-in: the device-code flow plus a pasted API key.
+///
+/// A class because the poll needs the `TorBoxDeviceCode` (`expiresAt`, `interval`) that the shared
+/// `RDDeviceCode` presentation type doesn't carry, so `begin()` keeps it for `awaitSignIn`. The model
+/// reuses a still-valid code on retry without calling `begin()` again; the kept code is still there.
+///
+/// A Free-plan key signs in like any other — the plan warning belongs to Settings. Never logs the key.
 @MainActor
-struct TorBoxAuthFlowPlaceholder: AuthFlow {
-    func begin() async throws -> RDDeviceCode { throw TorBoxSessionError.notSignedIn }
-    func awaitSignIn(_ code: RDDeviceCode) async throws { throw TorBoxSessionError.notSignedIn }
-    func signIn(token: String) async throws { throw TorBoxSessionError.notSignedIn }
+final class TorBoxAuthFlow: AuthFlow {
+    private let auth: TorBoxAuthClient
+    private let session: TorBoxSession
+    private let now: () -> Date
+    private var pending: TorBoxDeviceCode?
+
+    init(auth: TorBoxAuthClient, session: TorBoxSession, now: @escaping () -> Date = { Date() }) {
+        self.auth = auth
+        self.session = session
+        self.now = now
+    }
+
+    func begin() async throws -> RDDeviceCode {
+        let code = try await auth.startDeviceCode()
+        pending = code
+        return code.asDeviceCode(now: now())
+    }
+
+    func awaitSignIn(_ code: RDDeviceCode) async throws {
+        // Only a code this flow minted can be polled; anything else has nothing to wait on.
+        guard let pending, pending.deviceCode == code.deviceCode else { throw TorBoxAuthError.expired }
+        let key = try await auth.awaitToken(for: pending)
+        try await session.establish(key: key)
+        self.pending = nil
+    }
+
+    func signIn(token: String) async throws {
+        do {
+            _ = try await auth.validate(key: token)
+        } catch TorBoxAuthError.invalidKey {
+            throw TokenSignInError.invalidToken
+        }
+        try await session.establish(key: token)
+    }
 }

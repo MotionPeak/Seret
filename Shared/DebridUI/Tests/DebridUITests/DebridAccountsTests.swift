@@ -207,6 +207,28 @@ import DebridCore
         #expect(await !tb.isSignedIn)
     }
 
+    @Test func signedOutStartsOnRealDebridAndSwitchSignInReplacesTheModel() async throws {
+        let (session, _, _) = try await makeSession(rd: nil, torBox: nil)
+        await session.resolve()
+        let first = try #require(session.signInModel)
+        #expect(first.provider == .realDebrid)
+
+        session.switchSignIn(to: .torBox)
+        let second = try #require(session.signInModel)
+        #expect(second.provider == .torBox)
+        #expect(second !== first)
+
+        session.switchSignIn(to: .realDebrid)
+        #expect(session.signInModel?.provider == .realDebrid)
+    }
+
+    @Test func switchSignInIsIgnoredWhileSignedIn() async throws {
+        let (session, _, _) = try await makeSession(rd: "rd-token", torBox: nil)
+        await session.resolve()
+        session.switchSignIn(to: .torBox)
+        #expect(session.signInModel == nil)
+    }
+
     @Test func resolveWithNoCredentialsSignsOut() async throws {
         let (session, _, _) = try await makeSession(rd: nil, torBox: nil)
         await session.resolve()

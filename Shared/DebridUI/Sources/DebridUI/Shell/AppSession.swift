@@ -302,9 +302,16 @@ public final class AppSession {
         let flow: AuthFlow
         switch provider {
         case .realDebrid: flow = LiveAuthFlow(auth: RealDebridAuthClient(), session: realDebrid)
-        case .torBox: flow = TorBoxAuthFlowPlaceholder()
+        case .torBox: flow = TorBoxAuthFlow(auth: TorBoxAuthClient(), session: torBox)
         }
-        return SignInModel(flow: flow, onSignedIn: { [weak self] in self?.markSignedIn(provider) })
+        return SignInModel(flow: flow, provider: provider, onSignedIn: { [weak self] in self?.markSignedIn(provider) })
+    }
+
+    /// The sign-in screen's provider picker: swap the model for one that signs in to `provider`.
+    /// Only meaningful while signed out; a signed-in viewer adds an account through `beginSignIn(to:)`.
+    public func switchSignIn(to provider: DebridProvider) {
+        guard state == .signedOut else { return }
+        signInModel = makeSignInModel(for: provider)
     }
 
     /// Signs out of every account.

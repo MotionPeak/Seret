@@ -135,4 +135,51 @@ final class FakeAuthFlow: AuthFlow {
         #expect(model.phase == .signedIn)
         #expect(fake.beginCalls == 2)
     }
+
+    // MARK: - Provider
+
+    @Test func providerIsCarried() {
+        let fake = FakeAuthFlow()
+        #expect(SignInModel(flow: fake, onSignedIn: {}).provider == .realDebrid)
+        #expect(SignInModel(flow: fake, provider: .torBox, onSignedIn: {}).provider == .torBox)
+    }
+
+    @Test func torBoxInvalidKeyMessage() async {
+        let fake = FakeAuthFlow()
+        fake.tokenSignInError = TorBoxAuthError.invalidKey
+        let model = SignInModel(flow: fake, provider: .torBox, onSignedIn: {})
+        await model.signInWithToken("BAD")
+        #expect(model.phase == .failed("That TorBox API key wasn't accepted."))
+    }
+
+    @Test func torBoxExpiredMessage() async {
+        let fake = FakeAuthFlow()
+        fake.signInError = TorBoxAuthError.expired
+        let model = SignInModel(flow: fake, provider: .torBox, onSignedIn: {})
+        await model.run()
+        #expect(model.phase == .failed("The code expired. Try again."))
+    }
+
+    @Test func torBoxRateLimitUsesItsUserMessage() async {
+        let fake = FakeAuthFlow()
+        fake.beginError = TorBoxError.rateLimited(retryAfter: 300)
+        let model = SignInModel(flow: fake, provider: .torBox, onSignedIn: {})
+        await model.run()
+        #expect(model.phase == .failed(TorBoxError.rateLimited(retryAfter: 300).userMessage))
+    }
+
+    @Test func otherTorBoxErrorsUseTheirUserMessage() {
+        let planError = TorBoxError.api(code: "PLAN_RESTRICTED_FEATURE", detail: "x", status: 403)
+        #expect(SignInModel.message(for: planError) == "TorBox's API needs a paid plan.")
+        let apiError = TorBoxError.api(code: "SOMETHING", detail: "Server hiccup.", status: 500)
+        #expect(SignInModel.message(for: apiError) == "Server hiccup.")
+    }
+
+    @Test func torBoxTokenErrorKeepsTorBoxWording() {
+        // A TorBox model's pasted-key rejection arrives as TokenSignInError; it must not name Real-Debrid.
+        let model = SignInModel(flow: FakeAuthFlow(), provider: .torBox, onSignedIn: {})
+        #expect(model.failureMessage(for: TokenSignInError.invalidToken) == "That TorBox API key wasn't accepted.")
+        #expect(SignInModel(flow: FakeAuthFlow(), onSignedIn: {}).failureMessage(for: TokenSignInError.invalidToken)
+                == SignInModel.message(for: TokenSignInError.invalidToken))
+    }
 }
