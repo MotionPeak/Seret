@@ -79,4 +79,7 @@ public enum PlaybackEvent: Sendable, Equatable {
     /// The set of available audio/subtitle tracks changed (the engine discovered an elementary
     /// stream, or an external subtitle was attached). Consumers re-read `audioTracks`/`subtitleTracks`.
     case tracksChanged
+    /// The hardware video decoder keeps failing on this media: the picture has frozen though the
+    /// file plays on. Software decoding (`setSoftwareVideoDecoding`) is the way out.
+    case videoDecoderFailing
 }

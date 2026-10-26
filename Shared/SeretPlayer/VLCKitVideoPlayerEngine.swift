@@ -95,6 +95,10 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
     /// viewer had just fetched.
     private var embeddedSnapshotTaken = false
     private let continuation: AsyncStream<PlaybackEvent>.Continuation
+    /// Decode video in software from the next load — see `setSoftwareVideoDecoding`.
+    private var softwareVideoDecoding = false
+    /// Hears libvlc give up on the hardware decoder — see `VideoDecoderWatch`.
+    private let decoderWatch: VideoDecoderWatch
     let events: AsyncStream<PlaybackEvent>
 
     /// What the APP last asked for — not what libvlc reports.
@@ -150,11 +154,13 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
         player = VLCMediaPlayer(options: options)
         let handle = DiagnosticsLog.shared.prepare()
         diagnosticsHandle = handle
-        Self.attachVLCLogger(to: player, file: handle)
         subtitleScale = Float(preferences.size.scale)
         var cont: AsyncStream<PlaybackEvent>.Continuation!
         events = AsyncStream(bufferingPolicy: .bufferingNewest(64)) { cont = $0 }
         continuation = cont
+        let failing = cont!
+        decoderWatch = VideoDecoderWatch { failing.yield(.videoDecoderFailing) }
+        Self.attachVLCLogger(to: player, file: handle, watch: decoderWatch)
         super.init()
         #if canImport(UIKit)
         videoView.backgroundColor = .black   // base stays black (no grey flash before VLCKit renders)
@@ -247,8 +253,9 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
     /// - The console logger does not reach os_log, so `log stream` captures nothing — but it DOES
     ///   reach stdout, which both Xcode's console and `devicectl device process launch --console`
     ///   show. The file is the answer for a run that was not started from a console.
-    private static func attachVLCLogger(to player: VLCMediaPlayer, file: FileHandle?) {
-        var loggers: [VLCLogging] = []
+    private static func attachVLCLogger(to player: VLCMediaPlayer, file: FileHandle?,
+                                        watch: VideoDecoderWatch) {
+        var loggers: [VLCLogging] = [watch]
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("-vlcLog") {
             let consoleLogger = VLCConsoleLogger()
@@ -262,7 +269,6 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
             fileLogger.formatter = TimestampedLogFormatter()
             loggers.append(fileLogger)
         }
-        guard !loggers.isEmpty else { return }
         player.libraryInstance.loggers = loggers
     }
 
@@ -297,6 +303,27 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
             media.addOption(":input-fast-seek")   // land on the nearest keyframe — skips respond fast
         }
         media.addOption(":http-reconnect")    // transparently re-open a dropped CDN connection
+        // `codec` orders the decoders libvlc tries, for every stream of the media. avcodec is
+        // software video; audio already decodes through it, and a text subtitle still goes to
+        // subsdec (checked in the log), so the subtitle look is untouched. DEBUG `-softwareVideo`
+        // forces it for a comparison run.
+        var software = softwareVideoDecoding
+        #if DEBUG
+        software = software || ProcessInfo.processInfo.arguments.contains("-softwareVideo")
+        #endif
+        if software {
+            media.addOption(":codec=avcodec,any")
+            note("video: software decoding")
+        }
+        decoderWatch.reset()
+        #if DEBUG
+        // `-simulateDecoderFailure`: report the loop 15 s into a hardware-decoded media, so the
+        // recovery can be watched end to end on a device or simulator whose decoder never fails.
+        if !software, ProcessInfo.processInfo.arguments.contains("-simulateDecoderFailure") {
+            let failing = continuation
+            Task { try? await Task.sleep(for: .seconds(15)); failing.yield(.videoDecoderFailing) }
+        }
+        #endif
         // Through the app's stream cache, libvlc's reconnects cost nothing and the cache does the
         // read-ahead — so libvlc keeps its own 16 MiB default instead of a second 128 MiB copy of
         // what the cache already holds in RAM.
@@ -396,6 +423,7 @@ final class VLCKitVideoPlayerEngine: NSObject, VideoPlayerEngine {
         player.gotoNextFrame()
     }
     func setRate(_ rate: Double) { note("rate \(rate)"); player.rate = Float(rate) }
+    func setSoftwareVideoDecoding(_ enabled: Bool) { softwareVideoDecoding = enabled }
     /// VLCKit's audio volume is 0…200 (100 = unity, >100 amplifies — VLC's boost). Clamp defensively.
     func setVolume(_ percent: Int) { player.audio?.volume = Int32(min(200, max(0, percent))) }
     /// Tear the session down — and make sure THIS app drops the player last.
@@ -720,6 +748,46 @@ extension VLCKitVideoPlayerEngine {
 
 /// libvlc's default file formatter carries no time at all, and the file has to make sense weeks
 /// later beside the engine's own markers. Same shape as the console lines, minus the process id.
+/// Hears libvlc's hardware video decoder fail in a loop, and says so once per media.
+///
+/// VideoToolbox rejecting a frame (`kVTVideoDecoderBadDataErr`) makes libvlc restart its session
+/// and discard everything up to the next keyframe. Once is a glitch; on the Apple TV, after a jump
+/// in some Blu-ray REMUXes, it repeated on every keyframe — about four restarts a second — and the
+/// picture stayed frozen until the film was reopened. Three restarts within ten seconds is that
+/// loop and not a glitch. libvlc reports it nowhere but its log, so this listens there.
+private final class VideoDecoderWatch: NSObject, VLCLogging {
+    var level: VLCLogLevel = .warning
+    private let onFailing: @Sendable () -> Void
+    private let state = OSAllocatedUnfairLock(initialState: State())
+    private struct State {
+        var restarts: [Date] = []
+        var reported = false
+    }
+    static let restartsToFail = 3
+    static let window: TimeInterval = 10
+
+    init(onFailing: @escaping @Sendable () -> Void) {
+        self.onFailing = onFailing
+    }
+
+    /// A new media: its own count, and its own one report.
+    func reset() {
+        state.withLock { $0 = State() }
+    }
+
+    func handleMessage(_ message: String, logLevel: VLCLogLevel, context: VLCLogContext?) {
+        guard message.contains("restarting vt session") else { return }
+        let now = Date()
+        let report = state.withLock { s -> Bool in
+            s.restarts = s.restarts.filter { now.timeIntervalSince($0) < Self.window } + [now]
+            guard !s.reported, s.restarts.count >= Self.restartsToFail else { return false }
+            s.reported = true
+            return true
+        }
+        if report { onFailing() }
+    }
+}
+
 private final class TimestampedLogFormatter: NSObject, VLCLogMessageFormatting {
     var contextFlags: VLCLogContextFlag = []
     var customContext: Any?

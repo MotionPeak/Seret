@@ -87,9 +87,16 @@ public protocol VideoPlayerEngine: AnyObject {
     /// showed not one `add subtitle` line, which is what said the download path was never running
     /// at all — but nothing in the file could say WHY. Now it can.
     func note(_ line: String)
+
+    /// Decode video in software from the next `load` — for a file the hardware decoder cannot keep
+    /// decoding (`PlaybackEvent.videoDecoderFailing`).
+    func setSoftwareVideoDecoding(_ enabled: Bool)
 }
 
 public extension VideoPlayerEngine {
+    /// Engines with only one way to decode ignore the request.
+    func setSoftwareVideoDecoding(_ enabled: Bool) {}
+
     /// Engines that cannot shift subtitles simply ignore the request.
     func setSubtitleDelay(_ seconds: Double) {}
 }

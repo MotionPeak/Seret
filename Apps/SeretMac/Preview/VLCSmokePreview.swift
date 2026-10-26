@@ -44,7 +44,7 @@ struct VLCSmokePreview: View {
                 switch event {
                 case .state(let state): status = "state \(state)"
                 case .time(let time): status = String(format: "playing %.1f of %.1f s", time.position, time.duration)
-                case .tracksChanged: continue
+                case .tracksChanged, .videoDecoderFailing: continue
                 }
                 print("[vlcsmoke] \(status)")
             }

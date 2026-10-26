@@ -33,6 +33,10 @@ final class FakeVideoPlayerEngine: VideoPlayerEngine, EventCountingEngineForTest
     /// model last received from an event. Nil models an engine that cannot answer.
     var preciseTime: Double?
     func setSubtitleDelay(_ seconds: Double) { subtitleDelays.append(seconds) }
+    /// Whether video decodes in software from the next load, and what each load ran with.
+    private(set) var softwareVideoDecoding = false
+    private(set) var softwareDecodingAtLoads: [Bool] = []
+    func setSoftwareVideoDecoding(_ enabled: Bool) { softwareVideoDecoding = enabled }
 
     let events: AsyncStream<PlaybackEvent>
     private let continuation: AsyncStream<PlaybackEvent>.Continuation
@@ -53,6 +57,7 @@ final class FakeVideoPlayerEngine: VideoPlayerEngine, EventCountingEngineForTest
               audioTrackID: String?) {
         loadCount += 1
         loadedURL = url
+        softwareDecodingAtLoads.append(softwareVideoDecoding)
         slavesOfCurrentMedia = []        // a new media starts with none attached
         loadedAudioLanguage = audioLanguage
         loadedAudioTrackID = audioTrackID

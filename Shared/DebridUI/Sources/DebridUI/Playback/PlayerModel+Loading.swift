@@ -70,6 +70,7 @@ extension PlayerModel {
                 case .state(let s): handle(state: s)
                 case .time(let t): await tick(t)
                 case .tracksChanged: refreshTracks()
+                case .videoDecoderFailing: recoverFromVideoDecoderFailure()
                 }
             }
             // Counted AFTER the handling, so the test seam's "has this landed yet?" means the work
@@ -182,7 +183,12 @@ extension PlayerModel {
                     position = 0
                     lastTickPosition = 0
                 }
-            } else if t.position >= resumeTarget - 5 {  // arrived (keyframe slack) → resume complete
+            } else if t.position >= resumeTarget - 5,   // arrived (keyframe slack) → resume complete…
+                      // …unless it is the echo below. A reopen reuses the engine, and its first tick
+                      // still carries the OUTGOING media's time — right next to the point the
+                      // reopen aims at — with no length: taken as arrival, the film played from 0.
+                      !(earlyResumeSeekIssued && t.duration <= 0
+                        && !(resumeEchoPosition.map { t.position > $0 + 0.05 } ?? false)) {
                 #if DEBUG
                 resumeProbe("ARRIVED at resume point")
                 #endif
@@ -409,6 +415,7 @@ extension PlayerModel {
             // tvOS: the display's mode for this film, switched before the first frame.
             await engine.prepareToPlay(url: playURL)
             guard !Task.isCancelled, !isTornDown, !isClosing else { return }
+            engine.setSoftwareVideoDecoding(softwareDecodes.contains(WatchKey.source(currentSource)))
             engine.load(url: playURL, headers: [:], audioLanguage: preferredAudioLanguageOption,
                         audioTrackID: rememberedAudioTrackID)
             engineHoldsCurrentMedia = true   // from here, time events describe THIS source

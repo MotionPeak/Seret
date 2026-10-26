@@ -336,6 +336,8 @@ public final class PlayerModel {
     /// the library default could switch Hebrew on for a film the answer says is English, and the
     /// download timer could start before the file's own tracks were known.
     var titleLanguagePending = false
+    /// Files that open with their video decoded in software — see `recoverFromVideoDecoderFailure`.
+    let softwareDecodes: SoftwareDecodeList
     /// Measures the film's audio so a downloaded subtitle can be lined up against it. Optional —
     /// nil simply means the auto-sync action is not offered.
     let audioProbe: AudioLoudnessProbing?
@@ -705,6 +707,7 @@ public final class PlayerModel {
          nowPlaying: NowPlayingControlling? = nil,
          streamProxy: StreamProxying? = nil,
          recordTracks: (@Sendable (MediaSource, [MediaTrack]) async -> Void)? = nil,
+         softwareDecodes: SoftwareDecodeList = .shared,
          lookupTitleLanguage: (@Sendable (String) async -> String?)? = nil,
          autoHideDelay: Double = 4,
          loadTimeout: Double = 30,
@@ -763,6 +766,7 @@ public final class PlayerModel {
         self.readIndex = readIndex
         self.nowPlaying = nowPlaying
         self.recordTracks = recordTracks
+        self.softwareDecodes = softwareDecodes
         self.titleLanguage = request.originalLanguage
         self.lookupTitleLanguage = lookupTitleLanguage
         self.subtitleRows = Self.freshSubtitleRows(hasAccount: subtitles != nil)

@@ -66,6 +66,30 @@ extension PlayerModel {
         return true
     }
 
+    // MARK: - Hardware video decoder
+
+    /// The hardware video decoder keeps failing on this file: reopen it where it was, decoded in
+    /// software, and remember the file so it opens that way from now on.
+    ///
+    /// Measured on the Apple TV (2026-10-26): after a jump — a scrub while paused, or the resume at
+    /// a saved place — two Blu-ray REMUXes of the same film threw `kVTVideoDecoderBadDataErr` on
+    /// every frame, about 60 restarts in 15 s, with the picture frozen until the viewer reopened
+    /// the film. An x264 encode of it played two hours with fifteen pauses and none. Software
+    /// decoding plays the same stream, and a 1080p one is well within the device's CPU.
+    ///
+    /// Once per file: already in software there is nothing left to switch, so a later report
+    /// cannot start a loop. It also takes one of the automatic reopens (`claimAutomaticReopen`).
+    func recoverFromVideoDecoderFailure() {
+        let key = WatchKey.source(currentSource)
+        guard engineHoldsCurrentMedia, !isTornDown, !isClosing, !softwareDecodes.contains(key) else { return }
+        softwareDecodes.add(key)
+        guard claimAutomaticReopen() else { return }
+        let place = position
+        engine.note("decoder: hardware video keeps failing — reopening at \(Int(place))s in software")
+        reopenAt = place > 0 ? place : nil
+        reload()
+    }
+
     /// Take one of the automatic reopens this minute allows; false when they are spent.
     ///
     /// The backstop under every automatic reopen: each costs an RD unrestrict, a stream session
