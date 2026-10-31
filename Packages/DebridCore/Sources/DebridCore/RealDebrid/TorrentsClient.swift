@@ -45,7 +45,8 @@ public struct TorrentsClient: Sendable {
     /// Adds a magnet to the user's RD account. Returns the new torrent's id.
     /// `POST /torrents/addMagnet` (form `magnet`). RD returns 201. A copyright-flagged torrent is
     /// refused with HTTP 451 `infringing_file` — mapped to `RDAddError.blocked` so the UI can say
-    /// so (retrying or trying another version of a blocked torrent never helps).
+    /// so (retrying or trying another version of a blocked torrent never helps). A throttled
+    /// account answers HTTP 429 — mapped to `RDAddError.rateLimited`, which no other version escapes.
     public func addMagnet(magnet: String) async throws -> AddMagnetResponse {
         do {
             return try await http.post(Self.base.appending(path: "torrents/addMagnet"),
@@ -53,6 +54,8 @@ public struct TorrentsClient: Sendable {
                                        headers: try await authHeaders())
         } catch let HTTPError.status(_, body) where body.contains("infringing_file") {
             throw RDAddError.blocked
+        } catch HTTPError.status(code: 429, body: _) {
+            throw RDAddError.rateLimited
         }
     }
 
@@ -95,7 +98,8 @@ public struct TorrentsClient: Sendable {
             // a stuck/`magnet_error` torrent. Remove it so it doesn't pollute the library, then
             // rethrow so the caller (Get best) can fall back to the next version.
             try? await deleteTorrent(id: id)
-            throw error
+            // Throttled while waiting: the version may be fine, the account is not taking more.
+            throw DebridRateLimit.matches(error) ? RDAddError.rateLimited : error
         }
     }
 

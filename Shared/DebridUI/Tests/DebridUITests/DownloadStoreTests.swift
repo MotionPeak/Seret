@@ -292,6 +292,16 @@ private final class SteppingLibrary: LibraryProviding, @unchecked Sendable {
         #expect(!msg.lowercased().contains("none can be added"))
     }
 
+    @Test func aRateLimitStopsAtTheFirstCandidate() async {
+        // Each further try is another refused request against the same limit.
+        let req = ScriptedReq(["h1": [.failure(RDAddError.rateLimited)], "h2": [.success(tv("queued", id: "T2"))]])
+        let s = make(req: req)
+        let key = DownloadKey.movie(tmdbID: 6)
+        await s.request(contentKey: key, tmdbID: 6, title: "X", kind: .movie, candidates: [stream("h1"), stream("h2")])
+        #expect(req.calls == ["h1"])
+        #expect(failureMessage(s, key) == DebridCopy.rateLimited(nil))
+    }
+
     @Test func everyVersionBlockedSaysSo() async {
         let req = ScriptedReq(["h1": [.failure(RDAddError.blocked)], "h2": [.failure(RDAddError.blocked)]])
         let s = make(req: req)

@@ -110,6 +110,10 @@ public final class AddStore {
             } catch RDAddError.blocked {
                 probes += 1
                 continue
+            } catch where DebridRateLimit.matches(error) {
+                // Every other version gets the same refusal, and each try extends the limit.
+                state = .addFailed(DebridCopy.rateLimited(await addService.target()))
+                return
             } catch {
                 attempts += 1
                 continue                 // not instant for this account → try the next
@@ -215,6 +219,8 @@ public final class AddStore {
         } catch RDAddError.notInstant {
             let name = DebridCopy.names(await addService.target().map { [$0] } ?? [])
             state = .addFailed("That version isn't instantly available on \(name).")
+        } catch where DebridRateLimit.matches(error) {
+            state = .addFailed(DebridCopy.rateLimited(await addService.target()))
         } catch {
             let name = DebridCopy.names(await addService.target().map { [$0] } ?? [])
             state = .addFailed("Couldn't add this to \(name). Try another version.")

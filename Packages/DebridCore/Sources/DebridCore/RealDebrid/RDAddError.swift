@@ -11,4 +11,8 @@ public enum RDAddError: Error, Equatable, Sendable {
     /// RD refused the torrent as copyright-infringing (HTTP 451 `infringing_file`, error_code 35).
     /// It's on RD's blocklist — no retry or other version of the same flagged torrent will work.
     case blocked
+    /// The account refused the request as one too many (HTTP 429, RD error_code 34). It says
+    /// nothing about the torrent: every other version gets the same answer, and each refused
+    /// request counts against the limit, so callers stop rather than try the next one.
+    case rateLimited
 }

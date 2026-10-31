@@ -211,6 +211,10 @@ public final class DownloadStore {
                 blocked += 1
                 probes += 1
                 continue
+            } catch where DebridRateLimit.matches(error) {
+                // The account is refusing every add for now; the next candidate only extends that.
+                statuses[contentKey] = .failed(contentKey, tmdbID, DebridCopy.rateLimited(nil))
+                return
             } catch {
                 attempts += 1
                 failed += 1

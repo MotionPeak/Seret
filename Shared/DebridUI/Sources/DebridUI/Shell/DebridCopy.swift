@@ -8,6 +8,12 @@ public enum DebridCopy {
     /// Shown when an add or download has no account to go to.
     public static let notSignedIn = "Sign in to Real-Debrid or TorBox first."
 
+    /// Shown when the account refuses an add as one request too many. Every version gets the same
+    /// answer until the limit passes, so this names the wait, not the version.
+    public static func rateLimited(_ provider: DebridProvider?) -> String {
+        "\(provider?.displayName ?? "Your debrid account") is limiting new adds right now. Wait a few minutes, then try again."
+    }
+
     /// "Real-Debrid", "TorBox", or "Real-Debrid and TorBox" — in `DebridProvider.allCases` order.
     public static func names(_ providers: some Sequence<DebridProvider>) -> String {
         let set = Set(providers)

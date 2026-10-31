@@ -36,6 +36,40 @@ extension MockTests {
             }
         }
 
+        @Test func addMagnetMapsTooManyRequestsToRateLimited() async throws {
+            // RD answers a throttled add with HTTP 429 error_code 34. Every further request counts
+            // against the limit, so callers need to tell it apart from "not instant".
+            MockURLProtocol.handler = { request in
+                let response = HTTPURLResponse(url: request.url!, statusCode: 429,
+                                               httpVersion: nil, headerFields: nil)!
+                return (response, Data(#"{"error":"too_many_requests","error_code":34}"#.utf8))
+            }
+            let client = TorrentsClient(http: HTTPClient(session: .mock), tokens: StubTokens())
+            await #expect(throws: RDAddError.rateLimited) {
+                try await client.add(magnetHash: "abc", pollInterval: .zero, sleep: { _ in })
+            }
+            await #expect(throws: RDAddError.rateLimited) {
+                try await client.addForDownload(magnetHash: "abc", pollInterval: .zero, sleep: { _ in })
+            }
+        }
+
+        @Test func aTooManyRequestsWhileWaitingIsRateLimitedToo() async throws {
+            // The add landed, then RD throttled the status polls: still the limit, not a dud version.
+            MockURLProtocol.handler = { request in
+                let path = request.url?.path ?? ""
+                if path.hasSuffix("/torrents/addMagnet") {
+                    return (HTTPURLResponse(url: request.url!, statusCode: 201, httpVersion: nil, headerFields: nil)!,
+                            Data(#"{"id":"NEWID","uri":"u"}"#.utf8))
+                }
+                return (HTTPURLResponse(url: request.url!, statusCode: 429, httpVersion: nil, headerFields: nil)!,
+                        Data(#"{"error":"too_many_requests","error_code":34}"#.utf8))
+            }
+            let client = TorrentsClient(http: HTTPClient(session: .mock), tokens: StubTokens())
+            await #expect(throws: RDAddError.rateLimited) {
+                try await client.add(magnetHash: "abc", pollInterval: .zero, sleep: { _ in })
+            }
+        }
+
         @Test func selectFilesPostsAllAndSucceedsOn204() async throws {
             MockURLProtocol.handler = { request in
                 #expect(request.url?.path.contains("/torrents/selectFiles/NEWID") == true)

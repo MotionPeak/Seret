@@ -175,6 +175,36 @@ private func cachedStream(_ hash: String, res: String, langs: [String], size: In
         if case .added = s.state {} else { Issue.record("expected added, got \(s.state)") }
     }
 
+    /// A throttled account refuses every version alike, and each further try counts against the
+    /// limit — so the first refusal ends the search, and the message says what actually happened.
+    @Test func addBestStopsAtTheFirstRateLimit() async {
+        let streams = [cachedStream("x", res: "1080p", langs: ["fr"], size: 50),
+                       cachedStream("y", res: "720p", langs: ["fr"], size: 30)]
+        let add = ScriptedAdd(["x": .failure(RDAddError.rateLimited), "y": .success(tv())])
+        let s = AddStore(imdbID: "tt1", kind: .movie, originalLanguage: "fr",
+                         streamSource: FakeStreamSource(.success(streams)), add: add)
+        await s.loadStreams()
+        await s.addBest()
+        #expect(add.calls == ["x"])
+        #expect(s.state == .addFailed(DebridCopy.rateLimited(nil)))
+    }
+
+    @Test func aRateLimitNamesTheAccount() async {
+        let stream = cachedStream("b", res: "1080p", langs: ["fr"], size: 50)
+        let best = AddStore(imdbID: "tt1", kind: .movie, originalLanguage: "fr",
+                            streamSource: FakeStreamSource(.success([stream])),
+                            add: TargetedAdd(.torBox, error: TorBoxError.rateLimited(retryAfter: 300)))
+        await best.loadStreams()
+        await best.addBest()
+        #expect(best.state == .addFailed("TorBox is limiting new adds right now. Wait a few minutes, then try again."))
+
+        let picked = AddStore(imdbID: "tt1", kind: .movie, originalLanguage: "fr",
+                              streamSource: FakeStreamSource(.success([stream])),
+                              add: TargetedAdd(.realDebrid, error: RDAddError.rateLimited))
+        await picked.add(stream: stream)
+        #expect(picked.state == .addFailed(DebridCopy.rateLimited(.realDebrid)))
+    }
+
     @Test func addFailureSurfacesAddFailed() async {
         let s = store(streams: .success([cachedStream("b", res: "1080p", langs: ["fr"], size: 50)]),
                       add: .failure(.boom))
